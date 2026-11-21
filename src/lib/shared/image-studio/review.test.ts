@@ -161,6 +161,7 @@ test("Review hides signed links in prompt prose and preserves the submitted prom
 
 test.each([
 	"assets.xn--p1ai/image?token=private",
+	"assets.भारत/render?token=private",
 	"assets.example./image?token=private",
 	"user:private@assets.test/image",
 	"user:private@assets.test",
@@ -175,8 +176,20 @@ test.each([
 	});
 });
 
+test.each([
+	["[user:private@assets.test]", "[[URL hidden]]"],
+	["user:private@[::1].", "[URL hidden]."],
+	["(user:private@studio:8080)", "([URL hidden])"],
+	['Print "Credits:@artist" in gold.', 'Print "Credits:@artist" in gold.'],
+])("Review distinguishes a credentialed link from a literal label (%#)", (prompt, expected) => {
+	const request = { ...toapisWire, body: { ...toapisWire.body, prompt } };
+	expect(createImageReview(toapisInput, request).outgoing.body).toMatchObject({ prompt: expected });
+	expect(request.body.prompt).toBe(prompt);
+});
+
 test("Review keeps aspect ratios, times, scales and versions visible", () => {
-	const prompt = "2.39:1 or 1.85:1 at 12:30? Scale 1.5/2, 4:3/16:9, v1.2/ beta, e.g./i.e.";
+	const prompt =
+		"2.39:1 or 1.85:1 at 12:30? Scale 1.5/2, 4:3/16:9, v1.2/ beta, e.g./i.e. Use 16:9@4K or 1:1@2x.";
 	const request = { ...toapisWire, body: { ...toapisWire.body, prompt } };
 	expect(createImageReview(toapisInput, request).outgoing.body).toMatchObject({ prompt });
 });
