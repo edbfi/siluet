@@ -1,0 +1,339 @@
+:root {
+	--canvas-light: #f2f5fa;
+	--canvas-dark: #151e2e;
+}
+
+html[data-theme="dark"] {
+	--ink: #eef1f8;
+	--muted: #b4c1d6;
+	--line: #384961;
+	--surface: #202c3e;
+	--canvas: var(--canvas-dark);
+	--accent: #9fbaff;
+	--accent-hover: #bacdff;
+	--accent-soft: #293d63;
+	--accent-ink: #101b30;
+	--accent-active: #90adf8;
+	--control-line: #7286a4;
+	--surface-hover: #2a3951;
+	--stage: #0d1421;
+	--shell-midnight: #101827;
+	--shell-rail-ink: var(--ink);
+	--shell-rail-muted: var(--muted);
+	--shell-rail-line: #31405a;
+	--wallet-rail-surface: var(--canvas);
+	--wallet-rail-hover: var(--surface-hover);
+	--wallet-backdrop: rgb(6 11 19 / 74%);
+	--success-ink: #97dfc1;
+	--warning-ink: #f2cc8a;
+	--danger-ink: #ffafba;
+
+	color-scheme: dark;
+}
+
+html[data-theme="dark"] ::selection,
+html[data-theme="dark"] .studio-workspace ::selection {
+	background: var(--accent);
+	color: var(--accent-ink);
+}
+
+html[data-theme="dark"] .shell-sidebar {
+	scrollbar-color: var(--control-line) var(--shell-midnight);
+}
+
+html[data-theme="dark"] .shell-sidebar :focus-visible {
+	outline-color: var(--accent);
+}
+
+html[data-theme="dark"] :is(.shell-nav a:hover, .shell-close:hover, .shell-open:hover) {
+	background: var(--surface-hover);
+}
+
+html[data-theme="dark"] .shell-nav a[aria-current="page"] {
+	--shell-icon-color: var(--accent);
+
+	border-color: var(--control-line);
+	background: var(--accent-soft);
+	color: var(--ink);
+}
+
+html[data-theme="dark"] .shell-nav a[aria-current="page"]:hover {
+	border-color: var(--accent);
+}
+
+html[data-theme="dark"] :is(.shell-location-slash, .shell-simulation, .dash-launch p) {
+	color: var(--muted);
+}
+
+html[data-theme="dark"] .shell-simulation {
+	border-color: var(--line);
+	background: var(--canvas);
+}
+
+html[data-theme="dark"] .shell-simulation::before {
+	background: var(--accent);
+}
+
+html[data-theme="dark"] .dash-hero {
+	border-color: var(--line);
+	background: var(--accent-soft);
+}
+
+html[data-theme="dark"] .dash-launch h2 {
+	color: var(--ink);
+}
+
+html[data-theme="dark"]
+	:is(
+		.dash-button-primary,
+		button.studio-submit,
+		.studio-gallery .studio-gallery-import-button,
+		.studio-ops__button--primary,
+		.studio-setup__button--primary
+	) {
+	color: var(--accent-ink);
+}
+
+html[data-theme="dark"]
+	:is(button.studio-submit, .studio-gallery-import-button):hover:not(:disabled) {
+	background: var(--accent-hover);
+}
+
+html[data-theme="dark"]
+	:is(
+		.dash-button-primary,
+		button.studio-submit,
+		.studio-gallery-import-button,
+		.studio-ops__button--primary,
+		.studio-setup__button--primary
+	):active:not(:disabled) {
+	background: var(--accent-active);
+}
+
+html[data-theme="dark"] .dash-button-secondary {
+	border-color: var(--control-line);
+	background: var(--canvas);
+	color: var(--ink);
+}
+
+html[data-theme="dark"] .dash-button-secondary:hover {
+	border-color: var(--accent);
+	background: var(--surface-hover);
+}
+
+html[data-theme="dark"] .dash-asset:hover {
+	border-color: var(--control-line);
+}
+
+html[data-theme="dark"] .dash-job-icon {
+	background: var(--accent-soft);
+	color: var(--accent);
+}
+
+html[data-theme="dark"] :is(.dash-job-status[data-status="completed"], .studio-setup__connected) {
+	color: var(--success-ink);
+}
+
+html[data-theme="dark"]
+	.dash-job-status:is([data-status="uncertain"], [data-status="download-failed"]) {
+	color: var(--warning-ink);
+}
+
+html[data-theme="dark"] :is(.dash-job-status[data-status="failed"], .studio-status--error) {
+	color: var(--danger-ink);
+}
+
+html[data-theme="dark"]
+	:is(
+		.studio-workspace :is(select, input[type="number"], input[data-source-url], textarea),
+		.studio-source-picker,
+		button.studio-ratio,
+		.studio-ops__select,
+		.studio-setup__choice
+	) {
+	border-color: var(--control-line);
+}
+
+html[data-theme="dark"]
+	:is(
+		.studio-workspace :is(select, input[type="number"], input[data-source-url], textarea),
+		.studio-source-picker,
+		button.studio-ratio
+	) {
+	background: var(--canvas);
+}
+
+html[data-theme="dark"]
+	:is(
+		.studio-workspace select,
+		.studio-source-picker,
+		button.studio-ratio,
+		.studio-setup__choice
+	):hover {
+	border-color: var(--accent);
+	background: var(--surface-hover);
+}
+
+html[data-theme="dark"]
+	:is(button.studio-ratio[aria-pressed="true"], .studio-setup__choice:has(:checked)) {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+}
+
+html[data-theme="dark"] .studio-stage-media {
+	background: var(--canvas);
+}
+
+html[data-theme="dark"]
+	:is(.studio-gallery-button, .studio-gallery-icon-button, .studio-gallery-import) {
+	border-color: var(--control-line);
+}
+
+html[data-theme="dark"]
+	:is(.studio-gallery-button, .studio-gallery-icon-button):hover:not(
+		.studio-gallery-import-button
+	) {
+	border-color: var(--accent);
+}
+
+html[data-theme="dark"] .studio-gallery-filters button[aria-pressed="true"] {
+	border-color: var(--control-line);
+	background: var(--accent-soft);
+}
+
+html[data-theme="dark"] .studio-gallery-filters button[aria-pressed="true"]:hover {
+	border-color: var(--accent);
+}
+
+html[data-theme="dark"] .studio-gallery-viewer {
+	border-color: var(--control-line);
+}
+
+html[data-theme="dark"] .studio-setup {
+	border: 1px solid var(--control-line);
+	box-shadow: none;
+}
+
+html[data-theme="dark"] .studio-gallery-stage {
+	background: var(--stage);
+}
+
+html[data-theme="dark"] .studio-gallery-viewer-error {
+	color: var(--ink);
+}
+
+html[data-theme="dark"] .studio-ops__job-list {
+	scrollbar-color: var(--control-line) var(--canvas);
+}
+
+html[data-theme="dark"] .studio-ops__job-list button:hover {
+	background: var(--surface-hover);
+}
+
+html[data-theme="dark"] .studio-ops__job-list button[aria-current] {
+	background: var(--accent-soft);
+}
+
+html[data-theme="dark"] .studio-ops__job-list button[aria-current] strong {
+	color: var(--accent);
+}
+
+html[data-theme="dark"] .studio-ops__status {
+	--status-background: var(--surface-hover);
+	--status-color: var(--ink);
+}
+
+html[data-theme="dark"] :is(.studio-ops__status, .studio-ops__outcome)[data-status="running"] {
+	--status-background: var(--accent-soft);
+	--status-color: var(--accent);
+}
+
+html[data-theme="dark"] :is(.studio-ops__status, .studio-ops__outcome)[data-status="completed"] {
+	--status-background: #203f39;
+	--status-color: var(--success-ink);
+}
+
+html[data-theme="dark"] :is(.studio-ops__status, .studio-ops__outcome)[data-status="failed"] {
+	--status-background: #492c3a;
+	--status-color: var(--danger-ink);
+}
+
+html[data-theme="dark"]
+	:is(.studio-ops__status, .studio-ops__outcome):is(
+		[data-status="uncertain"],
+		[data-status="download-failed"]
+	) {
+	--status-background: #433722;
+	--status-color: var(--warning-ink);
+}
+
+html[data-theme="dark"] .studio-ops__approval {
+	border-color: color-mix(
+		in srgb,
+		var(--status-color, var(--muted)) 45%,
+		var(--status-background, var(--canvas))
+	);
+}
+
+html[data-theme="dark"] .studio-setup__steps li[data-complete] {
+	border-color: var(--control-line);
+}
+
+html[data-theme="dark"]
+	:is(
+		.studio-ops__button:not(.studio-ops__button--primary, .studio-ops__references *),
+		.studio-setup__button:not(.studio-setup__button--primary),
+		.studio-ops__select
+	) {
+	border-color: var(--control-line);
+}
+
+html[data-theme="dark"]
+	:is(
+		.studio-ops__button:not(.studio-ops__button--primary, .studio-ops__references *),
+		.studio-setup__button:not(.studio-setup__button--primary),
+		.studio-ops__select
+	):hover:not(:disabled) {
+	border-color: var(--accent);
+	background: var(--surface-hover);
+}
+
+html[data-theme="dark"]
+	:is(
+		.studio-gallery button:is(:disabled, [aria-disabled="true"]),
+		.studio-gallery a:not([href]),
+		.studio-setup__button:disabled,
+		.studio-ops__select:disabled
+	) {
+	border-color: var(--line);
+	background: var(--canvas);
+	color: var(--muted);
+	opacity: 1;
+}
+
+html[data-theme="dark"] .shell-scrim,
+html[data-theme="dark"] .studio-gallery-viewer::backdrop,
+html[data-theme="dark"] .studio-setup::backdrop {
+	background: rgb(6 11 19 / 74%);
+}
+
+@media (forced-colors: none) {
+	html[data-theme="dark"] .studio-ops__switch {
+		border-color: var(--control-line);
+		background: var(--canvas);
+	}
+
+	html[data-theme="dark"] .studio-ops__switch::before {
+		border-color: transparent;
+		background: var(--muted);
+	}
+
+	html[data-theme="dark"] .studio-ops__switch:checked {
+		border-color: var(--accent);
+		background: var(--accent);
+	}
+
+	html[data-theme="dark"] .studio-ops__switch:checked::before {
+		background: var(--accent-ink);
+	}
+}
