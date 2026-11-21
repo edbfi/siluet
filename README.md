@@ -31,6 +31,10 @@ Siluet runs on your machine. The current build serves a studio status page and a
 | Code checks | Biome, `svelte-check` and prek |
 | Tests | Bun’s test runner and a Playwright smoke test in Chromium |
 
+## Offline studio preview
+
+Run `bun design/workspace/export.js` and open `design/workspace/workspace.html` in a browser. Use a demo key or choose **Explore without keys**. The preview runs locally with simulated jobs and balances.
+
 ## Development
 
 From the repository root, install the locked dependencies, build Siluet, and start the built application:
