@@ -12,8 +12,10 @@
 		"start": "bun ./build",
 		"check": "bun run prepare && bun --bun svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
 		"lint": "bun --bun biome ci",
-		"test": "bun test ./src ./design/workspace/tests",
-		"smoke": "bun --bun playwright test"
+		"test": "bun test ./src ./scripts/pricing ./design/workspace/tests",
+		"smoke": "bun --bun playwright test",
+		"pricing:estimate": "bun scripts/pricing/estimate.ts",
+		"pricing:refresh": "bun scripts/pricing/refresh.ts"
 	},
 	"imports": {
 		"#styled-system/*": "./styled-system/*/index.js"
