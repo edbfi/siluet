@@ -135,11 +135,15 @@ async function queue() {
 			acceptUnknown: acceptedToken === current.token,
 		});
 		if (response.status === 409 || response.status === 400) {
-			authorized = null;
+			const { review: fresh } = await response.json();
+			if (!mounted || input !== request) return;
+			authorized = fresh ? { request: input, terms: fresh } : null;
 			acceptedToken = null;
 			feedback = {
 				request: input,
-				message: "The request or its terms changed. Review the request again before queuing.",
+				message: fresh
+					? "The terms changed. Check the updated Review before queuing."
+					: "Review is unavailable for these terms. Check the provider connection and review again.",
 			};
 			return;
 		}

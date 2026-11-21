@@ -220,7 +220,18 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.route("**/image/queue", (route) => {
 				const { token, acceptUnknown } = route.request().postDataJSON();
 				queued.push({ token, acceptUnknown });
-				return route.fulfill({ status: 409, json: { error: "stale" } });
+				return route.fulfill({
+					status: 409,
+					json: {
+						error: "stale",
+						review: {
+							token: "updated-review",
+							quote: { status: "unknown", reason: "expired-feed", maxAttempts: 1 },
+							requiresConsent: true,
+							acceptUnknown: false,
+						},
+					},
+				});
 			});
 			await toapis.check();
 			await expect(queue(1)).toBeDisabled();
@@ -241,9 +252,10 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(consent).not.toBeChecked();
 			await consent.check();
 			await queue(1).press("Enter");
-			await expect(review).toContainText("Review the request again");
+			await expect(review).toContainText("Check the updated Review");
+			await expect(price).toContainText("The local rate evidence is 30 days old or older.");
 			await expect(queue(1)).toBeDisabled();
-			await expect(consent).toHaveCount(0);
+			await expect(consent).not.toBeChecked();
 			expect(queued).toEqual([{ token: "review-2", acceptUnknown: true }]);
 			expect(reviews).toEqual([false, false]);
 			await page.unroute("**/image/queue");

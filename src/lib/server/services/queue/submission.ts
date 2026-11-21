@@ -52,20 +52,21 @@ export async function createSubmissionQueue(
 		);
 		return { quote, requiresConsent, terms };
 	}
+	async function review(owner: string, live: LiveRequest) {
+		const provider = live.input.provider;
+		const [saved, feeds] = await Promise.all([credential(provider), loadFeeds(now())]);
+		if (!saved) return stale;
+		const { quote, requiresConsent, terms } = price(live, feeds, saved.revision, now());
+		const id = crypto.randomUUID();
+		return {
+			token: [id, terms, signature(id, terms, owner, live)].join("."),
+			quote,
+			requiresConsent,
+			acceptUnknown: false,
+		};
+	}
 	return {
-		async review(owner: string, live: LiveRequest) {
-			const provider = live.input.provider;
-			const [saved, feeds] = await Promise.all([credential(provider), loadFeeds(now())]);
-			if (!saved) return stale;
-			const { quote, requiresConsent, terms } = price(live, feeds, saved.revision, now());
-			const id = crypto.randomUUID();
-			return {
-				token: [id, terms, signature(id, terms, owner, live)].join("."),
-				quote,
-				requiresConsent,
-				acceptUnknown: false,
-			};
-		},
+		review,
 		async submit(owner: string, live: LiveRequest) {
 			const match = typeof live.token === "string" && tokenFormat.exec(live.token);
 			if (!match) return invalid;
@@ -103,7 +104,11 @@ export async function createSubmissionQueue(
 					{ behavior: "immediate" },
 				),
 			);
-			if (!("key" in claimed)) return claimed;
+			if (!("key" in claimed)) {
+				if (!("error" in claimed) || claimed.error !== "stale") return claimed;
+				const fresh = await review(owner, live);
+				return "token" in fresh ? { error: "stale" as const, review: fresh } : stale;
+			}
 			// Only the transaction that inserted the job can dispatch.
 			await dispatch(id, provider, claimed.key, live.request);
 			return { jobId: id };

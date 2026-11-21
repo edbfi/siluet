@@ -323,9 +323,9 @@ test("independent installations save simultaneous provider checks with a single 
 
 test("removal survives a brief write lock held by another installation", async () => {
 	const other = await openInstallation(directory);
-	let removal: Promise<void> | undefined;
+	const store = providerStore(other);
+	let removal: ReturnType<typeof store.remove> | undefined;
 	try {
-		const store = providerStore(other);
 		await saveCurrent(store, "poyo", poyoKey, 123, true);
 		const revision = await store.revision("poyo");
 		await installation.use((db) =>

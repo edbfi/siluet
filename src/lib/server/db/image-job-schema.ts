@@ -10,7 +10,7 @@ export const imageJobSchema = `CREATE TABLE image_job (
 	state TEXT NOT NULL CHECK (state IN ('submitting', 'unknown', 'rejected', 'waiting', 'running', 'completed', 'failed')),
 	model TEXT NOT NULL,
 	created_at INTEGER NOT NULL,
-	poll_deadline INTEGER NOT NULL CHECK (poll_deadline = created_at + ${imageJobPollingWindowMs}),
+	poll_deadline INTEGER NOT NULL CHECK (poll_deadline = (CASE WHEN task_id IS NULL THEN created_at ELSE submission_recorded_at END) + ${imageJobPollingWindowMs}),
 	updated_at INTEGER,
 	dispatch_started_at INTEGER,
 	submission_recorded_at INTEGER,

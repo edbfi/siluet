@@ -5,6 +5,7 @@ import {
 	type ProviderId,
 	providerIds,
 } from "../../shared/providers/connections";
+import { jobsNeedCredential } from "./image-job-store";
 import type { Installation } from "./installation";
 import { ProviderKeyPolicyError, prepareProviderKey, readProviderKey } from "./provider-key";
 
@@ -135,6 +136,7 @@ export function providerStore(installation: Installation) {
 			verifiedAt: number,
 			seedream: boolean,
 			expectedRevision: number,
+			guardActiveJobs = false,
 		) {
 			for (let attempt = 0; attempt < 2; attempt++) {
 				const prepared = await prepareProviderKey(directory);
@@ -145,6 +147,11 @@ export function providerStore(installation: Installation) {
 								// Removal and replacement advance the revision, including across handles.
 								const row = await tx.get<{ revision: number }>(revisionQuery(id));
 								if (row?.revision !== expectedRevision) return false;
+								if (
+									guardActiveJobs &&
+									(await tx.get(sql`SELECT 1 WHERE ${jobsNeedCredential(id)}`))
+								)
+									return "job-warning" as const;
 								if (!(await prepared.publishIfCurrent())) return null;
 								const revision = expectedRevision + 1;
 								const ciphertext = encrypt(
@@ -166,10 +173,13 @@ export function providerStore(installation: Installation) {
 			}
 			throw new Error("The provider key changed during both save attempts.");
 		},
-		remove(id: ProviderId) {
+		remove(id: ProviderId, guardActiveJobs = false) {
 			return use(async (db) => {
-				await db.run(sql`UPDATE provider_credential SET revision=revision+1, ciphertext=NULL,
-					verified_at=NULL, seedream=NULL WHERE provider=${id}`);
+				const guard = guardActiveJobs ? sql`AND NOT ${jobsNeedCredential(id)}` : sql``;
+				const changed =
+					await db.get(sql`UPDATE provider_credential SET revision=revision+1, ciphertext=NULL,
+					verified_at=NULL, seedream=NULL WHERE provider=${id} ${guard} RETURNING revision`);
+				if (!changed) return "job-warning" as const;
 			});
 		},
 	};

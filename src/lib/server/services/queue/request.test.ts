@@ -20,3 +20,19 @@ test("live submission strictly validates one text generation before building its
 	])
 		expect(parseQueueRequest({ ...request, ...change })).toBeNull();
 });
+
+test.each([null, 512.5])(
+	"only validate edited numeric fields in exact dimension mode (%s)",
+	(width) => {
+		const toapis = { ...createSeedreamDraft("toapis"), prompt: draft.prompt };
+		const parse = (sizeMode: "tier" | "pixels") =>
+			parseQueueRequest({
+				...request,
+				draft: { ...toapis, options: { ...toapis.options, sizeMode, width, height: 2048 } },
+			});
+		expect(parse("tier")?.request.body).toEqual(
+			parseQueueRequest({ ...request, draft: toapis })?.request.body,
+		);
+		expect(parse("pixels")).toBeNull();
+	},
+);

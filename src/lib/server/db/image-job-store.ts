@@ -8,6 +8,7 @@ import {
 	type TaskBilling,
 	type TaskState,
 } from "../providers/image-job";
+import { imageJobPollingWindowMs } from "./image-job-schema";
 import type { Installation } from "./installation";
 
 export type JobState = "submitting" | "unknown" | "rejected" | TaskState;
@@ -51,14 +52,25 @@ type StatusUpdate = {
 // A balance read has a bounded timeout. Allow time to load its pinned credential first.
 const walletFinishWindowMs = 2 * statusTimeoutMs;
 
+const currentCredential = sql`EXISTS (
+		SELECT 1 FROM provider_credential c WHERE c.provider=image_job.provider
+			AND c.revision=image_job.revision AND c.ciphertext IS NOT NULL AND c.seedream=1
+	)`;
+
+export const jobsNeedCredential = (provider: ProviderId) => sql`EXISTS (
+	SELECT 1 FROM image_job WHERE provider=${provider} AND ${currentCredential}
+	AND (state IN ('submitting','waiting','running') OR (
+		state='completed' AND NOT EXISTS (
+			SELECT 1 FROM gallery_image WHERE job_id=image_job.id AND state='saved'
+		)
+	))
+)`;
+
 export function imageJobStore({ use }: Installation) {
 	const byId = (id: string) => sql`SELECT * FROM image_job WHERE id=${id}`;
 	const unfinishedWallet = (now: number) =>
 		sql`provider='poyo' AND wallet_open=1 AND (wallet_finish_by IS NULL OR wallet_finish_by>${now})`;
-	const currentCredential = sql`EXISTS (
-		SELECT 1 FROM provider_credential c WHERE c.provider=image_job.provider
-			AND c.revision=image_job.revision AND c.ciphertext IS NOT NULL AND c.seedream=1
-	)`;
+
 	return {
 		get: (id: string) => use((db) => db.get<ImageJob>(byId(id))),
 		list: () =>
@@ -120,6 +132,7 @@ export function imageJobStore({ use }: Installation) {
 				db.get<ImageJob>(sql`UPDATE image_job SET state=${state}, task_id=${taskId},
 				rejection=${rejection}, next_read_at=${taskId ? now + initialWait : null},
 				updated_at=${now}, submission_recorded_at=${now},
+				poll_deadline=CASE WHEN ${taskId} IS NOT NULL THEN ${now + imageJobPollingWindowMs} ELSE poll_deadline END,
 				wallet_finish_by=CASE WHEN wallet_open=1 AND ${state}='rejected' THEN ${now + walletFinishWindowMs} END
 				WHERE id=${id} AND dispatch_started_at IS NOT NULL AND submission_recorded_at IS NULL
 					AND state IN ('submitting','unknown') AND task_id IS NULL RETURNING *`),
@@ -175,14 +188,7 @@ export function imageJobStore({ use }: Installation) {
 
 		async needsCredential(provider: ProviderId) {
 			const row = await use((db) =>
-				db.get<{ needed: number }>(sql`SELECT EXISTS (
-				SELECT 1 FROM image_job WHERE provider=${provider} AND ${currentCredential}
-				AND (state IN ('submitting','waiting','running') OR (
-					state='completed' AND NOT EXISTS (
-						SELECT 1 FROM gallery_image WHERE job_id=image_job.id AND state='saved'
-					)
-				))
-			) AS needed`),
+				db.get<{ needed: number }>(sql`SELECT ${jobsNeedCredential(provider)} AS needed`),
 			);
 			return row?.needed === 1;
 		},

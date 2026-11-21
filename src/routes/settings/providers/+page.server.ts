@@ -14,6 +14,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 const messages = {
+	"job-warning": {
+		status: 409,
+		message: "Jobs now need this key. Review the warning before changing the connection.",
+	},
 	connected: { message: "Key accepted and saved." },
 	removed: { message: "Key removed." },
 	rejected: { status: 422, message: "The provider rejected this key." },
@@ -49,18 +53,19 @@ async function changeConnection(
 	const data = await request.formData();
 	const provider = providerIds.find((id) => id === data.get("provider"));
 	if (!provider) error(400, "Unknown provider.");
-	if (data.get("jobWarning") !== "seen" && (await locals.studio.jobs.needsCredential(provider))) {
+	const warningSeen = data.get("jobWarning") === "seen";
+	if (!warningSeen && (await locals.studio.jobs.needsCredential(provider))) {
 		return fail(409, {
 			provider,
 			outcome: "job-warning" as const,
-			message: "Jobs now need this key. Review the warning before changing the connection.",
+			message: messages["job-warning"].message,
 		});
 	}
 	const connections = locals.studio.providers;
 	const outcome =
 		operation === "connect"
-			? await connections.connect(provider, data.get("key"))
-			: await connections.remove(provider);
+			? await connections.connect(provider, data.get("key"), warningSeen)
+			: await connections.remove(provider, warningSeen);
 	const result = messages[outcome];
 	const feedback = { provider, outcome, message: result.message };
 	return "status" in result ? fail(result.status, feedback) : feedback;

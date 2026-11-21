@@ -49,11 +49,13 @@ export function parseQueueRequest(value: unknown) {
 		!member(options.resolution, seedreamResolutions) ||
 		!member(options.outputFormat, seedreamOutputFormats) ||
 		!member(options.sizeMode, ["tier", "pixels"] as const) ||
-		typeof options.watermark !== "boolean" ||
-		!dimension(options.width) ||
-		!dimension(options.height)
+		typeof options.watermark !== "boolean"
 	)
 		return null;
+	const pixels = draft.provider === "toapis" && options.sizeMode === "pixels";
+	const width = pixels ? options.width : undefined;
+	const height = pixels ? options.height : undefined;
+	if (!dimension(width) || !dimension(height)) return null;
 	const validation = validateSeedreamDraft({
 		provider: draft.provider,
 		operation: "generate",
@@ -65,8 +67,8 @@ export function parseQueueRequest(value: unknown) {
 			resolution: options.resolution,
 			outputFormat: options.outputFormat,
 			sizeMode: options.sizeMode,
-			width: options.width,
-			height: options.height,
+			width,
+			height,
 			watermark: options.watermark,
 		},
 	});

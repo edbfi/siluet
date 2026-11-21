@@ -148,6 +148,20 @@ test("durable acknowledgement resumes automatic reads without resubmitting", asy
 	expect(await latest()).toMatchObject({ state: "completed", tracking: "done", canSave: true });
 });
 
+test("automatic tracking starts with the durable acknowledgement even after a slow submission", async () => {
+	await insert();
+	makeTracking(async () => {
+		now += 25_000;
+		return acceptToapis();
+	});
+	await dispatch("toapis");
+	expect(await latest()).toMatchObject({ pollDeadline: now + imageJobPollingWindowMs });
+	const restarted = await reopen(async () => Response.json({ id: taskId, status: "queued" }));
+	now = start + 125_000;
+	await restarted.resume();
+	expect(await latest()).toMatchObject({ tracking: "automatic", pollDeadline: start + 145_000 });
+});
+
 test("Retry-After survives restart, blocks Refresh and Save, and permits one shared later read", async () => {
 	let reads = 0;
 	const read: CheckFetch = async (_url, request) => {

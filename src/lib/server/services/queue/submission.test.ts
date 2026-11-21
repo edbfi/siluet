@@ -8,6 +8,7 @@ import { pricingMaxAgeMs } from "../../../shared/pricing/feed";
 import { decodeToapisPricingFeed } from "../../../shared/pricing/toapis-feed";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
+import { createProviderConnections } from "../providers/connections";
 import { parseQueueRequest } from "./request";
 import { createSubmissionQueue } from "./submission";
 
@@ -119,7 +120,7 @@ test.each(["remove", "replace"] as const)(
 		);
 		expect(
 			await api.submit("owner", { ...input, token: review.token, acceptUnknown: true }),
-		).toEqual({ error: "stale" });
+		).toMatchObject({ error: "stale" });
 		expect(posted).toEqual([]);
 	},
 );
@@ -149,6 +150,32 @@ test.each(["remove", "replace"] as const)(
 	},
 );
 
+test("a queued job during replacement validation requires a warning before changing the key", async () => {
+	const store = providerStore(db);
+	const validating = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const connections = createProviderConnections(store, {
+		poyo: async () => {
+			validating.resolve();
+			await release.promise;
+			return { outcome: "accepted", seedream: true };
+		},
+		toapis: async () => ({ outcome: "unavailable" }),
+	});
+	const replacement = connections.connect("poyo", "replacement-key");
+	await validating.promise;
+	const api = await queue();
+	const input = makeInput();
+	const reviewed = await api.review("owner", input);
+	if ("error" in reviewed) throw new Error("Expected Review.");
+	await api.submit("owner", { ...input, token: reviewed.token, acceptUnknown: true });
+	release.resolve();
+	expect(await replacement).toBe("job-warning");
+	expect(await connections.remove("poyo")).toBe("job-warning");
+	expect(await store.credential("poyo")).toMatchObject({ revision: 1, key: "fixture-poyo" });
+	expect(await connections.connect("poyo", "replacement-key", true)).toBe("connected");
+});
+
 test("a known ToAPIs standard rate requires fallback consent, and changing or expiring its rate invalidates the review", async () => {
 	const feed = decodeToapisPricingFeed(toapisRates);
 	if (!feed) throw new Error("Invalid fixture rate.");
@@ -170,17 +197,18 @@ test("a known ToAPIs standard rate requires fallback consent, and changing or ex
 	expect(terms.requiresConsent).toBe(true);
 	expect(await api.submit("owner", { ...input, token: terms.token })).toEqual({ error: "invalid" });
 	available = false;
-	expect(await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true })).toEqual({
+	expect(
+		await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true }),
+	).toMatchObject({
 		error: "stale",
 	});
 	available = true;
 	time += pricingMaxAgeMs;
-	expect(await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true })).toEqual({
-		error: "stale",
-	});
+	const changed = await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true });
+	expect(changed).toMatchObject({ error: "stale", review: { acceptUnknown: false } });
 	expect(posted).toBeEmpty();
-	const expired = await api.review("owner", input);
-	if ("error" in expired) throw new Error("Expected expired terms");
+	if (!("review" in changed)) throw new Error("Expected updated review terms.");
+	const expired = changed.review;
 	expect(expired.quote).toMatchObject({ status: "unknown", reason: "expired-feed" });
 	expect(
 		await api.submit("owner", { ...input, token: expired.token, acceptUnknown: true }),
