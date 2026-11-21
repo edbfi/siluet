@@ -12,7 +12,7 @@
 		"start": "bun ./build",
 		"check": "bun run prepare && bun --bun svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
 		"lint": "bun --bun biome ci",
-		"test": "bun test ./src",
+		"test": "bun test ./src ./design/workspace/tests",
 		"smoke": "bun --bun playwright test"
 	},
 	"imports": {
