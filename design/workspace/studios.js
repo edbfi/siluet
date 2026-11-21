@@ -257,6 +257,11 @@
 
 		loadSelection(studio.settings().keys);
 
+		const simulationControls = `<details class="studio-disclosure studio-disclosure--simulation">
+			<summary>Simulation controls</summary>
+			${select("studio-outcome", "Simulated outcome", cases, draft.outcome)}
+		</details>`;
+
 		root.innerHTML = `
 			<section class="studio-workspace" aria-labelledby="studio-title">
 				<header class="studio-heading">
@@ -289,15 +294,16 @@
 						<figure class="studio-stage" data-studio-stage tabindex="-1"></figure>
 						<section class="studio-review" aria-labelledby="studio-review-title">
 							<div class="studio-section-title"><h2 id="studio-review-title" tabindex="-1">Review request</h2></div>
-							<div data-studio-summary></div>
-							<details class="studio-disclosure" data-studio-wire>
-								<summary>Outgoing request</summary>
-								<div class="studio-wire" data-studio-wire-inner></div>
-							</details>
-							<details class="studio-disclosure studio-disclosure--simulation">
-								<summary>Simulation controls</summary>
-								${select("studio-outcome", "Simulated outcome", cases, draft.outcome)}
-							</details>
+							${
+								isImage
+									? imageReview()
+									: `<div data-studio-summary></div>
+									<details class="studio-disclosure" data-studio-wire>
+										<summary>Outgoing request</summary>
+										<div class="studio-wire" data-studio-wire-inner></div>
+									</details>
+									${simulationControls}`
+							}
 							<div class="studio-actions">
 								<button class="studio-submit" type="submit"></button>
 								<button class="studio-text-button" data-action="jobs" type="button">View jobs</button>
@@ -314,6 +320,12 @@
 		const summary = form.querySelector("[data-studio-summary]");
 		const wire = form.querySelector("[data-studio-wire]");
 		const wireBody = form.querySelector("[data-studio-wire-inner]");
+		const reviewTabs = [...form.querySelectorAll(".studio-review-tabs button")];
+		const reviewPanels = reviewTabs.map((tab) =>
+			form.querySelector(`#${tab.getAttribute("aria-controls")}`),
+		);
+		const imageRetries = form.querySelector("[data-studio-retries]");
+		const submitExposure = form.querySelector("#studio-submit-exposure");
 		const sourceFields = form.querySelector("[data-studio-sources]");
 		const stage = form.querySelector("[data-studio-stage]");
 		const advancedDisclosure = form.querySelector("[data-studio-advanced]");
@@ -321,6 +333,41 @@
 		const modelFields = form.querySelector("[data-studio-models]");
 		const status = form.querySelector(".studio-status");
 		const submit = form.querySelector(".studio-submit");
+
+		function imageReview() {
+			const panels = [
+				["summary", "Review", "<div data-studio-summary></div>"],
+				[
+					"batch",
+					"Batch",
+					`${batchField()}
+					<div class="studio-exposure">
+						<span data-studio-retries></span>
+						<button type="button" id="studio-retry-settings" class="studio-text-button" data-action="settings/generation">Retry settings</button>
+					</div>
+					${simulationControls}
+					<p class="studio-help studio-local">Simulation only. Nothing leaves this workspace.</p>`,
+				],
+				["wire", "Outgoing request", '<div class="studio-wire" data-studio-wire-inner></div>'],
+			];
+			return `
+				<div class="studio-review-tabs" role="tablist" aria-labelledby="studio-review-title">
+					${panels.map(([id, label], index) => `<button type="button" role="tab" id="studio-review-tab-${id}" aria-controls="studio-review-panel-${id}" aria-selected="${index === 0}" tabindex="${index === 0 ? 0 : -1}">${label}</button>`).join("")}
+				</div>
+				${panels.map(([id, , content], index) => `<div id="studio-review-panel-${id}" class="studio-review-panel" role="tabpanel" aria-labelledby="studio-review-tab-${id}" tabindex="0"${index === 0 ? "" : " hidden"}${id === "wire" ? " data-studio-wire" : ""}>${content}</div>`).join("")}
+				<p class="studio-submit-exposure" id="studio-submit-exposure" hidden></p>`;
+		}
+
+		function selectReviewTab(active) {
+			for (const [index, tab] of reviewTabs.entries()) {
+				const selected = tab === active;
+				tab.setAttribute("aria-selected", String(selected));
+				tab.tabIndex = selected ? 0 : -1;
+				reviewPanels[index].hidden = !selected;
+			}
+			active.focus({ preventScroll: true });
+			renderWire();
+		}
 
 		function sourceLabel(index) {
 			return operation.source.roles?.[index] ?? `Reference image ${index + 1}`;
@@ -628,10 +675,33 @@
 			}
 		}
 
+		function batchField() {
+			return `<div class="studio-batch">
+				${select(
+					"studio-count",
+					"Batch count",
+					[
+						[1, "1 request"],
+						[2, "2 requests"],
+						[3, "3 requests"],
+						[4, "4 requests"],
+						[5, "5 requests"],
+					],
+					draft.count,
+					'aria-describedby="studio-batch-help"',
+				)}
+				<p class="studio-help" id="studio-batch-help">Each request runs independently.</p>
+			</div>`;
+		}
+
 		function renderSummary() {
 			const settings = studio.settings();
 			const retry = settings.retryEnabled ? (settings.retryLimit ?? 3) : 0;
 			const attempts = draft.count * (1 + retry);
+			const exposure = `${attempts} potentially billable ${attempts === 1 ? "attempt" : "attempts"}`;
+			const retries = settings.retryEnabled
+				? `Up to ${retry} additional ${retry === 1 ? "retry" : "retries"} per request.`
+				: "Automatic retries are off.";
 			const sources = selectedSources();
 			const required = operation.source?.min ?? 0;
 			const mediaSummary = sources.length
@@ -649,41 +719,42 @@
 			const walletUnchecked = draft.provider === "toapis" && settings.wallet?.toapis === false;
 			summary.innerHTML = `
 				<dl class="studio-review-facts">
-					<div><dt>API provider</dt><dd>${escapeHtml(provider ?? "None connected")} <span class="studio-fact-note">${model.name}</span></dd></div>
+					<div><dt>API provider</dt><dd>${escapeHtml(provider ?? "None connected")}${isImage ? "" : ` <span class="studio-fact-note">${model.name}</span>`}</dd></div>
 					<div><dt>Operation</dt><dd>${operation.exact}</dd></div>
-					<div><dt>${canSubmit ? "Media sent" : "Source media"}</dt><dd>${mediaSummary}</dd></div>
-					${canSubmit ? `<div><dt>Price</dt><dd>Unknown${walletUnchecked ? ' <span class="studio-fact-note">Balance unchecked</span>' : ""}</dd></div>` : ""}
+					<div><dt>${isImage || canSubmit ? "Media sent" : "Source media"}</dt><dd>${mediaSummary}</dd></div>
+					${isImage || canSubmit ? `<div><dt>Price</dt><dd>Unknown${!isImage && walletUnchecked ? ' <span class="studio-fact-note">Balance unchecked</span>' : ""}</dd></div>` : ""}
 				</dl>
-				${canSubmit && model.schemaWarning ? `<p class="studio-help">${escapeHtml(model.schemaWarning)}</p>` : ""}
-				<div class="studio-batch">
-					${select(
-						"studio-count",
-						"Batch count",
-						[
-							[1, "1 request"],
-							[2, "2 requests"],
-							[3, "3 requests"],
-							[4, "4 requests"],
-							[5, "5 requests"],
-						],
-						draft.count,
-						'aria-describedby="studio-batch-help"',
-					)}
-					<p class="studio-help" id="studio-batch-help">Each request runs independently.</p>
-				</div>
-				<p class="studio-exposure">${canSubmit ? `Up to <strong>${attempts} potentially billable ${attempts === 1 ? "attempt" : "attempts"}</strong>.` : ""}
-					${settings.retryEnabled ? `Up to ${retry} additional ${retry === 1 ? "retry" : "retries"} per request.` : "Automatic retries are off."}
-					<button type="button" id="studio-retry-settings" class="studio-text-button" data-action="settings/generation">Retry settings</button>
-				</p>
-				<p class="studio-help studio-local">Simulation only. Nothing leaves this workspace.</p>`;
+				${canSubmit && model.schemaWarning ? `<p class="studio-help">${escapeHtml(model.schemaWarning)}</p>` : ""}`;
 			submit.textContent = `Queue ${draft.count} ${draft.count === 1 ? "request" : "requests"}`;
 			submit.disabled = !canSubmit;
+			if (isImage) {
+				imageRetries.textContent = retries;
+				submitExposure.hidden = !canSubmit || attempts === 1;
+				submitExposure.textContent = submitExposure.hidden ? "" : `Up to ${exposure}.`;
+				if (submitExposure.hidden) submit.removeAttribute("aria-describedby");
+				else submit.setAttribute("aria-describedby", submitExposure.id);
+			} else {
+				summary.insertAdjacentHTML(
+					"beforeend",
+					`${batchField()}
+					<p class="studio-exposure">${canSubmit ? `Up to <strong>${exposure}</strong>.` : ""}
+						${retries}
+						<button type="button" id="studio-retry-settings" class="studio-text-button" data-action="settings/generation">Retry settings</button>
+					</p>
+					<p class="studio-help studio-local">Simulation only. Nothing leaves this workspace.</p>`,
+				);
+			}
 		}
 
 		function renderWire() {
-			wire.hidden = !draft.provider;
-			if (wire.hidden) {
-				wireBody.replaceChildren();
+			if (!isImage) {
+				wire.hidden = !draft.provider;
+				if (wire.hidden) wireBody.replaceChildren();
+			}
+			if (wire.hidden) return;
+			if (!draft.provider) {
+				wireBody.innerHTML =
+					'<p class="studio-help">Connect an API provider to preview this request.</p>';
 				return;
 			}
 			const filterField = filterFields.get(model.provider);
@@ -692,7 +763,7 @@
 					'<p class="studio-help">Request preview is unavailable for this API provider.</p>';
 				return;
 			}
-			if (!wire.open) return;
+			if (!isImage && !wire.open) return;
 			const poyo = model.provider === "poyo";
 			const url = poyo
 				? "https://api.poyo.ai/api/generate/submit"
@@ -704,6 +775,10 @@
 				const sourceUrl = origin === "local" ? `[local ${kind}]` : "[remote URL hidden]";
 				return source.wireRole ? { url: sourceUrl, role: source.wireRole } : sourceUrl;
 			});
+			if (isImage) {
+				renderImageWire(url, poyo, sourceValues);
+				return;
+			}
 			let optionDetails;
 			try {
 				const { [filterField]: _filter, ...other } = providerOptions(
@@ -726,6 +801,30 @@
 				<p><code>${filter} = false</code></p>
 				${model.filterNote ? `<p class="studio-help">${model.filterNote}</p>` : ""}
 				${optionDetails}
+				<p><a class="studio-docs" href="${model.evidence}" target="_blank" rel="noopener noreferrer">Model documentation</a></p>`;
+		}
+
+		function renderImageWire(url, poyo, sourceValues) {
+			let options;
+			try {
+				options = providerOptions(model, operation, values, kind);
+			} catch {
+				wireBody.innerHTML =
+					'<p class="studio-help">Enter valid dimensions to preview this request.</p>';
+				return;
+			}
+			const input = {
+				prompt: draft.prompt.trim().replace(/https?:\/\/[^\s<>"']+/gi, "[URL hidden]"),
+				...options,
+			};
+			const source = operation.source;
+			if (sourceValues.length) input[source.field.replace(/^input\./, "")] = sourceValues;
+			const payload = poyo ? { model: model.id, input } : { model: model.id, ...input };
+			wireBody.innerHTML = `
+				<p><code>POST ${escapeHtml(url)}</code></p>
+				<pre class="studio-wire-json" tabindex="0" aria-label="JSON request body"><code>${escapeHtml(JSON.stringify(payload, null, 2))}</code></pre>
+				${sourceValues.length < (source?.min ?? 0) ? '<p class="studio-help">Choose source media to complete this request.</p>' : ""}
+				${model.filterNote ? `<p class="studio-help">${model.filterNote}</p>` : ""}
 				<p><a class="studio-docs" href="${model.evidence}" target="_blank" rel="noopener noreferrer">Model documentation</a></p>`;
 		}
 
@@ -884,7 +983,7 @@
 				} else if (id === "studio-count") {
 					draft.count = Number(value);
 					renderSummary();
-					focus(id);
+					if (!isImage) focus(id);
 				} else if (id === "studio-outcome") {
 					draft.outcome = value;
 				} else if (dataset.sourceFile !== undefined) {
@@ -912,6 +1011,10 @@
 			(event) => {
 				const button = event.target.closest("button");
 				if (!button) return;
+				if (reviewTabs.includes(button)) {
+					selectReviewTab(button);
+					return;
+				}
 				if (button === submit && event.detail > 1) {
 					event.preventDefault();
 					return;
@@ -954,6 +1057,30 @@
 		form.addEventListener(
 			"keydown",
 			(event) => {
+				const tab = reviewTabs.indexOf(event.target);
+				if (tab >= 0 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+					const last = reviewTabs.length - 1;
+					let next;
+					switch (event.key) {
+						case "ArrowLeft":
+							next = tab === 0 ? last : tab - 1;
+							break;
+						case "ArrowRight":
+							next = tab === last ? 0 : tab + 1;
+							break;
+						case "Home":
+							next = 0;
+							break;
+						case "End":
+							next = last;
+							break;
+						default:
+							return;
+					}
+					event.preventDefault();
+					selectReviewTab(reviewTabs[next]);
+					return;
+				}
 				if (event.key === "Enter" && event.target.matches("[data-source-url]")) {
 					event.preventDefault();
 					if (!event.repeat)
@@ -970,7 +1097,7 @@
 			},
 			listen,
 		);
-		wire.addEventListener("toggle", renderWire, listen);
+		if (!isImage) wire.addEventListener("toggle", renderWire, listen);
 		stage.addEventListener(
 			"error",
 			({ target }) => {
