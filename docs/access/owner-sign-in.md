@@ -63,7 +63,7 @@ Set a new local password for the existing owner, revoke all sessions and pending
 
 ## Verification before shipping
 
-In an isolated temporary directory on Bun 1.4.5, asynchronous Argon2id verification accepted the original test input and rejected a different input. A scratch test with `@tursodatabase/database@0.8.3` and `drizzle-orm@1.0.0-rc.5` verified rollback and exactly one committed owner/session pair from competing transactions through two local connections. Reopening the file preserved the pair. These are compatibility checks on this machine. Final pins and migrations belong to the first approved durable module.
+The first durable module should pin the Bun, Turso and Drizzle versions it tests. Its acceptance suite should exercise asynchronous Argon2id verification, competing claim transactions over two connections, rollback, and reopening the database to confirm that exactly one owner and session persist.
 
 Use synthetic accounts and pinned, disposable identity services for the following acceptance checks.
 
