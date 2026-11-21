@@ -308,7 +308,7 @@
 				evidence: "https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation",
 				resolutions: seedanceResolutions,
 				resolutionDefault: "720p",
-				// Frame inputs, reference modes and extension are outside this prototype.
+				// Reference modes and extension are outside this prototype.
 				operations: [
 					{
 						id: "generate",
@@ -317,6 +317,20 @@
 						ratios: seedanceRatios,
 						duration: seedanceDuration,
 					},
+					...keyframes.map((operation) => ({
+						...operation,
+						duration: seedanceDuration,
+						framing: "Seedance follows the starting frame.",
+						source: {
+							...operation.source,
+							...toapisImages,
+							field: "image_with_roles",
+							wireRoles: ["first_frame", "last_frame"],
+							protocols: httpOrHttps,
+							formats: stillFormats,
+						},
+						fixed: { aspect_ratio: "adaptive" },
+					})),
 					{
 						id: "edit",
 						label: "Edit video",

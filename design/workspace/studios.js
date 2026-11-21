@@ -375,7 +375,7 @@
 
 		function selectedSources() {
 			return draft.sources.flatMap((asset, index) =>
-				asset ? [{ ...asset, label: sourceLabel(index) }] : [],
+				asset ? [{ ...asset, slot: index, label: sourceLabel(index) }] : [],
 			);
 		}
 
@@ -694,9 +694,41 @@
 			</div>`;
 		}
 
+		function retryLimit(settings) {
+			return settings.retryEnabled ? (settings.retryLimit ?? 3) : 0;
+		}
+
+		function renderPrice({ retry = retryLimit(studio.settings()), options } = {}) {
+			const price = summary.querySelector("[data-studio-price]");
+			if (!price) return false;
+			const estimate = window.SiluetPricing?.estimate;
+			let label = "Unknown";
+			if (estimate && !submit.disabled) {
+				try {
+					const sources = selectedSources();
+					label =
+						estimate({
+							provider: model.provider,
+							model: model.id,
+							operation: operation.id,
+							options: options ?? providerOptions(model, operation, values, kind),
+							sourceCount: sources.length,
+							sourceKinds: sources.map(({ kind }) => kind),
+							count: draft.count,
+							retryLimit: retry,
+						}) ?? label;
+				} catch {
+					// An incomplete draft can have invalid provider options.
+				}
+			}
+			if (price.textContent === label) return false;
+			price.textContent = label;
+			return true;
+		}
+
 		function renderSummary() {
 			const settings = studio.settings();
-			const retry = settings.retryEnabled ? (settings.retryLimit ?? 3) : 0;
+			const retry = retryLimit(settings);
 			const attempts = draft.count * (1 + retry);
 			const exposure = `${attempts} potentially billable ${attempts === 1 ? "attempt" : "attempts"}`;
 			const retries = settings.retryEnabled
@@ -722,11 +754,12 @@
 					<div><dt>API provider</dt><dd>${escapeHtml(provider ?? "None connected")}${isImage ? "" : ` <span class="studio-fact-note">${model.name}</span>`}</dd></div>
 					<div><dt>Operation</dt><dd>${operation.exact}</dd></div>
 					<div><dt>${canSubmit ? "Media sent" : "Source media"}</dt><dd>${mediaSummary}</dd></div>
-					${canSubmit ? `<div><dt>Price</dt><dd>Unknown${walletUnchecked ? ' <span class="studio-fact-note">Balance unchecked</span>' : ""}</dd></div>` : ""}
+					${canSubmit ? `<div><dt>Price</dt><dd><span data-studio-price>Unknown</span>${walletUnchecked ? ' <span class="studio-fact-note">Balance unchecked</span>' : ""}</dd></div>` : ""}
 				</dl>
 				${canSubmit && model.schemaWarning ? `<p class="studio-help">${escapeHtml(model.schemaWarning)}</p>` : ""}`;
 			submit.textContent = `Queue ${draft.count} ${draft.count === 1 ? "request" : "requests"}`;
 			submit.disabled = !canSubmit;
+			renderPrice({ retry });
 			if (isImage) {
 				imageRetries.textContent = retries;
 				submitExposure.hidden = !canSubmit || attempts === 1;
@@ -771,9 +804,10 @@
 			const filter = `${poyo ? "input." : ""}${filterField}`;
 			const promptField = poyo ? "input.prompt" : "prompt";
 			const source = operation.source;
-			const sourceValues = selectedSources().map(({ origin, kind }) => {
-				const sourceUrl = origin === "local" ? `[local ${kind}]` : "[remote URL hidden]";
-				return source.wireRole ? { url: sourceUrl, role: source.wireRole } : sourceUrl;
+			const sourceValues = selectedSources().map(({ origin, kind, slot }) => {
+				const url = origin === "local" ? `[local ${kind}]` : "[remote URL hidden]";
+				const role = source.wireRoles?.[slot] ?? source.wireRole;
+				return role ? { url, role } : url;
 			});
 			if (isImage) {
 				renderImageWire(url, poyo, sourceValues);
@@ -953,7 +987,10 @@
 				clearError();
 				if (target === prompt) draft.prompt = prompt.value;
 				const key = target.dataset.value;
-				if (target.type === "number" && key) values[key] = target.value;
+				if (target.type === "number" && key) {
+					values[key] = target.value;
+					renderPrice();
+				}
 				if (model.sizePresets && (key === "width" || key === "height")) {
 					const selected = selectedPixelRatio();
 					for (const button of output.querySelectorAll("[data-ratio]")) {
@@ -1000,6 +1037,7 @@
 						renderAdvanced();
 						focus(id);
 					}
+					renderPrice();
 				}
 				renderWire();
 			},
@@ -1030,6 +1068,7 @@
 					}
 					renderOutput();
 					output.querySelector(`[data-ratio="${ratio}"]`)?.focus({ preventScroll: true });
+					renderPrice();
 				} else if (addUrl !== undefined) {
 					attachUrl(button);
 				} else if (removeSource !== undefined) {
@@ -1152,6 +1191,21 @@
 				const title = sample?.title ?? text.match(/^.{1,65}/su)?.[0] ?? text;
 				try {
 					const options = providerOptions(model, operation, values, kind);
+					if (renderPrice({ options })) {
+						if (isImage) {
+							const reviewTab = reviewTabs[0];
+							selectReviewTab(reviewTab);
+							reviewTab.scrollIntoView({ block: "nearest" });
+						} else {
+							focus("studio-review-title");
+							summary.scrollIntoView({ block: "nearest" });
+						}
+						report(
+							"The price estimate changed. Review the updated price before queuing again.",
+							true,
+						);
+						return;
+					}
 					const ids = studio.submit({
 						provider: model.provider,
 						model: model.id,
