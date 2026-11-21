@@ -16,7 +16,6 @@
 	const stillFormats = ["jpeg", "png", "webp"];
 	const uploadImageFormats = [...stillFormats, "gif"];
 	// https://docs.poyo.ai/api-manual/file-series/upload-stream
-	// Z-Image gives no separate set of source formats. Use Poyo's upload formats.
 	const poyoImages = { field: "input.image_urls", formats: uploadImageFormats };
 	// https://docs.toapis.com/docs/en/api-reference/uploads/images
 	const toapisImages = { field: "image_urls", maxBytes: 30_000_000, maxSize: "30 MB" };
@@ -32,6 +31,7 @@
 		maxBytes: 29_999_999,
 		maxSize: "30 MB",
 	};
+	// PoYo specifies the image count. File types, URL schemes and size are inferred from Alibaba.
 	// https://www.alibabacloud.com/help/en/model-studio/qwen-image-generation-and-editing-api-reference
 	const qwenReferences = {
 		kind: "image",
@@ -146,6 +146,9 @@
 							max: 1,
 							roles: ["Source image"],
 							protocols: https,
+							formats: stillFormats,
+							maxBytes: 10_000_000,
+							maxSize: "10 MB",
 						},
 					},
 				],
@@ -305,7 +308,15 @@
 				evidence: "https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation",
 				resolutions: seedanceResolutions,
 				resolutionDefault: "720p",
+				// Frame inputs, reference modes and extension are outside this prototype.
 				operations: [
+					{
+						id: "generate",
+						label: "Create video",
+						exact: "Text to video",
+						ratios: seedanceRatios,
+						duration: seedanceDuration,
+					},
 					{
 						id: "edit",
 						label: "Edit video",
@@ -327,13 +338,6 @@
 						},
 						fixed: { video_operation: "edit", aspect_ratio: "adaptive", duration: -1 },
 					},
-					{
-						id: "generate",
-						label: "Create video",
-						exact: "Text to video",
-						ratios: seedanceRatios,
-						duration: seedanceDuration,
-					},
 				],
 				advanced: [
 					seedanceAudio,
@@ -347,8 +351,8 @@
 				family: seedanceFamily,
 				modelKey: "seedance-2.5",
 				evidence: "https://docs.poyo.ai/api-manual/video-series/seedance-2.5",
-				filterNote:
-					"Poyo’s published Seedance input schema excludes this field. Runtime acceptance is unverified.",
+				schemaWarning:
+					"PoYo’s published Seedance schema excludes enable_safety_checker. The provider may reject this request.",
 				resolutions: seedanceResolutions,
 				resolutionDefault: "720p",
 				duration: seedanceDuration,

@@ -491,9 +491,9 @@
 				return;
 			}
 			pending.delete(index);
-			const restoreFocus = row.contains(document.activeElement);
+			const hadFocus = row.contains(document.activeElement);
 			setSource(row, index, asset);
-			if (restoreFocus) focus(input.id);
+			if (hadFocus) focus(input.id);
 			reportSource(row, "File selected.");
 		}
 
@@ -502,7 +502,10 @@
 			const input = row.querySelector("[data-source-url]");
 			const index = Number(button.dataset.addUrl);
 			const source = operation.source;
-			if (pending.has(index)) return;
+			if (pending.has(index)) {
+				reportSource(row, "Wait for the selected file to finish preparing.", true);
+				return;
+			}
 			const value = input.value.trim();
 			const url = URL.parse(value);
 			if (
@@ -651,6 +654,7 @@
 					<div><dt>${canSubmit ? "Media sent" : "Source media"}</dt><dd>${mediaSummary}</dd></div>
 					${canSubmit ? `<div><dt>Price</dt><dd>Unknown${walletUnchecked ? ' <span class="studio-fact-note">Balance unchecked</span>' : ""}</dd></div>` : ""}
 				</dl>
+				${canSubmit && model.schemaWarning ? `<p class="studio-help">${escapeHtml(model.schemaWarning)}</p>` : ""}
 				<div class="studio-batch">
 					${select(
 						"studio-count",
@@ -697,8 +701,8 @@
 			const promptField = poyo ? "input.prompt" : "prompt";
 			const source = operation.source;
 			const sourceValues = selectedSources().map(({ origin, kind }) => {
-				const url = origin === "local" ? `[local ${kind}]` : "[remote URL hidden]";
-				return source.wireRole ? { url, role: source.wireRole } : url;
+				const sourceUrl = origin === "local" ? `[local ${kind}]` : "[remote URL hidden]";
+				return source.wireRole ? { url: sourceUrl, role: source.wireRole } : sourceUrl;
 			});
 			let optionDetails;
 			try {
