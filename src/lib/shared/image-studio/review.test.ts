@@ -154,7 +154,7 @@ test("Review hides signed links in prompt prose and preserves the submitted prom
 	const review = createImageReview(toapisInput, request);
 	expect(review.outgoing.body).toMatchObject({
 		prompt:
-			"Use '[URL hidden]', [URL hidden], and [URL hidden]. Compare <[URL hidden]> with <[URL hidden]>. Keep art.png.",
+			"Use '[URL hidden]', [URL hidden] and [URL hidden] Compare <[URL hidden]> with <[URL hidden]>. Keep art.png.",
 	});
 	expect(request.body.prompt).toBe(prompt);
 });
@@ -188,6 +188,15 @@ test.each([
 	["https://[::1].", "[URL hidden]."],
 	["[https://user:private@[::1]]", "[[URL hidden]]"],
 	["//[::1]", "[URL hidden]"],
+	["https://assets.test/media?token=---", "[URL hidden]"],
+	["assets.test/media?token=***", "[URL hidden]"],
+	["https://assets.test/media?token=...", "[URL hidden]"],
+	["https://assets.test/media?token=--.!", "[URL hidden]"],
+	["https://assets.test/media#private...", "[URL hidden]"],
+	["“https://assets.test/media?token=..!”", "“[URL hidden]”"],
+	["user:pw@assets.test’s", "[URL hidden]"],
+	["user:private@assets.test_1", "[URL hidden]"],
+	['Print "Credits:@artist.studio_1" in gold.', 'Print "Credits:@artist.studio_1" in gold.'],
 	["user:private@[::1].", "[URL hidden]."],
 	["(user:private@studio:8080)", "([URL hidden])"],
 	['Print "Credits:@artist" in gold.', 'Print "Credits:@artist" in gold.'],

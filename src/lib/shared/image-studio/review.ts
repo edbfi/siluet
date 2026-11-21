@@ -35,20 +35,39 @@ const bareHost = new RegExp(
 	String.raw`(?<![\p{L}\p{N}_.-])(?:www\.|(?:${host.source})(?=:\d+|[/?#])|\p{L}[\p{L}\p{N}_-]*(?=:\d+[/#?]))`,
 	"iu",
 );
-const closingPunctuation = /[.,;:!?'"…*\p{Pe}\p{Pf}\p{Pd}]/u;
+const sentencePunctuation = /[.,;:!?'"…\p{Pe}\p{Pf}]/u;
+const authorityPunctuation = /[.,;:!?'"…*\p{Pe}\p{Pf}\p{Pd}]/u;
 const authority = new RegExp(
 	String.raw`^(?:(?:${host.source})(?::\d+)?|\p{L}[\p{L}\p{N}_-]*:\d+)(?=$|[\p{P}\p{S}])`,
 	"iu",
 );
+const closingWrapper = new Map([
+	['"', '"'],
+	["'", "'"],
+	["(", ")"],
+	["[", "]"],
+	["{", "}"],
+	["“", "”"],
+	["‘", "’"],
+	["«", "»"],
+	["‹", "›"],
+	["「", "」"],
+]);
 const ipv6Authority = /^(?:(?:[a-z][a-z\d+.-]*:)?\/\/(?:[^/?#]*@)?)?\[[a-f\d:.%]+\]/iu;
 const linkStart = new RegExp(`(?:${schemeOrSlashes.source}|${bareHost.source})`, "iu");
 
 function redactLink(token: string): string {
 	let start = token.search(linkStart);
+	const closingPunctuation = start < 0 ? authorityPunctuation : sentencePunctuation;
 	if (start < 0) {
 		const at = token.lastIndexOf("@");
 		const colon = token.indexOf(":");
-		if (colon < 0 || at <= colon || !authority.test(token.slice(at + 1))) return token;
+		if (colon < 0 || at <= colon) return token;
+		const address = token.slice(at + 1);
+		const match = authority.exec(address);
+		if (!match) return token;
+		// An empty password has the same spelling as a credit label before a handle.
+		if (at === colon + 1 && /^\p{Pc}/u.test(address.slice(match[0].length))) return token;
 		start = at + 1;
 	}
 	let prefix = token.slice(0, start);
@@ -58,6 +77,13 @@ function redactLink(token: string): string {
 	const hostEnd = start + (ipv6Authority.exec(token.slice(start))?.[0].length ?? 0);
 	let end = token.length;
 	while (end > hostEnd && closingPunctuation.test(token[end - 1])) end--;
+	// Trailing punctuation can itself be a private query value. Only a paired wrapper
+	// provides a boundary between a query or fragment and the surrounding prose.
+	if (end < token.length && /[?#]/u.test(token.slice(start))) {
+		const closer = closingWrapper.get(prefix.slice(-1));
+		const boundary = closer ? token.lastIndexOf(closer) : -1;
+		end = boundary >= end ? boundary : token.length;
+	}
 	return `${prefix}[URL hidden]${token.slice(end)}`;
 }
 
