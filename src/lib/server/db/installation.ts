@@ -8,7 +8,9 @@ import { migrateInstallation, ownerMigrations } from "./migrations";
 import { DirectoryPolicyError, preparePrivateDirectory } from "./private-directory";
 
 const storageError = () =>
-	new Error("Studio storage could not be verified. Check the installation directory.");
+	new Error(
+		"Studio storage could not be verified. Check the installation directory. If initialization was interrupted, restore the installation backup or choose a new empty directory for a fresh setup.",
+	);
 
 export async function openInstallation(directory: string) {
 	let client: Awaited<ReturnType<typeof connect>> | undefined;
@@ -16,13 +18,8 @@ export async function openInstallation(directory: string) {
 		await preparePrivateDirectory(directory);
 		const marker = join(directory, "installation.id");
 		const database = join(directory, "studio.db");
-		const files = await readdir(directory);
-		const fresh = files.length === 0;
+		const fresh = (await readdir(directory)).length === 0;
 		if (fresh) await writeFile(marker, crypto.randomUUID(), { flag: "wx", mode: 0o600 });
-		if (!fresh && !files.includes("studio.db"))
-			throw new DirectoryPolicyError(
-				"Studio storage is incomplete. Restore the installation backup, or choose a new empty data directory for a fresh setup.",
-			);
 		if (!(await lstat(marker)).isFile() || (!fresh && !(await lstat(database)).isFile()))
 			throw storageError();
 		const id = await readFile(marker, "utf8");

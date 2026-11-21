@@ -93,6 +93,15 @@ test("a claimed marker in the database requires its owner row", async () => {
 	await initial.close();
 	await expect(openInstallation(directory)).rejects.toThrow("storage");
 });
+test("an interrupted first initialization gives recovery guidance and stays closed", async () => {
+	const id = crypto.randomUUID();
+	await writeFile(join(directory, "installation.id"), id);
+	await writeFile(join(directory, "studio.db"), "");
+	await expect(openInstallation(directory)).rejects.toThrow("restore the installation backup");
+	expect(await readFile(join(directory, "installation.id"), "utf8")).toBe(id);
+	await expect(openInstallation(directory)).rejects.toThrow("restore the installation backup");
+});
+
 test("a damaged database stops startup with a redacted error", async () => {
 	const initial = await openInstallation(directory);
 	await initial.close();
