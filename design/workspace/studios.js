@@ -721,8 +721,8 @@
 				<dl class="studio-review-facts">
 					<div><dt>API provider</dt><dd>${escapeHtml(provider ?? "None connected")}${isImage ? "" : ` <span class="studio-fact-note">${model.name}</span>`}</dd></div>
 					<div><dt>Operation</dt><dd>${operation.exact}</dd></div>
-					<div><dt>${isImage || canSubmit ? "Media sent" : "Source media"}</dt><dd>${mediaSummary}</dd></div>
-					${isImage || canSubmit ? `<div><dt>Price</dt><dd>Unknown${!isImage && walletUnchecked ? ' <span class="studio-fact-note">Balance unchecked</span>' : ""}</dd></div>` : ""}
+					<div><dt>${canSubmit ? "Media sent" : "Source media"}</dt><dd>${mediaSummary}</dd></div>
+					${canSubmit ? `<div><dt>Price</dt><dd>Unknown${walletUnchecked ? ' <span class="studio-fact-note">Balance unchecked</span>' : ""}</dd></div>` : ""}
 				</dl>
 				${canSubmit && model.schemaWarning ? `<p class="studio-help">${escapeHtml(model.schemaWarning)}</p>` : ""}`;
 			submit.textContent = `Queue ${draft.count} ${draft.count === 1 ? "request" : "requests"}`;
@@ -747,11 +747,11 @@
 		}
 
 		function renderWire() {
-			if (!isImage) {
-				wire.hidden = !draft.provider;
-				if (wire.hidden) wireBody.replaceChildren();
+			if (!isImage) wire.hidden = !draft.provider;
+			if (wire.hidden) {
+				wireBody.replaceChildren();
+				return;
 			}
-			if (wire.hidden) return;
 			if (!draft.provider) {
 				wireBody.innerHTML =
 					'<p class="studio-help">Connect an API provider to preview this request.</p>';

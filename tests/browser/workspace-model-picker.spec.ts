@@ -81,6 +81,8 @@ test("a catalog-only draft becomes runnable through the account connected in Set
 	await models.selectOption("qwen-image-3.0-pro");
 	await expect(providers).toHaveCount(0);
 	await expect(queue).toBeDisabled();
+	const facts = page.getByRole("tabpanel", { name: "Review", exact: true });
+	await expect(facts.locator("dt")).toHaveText(["API provider", "Operation", "Source media"]);
 	await page.locator("#studio-prompt").fill("Blue shadows on a ceramic bowl");
 	await page.getByRole("link", { name: "Settings", exact: true }).click();
 	await page.getByRole("tab", { name: "ToAPIs", exact: true }).click();
@@ -91,6 +93,13 @@ test("a catalog-only draft becomes runnable through the account connected in Set
 	await expect(page.getByRole("radio", { name: "ToAPIs", exact: true })).toBeChecked();
 	await expect(page.locator("#studio-prompt")).toHaveValue("Blue shadows on a ceramic bowl");
 	await expect(queue).toBeEnabled();
+	await expect(facts.locator("dt")).toHaveText([
+		"API provider",
+		"Operation",
+		"Media sent",
+		"Price",
+	]);
+	await expect(facts.getByText("Balance unchecked")).toBeVisible();
 });
 
 const studioRoutes = [
