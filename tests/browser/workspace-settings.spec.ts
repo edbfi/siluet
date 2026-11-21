@@ -36,6 +36,7 @@ test("studio retry settings opens the Generation tab and Back returns to the dra
 	await page.getByRole("button", { name: "Explore without keys" }).click();
 	const prompt = page.locator("#studio-prompt");
 	await prompt.fill("Cobalt glaze on white stoneware");
+	await page.getByRole("tab", { name: "Batch", exact: true }).click();
 	await page.getByRole("button", { name: "Retry settings" }).click();
 	await expect(page.getByRole("tab", { name: "Generation" })).toHaveAttribute(
 		"aria-selected",

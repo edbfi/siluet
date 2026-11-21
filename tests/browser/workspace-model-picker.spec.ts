@@ -31,12 +31,12 @@ test("image models are grouped by family and expose only configured API provider
 	await expect(page.getByRole("group", { name: "API provider" }).getByRole("radio")).toHaveCount(2);
 	await page.getByRole("radio", { name: "ToAPIs", exact: true }).check();
 	await expect(page.locator("#studio-prompt")).toHaveValue("Evening light on wet stone");
-	await page.getByText("Outgoing request", { exact: true }).click();
+	await page.getByRole("tab", { name: "Outgoing request" }).click();
 	const wire = page.locator("[data-studio-wire-inner]");
 	await expect(wire).toContainText("doubao-seedream-5-5");
 	await expect(wire).toContainText("disable_nsfw");
 	await page.getByRole("radio", { name: "Poyo.ai", exact: true }).check();
-	await expect(wire).toContainText("input.enable_safety_checker");
+	await expect(wire).toContainText('"enable_safety_checker": false');
 	await expect(wire).not.toContainText("doubao-seedream-5-5");
 });
 
@@ -81,6 +81,8 @@ test("a catalog-only draft becomes runnable through the account connected in Set
 	await models.selectOption("qwen-image-3.0-pro");
 	await expect(providers).toHaveCount(0);
 	await expect(queue).toBeDisabled();
+	const facts = page.getByRole("tabpanel", { name: "Review", exact: true });
+	await expect(facts.locator("dt")).toHaveText(["API provider", "Operation", "Source media"]);
 	await page.locator("#studio-prompt").fill("Blue shadows on a ceramic bowl");
 	await page.getByRole("link", { name: "Settings", exact: true }).click();
 	await page.getByRole("tab", { name: "ToAPIs", exact: true }).click();
@@ -91,6 +93,13 @@ test("a catalog-only draft becomes runnable through the account connected in Set
 	await expect(page.getByRole("radio", { name: "ToAPIs", exact: true })).toBeChecked();
 	await expect(page.locator("#studio-prompt")).toHaveValue("Blue shadows on a ceramic bowl");
 	await expect(queue).toBeEnabled();
+	await expect(facts.locator("dt")).toHaveText([
+		"API provider",
+		"Operation",
+		"Media sent",
+		"Price",
+	]);
+	await expect(facts.getByText("Balance unchecked")).toBeVisible();
 });
 
 const studioRoutes = [
@@ -186,27 +195,41 @@ for (const routes of studioRoutes) {
 		const prompt = page.locator("#studio-prompt");
 		const draft = "Soft light on a windblown shoreline";
 		await prompt.fill(draft);
-		await page.getByText("Outgoing request", { exact: true }).click();
 		const review = page.getByRole("region", { name: "Review request" });
 		const reviewProvider = review.getByRole("definition").first();
 		const wire = review.locator("[data-studio-wire-inner]");
 		const queue = review.getByRole("button", { name: /^Queue / });
 		const toapisField = page.locator(routes.toapisField);
+		const image = routes.kind === "image";
+		const reviewTab = review.getByRole("tab", { name: "Review", exact: true });
+		const outgoing = image
+			? review.getByRole("tab", { name: "Outgoing request" })
+			: review.getByText("Outgoing request", { exact: true });
+		if (!image) await outgoing.click();
 		await provider.selectOption({ label: "Fixture API" });
 		await expect(provider).toHaveValue("fixture");
 		await expect(reviewProvider).toContainText("Fixture API");
+		if (image) await outgoing.click();
 		await expect(wire).toHaveText("Request preview is unavailable for this API provider.");
 		await expect(queue).toBeDisabled();
 		await expect(prompt).toHaveAttribute("maxlength", "2048");
 		await expect(toapisField).toHaveCount(0);
 		await expect(prompt).toHaveValue(draft);
 
+		if (image) await reviewTab.click();
 		await provider.press("ArrowUp");
 		await expect(provider).toHaveValue("toapis");
 		await expect(provider).toBeFocused();
 		await expect(reviewProvider).toContainText("ToAPIs");
-		await expect(wire).toContainText(`model ${routes.toapisRoute}`);
-		await expect(wire).toContainText("disable_nsfw = false");
+		if (image) {
+			await outgoing.click();
+			await expect(wire).toContainText(`"model": "${routes.toapisRoute}"`);
+			await expect(wire).toContainText('"disable_nsfw": false');
+			await reviewTab.click();
+		} else {
+			await expect(wire).toContainText(`model ${routes.toapisRoute}`);
+			await expect(wire).toContainText("disable_nsfw = false");
+		}
 		await expect(queue).toBeEnabled();
 		await expect(toapisField).toBeAttached();
 		await expect(prompt).toHaveValue(draft);

@@ -229,7 +229,7 @@
 }
 
 .studio-workspace :is(button, input, select, textarea, summary, a, .studio-stage):focus-visible,
-.studio-review h2:focus-visible {
+.studio-review :is(h2, .studio-review-panel, .studio-wire-json):focus-visible {
 	outline: 2px solid var(--studio-accent);
 	outline-offset: 3px;
 }
@@ -603,6 +603,54 @@ button.studio-ratio[aria-pressed="true"] {
 	gap: var(--studio-review-gap);
 }
 
+.studio-review-tabs {
+	display: flex;
+	border-block-end: 1px solid var(--studio-line);
+}
+
+.studio-review-tabs button {
+	min-height: 44px;
+	border: 0;
+	border-block-end: 2px solid transparent;
+	background: transparent;
+	padding: 0.45rem 0.65rem;
+	color: var(--studio-muted);
+	font: inherit;
+	font-size: 0.84rem;
+	font-weight: 620;
+	line-height: 1.25;
+	cursor: pointer;
+}
+
+.studio-review-tabs button:hover,
+.studio-review-tabs button[aria-selected="true"] {
+	color: var(--studio-accent);
+}
+
+.studio-review-tabs button[aria-selected="true"] {
+	border-block-end-color: currentColor;
+}
+
+.studio-review-tabs button:focus-visible {
+	outline-offset: -4px;
+}
+
+.studio-review-panel {
+	min-width: 0;
+}
+
+.studio-review-panel .studio-disclosure--simulation {
+	margin-top: 0.75rem;
+}
+
+.studio-submit-exposure {
+	margin: 0;
+	color: var(--studio-ink);
+	font-size: 0.82rem;
+	font-weight: 620;
+	font-variant-numeric: tabular-nums;
+}
+
 .studio-review-sources {
 	margin: 0;
 	padding: 0;
@@ -710,6 +758,19 @@ button.studio-ratio[aria-pressed="true"] {
 	max-height: 8rem;
 	overflow: auto;
 	white-space: pre-wrap;
+}
+
+.studio-wire-json {
+	max-block-size: 14rem;
+	margin: 0.5rem 0;
+	overflow: auto;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+
+.studio-review-panel .studio-review-facts,
+.studio-review-panel .studio-wire {
+	margin: 0;
 }
 
 .studio-actions {
