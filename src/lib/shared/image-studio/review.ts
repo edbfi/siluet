@@ -29,16 +29,26 @@ type WireRequest = Readonly<{
 
 const schemeOrSlashes =
 	/(?<![a-z\d+.-])[a-z][a-z\d+.-]*:\/\/|(?:https?|blob|file|data|mailto):|\/\//u;
-const host = /(?:[\p{L}\p{M}\p{N}_-]+\.)+[\p{L}\p{M}\p{N}_-]+\.?|localhost\.?|\[[a-f\d:.%]+\]/u;
+const host =
+	/(?:[\p{L}\p{M}\p{N}_-]+\.)+(?:xn--[a-z\d-]+|[\p{L}]{2,})\.?|\d{1,3}(?:\.\d{1,3}){3}|localhost\.?|\[[a-f\d:.%]+\]/u;
 const bareHost = new RegExp(
-	String.raw`(?<![\p{L}\p{N}_.-])(?:www\.|(?:${host.source})(?=:\d+|[/?#])|[\p{L}\p{N}_-]+(?=:\d+[/#?]))`,
+	String.raw`(?<![\p{L}\p{N}_.-])(?:www\.|(?:${host.source})(?=:\d+|[/?#])|\p{L}[\p{L}\p{N}_-]*(?=:\d+[/#?]))`,
 	"iu",
 );
 const linkStart = new RegExp(`(?:${schemeOrSlashes.source}|${bareHost.source})`, "iu");
 
 function redactLink(token: string): string {
-	const start = token.search(linkStart);
-	if (start < 0) return token;
+	let start = token.search(linkStart);
+	if (start < 0) {
+		const at = token.lastIndexOf("@");
+		if (
+			at < 0 ||
+			!token.slice(0, at).includes(":") ||
+			!URL.canParse(`https://${token.slice(at + 1)}`)
+		)
+			return token;
+		start = at + 1;
+	}
 	let prefix = token.slice(0, start);
 	// A bare host can have user:password@ in front of it. Keep only its opening punctuation.
 	if (prefix.endsWith("@")) prefix = /^[('"“‘{]*/u.exec(prefix)?.[0] ?? "";

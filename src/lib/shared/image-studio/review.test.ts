@@ -163,14 +163,22 @@ test.each([
 	"assets.xn--p1ai/image?token=private",
 	"assets.example./image?token=private",
 	"user:private@assets.test/image",
+	"user:private@assets.test",
 	"10.0.0.5:8080/image?token=private",
 	"[::1]:8080/image?token=private",
 	"localhost:3000/image?token=private",
+	"studio:8080/image?token=private",
 ])("Review hides a signed or credential-bearing host reference (%#)", (url) => {
 	const request = { ...toapisWire, body: { ...toapisWire.body, prompt: `Read <${url}> in blue.` } };
 	expect(createImageReview(toapisInput, request).outgoing.body).toMatchObject({
 		prompt: "Read <[URL hidden]> in blue.",
 	});
+});
+
+test("Review keeps aspect ratios, times, scales and versions visible", () => {
+	const prompt = "2.39:1 or 1.85:1 at 12:30? Scale 1.5/2, 4:3/16:9, v1.2/ beta, e.g./i.e.";
+	const request = { ...toapisWire, body: { ...toapisWire.body, prompt } };
+	expect(createImageReview(toapisInput, request).outgoing.body).toMatchObject({ prompt });
 });
 
 test("reviewed request options price the initial batch and attempts count includes retries", () => {
