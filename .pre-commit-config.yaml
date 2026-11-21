@@ -8,18 +8,18 @@ repos:
     hooks:
       # Installed agent skills are vendored: the fixers skip them, the security hooks don't.
       - id: trailing-whitespace
-        exclude: ^(\.agents/skills|\.claude/skills|\.claude/agents|\.opencode)/
+        exclude: ^(\.agents/skills|\.claude/skills|\.claude/agents)/
       - id: end-of-file-fixer
-        exclude: ^(\.agents/skills|\.claude/skills|\.claude/agents|\.opencode)/
+        exclude: ^(\.agents/skills|\.claude/skills|\.claude/agents)/
       - id: mixed-line-ending
         args: [--fix=lf]
-        exclude: ^(\.agents/skills|\.claude/skills|\.claude/agents|\.opencode)/
+        exclude: ^(\.agents/skills|\.claude/skills|\.claude/agents)/
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
         # Impeccable ships larger scripts and data files.
-        exclude: ^(\.agents|\.claude|\.opencode)/skills/impeccable/scripts/
+        exclude: ^(\.agents|\.claude)/skills/impeccable/scripts/
       - id: detect-private-key
       - id: check-json
       - id: check-toml
@@ -61,7 +61,7 @@ repos:
     hooks:
       # package.json: "lint": "bun --bun biome ci". biome.json alone decides which files Biome
       # owns: an extension allowlist, so a language a Biome release adds stays out until listed,
-      # and `!!` entries for .agents/skills, .claude, .codex, .impeccable, .opencode and
+      # and `!!` entries for .agents/skills, .claude, .codex, .impeccable and
       # skills-lock.json, which only their installers change.
       - id: biome
         name: Biome checks

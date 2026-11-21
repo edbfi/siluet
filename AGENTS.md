@@ -34,13 +34,13 @@ Use signed-off Conventional Commits (`git commit -s`). File PRs with `file-pr` a
 
 ## Project skills
 
-Codex and OpenCode discover the locked workflow skills in `.agents/skills/`. Claude Code uses project-local links in `.claude/skills/`. Run their supported installers to upgrade. Leave installer output untouched. To reproduce the selection from the repository root in a POSIX shell:
+Codex discovers the locked workflow skills in `.agents/skills/`. Claude Code loads them through project-local links in `.claude/skills/`. Use the installers to upgrade and leave their output untouched. To reproduce the selection, run these commands from the repository root in a POSIX shell.
 
 ```sh
 DO_NOT_TRACK=1 bunx --bun skills@1.9.0 add 'addyosmani/agent-skills#0.6.17' \
-  -a codex -a claude-code -a opencode -s $(jq -r '.skills | keys[]' skills-lock.json) -y
+  -a codex -a claude-code -s $(jq -r '.skills | keys[]' skills-lock.json) -y
 DO_NOT_TRACK=1 bunx --bun impeccable@4.10.0 install \
-  --providers=codex,claude,opencode --scope=project --no-hooks --yes
+  --providers=codex,claude --scope=project --no-hooks --yes
 ```
 
 Impeccable installs a harness-specific build in each project's skills directory. Compare these builds to the matching upstream `skill-v<version>` tag after installation. During design work, use the project-local launcher in `.agents/skills/impeccable/scripts/`. Start interactive copy editing with `IMPECCABLE_LIVE_COPY_AGENT=chat` to keep edits in the current agent session.
