@@ -166,7 +166,7 @@ export function estimatePrice(feed: unknown, input: PriceInput, nowMs: number): 
 		maxAttempts === null ||
 		!inputKeys.every((key) => Object.hasOwn(input, key)) ||
 		Object.keys(input).some((key) => key !== "sourceKinds" && !inputKeys.includes(key)) ||
-		(Object.hasOwn(input, "sourceKinds") &&
+		(input.sourceKinds !== undefined &&
 			(!Array.isArray(input.sourceKinds) ||
 				input.sourceKinds.length !== sourceCount ||
 				input.sourceKinds.length > 50 ||
@@ -182,6 +182,7 @@ export function estimatePrice(feed: unknown, input: PriceInput, nowMs: number): 
 	if (provider !== "poyo") return unknown("unsupported-provider");
 	const poyoFeed = decodePricingFeed(feed);
 	if (model !== "z-image" && model !== "seedream-5.5") return unknown("unsupported-model");
+	if (input.sourceKinds?.some((kind) => kind !== "image")) return unknown("unsupported-input");
 	const tier = model === "seedream-5.5" ? seedreamTier(input) : undefined;
 	if (model === "z-image" ? !supportsZImage(input) : tier === undefined) {
 		return unknown("unsupported-input");

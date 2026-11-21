@@ -182,3 +182,12 @@ test("unvalidated pricing input fails closed", () => {
 		expect(estimatePrice(invalid, zImage, now)).toMatchObject({ status: "unknown" });
 	}
 });
+
+test("PoYo image models require image inputs when their kinds are supplied", () => {
+	expect(
+		estimatePrice(feed, { ...seedreamEdit, sourceKinds: ["image", "video"] }, now),
+	).toMatchObject({ reason: "unsupported-input" });
+	expect(estimatePrice(feed, { ...seedreamEdit, sourceKinds: undefined }, now)).toEqual(
+		estimatePrice(feed, seedreamEdit, now),
+	);
+});
