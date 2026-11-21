@@ -50,6 +50,8 @@ export type ToapisPricingFeed = Readonly<{
 	observedAt: string;
 	creditsPerUsd: string;
 	conversionSourceUrl: typeof toapisConversionUrl;
+	// Whole seconds from each response's receipt to observedAt. Older bundles omit this field.
+	receiptDelaySeconds?: Readonly<{ conversion: number; image: number; video: number }>;
 	conversionCacheAgeSeconds: number | null;
 	rates: readonly ToapisRate[];
 	gaps: typeof gaps;
@@ -155,8 +157,11 @@ function rateKey(rate: ToapisRate): number {
 }
 
 export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | undefined {
+	const hasDelays =
+		value !== null && typeof value === "object" && Object.hasOwn(value, "receiptDelaySeconds");
 	if (
 		!hasKeys(value, [
+			...(hasDelays ? ["receiptDelaySeconds"] : []),
 			"version",
 			"provider",
 			"observedAt",
@@ -192,6 +197,24 @@ export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | und
 		!validToapisCacheAge(conversionCacheAgeSeconds, observedMs)
 	)
 		return;
+	let receiptDelaySeconds: ToapisPricingFeed["receiptDelaySeconds"];
+	if (hasDelays) {
+		const delays = value.receiptDelaySeconds;
+		if (!hasKeys(delays, ["conversion", "image", "video"])) return;
+		const { conversion, image, video } = delays;
+		if (
+			typeof conversion !== "number" ||
+			typeof image !== "number" ||
+			typeof video !== "number" ||
+			![conversion, image, video].every(Number.isSafeInteger) ||
+			video < 0 ||
+			image < video ||
+			conversion < image ||
+			(conversion + (conversionCacheAgeSeconds ?? 0)) * 1000 > observedMs
+		)
+			return;
+		receiptDelaySeconds = { conversion, image, video };
+	}
 	const rawRates: unknown = value.rates;
 	const rawGaps: unknown = value.gaps;
 	if (
@@ -209,6 +232,7 @@ export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | und
 	for (const raw of rawRates as unknown[]) {
 		const rate = decodeRate(raw, observedMs);
 		if (!rate || rateKey(rate) !== rates.length) return;
+		if (effectiveRateObservationMs(observedMs, receiptDelaySeconds, rate) < 0) return;
 		rates.push(rate);
 	}
 	const [one, oneAndHalf, two, withoutVideo, withVideo] = rates;
@@ -227,28 +251,46 @@ export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | und
 		creditsPerUsd,
 		conversionSourceUrl,
 		conversionCacheAgeSeconds,
+		...(receiptDelaySeconds && { receiptDelaySeconds }),
 		rates,
 		gaps,
 	};
 }
 
-function effectiveObservationMs(observedMs: number, ageSeconds: number | null): number {
-	return observedMs - (ageSeconds ?? 0) * 1000;
+function effectiveRateObservationMs(
+	observedMs: number,
+	delays: ToapisPricingFeed["receiptDelaySeconds"],
+	rate: ToapisRate,
+): number {
+	const delay = rate.unit === "image" ? delays?.image : delays?.video;
+	return observedMs - ((delay ?? 0) + (rate.source.cacheAgeSeconds ?? 0)) * 1000;
+}
+
+function conversionObservationMs(feed: ToapisPricingFeed, observedMs: number): number {
+	return (
+		observedMs -
+		((feed.receiptDelaySeconds?.conversion ?? 0) + (feed.conversionCacheAgeSeconds ?? 0)) * 1000
+	);
 }
 
 export function toapisEffectiveObservations(feed: ToapisPricingFeed) {
 	const observedMs = parsePricingInstant(feed.observedAt);
-	const conversion = effectiveObservationMs(observedMs, feed.conversionCacheAgeSeconds);
-	const models = feed.rates.map((rate) =>
-		effectiveObservationMs(observedMs, rate.source.cacheAgeSeconds),
-	);
-	return [conversion, ...models];
+	return [
+		conversionObservationMs(feed, observedMs),
+		...feed.rates.map((rate) =>
+			effectiveRateObservationMs(observedMs, feed.receiptDelaySeconds, rate),
+		),
+	];
 }
 
 export function toapisRateExpiryMs(feed: ToapisPricingFeed, rate: ToapisRate): number {
 	const observedMs = parsePricingInstant(feed.observedAt);
-	const oldestAge = Math.max(feed.conversionCacheAgeSeconds ?? 0, rate.source.cacheAgeSeconds ?? 0);
-	return effectiveObservationMs(observedMs, oldestAge) + pricingMaxAgeMs;
+	return (
+		Math.min(
+			conversionObservationMs(feed, observedMs),
+			effectiveRateObservationMs(observedMs, feed.receiptDelaySeconds, rate),
+		) + pricingMaxAgeMs
+	);
 }
 
 export function toapisFeedExpiryMs(feed: ToapisPricingFeed): number {

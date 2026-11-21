@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { estimatePrice } from "../../src/lib/shared/pricing/estimate";
 import { toapisRates } from "../../tests/fixtures/toapis-feed";
 import { readEstimateArgs } from "./estimate";
-import { pricingCachePath } from "./local-feed";
+import { loadLocalPricing, pricingCachePath } from "./local-feed";
 
 test("a CLI estimate preserves the selected edit and batch", () => {
 	const input = readEstimateArgs([
@@ -124,4 +124,40 @@ test("the CLI distinguishes image, mixed and unspecified Seedance sources", () =
 	expect(() =>
 		readEstimateArgs([...args, "--references", "2", "--source-kind", "image"]),
 	).toThrow();
+});
+
+test("the release bundles estimate both providers offline with an empty cache", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "siluet-bundled-rates-"));
+	try {
+		for (const [provider, args, credits] of [
+			[
+				"poyo",
+				[
+					"--model",
+					"seedream-5.5",
+					"--resolution",
+					"2K",
+					"--operation",
+					"edit",
+					"--references",
+					"2",
+				],
+				"10.2",
+			],
+			["toapis", ["--model", "doubao-seedream-5-5", "--size", "2K"], "5.6"],
+		] as const) {
+			const now = Date.parse("2026-11-21T16:00:00Z");
+			const feed = await loadLocalPricing(now, {
+				provider,
+				cachePath: pricingCachePath(directory, provider),
+			});
+			const input = readEstimateArgs(["--provider", provider, ...args]);
+			expect(estimatePrice(feed, input, now)).toMatchObject({
+				status: "known",
+				perRequest: credits,
+			});
+		}
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
 });

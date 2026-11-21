@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { toapisRates } from "../../../../tests/fixtures/toapis-feed";
 import { estimatePrice, type PriceInput } from "./estimate";
-import { decodeToapisPricingFeed } from "./toapis-feed";
+import {
+	decodeToapisPricingFeed,
+	toapisEffectiveObservations,
+	toapisRateExpiryMs,
+} from "./toapis-feed";
 
 const now = Date.parse("2026-11-21T12:00:00Z");
 const image: PriceInput = {
@@ -153,4 +157,24 @@ test("rejects inconsistent paired rates and per-model age plus noncanonical obse
 	]) {
 		expect(decodeToapisPricingFeed(invalid)).toBeUndefined();
 	}
+});
+
+test("receipt delays and reported cache ages both count toward rate expiry", () => {
+	const feed = decodeToapisPricingFeed({
+		...toapisRates,
+		conversionCacheAgeSeconds: null,
+		receiptDelaySeconds: { conversion: 4, image: 2, video: 0 },
+		rates: toapisRates.rates.map((rate) => ({
+			...rate,
+			source: { ...rate.source, cacheAgeSeconds: rate.unit === "image" ? 9 : null },
+		})),
+	});
+	if (!feed) throw new Error("Valid staggered feed was rejected.");
+	const observed = Date.parse(feed.observedAt);
+	expect(toapisEffectiveObservations(feed).map((value) => (observed - value) / 1000)).toEqual([
+		4, 11, 11, 11, 0, 0,
+	]);
+	const expiry = observed + 30 * 86400 * 1000;
+	expect(toapisRateExpiryMs(feed, feed.rates[0])).toBe(expiry - 11000);
+	expect(toapisRateExpiryMs(feed, feed.rates[3])).toBe(expiry - 4000);
 });
