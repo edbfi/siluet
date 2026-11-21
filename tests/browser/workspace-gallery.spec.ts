@@ -1,7 +1,17 @@
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 
 const entry = new URL("../../design/workspace/workspace.html", import.meta.url).href;
+test.beforeAll(() => {
+	execFileSync(
+		"bun",
+		[fileURLToPath(new URL("../../design/workspace/export.js", import.meta.url))],
+		{ stdio: "inherit" },
+	);
+});
+
 test.beforeEach(async ({ context }) => {
 	await context.setOffline(true);
 });
