@@ -16,7 +16,7 @@ The ground floor needs no persistence, credentials, model catalog or paid submis
 | Order | Capability | What the creator can verify |
 | --- | --- | --- |
 | 1 | [Owner access](SPEC-owner-access.md) | Claim a fresh installation, enter the protected Svelte studio, sign out and sign back in after restarting. |
-| 2 | Image Studio | Connect a provider in Settings, select a model by family, choose a connected provider and review the request with its local estimate. |
+| 2 | [Image Studio](SPEC-image-studio.md) | Connect a provider in Settings, select a model by family, choose a connected provider and review the request with its local estimate. |
 | 3 | First saved image | Submit one reviewed request, follow the job, save the image and find it in Gallery after restarting. |
 
 Video Studio can reuse the submission and media paths. External sign-in builds on owner access through Security settings.
