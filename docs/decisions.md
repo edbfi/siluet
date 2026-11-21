@@ -8,6 +8,10 @@ Keeping credentials, charges and files under one person's control avoids shared 
 
 A successful first session takes a creator from selecting a model and understanding its required inputs to submitting a generation, following the job, saving the result and finding it again when they reopen Siluet. If acknowledgement is lost, Siluet must distinguish an uncertain submission from a confirmed provider failure. The creator decides whether to risk another charge.
 
+### Owner sign-in proposal
+
+Propose a console claim that creates one local owner before connecting paid media providers, with optional authenticator-app MFA. After onboarding, either OpenID Connect or direct LDAP can independently replace local password sign-in after fresh verification. The same owner account and studio data carry through the switch. An explicit offline recovery procedure on the host can restore local sign-in with a new password. The owner must approve the module spec before implementation. See the [owner sign-in proposal](access/owner-sign-in.md) for verification and recovery details.
+
 ## D2 · Full image and video model coverage
 
 Approved by the owner on 2026-11-21. Siluet aims to support the image and video models of ToAPIs and Poyo.ai, including the operations and input options each exposes. A creator can use either platform independently. Text prompts, captions and other documented inputs belong to the image or video operation that accepts them. Standalone text models and other non-media model catalogs are outside this scope.
