@@ -2,6 +2,8 @@
 
 Read the [ground-floor spec](docs/SPEC.md) and [decisions](docs/decisions.md). Siluet has its own capability map, milestones and releases. Author its code, fixtures and designs from scratch. Keep the old Poyo Studio checkout and history out of research and implementation.
 
+Keep documentation short and tied to a reader and task. Prefer an existing README or decision entry. Keep provider evidence with the adapter or test that uses it, and omit standalone research reports and unused fixtures. Preserve required license notices.
+
 ## From a requirement to a release
 
 - Use `spec-driven-development` for the capability map in `docs/SPEC.md` and for a module's `docs/SPEC-<id>.md`. The owner approves the map and each product module spec before implementation. Bring changes to audience, access, spending or product scope back to the owner with a recommendation.

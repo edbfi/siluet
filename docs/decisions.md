@@ -10,7 +10,7 @@ A successful first session takes a creator from selecting a model and understand
 
 ### Owner sign-in proposal
 
-Propose a console claim that creates one local owner before connecting paid media providers, with optional authenticator-app MFA. After onboarding, either OpenID Connect or direct LDAP can independently replace local password sign-in after fresh verification. The same owner account and studio data carry through the switch. An explicit offline recovery procedure on the host can restore local sign-in with a new password. The owner must approve the module spec before implementation. See the [owner sign-in proposal](access/owner-sign-in.md) for verification and recovery details.
+Claim one owner with a single-use console token, then set a local password and optionally enroll an authenticator. Settings can link OIDC or direct LDAP independently to that owner. Before disabling a method, require a fresh sign-in through a remaining method, including enrolled MFA. Remove the local password hash and revoke its sessions when the creator disables password sign-in. Enforce the last-method check atomically. An explicit offline host recovery restores access to the existing studio. Verify the Tinyauth, Authelia and authentik presets in the approved module before advertising compatibility.
 
 ## D2 · Full image and video model coverage
 
