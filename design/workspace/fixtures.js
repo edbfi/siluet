@@ -1,3 +1,4 @@
+// Original Siluet demo media, distributed under the repository license. The Tide and lamp files are shared with the original studio studies.
 window.SiluetFixtures = [
 	{
 		id: "tide-study",

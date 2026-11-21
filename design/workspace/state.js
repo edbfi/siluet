@@ -273,7 +273,7 @@
 		persist();
 		schedulePump();
 		publish("jobs", publicJob(job));
-		if (job.assetId) publish("assets", generatedAsset(job));
+		if (job.assetId) publish("assets");
 	}
 
 	function runQueued() {
@@ -455,7 +455,7 @@
 		saveResult(job);
 		persist();
 		publish("jobs", publicJob(job));
-		if (job.assetId) publish("assets", generatedAsset(job));
+		if (job.assetId) publish("assets");
 		return id;
 	}
 
@@ -841,7 +841,7 @@
 			}
 		}
 		const result = { added, rejected: entries.length - added };
-		if (added) publish("assets", result);
+		if (added) publish("assets");
 		return result;
 	}
 
