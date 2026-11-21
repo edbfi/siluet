@@ -8,8 +8,9 @@ import {
 	validateSeedreamDraft,
 } from "../../../shared/image-studio/seedream";
 import type { ProviderId } from "../../../shared/providers/connections";
-import { imageJobPollingWindowMs, imageJobSchema } from "../../db/image-job-schema";
+import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import { type Installation, openInstallation } from "../../db/installation";
+import { providerStore } from "../../db/provider-store";
 import type { CheckFetch } from "../../providers/connection-check";
 import { createJobTracking } from "./tracking";
 
@@ -28,15 +29,9 @@ beforeEach(async () => {
 	now = start;
 	directory = await createOwnerDirectory();
 	installation = await openInstallation(directory);
-	await installation.use(async (db) => {
-		if (!(await db.get(sql`SELECT name FROM sqlite_master WHERE name='image_job'`)))
-			await db.run(sql.raw(imageJobSchema));
-		await db.run(sql`CREATE TABLE IF NOT EXISTS gallery_image (
-			job_id TEXT PRIMARY KEY REFERENCES image_job(id), state TEXT NOT NULL
-		)`);
-		await db.run(sql`UPDATE provider_credential SET revision=1, seedream=1,
-			ciphertext='test-credential', verified_at=0`);
-	});
+	const store = providerStore(installation);
+	for (const provider of ["poyo", "toapis"] as const)
+		await store.save(provider, credential, now, true, 0);
 });
 
 afterEach(async () => {
@@ -54,17 +49,11 @@ const insert = (id = "job", provider: ProviderId = "toapis") =>
 	);
 
 function makeTracking(read: CheckFetch) {
-	tracker = createJobTracking(
-		installation,
-		async (provider, revision) => {
-			const row = await installation.use((db) =>
-				db.get(sql`SELECT revision FROM provider_credential WHERE provider=${provider}
-					AND revision=${revision} AND ciphertext IS NOT NULL`),
-			);
-			return row ? credential : null;
-		},
-		{ fetch: read, now: () => now, random: () => 0 },
-	);
+	tracker = createJobTracking(installation, providerStore(installation), {
+		fetch: read,
+		now: () => now,
+		random: () => 0,
+	});
 	return tracker;
 }
 
@@ -160,6 +149,23 @@ test("automatic tracking starts with the durable acknowledgement even after a sl
 	now = start + 125_000;
 	await restarted.resume();
 	expect(await latest()).toMatchObject({ tracking: "automatic", pollDeadline: start + 145_000 });
+});
+
+test("a successful completed status can be saved after its normal read interval", async () => {
+	const jobs = makeTracking(async (_url, request) => {
+		if (request.method === "POST") return acceptToapis();
+		const completed = completedToapis();
+		completed.headers.set("Retry-After", "99999999999");
+		return completed;
+	});
+	await jobs.resume();
+	await insert();
+	await dispatch("toapis");
+	now += 5_000;
+	await jobs.refresh("job");
+	expect(await latest()).toMatchObject({ state: "completed", nextReadAt: now + 5_000 });
+	now += 5_000;
+	expect(await jobs.resultUrl("job")).toBe(signedUrl);
 });
 
 test("Retry-After survives restart, blocks Refresh and Save, and permits one shared later read", async () => {
@@ -471,7 +477,7 @@ test("startup on a second handle preserves a live dispatch's later acknowledgeme
 	const pending = dispatch("toapis");
 	await sent.promise;
 	const second = await openInstallation(directory);
-	const recovering = createJobTracking(second, async () => credential, {
+	const recovering = createJobTracking(second, providerStore(second), {
 		fetch: read,
 		now: () => now,
 	});
@@ -520,9 +526,7 @@ test("Poyo wallet windows can overlap across key replacements", async () => {
 	await jobs.resume();
 	await insert("first", "poyo");
 	await dispatch("poyo", "first");
-	await installation.use((db) =>
-		db.run(sql`UPDATE provider_credential SET revision=2 WHERE provider='poyo'`),
-	);
+	await providerStore(installation).save("poyo", credential, now, true, 1);
 	await insert("second", "poyo");
 	await installation.use((db) => db.run(sql`UPDATE image_job SET revision=2 WHERE id='second'`));
 	await dispatch("poyo", "second");
@@ -596,7 +600,7 @@ test("a second startup preserves a terminal job's in-flight wallet interval", as
 	const completing = jobs.refresh("first");
 	await readingAfter.promise;
 	const second = await openInstallation(directory);
-	const recovering = createJobTracking(second, async () => credential, {
+	const recovering = createJobTracking(second, providerStore(second), {
 		fetch: read,
 		now: () => now,
 	});

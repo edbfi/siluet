@@ -31,10 +31,7 @@ export async function initializeOwner(dev: boolean) {
 		poyo: checkPoyoConnection(),
 		toapis: checkToapisConnection(),
 	});
-	const jobs = createJobTracking(
-		installation,
-		async (id, revision) => (await store.credential(id, revision))?.key ?? null,
-	);
+	const jobs = createJobTracking(installation, store);
 	const gallery = createGallery(installation, (id) => jobs.resultUrl(id));
 	const queue = await createSubmissionQueue(installation, store.credential, (...args) =>
 		jobs.dispatch(...args),

@@ -1,6 +1,7 @@
 import type { ProviderId } from "../../../shared/providers/connections";
 import { type ImageJob, imageJobStore, type StatusNote } from "../../db/image-job-store";
 import type { Installation } from "../../db/installation";
+import type { providerStore } from "../../db/provider-store";
 import type { CheckFetch } from "../../providers/connection-check";
 import {
 	type ReviewedImageRequest,
@@ -14,7 +15,7 @@ import { isActive, isReadPaused, storedBilling, summarizeJob } from "./summary";
 
 export type { JobSummary } from "./summary";
 
-type ReadCredential = (provider: ProviderId, revision: number) => Promise<string | null>;
+type JobCredentials = Pick<ReturnType<typeof providerStore>, "credential" | "readableRevisions">;
 type TrackingDependencies = { fetch?: CheckFetch; now?: () => number; random?: () => number };
 
 const initialWait = { poyo: 2_000, toapis: 5_000 };
@@ -75,7 +76,10 @@ function statusUpdate(job: ImageJob, observation: TaskObservation, now: number, 
 			expiresAt,
 			note,
 			failures,
-			nextReadAt: Math.max(now + delay, retryTime(observation.retryAfter, now)),
+			nextReadAt:
+				observation.kind !== "observed"
+					? Math.max(now + delay, retryTime(observation.retryAfter, now))
+					: now + delay,
 		},
 		resultUrl,
 	};
@@ -83,7 +87,7 @@ function statusUpdate(job: ImageJob, observation: TaskObservation, now: number, 
 
 export function createJobTracking(
 	installation: Installation,
-	readCredential: ReadCredential,
+	credentials: JobCredentials,
 	{ fetch: read, now = Date.now, random = Math.random }: TrackingDependencies = {},
 ) {
 	const store = imageJobStore(installation);
@@ -117,7 +121,7 @@ export function createJobTracking(
 
 	async function afterBalance(job: ImageJob) {
 		if (!job.wallet_open || job.provider !== "poyo") return;
-		const key = await readCredential(job.provider, job.revision);
+		const key = (await credentials.credential(job.provider, job.revision))?.key;
 		const balance =
 			key && job.wallet_finish_by !== null && now() < job.wallet_finish_by
 				? await poyo.balance(key)
@@ -135,7 +139,7 @@ export function createJobTracking(
 		)
 			return null;
 
-		const key = await readCredential(job.provider, job.revision);
+		const key = (await credentials.credential(job.provider, job.revision))?.key;
 		if (closed) return null;
 		if (!key) {
 			await store.recordMissingCredential(id);
@@ -211,22 +215,12 @@ export function createJobTracking(
 		},
 
 		async list() {
-			const keys = new Map<string, Promise<boolean>>();
 			const rows = await store.list();
-			return Promise.all(
-				rows.map(async (job) => {
-					let readable = false;
-					if (job.task_id) {
-						const scope = `${job.provider}:${job.revision}`;
-						let key = keys.get(scope);
-						if (!key) {
-							key = readCredential(job.provider, job.revision).then(Boolean);
-							keys.set(scope, key);
-						}
-						readable = await key;
-					}
-					return summarizeJob(job, readable, now());
-				}),
+			const revisions = rows.some((job) => job.task_id)
+				? await credentials.readableRevisions()
+				: null;
+			return rows.map((job) =>
+				summarizeJob(job, revisions?.get(job.provider) === job.revision, now()),
 			);
 		},
 
@@ -239,7 +233,9 @@ export function createJobTracking(
 			if (job?.state !== "completed") return null;
 			const url = await readStatus(id, false);
 			// A Settings change during the read also stops delivery of an unsaved result.
-			return url && (await readCredential(job.provider, job.revision)) ? url : null;
+			return url && (await credentials.readableRevisions()).get(job.provider) === job.revision
+				? url
+				: null;
 		},
 
 		needsCredential: store.needsCredential,

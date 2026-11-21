@@ -17,7 +17,7 @@ type MutationOutcome =
 	| "storage-unavailable";
 
 export function createProviderConnections(
-	store: Omit<ReturnType<typeof providerStore>, "credential">,
+	store: Omit<ReturnType<typeof providerStore>, "credential" | "readableRevisions">,
 	checks: Record<ProviderId, ConnectionCheck>,
 	elapsed = () => performance.now(),
 ) {

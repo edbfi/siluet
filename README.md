@@ -28,7 +28,7 @@ If Jobs says **May have been submitted**, check your provider history before aut
 | Framework | Svelte 5 and SvelteKit 3 with server-side rendering |
 | Runtime and packages | Bun for development, CI and production |
 | Local server | `@sveltejs/adapter-bun` bound to loopback |
-| Database | Embedded Turso with Drizzle ORM for the owner and sessions |
+| Database | Embedded Turso with Drizzle ORM for owner access, sessions, encrypted provider credentials, jobs and Gallery metadata |
 | Styling and components | Panda CSS 2 and Ark UI for Svelte |
 | Code checks | Biome, `svelte-check` and prek |
 | Tests | Bun’s test runner and a Playwright smoke test in Chromium |

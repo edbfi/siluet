@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
 import {
 	type ProviderConnectionStatus,
@@ -49,6 +49,61 @@ export function providerStore(installation: Installation) {
 	const { directory, use } = installation;
 	const revisionQuery = (id: ProviderId) =>
 		sql`SELECT revision FROM provider_credential WHERE provider=${id}`;
+	const verified = new Map<ProviderId, string>();
+	async function inspectConnections() {
+		const revisions = new Map<ProviderId, number>();
+		const rows = await use((db) =>
+			db.all<{
+				provider: ProviderId;
+				revision: number;
+				ciphertext: string;
+				verified_at: number;
+				seedream: number;
+			}>(sql`SELECT provider, revision, ciphertext, verified_at, seedream
+				FROM provider_credential WHERE ciphertext IS NOT NULL`),
+		);
+
+		let key: Buffer | null;
+		try {
+			key = await readProviderKey(directory);
+		} catch (error) {
+			if (!(error instanceof ProviderKeyPolicyError)) throw error;
+			const statuses = providerIds.map<ProviderConnectionStatus>((id) => ({
+				id,
+				state: "repair",
+				hasCredential: rows.some((row) => row.provider === id),
+			}));
+			return { statuses, revisions };
+		}
+
+		const statuses = providerIds.map<ProviderConnectionStatus>((id) => {
+			const row = rows.find((row) => row.provider === id);
+			if (!row) return { id, state: "disconnected" };
+			const verifiedAt = row.verified_at;
+			const seedream = row.seedream === 1;
+			try {
+				if (key) {
+					const data = associatedData(id, row.revision, verifiedAt, seedream);
+					// Only reuse a successful authentication for the exact key, metadata and ciphertext.
+					const fingerprint = createHmac("sha256", key)
+						.update(data)
+						.update(row.ciphertext)
+						.digest("hex");
+					if (verified.get(id) !== fingerprint) {
+						decrypt(key, row.ciphertext, data).fill(0);
+						verified.set(id, fingerprint);
+					}
+					if (seedream) revisions.set(id, row.revision);
+					return { id, state: "connected", verifiedAt, seedream };
+				}
+			} catch {
+				// The credential is unreadable. Retain its row until reconnect or removal.
+			}
+			return { id, state: "reconnect" };
+		});
+		return { statuses, revisions };
+	}
+
 	return {
 		revision(id: ProviderId) {
 			return use(async (db) => {
@@ -86,49 +141,11 @@ export function providerStore(installation: Installation) {
 		async checkKeyStorage() {
 			await readProviderKey(directory);
 		},
-		async statuses(): Promise<ProviderConnectionStatus[]> {
-			const rows = await use((db) =>
-				db.all<{
-					provider: ProviderId;
-					revision: number;
-					ciphertext: string;
-					verified_at: number;
-					seedream: number;
-				}>(sql`SELECT provider, revision, ciphertext, verified_at, seedream
-					FROM provider_credential WHERE ciphertext IS NOT NULL`),
-			);
-
-			let key: Buffer | null;
-			try {
-				key = await readProviderKey(directory);
-			} catch (error) {
-				if (!(error instanceof ProviderKeyPolicyError)) throw error;
-				return providerIds.map((id) => ({
-					id,
-					state: "repair",
-					hasCredential: rows.some((row) => row.provider === id),
-				}));
-			}
-
-			return providerIds.map((id) => {
-				const row = rows.find((row) => row.provider === id);
-				if (!row) return { id, state: "disconnected" };
-				const verifiedAt = row.verified_at;
-				const seedream = row.seedream === 1;
-				try {
-					if (key) {
-						decrypt(
-							key,
-							row.ciphertext,
-							associatedData(id, row.revision, verifiedAt, seedream),
-						).fill(0);
-						return { id, state: "connected", verifiedAt, seedream };
-					}
-				} catch {
-					// The credential is unreadable. Retain its row until reconnect or removal.
-				}
-				return { id, state: "reconnect" };
-			});
+		async statuses() {
+			return (await inspectConnections()).statuses;
+		},
+		async readableRevisions() {
+			return (await inspectConnections()).revisions;
 		},
 		async save(
 			id: ProviderId,
