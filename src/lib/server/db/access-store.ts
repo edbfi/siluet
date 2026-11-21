@@ -4,6 +4,10 @@ import type { Installation } from "./installation";
 export const idleMs = 7 * 86400000;
 export const lifetimeMs = 30 * 86400000;
 
+function insertSession(digest: string, now: number) {
+	return sql`INSERT INTO session (digest, owner_id, created_at, last_activity) VALUES (${digest}, 1, ${now}, ${now})`;
+}
+
 export function accessStore(installation: Installation) {
 	const { use } = installation;
 	return {
@@ -37,8 +41,10 @@ export function accessStore(installation: Installation) {
 							sql`UPDATE installation SET claimed=1 WHERE singleton=1 AND claimed=0 RETURNING singleton`,
 						);
 						if (!row) return false;
-						await tx.run(sql`INSERT INTO owner VALUES(1,${username},${hash},${now})`);
-						await tx.run(sql`INSERT INTO session VALUES(${digest},1,${now},${now})`);
+						await tx.run(
+							sql`INSERT INTO owner (id, username, password_hash, created_at) VALUES(1,${username},${hash},${now})`,
+						);
+						await tx.run(insertSession(digest, now));
 						requireCurrent();
 						return true;
 					},
@@ -47,7 +53,7 @@ export function accessStore(installation: Installation) {
 			);
 		},
 		newSession(digest: string, now: number) {
-			return use((db) => db.run(sql`INSERT INTO session VALUES(${digest},1,${now},${now})`));
+			return use((db) => db.run(insertSession(digest, now)));
 		},
 		checkSession(digest: string, now: number) {
 			return use(async (db) => {

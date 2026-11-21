@@ -18,6 +18,7 @@
 		"pricing:refresh": "bun scripts/pricing/refresh.ts"
 	},
 	"imports": {
+		"#studio-manifest": "./package.json",
 		"#styled-system/*": "./styled-system/*/index.js"
 	},
 	"devDependencies": {

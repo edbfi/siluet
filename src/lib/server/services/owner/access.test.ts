@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
+import { accessStore } from "../../db/access-store";
 import { type Installation, openInstallation } from "../../db/installation";
 import { createOwnerAccess } from "./access";
 
@@ -36,9 +37,9 @@ test("claim is single-use and sessions are revocable and time bounded", async ()
 test("an expired token is rejected; a form error leaves the next token usable", async () => {
 	const old = auth.rotate();
 	time += 15 * 60000;
-	await expect(auth.claim(old, "owner", password)).rejects.toThrow();
+	await expect(auth.claim(old, "owner", password)).rejects.toMatchObject({ status: 403 });
 	const current = auth.rotate();
-	await expect(auth.claim(current, "owner", "short")).rejects.toThrow();
+	await expect(auth.claim(current, "owner", "short")).rejects.toMatchObject({ status: 400 });
 	expect(await auth.session(await auth.claim(current, "owner", password))).toBe("owner");
 });
 test("concurrent invalid tokens are throttled and the limit clears", async () => {
@@ -46,7 +47,7 @@ test("concurrent invalid tokens are throttled and the limit clears", async () =>
 	await Promise.allSettled(
 		Array.from({ length: 5 }, () => auth.claim("invalid", "owner", password)),
 	);
-	await expect(auth.claim(token, "owner", password)).rejects.toThrow("Try again");
+	await expect(auth.claim(token, "owner", password)).rejects.toMatchObject({ status: 429 });
 	time += 5 * 60000;
 	expect(await auth.session(await auth.claim(token, "owner", password))).toBe("owner");
 });
@@ -90,4 +91,22 @@ test("an active session expires after 30 days and sign-in throttling is temporar
 	await expect(auth.signIn("owner", password)).rejects.toThrow("Try again");
 	time += 300000;
 	expect(await auth.session(await auth.signIn("owner", password))).toBe("owner");
+});
+
+test("an active session is still usable after closing and reopening storage", async () => {
+	const cookie = await auth.claim(auth.rotate(), "owner", password);
+	await install.close();
+	install = await openInstallation(directory);
+	expect(await createOwnerAccess(install, () => time).session(cookie)).toBe("owner");
+});
+
+test("a token invalidated at commit rolls back both owner and session", async () => {
+	let checks = 0;
+	await expect(
+		accessStore(install).claim("owner", "unused", "fixture", time, () => {
+			if (++checks === 2) throw new Error("Token expired");
+		}),
+	).rejects.toThrow("Token expired");
+	expect(await install.hasOwner()).toBe(false);
+	expect(await install.use((db) => db.all(sql`SELECT digest FROM session`))).toEqual([]);
 });

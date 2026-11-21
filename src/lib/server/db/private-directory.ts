@@ -1,5 +1,8 @@
 import { lstat, mkdir, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { createRequire } from "node:module";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+
+export class DirectoryPolicyError extends Error {}
 
 // Windows mode bits do not expose NTFS permissions. Read the ACL by SID so
 // localized account names and inherited grants are handled the same way.
@@ -44,19 +47,35 @@ async function privateWindowsAcl(directory: string) {
 function requireOutsideCheckout(checkout: string, directory: string) {
 	const fromStudio = relative(checkout, directory);
 	if (!isAbsolute(fromStudio) && fromStudio !== ".." && !fromStudio.startsWith(`..${sep}`))
-		throw new Error("Choose a data directory outside the studio files.");
+		throw new DirectoryPolicyError("Choose a data directory outside the studio files.");
+}
+
+// Resolve even a not-yet-created path before making directories through an alias.
+async function prospectivePath(directory: string): Promise<string> {
+	try {
+		return await realpath(directory);
+	} catch (error) {
+		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+		const parent = dirname(directory);
+		if (parent === directory) throw error;
+		return join(await prospectivePath(parent), basename(directory));
+	}
 }
 
 export async function preparePrivateDirectory(directory: string) {
-	if (!isAbsolute(directory)) throw new Error("An absolute data directory is required.");
-	requireOutsideCheckout(process.cwd(), directory);
+	if (!isAbsolute(directory))
+		throw new DirectoryPolicyError("An absolute data directory is required.");
+	const checkout = dirname(createRequire(import.meta.url).resolve("#studio-manifest"));
+	requireOutsideCheckout(checkout, directory);
+	const realCheckout = await realpath(checkout);
+	requireOutsideCheckout(realCheckout, await prospectivePath(directory));
 	await mkdir(directory, { recursive: true, mode: 0o700 });
 	const info = await lstat(directory);
-	if (!info.isDirectory()) throw new Error("Expected a private directory.");
-	requireOutsideCheckout(await realpath(process.cwd()), await realpath(directory));
+	if (!info.isDirectory()) throw new DirectoryPolicyError("Expected a private directory.");
+	requireOutsideCheckout(realCheckout, await realpath(directory));
 	const privateAccess =
 		process.platform === "win32"
 			? await privateWindowsAcl(directory)
 			: info.uid === process.getuid?.() && (info.mode & 0o077) === 0;
-	if (!privateAccess) throw new Error("The data directory must be private.");
+	if (!privateAccess) throw new DirectoryPolicyError("The data directory must be private.");
 }

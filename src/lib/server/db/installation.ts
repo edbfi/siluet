@@ -3,29 +3,9 @@ import { join } from "node:path";
 import { connect } from "@tursodatabase/database";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/tursodatabase/database";
-import { migrate } from "drizzle-orm/tursodatabase/wasm-migrator";
+import { migrateInstallation, ownerMigrations } from "./migrations";
 
-import { preparePrivateDirectory } from "./private-directory";
-
-const migrationName = "20261121000000_owner_access";
-const migrations = {
-	[migrationName]: `CREATE TABLE installation (
-		singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-		installation_id TEXT NOT NULL, claimed INTEGER NOT NULL CHECK (claimed IN (0, 1))
-	);
-	--> statement-breakpoint
-	CREATE TABLE owner (
-		id INTEGER PRIMARY KEY CHECK (id = 1), username TEXT NOT NULL,
-		password_hash TEXT NOT NULL, created_at INTEGER NOT NULL
-	);
-	--> statement-breakpoint
-	CREATE TABLE session (
-		digest TEXT PRIMARY KEY NOT NULL, owner_id INTEGER NOT NULL REFERENCES owner(id),
-		created_at INTEGER NOT NULL, last_activity INTEGER NOT NULL
-	);
-	--> statement-breakpoint
-	CREATE TABLE auth_attempt (id TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL, started INTEGER NOT NULL);`,
-};
+import { DirectoryPolicyError, preparePrivateDirectory } from "./private-directory";
 
 const storageError = () =>
 	new Error("Studio storage could not be verified. Check the installation directory.");
@@ -36,8 +16,13 @@ export async function openInstallation(directory: string) {
 		await preparePrivateDirectory(directory);
 		const marker = join(directory, "installation.id");
 		const database = join(directory, "studio.db");
-		const fresh = (await readdir(directory)).length === 0;
+		const files = await readdir(directory);
+		const fresh = files.length === 0;
 		if (fresh) await writeFile(marker, crypto.randomUUID(), { flag: "wx", mode: 0o600 });
+		if (!fresh && !files.includes("studio.db"))
+			throw new DirectoryPolicyError(
+				"Studio storage is incomplete. Restore the installation backup, or choose a new empty data directory for a fresh setup.",
+			);
 		if (!(await lstat(marker)).isFile() || (!fresh && !(await lstat(database)).isFile()))
 			throw storageError();
 		const id = await readFile(marker, "utf8");
@@ -45,13 +30,7 @@ export async function openInstallation(directory: string) {
 			throw storageError();
 		client = await connect(database, { fileMustExist: !fresh });
 		const db = drizzle({ client });
-		if (!fresh) {
-			const applied = await db.all<{ name: string }>(
-				sql`SELECT name FROM __drizzle_migrations ORDER BY id`,
-			);
-			if (applied.length !== 1 || applied[0].name !== migrationName) throw storageError();
-		}
-		await migrate(db, { migrations });
+		await migrateInstallation(db, fresh, ownerMigrations);
 		if (fresh) {
 			await db.run(
 				sql`INSERT INTO installation(singleton, installation_id, claimed) VALUES (1, ${id}, 0)`,
@@ -86,8 +65,9 @@ export async function openInstallation(directory: string) {
 			return result;
 		}
 		return { id, use, hasOwner: () => use(hasOwner), close: () => use(() => opened.close()) };
-	} catch {
+	} catch (error) {
 		await client?.close().catch(() => {});
+		if (error instanceof DirectoryPolicyError) throw error;
 		throw storageError();
 	}
 }

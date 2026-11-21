@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
@@ -42,7 +42,7 @@ test("a database and marker from different installations are rejected", async ()
 	await expect(openInstallation(directory)).rejects.toThrow("storage");
 });
 
-test("partially restored tables and unknown migration history keep setup closed", async () => {
+test("a missing session table keeps setup closed", async () => {
 	const initial = await openInstallation(directory);
 	await initial.use((db) => db.run(sql`DROP TABLE session`));
 	await initial.close();
@@ -64,7 +64,8 @@ test("a private directory inside the studio checkout is rejected before credenti
 		await symlink(directory, outward, "junction");
 		for (const root of [served, alias, outward]) {
 			const data = join(root, "settings");
-			await expect(openInstallation(data)).rejects.toThrow("storage");
+			await expect(openInstallation(data)).rejects.toThrow("outside the studio files");
+			await expect(lstat(data)).rejects.toMatchObject({ code: "ENOENT" });
 			expect(await Bun.file(join(data, "installation.id")).exists()).toBe(false);
 		}
 	} finally {
@@ -81,7 +82,7 @@ test.skipIf(process.platform !== "win32")(
 			stderr: "ignore",
 		});
 		expect(await grant.exited).toBe(0);
-		await expect(openInstallation(directory)).rejects.toThrow("storage");
+		await expect(openInstallation(directory)).rejects.toThrow("must be private");
 		expect(await Bun.file(join(directory, "installation.id")).exists()).toBe(false);
 	},
 );
@@ -109,7 +110,26 @@ test.skipIf(process.platform === "win32")(
 	"group readable storage is rejected before initialization",
 	async () => {
 		await chmod(directory, 0o750);
-		await expect(openInstallation(directory)).rejects.toThrow("storage");
+		await expect(openInstallation(directory)).rejects.toThrow("must be private");
 		expect(await Bun.file(join(directory, "installation.id")).exists()).toBe(false);
 	},
 );
+
+test("an unrelated working directory does not become the installation's checkout", async () => {
+	const entry = new URL("./installation.ts", import.meta.url).href;
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			"-e",
+			`const {openInstallation} = await import(${JSON.stringify(entry)}); const install = await openInstallation(process.cwd()); await install.close();`,
+		],
+		{ cwd: directory, stdout: "ignore", stderr: "ignore" },
+	);
+	expect(await child.exited).toBe(0);
+});
+
+test("directory policy errors identify a relative path without echoing it", async () => {
+	await expect(openInstallation("relative/private")).rejects.toThrow(
+		"An absolute data directory is required.",
+	);
+});
