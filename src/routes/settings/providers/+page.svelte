@@ -6,10 +6,12 @@ import {
 import { enhance, type SubmitFunction } from "$app/forms";
 import { refreshAll } from "$app/navigation";
 import { page } from "$app/state";
-import type { PageProps } from "./$types";
+import type { ActionData, PageProps } from "./$types";
 
 let { data, form }: PageProps = $props();
 type Operation = "connect" | "remove";
+type ConnectionFeedback = NonNullable<ActionData>;
+const feedbackByProvider = $state<Partial<Record<ProviderId, ConnectionFeedback>>>({});
 const pendingByProvider = $state<Partial<Record<ProviderId, Operation>>>({});
 const names = { poyo: "Poyo.ai", toapis: "ToAPIs" };
 const statuses = {
@@ -31,11 +33,18 @@ const provider = $derived(
 		data.providers[0],
 );
 const pending = $derived(provider && pendingByProvider[provider.id]);
-const feedback = $derived(!pending && form?.provider === provider?.id ? form : null);
+const feedback = $derived(
+	provider && !pending
+		? (feedbackByProvider[provider.id] ?? (form?.provider === provider.id ? form : null))
+		: null,
+);
 const isSuccess = $derived(feedback?.outcome === "connected" || feedback?.outcome === "removed");
 const pendingMessages = { connect: "Checking key…", remove: "Removing key…" };
 
-function save(id: ProviderId, operation: Operation): SubmitFunction {
+function save(
+	id: ProviderId,
+	operation: Operation,
+): SubmitFunction<ConnectionFeedback, ConnectionFeedback> {
 	return ({ formElement, cancel }) => {
 		if (pendingByProvider[id]) {
 			cancel();
@@ -45,6 +54,12 @@ function save(id: ProviderId, operation: Operation): SubmitFunction {
 		if (operation === "connect") formElement.reset();
 		return async ({ result, update }) => {
 			try {
+				if (
+					(result.type === "success" || result.type === "failure") &&
+					result.data?.provider === id
+				) {
+					feedbackByProvider[id] = result.data;
+				}
 				const refresh =
 					result.type === "success" ||
 					(result.type === "failure" && result.data?.outcome === "superseded");

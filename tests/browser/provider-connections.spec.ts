@@ -161,6 +161,7 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 		const drawer = page.getByRole("dialog");
 		await expect(drawer).toBeVisible();
 		await drawer.getByRole("link", { name: "Studio home" }).press("Enter");
+		await expect(page.getByRole("heading", { name: "Studio home" })).toBeVisible();
 		await expect(drawer).toHaveCount(0);
 		await page.getByRole("button", { name: "Menu", exact: true }).press("Enter");
 		await drawer.getByRole("link", { name: "Settings", exact: true }).press("Enter");
@@ -246,47 +247,59 @@ test("removing a connection while the built server checks a replacement leaves i
 	}
 });
 
-test("a pending connection keeps the other provider usable and preserves the selected provider", async ({
-	page,
-}) => {
-	const directory = await createOwnerDirectory();
-	const fixtures = startProviderFixtures();
-	const delayed = Promise.withResolvers<void>();
-	const deliver = Promise.withResolvers<void>();
-	let server: Studio | undefined;
-	try {
-		server = await startStudio(directory, "0", false, fixtures.env);
-		await claimStudio(page, server);
-		await page.goto(settingsUrl(server));
-		await page.route("**/settings/providers?*/connect&provider=poyo", async (route) => {
-			const response = await route.fetch();
-			delayed.resolve();
-			await deliver.promise;
-			await route.fulfill({ response });
-		});
-		await page.getByLabel("API key").fill(keys.poyo);
-		await page.getByRole("button", { name: "Connect", exact: true }).click();
-		await delayed.promise;
-		await page.getByRole("link", { name: "ToAPIs", exact: true }).click();
-		await expect(page.getByLabel("API key")).toBeEnabled();
-		expect(await submit(page, "Connect", keys.toapis)).toBe(200);
-		await expect(page.getByRole("status")).toHaveText("Key accepted and saved.");
-		const refresh = page.waitForResponse(
-			(response) => response.request().method() === "GET" && response.url().includes("__data.json"),
-		);
-		deliver.resolve();
-		await refresh;
-		await expect(page.getByRole("link", { name: "ToAPIs" })).toHaveAttribute(
-			"aria-current",
-			"page",
-		);
-		await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-		await page.getByRole("link", { name: "Poyo.ai" }).click();
-		await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-	} finally {
-		deliver.resolve();
-		await server?.stop();
-		await fixtures.stop();
-		await rm(directory, { recursive: true, force: true });
-	}
-});
+for (const [outcome, key, message] of [
+	["accepted", keys.poyo, "Key accepted and saved."],
+	["rejected", keys.rejected, "The provider rejected this key."],
+	["unavailable", keys.unavailable, "The provider check is unavailable. Try again later."],
+] as const) {
+	test(`Settings preserves the selected provider and the pending provider’s ${outcome} result`, async ({
+		page,
+	}) => {
+		const directory = await createOwnerDirectory();
+		const fixtures = startProviderFixtures();
+		const delayed = Promise.withResolvers<void>();
+		const deliver = Promise.withResolvers<void>();
+		let server: Studio | undefined;
+		try {
+			server = await startStudio(directory, "0", false, fixtures.env);
+			await claimStudio(page, server);
+			await page.goto(settingsUrl(server));
+			await page.route("**/settings/providers?*/connect&provider=poyo", async (route) => {
+				const response = await route.fetch();
+				delayed.resolve();
+				await deliver.promise;
+				await route.fulfill({ response });
+			});
+			await page.getByLabel("API key").fill(key);
+			await page.getByRole("button", { name: "Connect", exact: true }).click();
+			await delayed.promise;
+			await page.getByRole("link", { name: "ToAPIs", exact: true }).click();
+			await expect(page.getByLabel("API key")).toBeEnabled();
+			expect(await submit(page, "Connect", keys.toapis)).toBe(200);
+			await expect(page.getByRole("status")).toHaveText("Key accepted and saved.");
+			const finished = page.waitForResponse((response) =>
+				key === keys.poyo
+					? response.request().method() === "GET" && response.url().includes("__data.json")
+					: response.request().method() === "POST" &&
+						response.url().includes("/connect&provider=poyo"),
+			);
+			deliver.resolve();
+			await finished;
+			await expect(page.getByRole("link", { name: "ToAPIs" })).toHaveAttribute(
+				"aria-current",
+				"page",
+			);
+			await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+			await page.getByRole("link", { name: "Poyo.ai" }).click();
+			await expect(
+				page.getByText(key === keys.poyo ? "Connected" : "Disconnected", { exact: true }),
+			).toBeVisible();
+			await expect(page.getByRole(key === keys.poyo ? "status" : "alert")).toHaveText(message);
+		} finally {
+			deliver.resolve();
+			await server?.stop();
+			await fixtures.stop();
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+}
