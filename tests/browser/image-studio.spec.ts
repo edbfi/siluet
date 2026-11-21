@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import {
 	providerFixtureKeys as keys,
@@ -410,6 +410,21 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.keyboard.press("ArrowLeft");
 			await expect(outgoingTab).toBeFocused();
 			await expect(outgoingTab).toHaveAttribute("aria-selected", "true");
+			await test.step("show the selected tab underline in light and dark appearance", async () => {
+				const underlineColor = (tab: Locator) =>
+					tab.evaluate((element) => getComputedStyle(element).borderBlockEndColor);
+				try {
+					await page.emulateMedia({ colorScheme: "light" });
+					const lightSelected = await underlineColor(outgoingTab);
+					expect(lightSelected).not.toBe(await underlineColor(reviewTab));
+					await page.emulateMedia({ colorScheme: "dark" });
+					const darkSelected = await underlineColor(outgoingTab);
+					expect(darkSelected).not.toBe(await underlineColor(reviewTab));
+					expect(darkSelected).not.toBe(lightSelected);
+				} finally {
+					await page.emulateMedia({ colorScheme: null });
+				}
+			});
 			await prompt.fill(promptText.repeat(20));
 			const jsonRegion = outgoing.getByRole("region", { name: "JSON request body" });
 			await jsonRegion.focus();
@@ -435,18 +450,24 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.keyboard.press("Tab");
 			await expect(facts).toBeFocused();
 			const menu = page.getByRole("button", { name: "Menu", exact: true });
+			const openMenu = async () => {
+				await menu.press("Enter");
+				await expect(
+					page.getByRole("dialog").getByRole("button", { name: "Close menu" }),
+				).toBeFocused();
+			};
 			await expect(menu).toBeEnabled();
-			await menu.press("Enter");
+			await openMenu();
 			await expect(imageLink).toHaveAttribute("aria-current", "page");
 			await settingsLink.press("Enter");
 			await expect(page.getByRole("dialog")).toHaveCount(0);
 			await expect(page.getByRole("banner").getByText("Providers", { exact: true })).toBeVisible();
-			await menu.press("Enter");
+			await openMenu();
 			await imageLink.press("Enter");
 			await expect(page.getByRole("dialog")).toHaveCount(0);
 			await expect(prompt).toHaveValue(promptText);
 			await expect(firstFile).toHaveAccessibleDescription(/fixture-reference\.png/);
-			await menu.press("Enter");
+			await openMenu();
 			await homeLink.press("Enter");
 			await expect(page).toHaveURL(origin.href);
 			await page.getByRole("button", { name: "Sign out" }).press("Enter");
@@ -461,7 +482,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.getByRole("button", { name: "Sign in" }).press("Enter");
 			await expect(page).toHaveURL(origin.href);
 			await expect(menu).toBeEnabled();
-			await menu.press("Enter");
+			await openMenu();
 			await imageLink.press("Enter");
 			await expect(prompt).toHaveValue("");
 			await expect(operation).toHaveValue("generate");

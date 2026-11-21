@@ -3,14 +3,14 @@ import "../app.css";
 import { onMount } from "svelte";
 import icon from "#lib/assets/siluet-icon.svg";
 import StudioShell from "#lib/components/workspace/StudioShell.svelte";
+import { applyAppearance } from "#lib/shared/styles/appearance.ts";
 import { page } from "$app/state";
 import type { LayoutProps } from "./$types";
 
 let { data, children }: LayoutProps = $props();
 onMount(() => {
 	try {
-		const theme = localStorage.getItem("siluet-appearance");
-		if (theme === "light" || theme === "dark") document.documentElement.style.colorScheme = theme;
+		applyAppearance(localStorage.getItem("siluet-appearance"));
 	} catch {}
 });
 </script>

@@ -7,6 +7,7 @@ import { exportWorkspace } from "../../design/workspace/export";
 import type { PricingFeed } from "../../src/lib/shared/pricing/feed";
 import { decodeToapisPricingFeed } from "../../src/lib/shared/pricing/toapis-feed";
 import { toapisRates } from "../fixtures/toapis-feed";
+import { reloadTest } from "./file-reload";
 
 const workspace = new URL("../../design/workspace/", import.meta.url);
 // https://github.com/PoyoAPI/poyo-devtools/blob/747e5d75319585d66396a3c05bd1b97d9390ce74/artifacts/capability-catalog.json
@@ -31,21 +32,6 @@ let sourceEntry: URL;
 let portableEntry: URL;
 
 test.use({ offline: true });
-
-const testWithPersistentProfile = test.extend({
-	context: async ({ browserName, headless, offline, playwright }, use) => {
-		// Exercise direct-file reloads with a fresh, disk-backed profile.
-		const context = await playwright[browserName].launchPersistentContext("", {
-			headless,
-			offline,
-		});
-		try {
-			await use(context);
-		} finally {
-			await context.close();
-		}
-	},
-});
 
 test.beforeAll(async () => {
 	previewDirectory = await mkdtemp(join(tmpdir(), "siluet-pricing-"));
@@ -167,7 +153,7 @@ test("an expired Image Studio quote returns to Review before Queue can create a 
 	await expect(page.getByRole("region", { name: "Billing" })).toContainText("Estimate unavailable");
 });
 
-testWithPersistentProfile(
+reloadTest(
 	"Jobs keeps the reviewed estimate through an automatic retry, expiry, and reload",
 	async ({ page }) => {
 		await page.goto(`${sourceEntry.href}#image`);
@@ -262,7 +248,7 @@ for (const filename of ["index.html", "workspace.html"]) {
 	});
 }
 
-testWithPersistentProfile(
+reloadTest(
 	"Jobs retains an advertised ToAPIs estimate and source across automatic retries and reload",
 	async ({ page }) => {
 		await page.goto(`${sourceEntry.href}#image`);

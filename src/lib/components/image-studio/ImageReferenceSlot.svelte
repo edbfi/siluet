@@ -8,6 +8,31 @@ import {
 	type SeedreamReference,
 } from "#lib/shared/image-studio/references.ts";
 import type { SeedreamProvider } from "#lib/shared/image-studio/seedream.ts";
+import { css } from "#styled-system/css";
+import { requestLabel } from "./request-styles.ts";
+
+const slot = css({ display: "grid", gap: "0.3rem", minWidth: 0, paddingBlock: "0.75rem" });
+const fileName = css({ minWidth: 0, overflowWrap: "anywhere" });
+const actionRow = css({
+	display: "flex",
+	alignItems: "center",
+	flexWrap: "wrap",
+	gap: "0 0.75rem",
+});
+const referenceDetail = css({ color: "muted", fontSize: "0.82rem" });
+const referenceAction = css({
+	minHeight: "44px",
+	width: "fit-content",
+	font: "inherit",
+	fontWeight: 650,
+	color: "accent",
+	cursor: "pointer",
+	border: 0,
+	background: "transparent",
+	paddingInline: 0,
+	textDecoration: "underline",
+	textUnderlineOffset: "0.16em",
+});
 
 let {
 	provider,
@@ -91,16 +116,54 @@ async function chooseUrl() {
 }
 </script>
 
-<div class="reference" class:separated={index > 0}>
-	<label class="title" for={fileId}>{label}</label>
-	<div class="file-picker">
-		<span class="file-button" aria-hidden="true">
+<div class={[slot, index > 0 && css({ borderTop: "1px solid {colors.line}" })]}>
+	<label class={requestLabel} for={fileId}>{label}</label>
+	<div
+		class={[
+			"group",
+			css({
+				position: "relative",
+				display: "flex",
+				alignItems: "center",
+				minHeight: "44px",
+				gap: "0.65rem",
+				padding: "0.25rem",
+				border: "1px dashed {colors.border}",
+				borderRadius: "8px",
+				fontSize: "0.85rem",
+				"&:has(:focus-visible)": {
+					outline: "3px solid {colors.accent}",
+					outlineOffset: "3px",
+				},
+			}),
+		]}
+	>
+		<span
+			class={css({
+				flex: "none",
+				borderRadius: "5px",
+				background: "canvas",
+				padding: "0.35rem 0.6rem",
+				color: "ink",
+				fontWeight: 650,
+				_groupHover: { color: "accent" },
+			})}
+			aria-hidden="true"
+		>
 			{reference?.kind === "file" ? "Replace file" : "Choose file"}
 		</span>
 		{#if reference?.kind === "file"}
-			<span class="filename" id={`${id}-name`}>{reference.file.name}</span>
+			<span class={fileName} id={`${id}-name`}>{reference.file.name}</span>
 		{/if}
 		<input
+			class={css({
+				position: "absolute",
+				inset: 0,
+				width: "100%",
+				height: "100%",
+				opacity: 0,
+				cursor: "pointer",
+			})}
 			bind:this={fileInput}
 			id={fileId}
 			type="file"
@@ -110,25 +173,50 @@ async function chooseUrl() {
 		>
 	</div>
 	{#if reference}
-		<div class="actions">
+		<div class={[actionRow, referenceDetail]}>
 			{#if reference.kind === "url"}
-				<span>{reference.hostname} (URL hidden)</span>
+				<span class={fileName}>{reference.hostname} (URL hidden)</span>
 			{:else}
-				<button type="button" onclick={onPreview} aria-label={`Preview ${label.toLowerCase()}`}>
+				<button
+					class={referenceAction}
+					type="button"
+					onclick={onPreview}
+					aria-label={`Preview ${label.toLowerCase()}`}
+				>
 					Preview
 				</button>
 			{/if}
-			<button type="button" onclick={onRemove} aria-label={`Remove ${label.toLowerCase()}`}>
+			<button
+				class={referenceAction}
+				type="button"
+				onclick={onRemove}
+				aria-label={`Remove ${label.toLowerCase()}`}
+			>
 				Remove
 			</button>
 		</div>
 	{/if}
 
-	<details bind:this={urlDisclosure}>
-		<summary>Use a URL</summary>
-		<label class="url-label" for={`${id}-url`}>HTTP or HTTPS URL for {label.toLowerCase()}</label>
-		<div class="url">
+	<details class={referenceDetail} bind:this={urlDisclosure}>
+		<summary
+			class={css({
+				minHeight: "44px",
+				width: "fit-content",
+				font: "inherit",
+				fontWeight: 650,
+				color: "accent",
+				cursor: "pointer",
+				paddingBlock: "0.65rem",
+			})}
+		>
+			Use a URL
+		</summary>
+		<label class={requestLabel} for={`${id}-url`}
+			>HTTP or HTTPS URL for {label.toLowerCase()}</label
+		>
+		<div class={[actionRow, css({ marginTop: "0.25rem" })]}>
 			<input
+				class={css({ flex: "1 1 11rem", width: "100%", minWidth: 0, minHeight: "44px" })}
 				bind:this={urlField}
 				bind:value={url}
 				id={`${id}-url`}
@@ -145,112 +233,18 @@ async function chooseUrl() {
 					}
 				}}
 			>
-			<button type="button" onclick={chooseUrl}>Use URL</button>
+			<button class={referenceAction} type="button" onclick={chooseUrl}>Use URL</button>
 		</div>
 	</details>
 
-	<p class:error role="status" id={`${id}-status`}>{error || (pending ? "Checking file…" : "")}</p>
+	<p
+		class={[
+			css({ fontSize: "0.82rem", _empty: { position: "absolute" } }),
+			error ? css({ color: "danger" }) : css({ color: "muted" }),
+		]}
+		role="status"
+		id={`${id}-status`}
+	>
+		{error || (pending ? "Checking file…" : "")}
+	</p>
 </div>
-
-<style>
-.reference {
-	display: grid;
-	gap: 0.3rem;
-	min-width: 0;
-	padding-block: 0.75rem;
-}
-.separated {
-	border-top: 1px solid var(--line);
-}
-.title,
-.url-label {
-	font-size: 0.85rem;
-	font-weight: 650;
-}
-.file-picker {
-	position: relative;
-	display: flex;
-	align-items: center;
-	min-height: 44px;
-	gap: 0.65rem;
-	padding: 0.25rem;
-	border: 1px dashed var(--border);
-	border-radius: 8px;
-	font-size: 0.85rem;
-}
-.file-picker input {
-	position: absolute;
-	inset: 0;
-	width: 100%;
-	height: 100%;
-	opacity: 0;
-	cursor: pointer;
-}
-.file-picker:has(:focus-visible) {
-	outline: 3px solid var(--accent);
-	outline-offset: 3px;
-}
-.file-button {
-	flex: none;
-	border-radius: 5px;
-	background: var(--canvas);
-	padding: 0.35rem 0.6rem;
-	color: var(--ink);
-	font-weight: 650;
-}
-.file-picker:hover .file-button {
-	color: var(--accent);
-}
-.filename,
-.actions span {
-	min-width: 0;
-	overflow-wrap: anywhere;
-}
-.actions,
-.url {
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 0 0.75rem;
-}
-.url {
-	margin-top: 0.25rem;
-}
-.url input {
-	flex: 1 1 11rem;
-	width: 100%;
-	min-width: 0;
-	min-height: 44px;
-}
-button,
-summary {
-	min-height: 44px;
-	width: fit-content;
-	font: inherit;
-	font-weight: 650;
-	color: var(--accent);
-	cursor: pointer;
-}
-button {
-	border: 0;
-	background: transparent;
-	padding-inline: 0;
-	text-decoration: underline;
-	text-underline-offset: 0.16em;
-}
-summary {
-	padding-block: 0.65rem;
-}
-.actions,
-details,
-p {
-	color: var(--muted);
-	font-size: 0.82rem;
-}
-p:empty {
-	position: absolute;
-}
-.error {
-	color: var(--composer-error);
-}
-</style>
