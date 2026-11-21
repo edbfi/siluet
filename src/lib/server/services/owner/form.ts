@@ -1,4 +1,5 @@
 import { fail, type RequestEvent, redirect } from "@sveltejs/kit";
+import { signOutNoticeName } from "#lib/shared/owner/session-notice.ts";
 import { AccessError } from "./access";
 
 export async function authenticate(event: RequestEvent, claim: boolean) {
@@ -12,13 +13,15 @@ export async function authenticate(event: RequestEvent, claim: boolean) {
 		const session = claim
 			? await access.claim(field("token"), field("username"), field("password"))
 			: await access.signIn(field("username"), field("password"));
+		const secure = origin.protocol === "https:";
 		event.cookies.set(cookieName, session, {
 			path: "/",
 			sameSite: "lax",
 			httpOnly: true,
-			secure: origin.protocol === "https:",
+			secure,
 			maxAge: 30 * 86400,
 		});
+		event.cookies.delete(signOutNoticeName(origin), { path: "/", secure });
 	} catch (error) {
 		if (error instanceof AccessError) {
 			const username = field("username");

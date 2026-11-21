@@ -6,6 +6,7 @@ import {
 	providerFixtureKeys as keys,
 	startProviderFixtures,
 } from "../fixtures/provider-connections";
+import { referencePng } from "../fixtures/reference-image";
 import { startStudio } from "./built-studio";
 
 const username = "image-owner";
@@ -14,10 +15,7 @@ const referenceUrl = "https://images.example.test/photos/fixture-edit.png?token=
 const referenceImage = {
 	name: "fixture-reference.png",
 	mimeType: "image/png",
-	buffer: Buffer.from(
-		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN4QAAAAASUVORK5CYII=",
-		"base64",
-	),
+	buffer: referencePng,
 };
 
 async function enterOwnerDetails(page: Page, password: string) {

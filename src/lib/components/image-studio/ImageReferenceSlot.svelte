@@ -51,7 +51,16 @@ async function chooseFile(event: Event & { currentTarget: HTMLInputElement }) {
 	const currentSelection = ++selection;
 	error = "";
 	pending = true;
-	const result = await checkReferenceFile(provider, file);
+	let result = await checkReferenceFile(provider, file);
+	if (selection !== currentSelection) return;
+	if (!result) {
+		try {
+			const bitmap = await createImageBitmap(file);
+			bitmap.close();
+		} catch {
+			result = "Could not decode this image. Choose a complete image file.";
+		}
+	}
 	if (selection !== currentSelection) return;
 	pending = false;
 	if (result) {

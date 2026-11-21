@@ -1,0 +1,4 @@
+export const referencePng = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVQI12OwzpoHAAInAUTeUHLOAAAAAElFTkSuQmCC",
+	"base64",
+);

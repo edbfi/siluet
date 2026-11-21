@@ -6,10 +6,12 @@ import {
 	type ImageDraftMemory,
 	setImageDraftContext,
 } from "#lib/components/image-studio/draft-context.ts";
+import { watchSignOut } from "#lib/shared/owner/session-notice.ts";
 
 let { pathname, children }: { pathname: string; children: Snippet } = $props();
 let menuOpen = $state(false);
 let menuReady = $state(false);
+let signedOut = $state(false);
 const settings = $derived(pathname.startsWith("/settings"));
 const image = $derived(pathname === "/image");
 const destination = $derived(settings ? "Providers" : image ? "Image Studio" : "Studio home");
@@ -25,6 +27,15 @@ onMount(() => {
 	mobile.addEventListener("change", closeOnDesktop);
 	return () => mobile.removeEventListener("change", closeOnDesktop);
 });
+
+onMount(() =>
+	watchSignOut(() => {
+		if (signedOut) return;
+		signedOut = true;
+		imageDraftMemory.draft = undefined;
+		location.replace("/sign-in");
+	}),
+);
 </script>
 
 {#snippet navigation()}
@@ -107,7 +118,11 @@ onMount(() => {
 				<span class="location-current">{destination}</span>
 			</div>
 		</header>
-		<main id="workspace-main" tabindex="-1" class="frame content">{@render children()}</main>
+		<main id="workspace-main" tabindex="-1" class="frame content">
+			{#if !signedOut}
+				{@render children()}
+			{/if}
+		</main>
 	</div>
 </div>
 
