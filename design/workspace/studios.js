@@ -554,6 +554,11 @@
 				return;
 			}
 			const value = input.value.trim();
+			if (source.maxUrlBytes && new TextEncoder().encode(value).length > source.maxUrlBytes) {
+				reportSource(row, `Use a media URL of at most ${source.maxUrlBytes} bytes.`, true);
+				input.focus();
+				return;
+			}
 			const url = URL.parse(value);
 			if (
 				!url ||

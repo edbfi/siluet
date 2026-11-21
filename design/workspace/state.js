@@ -267,7 +267,11 @@
 			typeof perRequest !== "string" ||
 			!/^\d+(\.\d{1,6})?$/.test(perRequest) ||
 			typeof sourceDate !== "string" ||
+			!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(
+				sourceDate,
+			) ||
 			!Number.isFinite(Date.parse(sourceDate)) ||
+			new Date(sourceDate.slice(0, 10)).toISOString().slice(0, 10) !== sourceDate.slice(0, 10) ||
 			typeof revision !== "string" ||
 			!/^[a-f\d]{40}$/.test(revision)
 		)

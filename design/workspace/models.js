@@ -326,6 +326,9 @@
 							...toapisImages,
 							field: "image_with_roles",
 							wireRoles: ["first_frame", "last_frame"],
+							maxUrlBytes: 2048,
+							// ToAPIs defers to the model's format limits. Still formats are inferred from Seedance.
+							// https://docs.byteplus.com/en/docs/ModelArk/seedance-2-5
 							protocols: httpOrHttps,
 							formats: stillFormats,
 						},
@@ -343,6 +346,7 @@
 							roles: ["Source video"],
 							field: "video_with_roles",
 							wireRole: "reference_video",
+							maxUrlBytes: 2048,
 							protocols: httpOrHttps,
 							// https://docs.volcengine.com/docs/ark/seedance-2-5?lang=en
 							formats: ["mp4", "mov"],

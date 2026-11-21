@@ -48,7 +48,11 @@ function start(storage = new Map(), initialTime = timestamp + 60000, availableFi
 	};
 	runInNewContext(script, {
 		window,
-		Date: { now: () => now },
+		Date: class extends Date {
+			static now() {
+				return now;
+			}
+		},
 		crypto,
 		File,
 		URL: class extends URL {
@@ -149,6 +153,46 @@ describe("synthetic studio state", () => {
 		expect(result?.src).toBe(fixtures[0].src);
 		expect(result?.sourceIds).toEqual([source.id]);
 		expect(() => studio.submit({ ...request, fixtureId: "sample-video" })).toThrow();
+	});
+
+	test("restoring a PoYo estimate validates the amount, catalog revision and date", () => {
+		const { studio, storage, reopen } = start();
+		studio.configure({ keys: { poyo: true } });
+		const [id] = studio.submit(request);
+		const key = "siluet.workspace.v1";
+		const saved = JSON.parse(storage.get(key));
+		const row = saved.jobs.find((entry) => entry.id === id);
+		const quote = {
+			status: "known",
+			unit: "poyo_credit",
+			perRequest: "2",
+			revision: "a".repeat(40),
+			sourceDate: "2026-11-19T13:42:30Z",
+		};
+		for (const change of [
+			{},
+			{ perRequest: "bad" },
+			{ revision: "abc" },
+			{ sourceDate: "November 19 2026" },
+			{ sourceDate: "2026-02-30T00:00:00Z" },
+		]) {
+			row.estimate = { ...quote, ...change };
+			storage.set(key, JSON.stringify(saved));
+			expect(job(reopen().studio, id).estimate).toEqual(Object.keys(change).length ? null : quote);
+		}
+	});
+
+	test("a mismatched retry estimate leaves the failed attempt available for review", () => {
+		const { studio, tick } = start();
+		studio.configure({ keys: { poyo: true } });
+		const [id] = studio.submit({ ...request, outcome: "transient" });
+		tick(1500);
+		expect(() => studio.retry(id, { status: "known", perRequest: "2" })).toThrow(
+			/estimate changed/,
+		);
+		expect(createdJobs(studio)).toHaveLength(1);
+		const retry = studio.retry(id, studio.retryEstimate(id));
+		expect(job(studio, retry).parentId).toBe(id);
 	});
 
 	test("retry limits cap at three in settings and old persisted attempts", () => {

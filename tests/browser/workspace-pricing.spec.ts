@@ -288,10 +288,14 @@ test("Video Studio shows the applicable Seedance token rate with an unknown requ
 	await page.getByLabel("Operation", { exact: true }).selectOption("animate");
 	await expect(price).toContainText("Estimate unavailable");
 	await page.getByText("Use a URL", { exact: true }).click();
-	await page
-		.getByRole("textbox", { name: "HTTP or HTTPS URL for starting frame" })
-		.fill("https://images.example.invalid/first.png");
-	await page.getByRole("button", { name: "Use URL", exact: true }).click();
+	const frameUrl = page.getByRole("textbox", { name: "HTTP or HTTPS URL for starting frame" });
+	const addFrame = page.getByRole("button", { name: "Use URL", exact: true });
+	await frameUrl.fill(`https://example.invalid/${"é".repeat(1013)}`);
+	await addFrame.click();
+	await expect(page.getByText(/2048 bytes/)).toBeVisible();
+	await expect(price).toContainText("Estimate unavailable");
+	await frameUrl.fill("https://images.example.invalid/first.png");
+	await addFrame.click();
 	await expect(price).toContainText("$10 per million total tokens");
 	await page.getByText("Outgoing request", { exact: true }).click();
 	const wire = page.locator(".studio-wire-options");
