@@ -96,7 +96,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 				"Seedream 5.5",
 			]);
 			await expect(providers).toHaveCount(0);
-			await prompt.fill(promptText);
+			await prompt.fill("tiny");
 			expect(fixtures.requests).toEqual([]);
 			await page.getByRole("link", { name: "Open Settings" }).press("Enter");
 			await saveKey(page, keys.poyo);
@@ -105,7 +105,9 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(page.getByText("Seedream 5.5 access unavailable.")).toBeVisible();
 
 			await imageLink.press("Enter");
-			await expect(prompt).toHaveValue(promptText);
+			await expect(prompt).toHaveValue("tiny");
+			await expect(prompt).toHaveAttribute("aria-invalid", "true");
+			await prompt.fill(promptText);
 			await expect(providers).toHaveCount(1);
 			await expect(poyo).toBeChecked();
 			await expect(toapis).toHaveCount(0);

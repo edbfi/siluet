@@ -247,6 +247,7 @@ test("reference URL validation preserves signed paths, identifies the host and r
 		hostname: "images.example.com",
 	});
 	expect(parseReferenceUrl("http://images.example.com/image")).not.toBeNull();
+	expect(parseReferenceUrl("http://[2606:4700::1]/image")).not.toBeNull();
 	for (const value of [
 		"data:image/png;base64,AA==",
 		"ftp://images.example.com/image",
@@ -258,6 +259,8 @@ test("reference URL validation preserves signed paths, identifies the host and r
 		"http://192.168.1.1/image",
 		"http://169.254.169.254/image",
 		"http://[::1]/image",
+		"http://[2::1]/image",
+		"http://[03ff::1]/image",
 		"http://[::ffff:7f00:1]/image",
 		"http://[fc00::1]/image",
 	])

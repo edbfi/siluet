@@ -58,7 +58,7 @@ let slotKeys = $state(
 let nextSlotKey = untrack(() => slotKeys.length);
 let previewIndex = $state(0);
 let selectionStatus = $state("");
-let promptTouched = $state(false);
+let promptTouched = $state(untrack(() => draft.prompt.length > 0));
 let promptField: HTMLTextAreaElement;
 let preview: ReturnType<typeof ImageReferencePreview>;
 
@@ -89,9 +89,13 @@ function select(provider: SeedreamProvider | null, operation: SeedreamOperation 
 	}
 	const previousOptions = rememberedOptions.get(`${provider}/${operation}`);
 	if (previousOptions) next.options = { ...previousOptions };
-	selectionStatus = draft.references.length
-		? "Reference images cleared. Choose them again for this request."
-		: "";
+	selectionStatus = "";
+	if (draft.references.length) {
+		selectionStatus =
+			operation === "edit"
+				? "Reference images cleared. Choose them again for this request."
+				: "Reference images cleared.";
+	}
 	previewIndex = 0;
 	slotKeys = [nextSlotKey++];
 	draft = next;

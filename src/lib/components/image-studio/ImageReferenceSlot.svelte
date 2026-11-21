@@ -239,7 +239,7 @@ p {
 	font-size: 0.82rem;
 }
 p:empty {
-	display: none;
+	position: absolute;
 }
 .error {
 	color: var(--composer-error);

@@ -98,7 +98,7 @@ function imageFormat(bytes: Uint8Array): keyof typeof fileTypes | undefined {
 function isPublicHostname(hostname: string): boolean {
 	const host = hostname.replace(/\.$/, "");
 	if (host.startsWith("[")) {
-		return /^[[][23]/.test(host) && !/^\[(?:2001:db8:|3fff:)/.test(host);
+		return /^\[[23][0-9a-f]{3}:/.test(host) && !/^\[(?:2001:db8:|3fff:)/.test(host);
 	}
 	const ipv4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host);
 	if (ipv4) {

@@ -67,7 +67,8 @@ function frame(ratio: string) {
 				{#each toapisPresets as { ratio, width, height } (ratio)}
 					<button
 						type="button"
-						aria-pressed={options.sizeMode === "pixels" &&
+						aria-pressed={!error &&
+							options.sizeMode === "pixels" &&
 							!!options.width &&
 							!!options.height &&
 							options.width * height === options.height * width}

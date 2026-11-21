@@ -1,7 +1,7 @@
 <script lang="ts">
+import sampleImage from "#lib/assets/tide-study.webp";
 import type { SeedreamReference } from "#lib/shared/image-studio/references.ts";
 import type { SeedreamOperation } from "#lib/shared/image-studio/seedream.ts";
-import sampleImage from "../../../../design/studio/media/tide-study.webp";
 
 let {
 	operation,
