@@ -1,5 +1,6 @@
 // IANA Global Unicast Address Space. Adjacent allocated blocks are merged into
 // inclusive ranges of the first 32 bits. Special-purpose entries are handled below.
+// Refresh these ranges when IANA allocates new blocks within 2000::/3.
 // https://www.iana.org/assignments/ipv6-unicast-address-assignments
 const allocatedRanges = [
 	[0x2001_0200, 0x2001_0fff],
