@@ -8,9 +8,9 @@ Keeping credentials, charges and files under one person's control avoids shared 
 
 A successful first session takes a creator from selecting a model and understanding its required inputs to submitting a generation, following the job, saving the result and finding it again when they reopen Siluet. If acknowledgement is lost, Siluet must distinguish an uncertain submission from a confirmed provider failure. The creator decides whether to risk another charge.
 
-### Owner sign-in proposal
+### Owner sign-in
 
-Claim one owner with a single-use console token, then set a local password and optionally enroll an authenticator. Settings can link OIDC or direct LDAP independently to that owner. Before disabling a method, require a fresh sign-in through a remaining method, including enrolled MFA. Remove the local password hash and revoke its sessions when the creator disables password sign-in. Enforce the last-method check atomically. An explicit offline host recovery restores access to the existing studio. Verify the Tinyauth, Authelia and authentik presets in the approved module before advertising compatibility.
+Claim one owner with a single-use console token, then set a local password and optionally enroll an authenticator. Settings can link OIDC or direct LDAP independently to that owner. Before disabling a method, require a fresh sign-in through a remaining method, including enrolled MFA. Remove the local password hash and revoke its sessions when the creator disables password sign-in. Enforce the last-method check atomically. An explicit offline host recovery restores access to the existing studio. Bind OIDC to issuer and subject and verify signed authentication time for sensitive changes. Bind LDAP to an immutable directory ID over validated TLS. Apply enrolled MFA to all methods. Verify that a Tinyauth username cannot be reassigned before relying on its subject.
 
 ## D2 · Full image and video model coverage
 
