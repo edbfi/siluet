@@ -141,8 +141,87 @@ for (const cookieEvents of [true, false]) {
 			await page.getByRole("link", { name: "Image Studio", exact: true }).click();
 			await expect(prompt).toHaveValue("");
 			await expect(localPreview).toHaveCount(0);
+			if (cookieEvents) {
+				await prompt.fill(privatePrompt);
+				await otherTab.goto(origin.href);
+				await form.evaluate((element: HTMLFormElement) => element.submit());
+				await expect(page).toHaveURL(signIn);
+				await expect(prompt).toHaveCount(0);
+			}
 		} finally {
 			await otherTab.close();
 		}
 	});
 }
+
+test("a paused fallback tab clears its old draft after another tab signs back in", async ({
+	context,
+	page,
+	studio,
+}) => {
+	const { origin, password } = studio;
+	const signIn = new URL("/sign-in", origin).href;
+	const imageStudio = new URL("/image", origin).href;
+	await page.addInitScript(() => {
+		Object.defineProperty(globalThis, "cookieStore", { value: undefined });
+	});
+	await page.clock.install();
+	await page.reload();
+	const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
+	await prompt.fill(privatePrompt);
+	await page.getByLabel("Operation", { exact: true }).selectOption("edit");
+	await page.getByLabel("Reference image 1", { exact: true }).setInputFiles(image);
+	const preview = page.getByRole("img", { name: "Reference image 1", exact: true });
+	await expect(preview).toHaveAttribute("src", /^blob:/);
+	await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 2000);
+
+	const otherTab = await context.newPage();
+	try {
+		await otherTab.route("**/*", (route) =>
+			route.request().resourceType() === "script" ? route.abort() : route.fallback(),
+		);
+		await otherTab.goto(origin.href);
+		await otherTab.locator('form[action="?/signout"]').evaluate((form: HTMLFormElement) => {
+			form.submit();
+		});
+		await expect(otherTab).toHaveURL(signIn);
+		await otherTab.getByLabel("Username", { exact: true }).fill(username);
+		await otherTab.getByLabel("Password", { exact: true }).fill(password);
+		await otherTab.getByRole("button", { name: "Sign in" }).click();
+		await expect(otherTab).toHaveURL(origin.href);
+		await expect(prompt).toHaveValue(privatePrompt);
+		await expect(preview).toBeVisible();
+
+		await page.evaluate((destination) => {
+			window.navigation.addEventListener(
+				"navigate",
+				(event) => {
+					if (event.destination.url !== destination) return;
+					event.preventDefault();
+					const workspace = document.getElementById("workspace-main");
+					document.body.dataset.draftClearedBeforeNavigation = String(
+						workspace?.childElementCount === 0,
+					);
+				},
+				{ once: true },
+			);
+		}, signIn);
+		await page.clock.runFor(1000);
+		await expect(page.locator("body")).toHaveAttribute(
+			"data-draft-cleared-before-navigation",
+			"true",
+		);
+		await expect(prompt).toHaveCount(0);
+		await expect(preview).toHaveCount(0);
+		await page.goto(signIn);
+		await expect(page).toHaveURL(origin.href);
+		await page.goto(imageStudio);
+		await expect(prompt).toHaveValue("");
+		await expect(preview).toHaveCount(0);
+		await prompt.fill("A fresh draft after signing back in.");
+		await page.clock.runFor(1000);
+		await expect(prompt).toHaveValue("A fresh draft after signing back in.");
+	} finally {
+		await otherTab.close();
+	}
+});

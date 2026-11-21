@@ -1,6 +1,6 @@
 <script lang="ts">
 import { Dialog } from "@ark-ui/svelte/dialog";
-import { onMount, type Snippet } from "svelte";
+import { onMount, type Snippet, tick } from "svelte";
 import icon from "#lib/assets/siluet-icon.svg";
 import {
 	type ImageDraftMemory,
@@ -8,7 +8,11 @@ import {
 } from "#lib/components/image-studio/draft-context.ts";
 import { watchSignOut } from "#lib/shared/owner/session-notice.ts";
 
-let { pathname, children }: { pathname: string; children: Snippet } = $props();
+let {
+	pathname,
+	signOutGeneration,
+	children,
+}: { pathname: string; signOutGeneration: string | null; children: Snippet } = $props();
 let menuOpen = $state(false);
 let menuReady = $state(false);
 let signedOut = $state(false);
@@ -29,10 +33,11 @@ onMount(() => {
 });
 
 onMount(() =>
-	watchSignOut(() => {
+	watchSignOut(signOutGeneration, async () => {
 		if (signedOut) return;
 		signedOut = true;
 		imageDraftMemory.draft = undefined;
+		await tick();
 		location.replace("/sign-in");
 	}),
 );

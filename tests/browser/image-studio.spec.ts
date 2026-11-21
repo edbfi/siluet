@@ -68,6 +68,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 		const navigation = page.getByRole("navigation", { name: "Studio navigation" });
 		const imageLink = navigation.getByRole("link", { name: "Image Studio", exact: true });
 		const settingsLink = navigation.getByRole("link", { name: "Settings", exact: true });
+		const toapisLink = page.getByRole("link", { name: "ToAPIs", exact: true });
 		const homeLink = navigation.getByRole("link", { name: "Studio home", exact: true });
 		const model = page.getByLabel("Model", { exact: true });
 		const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
@@ -98,7 +99,8 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			expect(fixtures.requests).toEqual([]);
 			await page.getByRole("link", { name: "Open Settings" }).press("Enter");
 			await saveKey(page, keys.poyo);
-			await page.getByRole("link", { name: "ToAPIs", exact: true }).press("Enter");
+			await toapisLink.press("Enter");
+			await expect(toapisLink).toHaveAttribute("aria-current", "page");
 			await saveKey(page, keys.restricted);
 			await expect(page.getByText("Seedream 5.5 access unavailable.")).toBeVisible();
 
@@ -111,7 +113,8 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(toapis).toHaveCount(0);
 
 			await settingsLink.press("Enter");
-			await page.getByRole("link", { name: "ToAPIs", exact: true }).press("Enter");
+			await toapisLink.press("Enter");
+			await expect(toapisLink).toHaveAttribute("aria-current", "page");
 			await saveKey(page, keys.toapis, "Replace key");
 			await imageLink.press("Enter");
 			await expect(providers).toHaveCount(2);
