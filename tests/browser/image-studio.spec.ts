@@ -128,7 +128,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(providers).toHaveCount(0);
 			await expect(facts).toContainText("None connected");
 			await expect(queue(1)).toBeDisabled();
-			await expect(queue(1)).toHaveAccessibleDescription(/Up to 1 potentially billable attempt/);
+			await expect(queue(1)).toHaveAccessibleDescription(/Up to 1 potentially billable submission/);
 			await prompt.fill("tiny");
 			expect(fixtures.requests).toEqual([]);
 			await page.getByRole("link", { name: "Open Settings" }).press("Enter");
@@ -237,15 +237,17 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			const promptWithUrl = `${promptText} See <${signedPromptUrl}>.`;
 			await prompt.fill(promptWithUrl);
 			await expect(facts.getByRole("listitem")).toHaveText([
-				referenceImage.name,
-				"images.example.test (URL hidden)",
+				`${referenceImage.name} (file upload)`,
+				"images.example.test (provider fetches the full URL)",
 			]);
 			await expect(price).toContainText("Estimated 10.2 Poyo.ai credits per request");
 			await batchTab.click();
 			await expect(review.getByLabel("Additional attempts per request")).toHaveValue("0");
 			await review.getByLabel("Batch count").selectOption("2");
 			await review.getByLabel("Additional attempts per request").selectOption("1");
-			await expect(queue(2)).toHaveAccessibleDescription(/Up to 4 potentially billable attempts/);
+			await expect(queue(2)).toHaveAccessibleDescription(
+				/Up to 4 potentially billable submissions/,
+			);
 			await reviewTab.click();
 			await expect(price).toContainText("Estimated 20.4 Poyo.ai credits for the initial batch");
 
@@ -270,8 +272,8 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await prompt.fill(promptText);
 			await reviewTab.click();
 			await expect(facts.getByRole("listitem")).toHaveText([
-				referenceImage.name,
-				"images.example.test (URL hidden)",
+				`${referenceImage.name} (file upload)`,
+				"images.example.test (provider fetches the full URL)",
 			]);
 		});
 
@@ -336,13 +338,17 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await batchTab.click();
 			await review.getByLabel("Batch count").selectOption("5");
 			await review.getByLabel("Additional attempts per request").selectOption("3");
-			await expect(queue(5)).toHaveAccessibleDescription(/Up to 20 potentially billable attempts/);
+			await expect(queue(5)).toHaveAccessibleDescription(
+				/Up to 20 potentially billable submissions/,
+			);
 			await reviewTab.click();
 			await expect(price).toContainText("Estimated 28 ToAPIs credits for the initial batch");
 			await request.getByText("Advanced options", { exact: true }).click();
 			await request.getByLabel("Visible watermark").check();
 			await expect(price).toContainText("Local rates do not cover these options.");
-			await expect(queue(5)).toHaveAccessibleDescription(/Up to 20 potentially billable attempts/);
+			await expect(queue(5)).toHaveAccessibleDescription(
+				/Up to 20 potentially billable submissions/,
+			);
 			await request.getByLabel("Visible watermark").uncheck();
 
 			const expiry = rates.observedMs + 30 * 24 * 60 * 60 * 1000;
@@ -353,7 +359,9 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.clock.runFor(1);
 			await expect(price).toContainText("The local rate evidence is 30 days old or older.");
 			await expect(queue(5)).toBeDisabled();
-			await expect(queue(5)).toHaveAccessibleDescription(/Up to 20 potentially billable attempts/);
+			await expect(queue(5)).toHaveAccessibleDescription(
+				/Up to 20 potentially billable submissions/,
+			);
 
 			await page.clock.setSystemTime(new Date(expiry - 1000));
 			await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));

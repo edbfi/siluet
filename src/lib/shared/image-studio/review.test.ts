@@ -144,8 +144,19 @@ test("Review redacts credential-bearing, protocol-relative, and local media URLs
 	});
 	expect(review.outgoing.body).toMatchObject({
 		prompt:
-			"See [URL hidden] and [URL hidden] try <[URL hidden]>, <[URL hidden]> and <[URL hidden]>.",
+			"See [URL hidden] and [URL hidden]; try <[URL hidden]>, <[URL hidden]> and <[URL hidden]>.",
 	});
+});
+
+test("Review hides signed links in prompt prose and preserves the submitted prompt", () => {
+	const prompt = `Use 'https://assets.test/artist's/image?token=secret1', www.assets.test/x?token=secret2, and assets.test:8443/x?token=secret3. Compare <//:password@assets.test/x> with <ftp://:password@assets.test/x>. Keep art.png.`;
+	const request = { ...toapisWire, body: { ...toapisWire.body, prompt } };
+	const review = createImageReview(toapisInput, request);
+	expect(review.outgoing.body).toMatchObject({
+		prompt:
+			"Use '[URL hidden]', [URL hidden], and [URL hidden]. Compare <[URL hidden]> with <[URL hidden]>. Keep art.png.",
+	});
+	expect(request.body.prompt).toBe(prompt);
 });
 
 test("reviewed request options price the initial batch and attempts count includes retries", () => {

@@ -84,12 +84,16 @@ $effect(() => {
 					<dd>{isEdit ? "Reference-guided image edit" : "Text to image"}</dd>
 				</div>
 				<div>
-					<dt>Media sent</dt>
+					<dt>Media on submission</dt>
 					<dd>
 						{#if review?.sources.length}
 							<ol>
 								{#each review.sources as source}
-									<li>{source.label}{source.kind === "url" ? " (URL hidden)" : ""}</li>
+									<li>
+										{source.label}{source.kind === "url"
+											? " (provider fetches the full URL)"
+											: " (file upload)"}
+									</li>
 								{/each}
 							</ol>
 						{:else if isEdit}
@@ -187,7 +191,7 @@ $effect(() => {
 			Queue {count} {count === 1 ? "request" : "requests"}
 		</button>
 		<p id={`${headingId}-exposure`} class="exposure" aria-live="polite">
-			Up to {maxAttempts} potentially billable {maxAttempts === 1 ? "attempt" : "attempts"}.
+			Up to {maxAttempts} potentially billable {maxAttempts === 1 ? "submission" : "submissions"}.
 		</p>
 	</div>
 	<p id={`${headingId}-availability`} class="note">Queue is unavailable in offline review.</p>
