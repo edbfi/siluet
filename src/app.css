@@ -69,10 +69,6 @@
 		outline: 3px solid var(--accent);
 		outline-offset: 3px;
 	}
-	.rail :focus-visible,
-	.mobile :focus-visible {
-		outline-color: #f4c461;
-	}
 	.brand {
 		font-size: 1.55rem;
 		letter-spacing: -0.05em;
@@ -127,35 +123,8 @@
 	.credentials .error {
 		color: light-dark(#992c28, #ffb7ae);
 	}
-	.workspace {
-		display: grid;
-		min-height: 100svh;
-		grid-template-columns: 15rem minmax(0, 1fr);
-	}
-	.rail,
-	.drawer,
-	.mobile {
-		background: #111d33;
-		color: #f1f5ff;
-	}
-	.rail {
-		padding: 2rem 1.25rem;
-	}
-	nav {
-		margin-top: 2.5rem;
-	}
-	nav a {
-		display: block;
-		background: #293b59;
-		color: #f1f5ff;
-		text-decoration: none;
-		padding: 0.75rem 1rem;
-		border-radius: 7px;
-		font-weight: 600;
-	}
 	.home {
 		width: min(100%, 65rem);
-		padding: clamp(1.5rem, 5vw, 4rem);
 	}
 	.home section {
 		background: var(--surface);
@@ -198,26 +167,6 @@
 	.skip:focus {
 		transform: none;
 	}
-	.mobile {
-		display: none;
-	}
-	.scrim,
-	.drawer-position {
-		position: fixed;
-		inset: 0;
-		z-index: 2;
-	}
-	.scrim {
-		background: #0e192ab8;
-	}
-	.drawer {
-		width: min(19rem, 90vw);
-		height: 100%;
-		padding: 1.5rem;
-	}
-	.drawer button {
-		margin-top: 1rem;
-	}
 	@media (max-width: 700px) {
 		.entry {
 			grid-template-columns: 1fr;
@@ -229,18 +178,6 @@
 		.entry-main {
 			place-items: start center;
 			padding-block: 2rem;
-		}
-		.workspace {
-			display: block;
-		}
-		.rail {
-			display: none;
-		}
-		.mobile {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			padding: 0.8rem 1rem;
 		}
 		h1 {
 			font-size: 2.2rem;

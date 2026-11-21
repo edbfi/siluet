@@ -1,4 +1,4 @@
-import { fork, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, readdir, rm, unlink } from "node:fs/promises";
@@ -8,64 +8,7 @@ import { createInterface } from "node:readline";
 import { expect, test } from "@playwright/test";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 
-async function startStudio(directory: string, port = "0", collide = false) {
-	const processHandle = fork(collide ? "tests/browser/occupied-port.ts" : "scripts/start.ts", [], {
-		execPath: process.execPath,
-		execArgv: ["--preload", join(process.cwd(), "tests/browser/launcher-control.ts")],
-		cwd: process.cwd(),
-		env: { ...process.env, SILUET_DATA_DIR: directory, SILUET_SERVER_PORT: port },
-		stdio: ["ignore", "pipe", "ignore", "ipc"],
-	});
-	if (!processHandle.stdout) throw new Error("Missing studio output.");
-	const closed = once(processHandle, "close");
-	const lines = createInterface({ input: processHandle.stdout });
-	const listening = Promise.withResolvers<URL>();
-	let token = "";
-	let announcements = 0;
-	let setupUrl = "";
-	lines.on("line", (line) => {
-		const address = /^Listening on (http:\/\/127\.0\.0\.1:\d+)\/?$/.exec(line);
-		if (address) listening.resolve(new URL(address[1]));
-		if (line.startsWith("Claim token: ")) {
-			announcements++;
-			token = line.slice("Claim token: ".length);
-		}
-		if (line.startsWith("Setup URL: ")) setupUrl = line.slice("Setup URL: ".length);
-	});
-	const timer = setTimeout(
-		() => listening.reject(new Error("Missing listener announcement")),
-		10000,
-	);
-	const stop = async (expectClean = true) => {
-		if (processHandle.connected) {
-			processHandle.send("stop", () => {});
-		}
-		const [code] = await closed;
-		lines.close();
-		if (expectClean) expect(code).toBe(0);
-	};
-	try {
-		const origin = await Promise.race([
-			listening.promise,
-			closed.then(() => {
-				if (announcements) throw new Error("Setup was announced before failed startup.");
-				throw new Error("Studio stopped before it was ready");
-			}),
-		]);
-		return {
-			origin,
-			announcements: () => announcements,
-			token: () => token,
-			setupUrl: () => setupUrl,
-			stop,
-		};
-	} catch (error) {
-		await stop(false);
-		throw error;
-	} finally {
-		clearTimeout(timer);
-	}
-}
+import { startStudio } from "./built-studio";
 
 test("one owner can claim the studio and sign in after a process restart", async ({ browser }) => {
 	const directory = await createOwnerDirectory();

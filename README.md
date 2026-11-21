@@ -16,7 +16,7 @@
   <a href="https://github.com/edbfi/siluet/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/edbfi/siluet/ci.yml?branch=main&amp;event=push&amp;label=CI&amp;style=flat" alt="CI on main"></a>
 </p>
 
-Siluet runs on your machine. Claim your studio with the token printed in the server terminal, then sign in with your local username and password. The first planned integrations are ToAPIs and Poyo.ai. You’ll be able to use either provider independently, with your own API key, and save the results locally.
+Siluet runs on your machine. Claim your studio with the token printed in the server terminal, then sign in with your local username and password. In **Settings → Providers**, connect Poyo.ai or ToAPIs with your own model API key. Siluet checks the key when you submit it and shows when the provider last accepted it.
 
 ## Tech stack
 
@@ -58,7 +58,7 @@ bun run start
 
 On first start, open the printed setup URL and paste the claim token into the form. The token rotates every 15 minutes until you claim the studio. On subsequent starts, open `http://127.0.0.1:3000` and sign in.
 
-All supported platforms use the same per-user layout. Owner data lives in `$XDG_DATA_HOME/siluet` or `~/.local/share/siluet`. Set `SILUET_DATA_DIR` to an absolute, private directory outside the Siluet checkout for a separate installation. Keep the whole directory together when backing it up with the server stopped.
+All supported platforms use the same per-user layout. Owner data lives in `$XDG_DATA_HOME/siluet` or `~/.local/share/siluet`. Set `SILUET_DATA_DIR` to an absolute, private directory outside the Siluet checkout for a separate installation. Keep the whole directory together when backing it up with the server stopped. The database stores encrypted provider credentials and needs the separate `provider-credentials.key` file to read them. If you lose the key file, reconnect the providers in Settings.
 
 Set `SILUET_SERVER_PORT` to change the built server's port. `GET /healthz` returns `{"status":"ok"}`. For development with automatic rebuilds, run `bun run dev`. It uses a separate `siluet-dev` data directory unless you set `SILUET_DATA_DIR`.
 
