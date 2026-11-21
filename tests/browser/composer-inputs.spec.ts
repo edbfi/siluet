@@ -2,9 +2,7 @@ import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 
 async function openComposer(page: Page, kind: "image" | "video", provider: string) {
-	const base = process.env.SILUET_TEST_URL;
-	if (!base) throw new Error("The built server did not report its loopback URL.");
-	const entry = new URL("/composer-test", base).href;
+	const entry = "http://127.0.0.1/composer-test";
 	await page.route(entry, (route) =>
 		route.fulfill({ contentType: "text/html", body: "<main></main>" }),
 	);

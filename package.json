@@ -9,16 +9,17 @@
 		"prepare": "bun --bun svelte-kit sync && bun --bun panda codegen",
 		"dev": "bun --bun vite dev",
 		"build": "bun --bun vite build",
-		"start": "bun ./build",
+		"start": "bun scripts/start.ts",
 		"check": "bun run prepare && bun --bun svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
 		"lint": "bun --bun biome ci",
-		"test": "bun test ./src ./scripts/pricing ./design/workspace/tests",
+		"test": "bun test ./src ./scripts ./design/workspace/tests",
 		"smoke": "bun --bun playwright test",
 		"pricing:estimate": "bun scripts/pricing/estimate.ts",
 		"pricing:refresh": "bun scripts/pricing/refresh.ts"
 	},
 	"imports": {
 		"#studio-manifest": "./package.json",
+		"#lib/*": "./src/lib/*",
 		"#styled-system/*": "./styled-system/*/index.js"
 	},
 	"devDependencies": {

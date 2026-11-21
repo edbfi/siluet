@@ -3,8 +3,13 @@ import adapter from "@sveltejs/adapter-bun";
 import { sveltekit } from "@sveltejs/kit/vite";
 import { defineConfig } from "vite";
 
+import { checkPublicAssets, guardPublicAssets } from "./scripts/public-assets.ts";
+
+checkPublicAssets("static");
+
 export default defineConfig({
 	plugins: [
+		guardPublicAssets("static"),
 		sveltekit({
 			adapter: adapter({
 				envPrefix: "SILUET_SERVER_",
@@ -13,5 +18,24 @@ export default defineConfig({
 		}),
 		panda({ transform: true }),
 	],
-	server: { host: "127.0.0.1" },
+	server: {
+		host: "127.0.0.1",
+		port: 5173,
+		strictPort: true,
+		fs: {
+			// fs.deny replaces Vite's defaults. Preserve its credential exclusions.
+			deny: [
+				".env",
+				".env.*",
+				"*.{crt,pem,key,p12,pfx,cer,der}",
+				".npmrc",
+				".yarnrc.yml",
+				"**/.git/**",
+				"studio.db",
+				"studio.db-*",
+				"installation.id",
+			],
+		},
+	},
+	ssr: { external: ["@tursodatabase/database"] },
 });

@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
+import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { accessStore } from "../../db/access-store";
 import { type Installation, openInstallation } from "../../db/installation";
 import { createOwnerAccess } from "./access";
@@ -13,7 +12,7 @@ let time: number;
 let auth: ReturnType<typeof createOwnerAccess>;
 const password = "a sensible local passphrase";
 beforeEach(async () => {
-	directory = await mkdtemp(join(tmpdir(), "siluet-owner-"));
+	directory = await createOwnerDirectory();
 	install = await openInstallation(directory);
 	time = Date.now();
 	auth = createOwnerAccess(install, () => time);

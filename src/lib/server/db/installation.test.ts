@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmod, lstat, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
+import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
 import { openInstallation } from "./installation";
 
 let directory: string;
 beforeEach(async () => {
-	directory = await mkdtemp(join(tmpdir(), "siluet-storage-"));
+	directory = await createOwnerDirectory();
 });
 afterEach(async () => {
 	await rm(directory, { recursive: true, force: true });
@@ -74,6 +74,18 @@ test("a private directory inside the studio checkout is rejected before credenti
 });
 
 test.skipIf(process.platform !== "win32")(
+	"a new installation inherits its private parent ACL",
+	async () => {
+		const installation = await openInstallation(join(directory, "siluet"));
+		try {
+			expect(await installation.hasOwner()).toBe(false);
+		} finally {
+			await installation.close();
+		}
+	},
+);
+
+test.skipIf(process.platform !== "win32")(
 	"an NTFS grant to other local users prevents initialization",
 	async () => {
 		// Give the well-known Users group read access on this empty fixture only.
@@ -82,7 +94,7 @@ test.skipIf(process.platform !== "win32")(
 			stderr: "ignore",
 		});
 		expect(await grant.exited).toBe(0);
-		await expect(openInstallation(directory)).rejects.toThrow("must be private");
+		await expect(openInstallation(directory)).rejects.toThrow("Check grants to other accounts");
 		expect(await Bun.file(join(directory, "installation.id")).exists()).toBe(false);
 	},
 );
