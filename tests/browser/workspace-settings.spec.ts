@@ -111,3 +111,25 @@ test("entering Providers from an Appearance deep link opens an actionable connec
 	await page.getByRole("tab", { name: "Appearance" }).press("Home");
 	await expect(page.getByRole("button", { name: "Set demo key for Poyo.ai" })).toBeVisible();
 });
+
+test("the sidebar keeps its own accessible name when it becomes a mobile dialog", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto(`${workspace.href}#settings`);
+	await page.getByRole("button", { name: "Explore without keys" }).click();
+	const navigation = page.getByRole("navigation", { name: "Studio navigation" });
+	await expect(page.getByRole("complementary", { name: "Studio sidebar" })).toContainText(
+		"Settings",
+	);
+	await expect(navigation).toBeVisible();
+
+	await page.setViewportSize({ width: 320, height: 640 });
+	const open = page.getByRole("button", { name: "Open navigation" });
+	await open.click();
+	const drawer = page.getByRole("dialog", { name: "Studio sidebar" });
+	await expect(drawer.getByRole("navigation", { name: "Studio navigation" })).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(drawer).toBeHidden();
+	await expect(open).toBeFocused();
+});
