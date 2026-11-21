@@ -163,7 +163,7 @@
 								<span class="studio-ops__status" data-connection></span>
 							</div>
 							<div class="studio-ops__setting-row">
-								<div><strong>Model key</strong><p data-key></p></div>
+								<div><strong>Model key</strong><p data-key></p><small data-remove-effect hidden>Removing this key stops queued requests and future automatic retries for this provider.</small></div>
 								${action("key", "Set demo key", { id })}
 							</div>
 							<div class="studio-ops__setting-row">
@@ -281,6 +281,7 @@
 				flag.dataset.status = connected ? "completed" : "idle";
 				row.querySelector("[data-key]").textContent = connected ? key : "No demo key configured";
 				const keyButton = row.querySelector('[data-action="key"]');
+				row.querySelector("[data-remove-effect]").hidden = !connected;
 				keyButton.textContent = connected ? "Remove demo key" : "Set demo key";
 				keyButton.setAttribute("aria-label", `${keyButton.textContent} for ${name}`);
 
@@ -379,16 +380,19 @@
 				return ["Cancelled locally", "The queued request was stopped before it was sent."];
 			case "failed": {
 				const reason = jobReason(job);
-				if (/content.*(reject|block|filter)|reject.*content/i.test(reason)) {
+				if (reason === "The demo provider rejected the content.") {
 					return [
 						"Content rejection",
 						"The provider rejected these inputs. Review them in the studio before starting another generation.",
 					];
 				}
-				if (/transient|temporary|network/i.test(reason)) {
+				if (reason === "The demo provider confirmed a temporary technical failure.") {
 					return ["Temporary technical failure", "The provider reported a temporary failure."];
 				}
-				if (/disconnected|before.*start|source.*available|not sent/i.test(reason)) {
+				if (
+					reason === "A source is no longer available in this session. Add it to a new request." ||
+					reason === "The demo provider was disconnected before the request started."
+				) {
 					return ["Stopped before submission", "Siluet could not send the request."];
 				}
 				return ["Confirmed provider failure", "The provider reported that the attempt failed."];
