@@ -1,4 +1,4 @@
-// Original Siluet demo media, distributed under the repository license. The Tide and lamp files are shared with the original studio studies.
+// Original Siluet fixtures under the repository license. Tide study, Tide loop and After light use the media in ../studio/media.
 window.SiluetFixtures = [
 	{
 		id: "tide-study",

@@ -117,6 +117,22 @@ function job(studio, id) {
 const png = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82);
 
 describe("synthetic studio state", () => {
+	test("Gallery is notified once for each successful save, recovery and import", async () => {
+		const { studio, tick } = start();
+		studio.configure({ keys: { poyo: true } });
+		const changes = [];
+		studio.subscribe((topic, detail) => {
+			if (topic === "assets") changes.push(detail);
+		});
+		studio.submit(request);
+		const [failed] = studio.submit({ ...request, outcome: "download" });
+		tick(30000);
+		expect(changes).toEqual([undefined]);
+		studio.recoverDownload(failed);
+		expect(changes).toEqual([undefined, undefined]);
+		await studio.importFiles([new File([png], "photo.png")]);
+		expect(changes).toEqual([undefined, undefined, undefined]);
+	});
 	test("example results use their requested fixture and preserve staged input IDs", () => {
 		const extra = { ...fixtures[0], id: "alternate-still", src: "./media/alternate.png" };
 		const { studio, tick } = start(new Map(), undefined, [...fixtures, extra]);
