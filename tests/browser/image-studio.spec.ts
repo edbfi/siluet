@@ -450,18 +450,24 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.keyboard.press("Tab");
 			await expect(facts).toBeFocused();
 			const menu = page.getByRole("button", { name: "Menu", exact: true });
+			const openMenu = async () => {
+				await menu.press("Enter");
+				await expect(
+					page.getByRole("dialog").getByRole("button", { name: "Close menu" }),
+				).toBeFocused();
+			};
 			await expect(menu).toBeEnabled();
-			await menu.press("Enter");
+			await openMenu();
 			await expect(imageLink).toHaveAttribute("aria-current", "page");
 			await settingsLink.press("Enter");
 			await expect(page.getByRole("dialog")).toHaveCount(0);
 			await expect(page.getByRole("banner").getByText("Providers", { exact: true })).toBeVisible();
-			await menu.press("Enter");
+			await openMenu();
 			await imageLink.press("Enter");
 			await expect(page.getByRole("dialog")).toHaveCount(0);
 			await expect(prompt).toHaveValue(promptText);
 			await expect(firstFile).toHaveAccessibleDescription(/fixture-reference\.png/);
-			await menu.press("Enter");
+			await openMenu();
 			await homeLink.press("Enter");
 			await expect(page).toHaveURL(origin.href);
 			await page.getByRole("button", { name: "Sign out" }).press("Enter");
@@ -476,7 +482,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.getByRole("button", { name: "Sign in" }).press("Enter");
 			await expect(page).toHaveURL(origin.href);
 			await expect(menu).toBeEnabled();
-			await menu.press("Enter");
+			await openMenu();
 			await imageLink.press("Enter");
 			await expect(prompt).toHaveValue("");
 			await expect(operation).toHaveValue("generate");
