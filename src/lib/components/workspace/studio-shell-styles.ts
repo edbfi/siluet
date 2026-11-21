@@ -1,10 +1,10 @@
 import { css, sva } from "#styled-system/css";
 
 const railHover = {
-	background: "#1e2d48",
+	background: "railHover",
 	color: "railInk",
 };
-const railFocus = { outlineColor: "#f4c461" };
+const railFocus = { outlineColor: "railFocus" };
 
 export const shell = {
 	root: css({
@@ -49,15 +49,15 @@ export const shell = {
 		padding: "0.5rem 0.75rem",
 		border: "1px solid transparent",
 		borderRadius: "8px",
-		color: "#b5c1d6",
+		color: "railMuted",
 		fontSize: "0.875rem",
 		fontWeight: 600,
 		textDecoration: "none",
 		"&:not([aria-current=page]):hover": railHover,
 		_currentPage: {
-			borderColor: "#374c76",
-			background: "#26385e",
-			color: "#fff",
+			borderColor: "railCurrentBorder",
+			background: "railCurrent",
+			color: "railCurrentInk",
 		},
 		_focusVisible: railFocus,
 	}),

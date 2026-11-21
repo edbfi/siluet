@@ -9,7 +9,7 @@ import { enhance, type SubmitFunction } from "$app/forms";
 import { refreshAll } from "$app/navigation";
 import { page } from "$app/state";
 import type { ActionData, PageProps } from "./$types";
-import { styles } from "./providers.styles.ts";
+import { styles } from "./providers-styles.ts";
 
 let { data, form }: PageProps = $props();
 type Operation = "connect" | "remove";

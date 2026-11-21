@@ -9,7 +9,7 @@ import {
 import { watchSignOut } from "#lib/shared/owner/session-notice.ts";
 import { skipLink } from "#lib/shared/styles/navigation.ts";
 import { cx } from "#styled-system/css";
-import { drawer, shell } from "./StudioShell.styles.ts";
+import { drawer, shell } from "./studio-shell-styles.ts";
 
 let {
 	pathname,

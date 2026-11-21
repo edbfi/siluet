@@ -37,6 +37,12 @@ export default defineConfig({
 					staleSurface: appearanceColor("#fff2d9", "#493a25"),
 					rail: appearanceColor("#111d33", "#101827"),
 					railInk: { value: "#f1f5ff" },
+					railMuted: { value: "#b5c1d6" },
+					railHover: { value: "#1e2d48" },
+					railCurrent: { value: "#26385e" },
+					railCurrentBorder: { value: "#374c76" },
+					railCurrentInk: { value: "#fff" },
+					railFocus: { value: "#f4c461" },
 				},
 			},
 			recipes: {
