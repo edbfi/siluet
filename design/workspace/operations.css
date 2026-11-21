@@ -645,6 +645,11 @@
 	overflow-wrap: anywhere;
 }
 
+.studio-ops__metadata dd time {
+	display: block;
+	color: var(--muted, #55647a);
+}
+
 .studio-ops__ip-data {
 	margin-block: 0 12px;
 }
