@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import {
 	type PricingPaths,
+	pricingFilenames,
 	loadBundledPricing as readBundledPricing,
 	loadLocalPricing as resolveLocalPricing,
 } from "../../src/lib/server/services/pricing/local-feed";
@@ -16,10 +17,8 @@ export {
 	readLocalPricing,
 } from "../../src/lib/server/services/pricing/local-feed";
 
-const filenames = { poyo: "feed.json", toapis: "toapis.json" } as const;
-
 export function pricingBundledPath(provider: PricingProvider): string {
-	return fileURLToPath(new URL(`../../pricing/v1/${filenames[provider]}`, import.meta.url));
+	return fileURLToPath(new URL(`../../pricing/v1/${pricingFilenames[provider]}`, import.meta.url));
 }
 
 export function loadBundledPricing(provider: PricingProvider) {

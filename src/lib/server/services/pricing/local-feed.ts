@@ -24,7 +24,7 @@ export type PricingPaths = { provider?: PricingProvider; bundledPath?: string; c
 export type CachedPricingFeed = { checkedAt: string; feed: ProviderPricingFeed };
 export const pricingFeedByteLimit = 16 * 1024;
 
-const filenames = { poyo: "feed.json", toapis: "toapis.json" } as const;
+export const pricingFilenames = { poyo: "feed.json", toapis: "toapis.json" } as const;
 
 const bundledFeeds = {
 	poyo: decodePricingFeed(poyoFeed),
@@ -36,7 +36,7 @@ export function pricingCachePath(
 	provider: PricingProvider = "poyo",
 ): string {
 	const directory = cacheHome && isAbsolute(cacheHome) ? cacheHome : join(homedir(), ".cache");
-	return join(directory, "siluet", "pricing", "v1", filenames[provider]);
+	return join(directory, "siluet", "pricing", "v1", pricingFilenames[provider]);
 }
 
 export function decodeProviderFeed(

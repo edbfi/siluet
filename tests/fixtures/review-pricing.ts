@@ -8,6 +8,7 @@ import { toapisRates } from "./toapis-feed";
 export async function writeReviewPricing(cacheHome: string) {
 	const cachedSeconds = 2 * 24 * 60 * 60;
 	const latest = Math.max(Date.parse(poyoBundle.sourceDate), Date.parse(toapisBundle.observedAt));
+	// Keep the two-day-old conversion evidence newer than the bundle. The browser clock follows observedMs.
 	const observedMs =
 		Math.floor(Math.max(latest + cachedSeconds * 1000, Date.now()) / 1000) * 1000 + 1000;
 	const observedAt = new Date(observedMs).toISOString().replace(".000Z", "Z");

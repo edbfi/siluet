@@ -1,7 +1,8 @@
 import type { PricingProvider } from "../pricing/feeds";
 import type { ReviewPricingInput } from "./review-price";
+import type { SeedreamOperation } from "./seedream";
 
-export type ReviewOperation = "generate" | "edit";
+export type ReviewOperation = SeedreamOperation;
 
 export type ReviewReference =
 	| Readonly<{ kind: "file"; file: Pick<File, "name"> }>
