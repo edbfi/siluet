@@ -159,6 +159,20 @@ test("Review hides signed links in prompt prose and preserves the submitted prom
 	expect(request.body.prompt).toBe(prompt);
 });
 
+test.each([
+	"assets.xn--p1ai/image?token=private",
+	"assets.example./image?token=private",
+	"user:private@assets.test/image",
+	"10.0.0.5:8080/image?token=private",
+	"[::1]:8080/image?token=private",
+	"localhost:3000/image?token=private",
+])("Review hides a signed or credential-bearing host reference (%#)", (url) => {
+	const request = { ...toapisWire, body: { ...toapisWire.body, prompt: `Read <${url}> in blue.` } };
+	expect(createImageReview(toapisInput, request).outgoing.body).toMatchObject({
+		prompt: "Read <[URL hidden]> in blue.",
+	});
+});
+
 test("reviewed request options price the initial batch and attempts count includes retries", () => {
 	const review = createImageReview(input, poyoWire);
 	expect(

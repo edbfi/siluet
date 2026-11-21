@@ -27,17 +27,24 @@ type WireRequest = Readonly<{
 	body: WireBody;
 }>;
 
-// Match the full token, including quotes in its path and a signed query after them.
 const schemeOrSlashes =
 	/(?<![a-z\d+.-])[a-z][a-z\d+.-]*:\/\/|(?:https?|blob|file|data|mailto):|\/\//u;
-const bareHost =
-	/(?<![\p{L}\p{N}_.-])(?:www\.|(?:[\p{L}\p{N}-]+\.)+[\p{L}]{2,}(?::\d+)?(?=[/?#]))/u;
-const urlInPrompt = new RegExp(`(?:${schemeOrSlashes.source}|${bareHost.source})[^\\s<>]+`, "giu");
+const host = /(?:[\p{L}\p{M}\p{N}_-]+\.)+[\p{L}\p{M}\p{N}_-]+\.?|localhost\.?|\[[a-f\d:.%]+\]/u;
+const bareHost = new RegExp(
+	String.raw`(?<![\p{L}\p{N}_.-])(?:www\.|(?:${host.source})(?=:\d+|[/?#])|[\p{L}\p{N}_-]+(?=:\d+[/#?]))`,
+	"iu",
+);
+const linkStart = new RegExp(`(?:${schemeOrSlashes.source}|${bareHost.source})`, "iu");
 
-function hideUrl(url: string): string {
-	let end = url.length;
-	while (end > 0 && ".,;:!?)}]'\"".includes(url[end - 1])) end--;
-	return `[URL hidden]${url.slice(end)}`;
+function redactLink(token: string): string {
+	const start = token.search(linkStart);
+	if (start < 0) return token;
+	let prefix = token.slice(0, start);
+	// A bare host can have user:password@ in front of it. Keep only its opening punctuation.
+	if (prefix.endsWith("@")) prefix = /^[('"“‘{]*/u.exec(prefix)?.[0] ?? "";
+	let end = token.length;
+	while (end > start && ".,;:!?)}]'\"".includes(token[end - 1])) end--;
+	return `${prefix}[URL hidden]${token.slice(end)}`;
 }
 
 /** Build the presentation from the validated wire request before it receives any credentials. */
@@ -56,7 +63,7 @@ export function createImageReview(
 	const { prompt, image_urls: urls, ...options } = fields;
 	const safeFields: ImageFields = {
 		...fields,
-		prompt: prompt.replace(urlInPrompt, hideUrl),
+		prompt: prompt.replace(/[^\s<>]+/gu, redactLink),
 		...(urls && {
 			image_urls: urls.map((_, index) =>
 				references[index]?.kind === "file" ? "[local image]" : "[remote URL hidden]",
