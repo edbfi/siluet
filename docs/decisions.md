@@ -10,7 +10,7 @@ A successful first session takes a creator from selecting a model and understand
 
 ### Credit estimates
 
-Calculate estimates locally so creators can review spending offline. Publish public rates through the repository to limit traffic to each provider. Show an unknown total when the price evidence is 30 days old or the rates do not cover the selected options. Keep any provider-reported charge separate from the estimate.
+Calculate estimates locally so creators can review spending offline. Publish public rates through the repository to limit traffic to each provider. Show an unknown total when the price evidence is 30 days old or the rates do not cover the selected options. Keep any provider-reported charge separate from the estimate. A before-and-after wallet reading shows account-wide movement during a batch. Top-ups, reservations and other clients can change that balance. Show the movement separately from settlement and withhold comparisons for overlapping batches.
 
 ### Owner sign-in
 

@@ -30,6 +30,14 @@ function complete(wallets: ReturnType<typeof create>, id: string, start: number)
 }
 
 describe("offline wallet observations", () => {
+	test("a job waiting for its first wallet read is pending until it finishes", () => {
+		const wallets = create();
+		for (const status of ["queued", "running"]) {
+			expect(wallets.comparison({ ...first, status })).toEqual({ status: "pending" });
+		}
+		expect(wallets.comparison(first)).toEqual({ status: "unavailable", reason: "missing" });
+	});
+
 	test("successful demo reads are coalesced per provider and batch, with immutable boundaries", () => {
 		const wallets = create();
 		wallets.start("poyo", "first", now);

@@ -21,7 +21,7 @@ export const walletFixtures = {
 	},
 	toapis: {
 		scope: { provider: "toapis", account: "toapis-demo-account", unit: "USD" },
-		// Reservation and settlement are indistinguishable in these wallet fixtures.
+		// These four reads cover two batches. Later reads simulate an unavailable wallet.
 		reads: [{ amount: "24.8" }, { amount: "24.73" }, { amount: "24.73" }, { amount: "24.73" }],
 	},
 } satisfies Record<string, { scope: WalletScope; reads: FixtureRead[] }>;

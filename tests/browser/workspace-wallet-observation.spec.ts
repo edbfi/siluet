@@ -157,6 +157,28 @@ test("an automatic retry keeps its original wallet window open", async ({ page }
 	expect(end - start).toBeGreaterThanOrEqual(3000);
 });
 
+test("an approved manual retry keeps its own wallet readings after reload", async ({ page }) => {
+	await openStudio(page);
+	await page.getByRole("tab", { name: "Batch" }).click();
+	await page.getByText("Simulation controls", { exact: true }).click();
+	await page.getByLabel("Simulated outcome").selectOption("failure");
+	await queue(page, "A still with one manual retry");
+	await page.clock.runFor(1500);
+	await jobs(page);
+	const section = billing(page);
+	await expect(section).toContainText("−3.2 credits");
+	await page.getByRole("button", { name: "Review new submission" }).click();
+	await page.getByRole("button", { name: "Approve new submission" }).click();
+	await page.clock.runFor(1500);
+	await expect(section).toContainText("−1.7 credits");
+	await page.reload();
+	await expect(section).toContainText("−1.7 credits");
+	await expect(section).toContainText("2475.1 credits");
+	await page.getByRole("button", { name: "Attempt 1", exact: true }).click();
+	await expect(section).toContainText("−3.2 credits");
+	await expect(section).toContainText("2480 credits");
+});
+
 test("overlapping batches withhold both comparisons", async ({ page }) => {
 	await openStudio(page);
 	await queue(page, "First active batch");

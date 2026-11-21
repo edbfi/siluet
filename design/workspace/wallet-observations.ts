@@ -231,7 +231,11 @@ export function createWalletObservations(
 			const entry = isProvider(job.provider)
 				? windows.get(job.provider)?.get(job.walletRunId ?? job.batchId)
 				: undefined;
-			return entry ? compare(entry) : ({ status: "unavailable", reason: "missing" } as const);
+			if (entry) return compare(entry);
+			if (isProvider(job.provider) && (job.status === "queued" || job.status === "running")) {
+				return { status: "pending" } as const;
+			}
+			return { status: "unavailable", reason: "missing" } as const;
 		},
 		history(job: Job, jobs: readonly Job[], now: number) {
 			const inputs = billingInputs(job);
