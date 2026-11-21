@@ -3,4 +3,4 @@ import OwnerForm from "#lib/components/owner/OwnerForm.svelte";
 
 let { form } = $props();
 </script>
-<OwnerForm claim message={form?.message} />
+<OwnerForm claim message={form?.message} username={form?.username} />

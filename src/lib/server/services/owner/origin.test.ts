@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { studioOrigin } from "./lib/server/services/owner/origin";
+import { studioOrigin } from "./origin";
 
 const init = () => studioOrigin(process.env, true);
 

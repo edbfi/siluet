@@ -1,9 +1,13 @@
 <script lang="ts">
+import tide from "#lib/assets/kestrel-point.jpg";
 import { css } from "#styled-system/css";
-import tide from "../../../../design/workspace/media/kestrel-point.jpg";
 import Brand from "./Brand.svelte";
 
-let { claim = false, message }: { claim?: boolean; message?: string } = $props();
+let {
+	claim = false,
+	message,
+	username = "",
+}: { claim?: boolean; message?: string; username?: string } = $props();
 const title = $derived(claim ? "Claim your studio" : "Welcome back");
 </script>
 
@@ -39,6 +43,7 @@ const title = $derived(claim ? "Claim your studio" : "Welcome back");
 			<label
 				>Username<input
 					name="username"
+					value={username}
 					required
 					autocomplete="username"
 					autocapitalize="none"

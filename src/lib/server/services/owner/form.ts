@@ -20,7 +20,12 @@ export async function authenticate(event: RequestEvent, claim: boolean) {
 			maxAge: 30 * 86400,
 		});
 	} catch (error) {
-		if (error instanceof AccessError) return fail(error.status, { message: error.message });
+		if (error instanceof AccessError) {
+			const username = field("username");
+			const retain =
+				username.length <= 128 && username !== field("password") && username !== field("token");
+			return fail(error.status, { message: error.message, username: retain ? username : "" });
+		}
 		throw error;
 	}
 	redirect(303, "/");

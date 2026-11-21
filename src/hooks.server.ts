@@ -6,7 +6,8 @@ let studio: StudioRuntime;
 export const init: ServerInit = async () => {
 	if (!building) studio = await initializeOwner(dev);
 };
-export const handleError: HandleServerError = ({ event }) => {
+export const handleError: HandleServerError = ({ event, kind }) => {
+	if (kind !== "unknown") return;
 	console.error("Studio request failed on route", event.route.id ?? "(unmatched)");
 	return { message: "The studio could not complete the request." };
 };

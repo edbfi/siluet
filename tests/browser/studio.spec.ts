@@ -104,6 +104,15 @@ test("one owner can claim the studio and sign in after a process restart", async
 		await page.getByRole("button", { name: "Claim studio" }).press("Enter");
 		await expect(page).toHaveURL(origin.href);
 		await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+		const missing = await page.request.get(new URL("/missing-studio-route", origin).href);
+		expect(missing.status()).toBe(404);
+		expect(await missing.text()).toContain("Not Found");
+		const signInUrl = new URL("/sign-in", origin).href;
+		const signedInGet = await page.request.get(signInUrl, { maxRedirects: 0 });
+		expect(signedInGet.status()).toBe(303);
+		expect(signedInGet.headers().location).toBe("/");
+		const signedInPost = await page.request.post(signInUrl, { headers: { Origin: origin.origin } });
+		expect(signedInPost.status()).toBe(403);
 		const cookies = await owner.cookies();
 		expect(
 			cookies.map(({ httpOnly, sameSite, path, secure }) => ({ httpOnly, sameSite, path, secure })),
@@ -157,7 +166,8 @@ test("one owner can claim the studio and sign in after a process restart", async
 			await revisit.getByLabel("Password", { exact: true }).fill("incorrect");
 			await revisit.getByRole("button", { name: "Sign in" }).click();
 			await expect(revisit.getByRole("alert")).toBeFocused();
-			await revisit.getByLabel("Username", { exact: true }).fill("studio-owner");
+			await expect(revisit.getByLabel("Username", { exact: true })).toHaveValue("studio-owner");
+			await expect(revisit.getByLabel("Password", { exact: true })).toHaveValue("");
 			await revisit.getByLabel("Password", { exact: true }).fill(password);
 			await revisit.getByRole("button", { name: "Sign in" }).click();
 			await expect(revisit.getByRole("button", { name: "Sign out" })).toBeVisible();

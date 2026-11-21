@@ -58,7 +58,7 @@ bun run start
 
 On first start, open the printed setup URL and paste the claim token into the form. The token rotates every 15 minutes until you claim the studio. On subsequent starts, open `http://127.0.0.1:3000` and sign in.
 
-Owner data lives in `$XDG_DATA_HOME/siluet` or `~/.local/share/siluet`. Set `SILUET_DATA_DIR` to an absolute, private directory outside the Siluet checkout for a separate installation. Keep the whole directory together when backing it up with the server stopped.
+All supported platforms use the same per-user layout. Owner data lives in `$XDG_DATA_HOME/siluet` or `~/.local/share/siluet`. Set `SILUET_DATA_DIR` to an absolute, private directory outside the Siluet checkout for a separate installation. Keep the whole directory together when backing it up with the server stopped.
 
 Set `SILUET_SERVER_PORT` to change the built server's port. `GET /healthz` returns `{"status":"ok"}`. For development with automatic rebuilds, run `bun run dev`. It uses a separate `siluet-dev` data directory unless you set `SILUET_DATA_DIR`.
 
