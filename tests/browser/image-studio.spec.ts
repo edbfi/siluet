@@ -182,6 +182,10 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await toapis.check();
 			await reviewTab.click();
 			await expect(price).toContainText("Standard-route pricing");
+			await expect(price).toContainText(`Feed collected ${rates.observedAt.slice(0, 10)}`);
+			await expect(price).toContainText(
+				`Expires ${new Date(rates.toapisExpiry).toISOString().slice(0, 10)}`,
+			);
 			await expect(price).toContainText("Estimated 5.6 ToAPIs credits per request");
 			await expect(review).toContainText("Fallback pricing is unknown.");
 			await outgoingTab.click();
@@ -351,7 +355,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			);
 			await request.getByLabel("Visible watermark").uncheck();
 
-			const expiry = rates.observedMs + 30 * 24 * 60 * 60 * 1000;
+			const expiry = rates.toapisExpiry;
 			await page.clock.pauseAt(new Date(expiry - 1000));
 			await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
 			await page.clock.runFor(999);
@@ -406,6 +410,18 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.keyboard.press("ArrowLeft");
 			await expect(outgoingTab).toBeFocused();
 			await expect(outgoingTab).toHaveAttribute("aria-selected", "true");
+			await prompt.fill(promptText.repeat(20));
+			const jsonRegion = outgoing.getByRole("region", { name: "JSON request body" });
+			await jsonRegion.focus();
+			await page.keyboard.press("PageDown");
+			await expect.poll(() => jsonRegion.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+			await prompt.fill("bad");
+			await expect(outgoingBody()).toHaveCount(0);
+			await expect(queue(1)).toBeDisabled();
+			await reviewTab.click();
+			await expect(price).toContainText("Complete the request to see an estimate.");
+			await prompt.fill(promptText);
+			await outgoingTab.click();
 			await page.keyboard.press("ArrowRight");
 			await expect(reviewTab).toBeFocused();
 			await page.keyboard.press("ArrowRight");

@@ -62,6 +62,16 @@ $effect(() => {
 });
 </script>
 
+{#snippet rateDates(sourceDate: string, expiresAt: string)}
+	<p class="note">
+		{selectedProvider === "toapis" ? "Feed collected" : "Rates dated"}
+		<time datetime={sourceDate}>{sourceDate.slice(0, 10)}</time>
+		{#if selectedProvider === "toapis"}
+			· Expires <time datetime={expiresAt}>{expiresAt.slice(0, 10)}</time>
+		{/if}
+	</p>
+{/snippet}
+
 <section class="review" aria-labelledby={headingId}>
 	<h2 id={headingId} tabindex="-1">Review request</h2>
 	<Tabs.Root defaultValue="review" activationMode="automatic" loopFocus ids={{ content: panelId }}>
@@ -97,7 +107,7 @@ $effect(() => {
 								{/each}
 							</ol>
 						{:else if isEdit}
-							Complete the reference inputs to review the media.
+							Complete the request to review the media.
 						{:else}
 							None
 						{/if}
@@ -112,9 +122,7 @@ $effect(() => {
 						{#if quote?.status === "known"}
 							<p>Estimated {quote.perRequest} {providerName} credits per request</p>
 							<p>Estimated {quote.batch} {providerName} credits for the initial batch</p>
-							<p class="note">
-								Rates dated <time datetime={quote.sourceDate}>{quote.sourceDate.slice(0, 10)}</time>
-							</p>
+							{@render rateDates(quote.sourceDate, quote.expiresAt)}
 						{:else if quote?.status === "unknown"}
 							<p>Unknown. {reviewPriceReason(quote)}</p>
 							{#if quote.advertisedUnitRate}
@@ -122,9 +130,7 @@ $effect(() => {
 								<p>
 									About {rate.approximateCredits} {providerName} credits per million total tokens
 								</p>
-								<p class="note">
-									Rates dated <time datetime={rate.sourceDate}>{rate.sourceDate.slice(0, 10)}</time>
-								</p>
+								{@render rateDates(rate.sourceDate, rate.expiresAt)}
 							{/if}
 						{:else}
 							<p>Unknown. Complete the request to see an estimate.</p>
@@ -202,6 +208,17 @@ $effect(() => {
 	display: grid;
 	gap: 0.85rem;
 	min-width: 0;
+	padding: clamp(1rem, 2.25vw, 1.5rem);
+	border: 1px solid var(--line);
+	border-radius: 15px;
+	background: var(--surface);
+}
+h2 {
+	font:
+		680 1.18rem / 1.2 system-ui,
+		sans-serif;
+	letter-spacing: -0.02em;
+	scroll-margin-block-start: 0.85rem;
 }
 .review :global(.review-tabs) {
 	display: flex;
@@ -280,10 +297,13 @@ li + li {
 	background: var(--canvas);
 	overflow-wrap: anywhere;
 }
-pre {
+.wire-json {
 	max-block-size: 14rem;
 	margin: 0.45rem 0 0;
 	overflow: auto;
+}
+pre {
+	margin: 0;
 	white-space: pre-wrap;
 }
 .actions {

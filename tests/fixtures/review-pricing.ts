@@ -6,8 +6,10 @@ import { pricingCachePath } from "../../src/lib/server/services/pricing/local-fe
 import { toapisRates } from "./toapis-feed";
 
 export async function writeReviewPricing(cacheHome: string) {
+	const cachedSeconds = 2 * 24 * 60 * 60;
 	const latest = Math.max(Date.parse(poyoBundle.sourceDate), Date.parse(toapisBundle.observedAt));
-	const observedMs = Math.floor(Math.max(latest, Date.now()) / 1000) * 1000 + 1000;
+	const observedMs =
+		Math.floor(Math.max(latest + cachedSeconds * 1000, Date.now()) / 1000) * 1000 + 1000;
 	const observedAt = new Date(observedMs).toISOString().replace(".000Z", "Z");
 	const poyo = {
 		version: 1,
@@ -23,7 +25,7 @@ export async function writeReviewPricing(cacheHome: string) {
 			},
 		},
 	};
-	const toapis = { ...toapisRates, observedAt };
+	const toapis = { ...toapisRates, observedAt, conversionCacheAgeSeconds: cachedSeconds };
 	const poyoPath = pricingCachePath(cacheHome, "poyo");
 	await mkdir(dirname(poyoPath), { recursive: true });
 	await Promise.all([
@@ -33,5 +35,5 @@ export async function writeReviewPricing(cacheHome: string) {
 			JSON.stringify({ checkedAt: observedAt, feed: toapis }),
 		),
 	]);
-	return { observedMs, observedAt };
+	return { observedMs, observedAt, toapisExpiry: observedMs + 28 * 24 * 60 * 60 * 1000 };
 }
