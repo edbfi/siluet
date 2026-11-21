@@ -1,5 +1,5 @@
 import { error, fail, type RequestEvent } from "@sveltejs/kit";
-import { providerIds } from "#lib/shared/providers/connections.ts";
+import { providerIds, providerStorageRepairMessage } from "#lib/shared/providers/connections.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => ({
@@ -23,6 +23,10 @@ const messages = {
 	superseded: {
 		status: 409,
 		message: "The saved connection changed while this check was in progress.",
+	},
+	"storage-repair": {
+		status: 409,
+		message: providerStorageRepairMessage,
 	},
 	"storage-unavailable": {
 		status: 503,

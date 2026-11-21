@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import type { ProviderConnectionStatus, ProviderId } from "#lib/shared/providers/connections.ts";
+import {
+	type ProviderConnectionStatus,
+	type ProviderId,
+	providerIds,
+} from "#lib/shared/providers/connections.ts";
 import type { ConnectionCheck, ConnectionCheckResult } from "../../providers/connection-check";
 import { createProviderConnections } from "./connections";
 
@@ -11,7 +15,9 @@ function setup(poyo: ConnectionCheck, toapis: ConnectionCheck = poyo) {
 	const service = createProviderConnections(
 		{
 			revision: async (id) => revisions[id],
-			status: async (id) => connections.get(id) ?? { id, state: "disconnected" },
+			checkKeyStorage: async () => {},
+			statuses: async () =>
+				providerIds.map((id) => connections.get(id) ?? { id, state: "disconnected" }),
 			save: async (id, key, verifiedAt, seedream, expectedRevision) => {
 				if (revisions[id] !== expectedRevision) return false;
 				revisions[id]++;
@@ -61,6 +67,8 @@ test("eligibility excludes disconnected, unreadable, and connected keys lacking 
 	await service.connect("toapis", "fixture-toapis-eligible");
 	expect(await service.eligibleSeedreamProviders()).toEqual(["poyo", "toapis"]);
 	connections.set("poyo", { id: "poyo", state: "reconnect" });
+	expect(await service.eligibleSeedreamProviders()).toEqual(["toapis"]);
+	connections.set("poyo", { id: "poyo", state: "repair", hasCredential: true });
 	expect(await service.eligibleSeedreamProviders()).toEqual(["toapis"]);
 	expect(await service.remove("poyo")).toBe("removed");
 	expect(await service.remove("toapis")).toBe("removed");
@@ -114,7 +122,8 @@ test("a storage error releases the provider for retry and exposes no exception t
 	const service = createProviderConnections(
 		{
 			revision: async () => 0,
-			status: async (id) => ({ id, state: "disconnected" }),
+			checkKeyStorage: async () => {},
+			statuses: async () => [],
 			save: async () => {
 				if (fail) throw new Error("fixture-secret");
 				return true;

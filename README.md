@@ -60,6 +60,8 @@ On first start, open the printed setup URL and paste the claim token into the fo
 
 All supported platforms use the same per-user layout. Owner data lives in `$XDG_DATA_HOME/siluet` or `~/.local/share/siluet`. Set `SILUET_DATA_DIR` to an absolute, private directory outside the Siluet checkout for a separate installation. Keep the whole directory together when backing it up with the server stopped. The database stores encrypted provider credentials and needs the separate `provider-credentials.key` file to read them. If you lose the key file, reconnect the providers in Settings.
 
+If Settings shows **Storage repair required**, restore private permissions on the installation directory and its key file. On Linux and macOS, the directory should be owned by your account with mode `700` and the key file with mode `600`. On Windows, restrict both access lists to your account, SYSTEM, and Administrators. If the key path is a link, move the link aside and restore the regular key file from backup if available. Reload Settings after the repair.
+
 Set `SILUET_SERVER_PORT` to change the built server's port. `GET /healthz` returns `{"status":"ok"}`. For development with automatic rebuilds, run `bun run dev`. It uses a separate `siluet-dev` data directory unless you set `SILUET_DATA_DIR`.
 
 Run the local checks and install Playwright's matching Chromium before the browser smoke test:

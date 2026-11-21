@@ -1,5 +1,8 @@
 <script lang="ts">
-import type { ProviderId } from "#lib/shared/providers/connections.ts";
+import {
+	type ProviderId,
+	providerStorageRepairMessage,
+} from "#lib/shared/providers/connections.ts";
 import { enhance, type SubmitFunction } from "$app/forms";
 import { refreshAll } from "$app/navigation";
 import { page } from "$app/state";
@@ -13,6 +16,7 @@ const statuses = {
 	disconnected: "Disconnected",
 	connected: "Connected",
 	reconnect: "Reconnect required",
+	repair: "Storage repair required",
 };
 const dateFormat = new Intl.DateTimeFormat("en", {
 	dateStyle: "medium",
@@ -100,39 +104,45 @@ function save(id: ProviderId, operation: Operation): SubmitFunction {
 					{:else if provider.state === "reconnect"}
 						<p class="warning">Enter a key again to restore this connection.</p>
 					{/if}
-					<form
-						class="key-form"
-						method="POST"
-						action={`?/connect&provider=${provider.id}`}
-						use:enhance={save(provider.id, "connect")}
-					>
-						<input type="hidden" name="provider" value={provider.id}>
-						<label for="provider-key">API key</label>
-						<div class="form-controls">
-							<input
-								id="provider-key"
-								type="password"
-								name="key"
-								autocomplete="off"
-								spellcheck="false"
-								required
-								disabled={!!pending}
-								aria-describedby="key-help"
-							>
-							<button type="submit" disabled={!!pending}>
-								{pending === "connect"
-									? pendingMessages.connect
-									: provider.state === "connected"
-										? "Replace key"
-										: "Connect"}
-							</button>
-						</div>
-						<p id="key-help">
-							Siluet checks the key with {names[provider.id]} when you submit it and stores it
-							encrypted on this machine.
-						</p>
-					</form>
-					{#if provider.state !== "disconnected"}
+					{#if provider.state === "repair"}
+						<p class="warning">{providerStorageRepairMessage}</p>
+					{:else}
+						<form
+							class="key-form"
+							method="POST"
+							action={`?/connect&provider=${provider.id}`}
+							use:enhance={save(provider.id, "connect")}
+						>
+							<input type="hidden" name="provider" value={provider.id}>
+							<label for="provider-key">API key</label>
+							<div class="form-controls">
+								<input
+									id="provider-key"
+									type="password"
+									name="key"
+									autocomplete="off"
+									spellcheck="false"
+									required
+									disabled={!!pending}
+									aria-describedby="key-help"
+								>
+								<button type="submit" disabled={!!pending}>
+									{pending === "connect"
+										? pendingMessages.connect
+										: provider.state === "connected"
+											? "Replace key"
+											: "Connect"}
+								</button>
+							</div>
+							<p id="key-help">
+								Siluet checks the key with {names[provider.id]} when you submit it and stores it
+								encrypted on this machine.
+							</p>
+						</form>
+					{/if}
+					{#if provider.state === "connected" ||
+						provider.state === "reconnect" ||
+						(provider.state === "repair" && provider.hasCredential)}
 						<form
 							class="remove-form"
 							method="POST"
@@ -263,7 +273,8 @@ h3 {
 	background: light-dark(#e4f4ec, #1d3e33);
 	color: light-dark(#205c45, #97dfc1);
 }
-.badge[data-state="reconnect"] {
+.badge[data-state="reconnect"],
+.badge[data-state="repair"] {
 	background: light-dark(#fff2d9, #493a25);
 	color: light-dark(#754716, #f2cc8a);
 }

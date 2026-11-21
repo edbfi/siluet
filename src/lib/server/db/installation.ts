@@ -27,7 +27,8 @@ export async function openInstallation(directory: string) {
 		const id = await readFile(marker, "utf8");
 		if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id))
 			throw storageError();
-		client = await connect(database, { fileMustExist: !fresh });
+		// The embedded Turso driver waits for a competing writer for at most 500 ms.
+		client = await connect(database, { fileMustExist: !fresh, timeout: 500 });
 		const db = drizzle({ client });
 		await migrateInstallation(db, fresh, installationMigrations);
 		if (fresh) {

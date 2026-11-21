@@ -1,8 +1,12 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
-import type { ProviderConnectionStatus, ProviderId } from "../../shared/providers/connections";
+import {
+	type ProviderConnectionStatus,
+	type ProviderId,
+	providerIds,
+} from "../../shared/providers/connections";
 import type { Installation } from "./installation";
-import { ensureProviderKey, readProviderKey } from "./provider-key";
+import { ProviderKeyPolicyError, prepareProviderKey, readProviderKey } from "./provider-key";
 
 export { providerKeyFilename } from "./provider-key";
 
@@ -49,21 +53,39 @@ export function providerStore(installation: Installation) {
 				return row.revision;
 			});
 		},
-		status(id: ProviderId): Promise<ProviderConnectionStatus> {
-			return use(async (db) => {
-				const row = await db.get<{
+		async checkKeyStorage() {
+			await readProviderKey(directory);
+		},
+		async statuses(): Promise<ProviderConnectionStatus[]> {
+			const rows = await use((db) =>
+				db.all<{
+					provider: ProviderId;
 					revision: number;
 					ciphertext: string;
 					verified_at: number;
 					seedream: number;
-				}>(
-					sql`SELECT revision, ciphertext, verified_at, seedream FROM provider_credential WHERE provider=${id} AND ciphertext IS NOT NULL`,
-				);
+				}>(sql`SELECT provider, revision, ciphertext, verified_at, seedream
+					FROM provider_credential WHERE ciphertext IS NOT NULL`),
+			);
+
+			let key: Buffer | null;
+			try {
+				key = await readProviderKey(directory);
+			} catch (error) {
+				if (!(error instanceof ProviderKeyPolicyError)) throw error;
+				return providerIds.map((id) => ({
+					id,
+					state: "repair",
+					hasCredential: rows.some((row) => row.provider === id),
+				}));
+			}
+
+			return providerIds.map((id) => {
+				const row = rows.find((row) => row.provider === id);
 				if (!row) return { id, state: "disconnected" };
 				const verifiedAt = row.verified_at;
 				const seedream = row.seedream === 1;
 				try {
-					const key = await readProviderKey(directory);
 					if (
 						key &&
 						canDecrypt(key, row.ciphertext, associatedData(id, row.revision, verifiedAt, seedream))
@@ -76,33 +98,42 @@ export function providerStore(installation: Installation) {
 				return { id, state: "reconnect" };
 			});
 		},
-		save(
+		async save(
 			id: ProviderId,
 			credential: string,
 			verifiedAt: number,
 			seedream: boolean,
 			expectedRevision: number,
 		) {
-			return use((db) =>
-				db.transaction(
-					async (tx) => {
-						// A removal or accepted replacement may have finished during the provider read.
-						const row = await tx.get<{ revision: number }>(revisionQuery(id));
-						if (row?.revision !== expectedRevision) return false;
-						const revision = expectedRevision + 1;
-						const key = await ensureProviderKey(directory);
-						const ciphertext = encrypt(
-							key,
-							credential,
-							associatedData(id, revision, verifiedAt, seedream),
-						);
-						await tx.run(sql`UPDATE provider_credential SET revision=${revision}, ciphertext=${ciphertext},
-							verified_at=${verifiedAt}, seedream=${Number(seedream)} WHERE provider=${id}`);
-						return true;
-					},
-					{ behavior: "immediate" },
-				),
-			);
+			for (let attempt = 0; attempt < 2; attempt++) {
+				const prepared = await prepareProviderKey(directory);
+				try {
+					const saved = await use((db) =>
+						db.transaction(
+							async (tx) => {
+								// Removal and replacement advance the revision, including across handles.
+								const row = await tx.get<{ revision: number }>(revisionQuery(id));
+								if (row?.revision !== expectedRevision) return false;
+								if (!(await prepared.publishIfCurrent())) return null;
+								const revision = expectedRevision + 1;
+								const ciphertext = encrypt(
+									prepared.key,
+									credential,
+									associatedData(id, revision, verifiedAt, seedream),
+								);
+								await tx.run(sql`UPDATE provider_credential SET revision=${revision}, ciphertext=${ciphertext},
+									verified_at=${verifiedAt}, seedream=${Number(seedream)} WHERE provider=${id}`);
+								return true;
+							},
+							{ behavior: "immediate" },
+						),
+					);
+					if (saved !== null) return saved;
+				} finally {
+					await prepared.discard();
+				}
+			}
+			throw new Error("The provider key changed during both save attempts.");
 		},
 		remove(id: ProviderId) {
 			return use(async (db) => {

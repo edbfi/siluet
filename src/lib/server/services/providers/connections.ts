@@ -1,4 +1,5 @@
-import { type ProviderId, providerIds } from "#lib/shared/providers/connections.ts";
+import type { ProviderId } from "#lib/shared/providers/connections.ts";
+import { ProviderKeyPolicyError } from "../../db/provider-key";
 import type { providerStore } from "../../db/provider-store";
 import type { ConnectionCheck } from "../../providers/connection-check";
 
@@ -11,6 +12,7 @@ type MutationOutcome =
 	| "invalid"
 	| "busy"
 	| "superseded"
+	| "storage-repair"
 	| "storage-unavailable";
 
 export function createProviderConnections(
@@ -20,7 +22,7 @@ export function createProviderConnections(
 ) {
 	const attempts: Record<ProviderId, number[]> = { poyo: [], toapis: [] };
 	const checking = new Set<ProviderId>();
-	const statuses = () => Promise.all(providerIds.map((id) => store.status(id)));
+	const { statuses } = store;
 
 	return {
 		statuses,
@@ -39,18 +41,19 @@ export function createProviderConnections(
 			if (checking.has(provider)) return "busy";
 			checking.add(provider);
 			try {
-				const revision = await store.revision(provider);
 				const now = elapsed();
 				const recent = attempts[provider].filter((time) => time > now - 60_000);
 				if (recent.length >= 3) return "rate-limited";
-				attempts[provider] = [...recent, now];
 
+				const revision = await store.revision(provider);
+				await store.checkKeyStorage();
+				attempts[provider] = [...recent, elapsed()];
 				const checked = await checks[provider](key);
 				if (checked.outcome !== "accepted") return checked.outcome;
 				const saved = await store.save(provider, key, Date.now(), checked.seedream, revision);
 				return saved ? "connected" : "superseded";
-			} catch {
-				return "storage-unavailable";
+			} catch (error) {
+				return error instanceof ProviderKeyPolicyError ? "storage-repair" : "storage-unavailable";
 			} finally {
 				checking.delete(provider);
 			}
