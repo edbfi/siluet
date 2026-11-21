@@ -1,0 +1,112 @@
+{
+	"description": "Offline Siluet request examples for D4. These are expected outgoing payloads. No provider accepted or executed them.",
+	"examples": [
+		{
+			"provider": "Poyo.ai",
+			"operation": "text-to-image",
+			"modelFieldEvidence": "documented",
+			"requestBody": {
+				"model": "z-image",
+				"input": {
+					"prompt": "An amber lamp on a dark tidal shelf.",
+					"size": "4:3",
+					"enable_safety_checker": false
+				}
+			},
+			"endpoint": "POST /api/generate/submit"
+		},
+		{
+			"provider": "Poyo.ai",
+			"operation": "text-to-image",
+			"modelFieldEvidence": "closed published input schema excludes the checker field; runtime acceptance unknown",
+			"requestBody": {
+				"model": "kling-4.0-image",
+				"input": {
+					"prompt": "An amber lamp on a dark tidal shelf.",
+					"enable_safety_checker": false
+				}
+			},
+			"endpoint": "POST /api/generate/submit"
+		},
+		{
+			"provider": "Poyo.ai",
+			"operation": "text-to-image",
+			"modelFieldEvidence": "open published schema omits the checker; runtime acceptance and effect unknown",
+			"requestBody": {
+				"model": "seedream-4",
+				"input": {
+					"prompt": "A copper buoy in a shallow tidal pool.",
+					"enable_safety_checker": false
+				}
+			},
+			"endpoint": "POST /api/generate/submit"
+		},
+		{
+			"provider": "ToAPIs",
+			"operation": "text-to-image",
+			"modelFieldEvidence": "documented platform fallback subject to account and region",
+			"requestBody": {
+				"model": "doubao-seedream-5-5",
+				"prompt": "An amber lamp on a dark tidal shelf.",
+				"disable_nsfw": false
+			},
+			"endpoint": "POST /v1/images/generations"
+		},
+		{
+			"provider": "ToAPIs",
+			"operation": "first-frame image-to-video",
+			"modelFieldEvidence": "first-frame inputs documented; model manual omits the Siluet-requested filter field; runtime acceptance unknown",
+			"requestBody": {
+				"model": "viduq3-pro-fast",
+				"prompt": "Hold on the light as the tide moves past.",
+				"image_urls": ["https://example.invalid/fixture/tide-study.webp"],
+				"disable_nsfw": false
+			},
+			"endpoint": "POST /v1/videos/generations"
+		},
+		{
+			"provider": "ToAPIs",
+			"operation": "text-to-image",
+			"modelFieldEvidence": "model documents a configurable category threshold; the top-level fallback field and the combination are unverified on this model",
+			"requestBody": {
+				"model": "gemini-3.1-flash-image-official",
+				"prompt": "A still life of a glass lantern on a slate table.",
+				"disable_nsfw": false,
+				"metadata": {
+					"safetySettings": [
+						{
+							"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+							"threshold": "OFF"
+						}
+					]
+				}
+			},
+			"endpoint": "POST /v1/images/generations"
+		},
+		{
+			"provider": "Poyo.ai",
+			"operation": "text-to-image",
+			"modelFieldEvidence": "closed schema excludes the checker and offers only reduced moderation; Siluet sends the checker and omits moderation",
+			"requestBody": {
+				"model": "gpt-image-2.6-flare",
+				"input": {
+					"prompt": "A brass lamp on a blue shelf.",
+					"enable_safety_checker": false
+				}
+			},
+			"endpoint": "POST /api/generate/submit"
+		},
+		{
+			"provider": "ToAPIs",
+			"operation": "final render from draft",
+			"modelFieldEvidence": "draft final render documents the ID; acceptance and effect of the explicit filter preference on the final request are unknown",
+			"requestBody": {
+				"model": "seedance-2-5",
+				"draft_task_id": "synthetic-draft-001",
+				"resolution": "1080p",
+				"disable_nsfw": false
+			},
+			"endpoint": "POST /v1/videos/generations"
+		}
+	]
+}

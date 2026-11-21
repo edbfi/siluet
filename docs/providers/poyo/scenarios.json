@@ -1,0 +1,227 @@
+{
+	"scenarios": [
+		{
+			"name": "Confirmed failure after an acknowledged video submission",
+			"exchanges": [
+				{
+					"request": {
+						"method": "POST",
+						"path": "/api/generate/submit",
+						"body": {
+							"model": "seedance-2.5-flash",
+							"input": {
+								"prompt": "A paper pinwheel slowly turns beside a rain-streaked window.",
+								"duration": 4,
+								"enable_safety_checker": false
+							}
+						}
+					},
+					"response": {
+						"httpStatus": 200,
+						"body": {
+							"code": 200,
+							"data": {
+								"task_id": "task-unified-1795284600-n5f2w8qx",
+								"status": "not_started",
+								"created_time": "2026-11-21T15:30:00Z"
+							}
+						}
+					}
+				},
+				{
+					"request": {
+						"method": "GET",
+						"path": "/api/generate/status/task-unified-1795284600-n5f2w8qx"
+					},
+					"response": {
+						"httpStatus": 200,
+						"body": {
+							"code": 200,
+							"data": {
+								"task_id": "task-unified-1795284600-n5f2w8qx",
+								"status": "running",
+								"credits_amount": 164,
+								"files": [],
+								"created_time": "2026-11-21T15:30:00Z",
+								"progress": 28,
+								"error_message": null
+							}
+						}
+					}
+				},
+				{
+					"request": {
+						"method": "GET",
+						"path": "/api/generate/status/task-unified-1795284600-n5f2w8qx"
+					},
+					"response": {
+						"httpStatus": 200,
+						"body": {
+							"code": 200,
+							"data": {
+								"task_id": "task-unified-1795284600-n5f2w8qx",
+								"status": "failed",
+								"credits_amount": 0,
+								"files": [],
+								"created_time": "2026-11-21T15:30:00Z",
+								"progress": 0,
+								"error_message": "Video rendering failed during final encoding."
+							}
+						}
+					}
+				}
+			],
+			"expect": [
+				"Keep the acknowledged task ID and recognize the terminal provider failure from data.status.",
+				"Record the terminal zero-credit amount and retain the provider diagnostic. Stop polling and make no download or automatic submission."
+			]
+		},
+		{
+			"name": "Submission timeout before acknowledgement",
+			"exchanges": [
+				{
+					"request": {
+						"method": "POST",
+						"path": "/api/generate/submit",
+						"body": {
+							"model": "kling-4.0-image",
+							"input": {
+								"prompt": "A blue ceramic inkwell on a sheet of recycled paper.",
+								"size": "1:1",
+								"enable_safety_checker": false
+							}
+						}
+					},
+					"fault": {
+						"phase": "waiting for the submit response after sending the request",
+						"event": "deadline exceeded before response headers or body arrived"
+					}
+				}
+			],
+			"expect": [
+				"Record uncertain acceptance with no provider task ID and unknown charge.",
+				"Leave resubmission to the creator and preserve the pending attempt through a local restart."
+			]
+		},
+		{
+			"name": "Finished image pair with only one saved output",
+			"exchanges": [
+				{
+					"request": {
+						"method": "POST",
+						"path": "/api/generate/submit",
+						"body": {
+							"model": "kling-4.0-image",
+							"input": {
+								"prompt": "A lacquered pencil box in an overhead product photograph.",
+								"resolution": "2K",
+								"enable_safety_checker": false,
+								"n": 2,
+								"enable_sequential": true
+							}
+						}
+					},
+					"response": {
+						"httpStatus": 200,
+						"body": {
+							"code": 200,
+							"data": {
+								"task_id": "task-unified-1795284780-t9r4v7mn",
+								"status": "not_started",
+								"created_time": "2026-11-21T15:33:00Z"
+							}
+						}
+					}
+				},
+				{
+					"request": {
+						"method": "GET",
+						"path": "/api/generate/status/task-unified-1795284780-t9r4v7mn"
+					},
+					"response": {
+						"httpStatus": 200,
+						"body": {
+							"code": 200,
+							"data": {
+								"task_id": "task-unified-1795284780-t9r4v7mn",
+								"status": "finished",
+								"credits_amount": 26,
+								"files": [
+									{
+										"file_url": "https://poyo-results.example.invalid/generated/pencil-box-first.png",
+										"file_type": "image"
+									},
+									{
+										"file_url": "https://poyo-results.example.invalid/generated/lacquered-pencil-box.png",
+										"file_type": "image"
+									}
+								],
+								"created_time": "2026-11-21T15:33:00Z",
+								"progress": 100,
+								"error_message": null
+							}
+						}
+					}
+				},
+				{
+					"request": {
+						"method": "GET",
+						"url": "https://poyo-results.example.invalid/generated/pencil-box-first.png"
+					},
+					"response": {
+						"httpStatus": 200
+					},
+					"localOutcome": "Saved complete PNG as output 1."
+				},
+				{
+					"request": {
+						"method": "GET",
+						"url": "https://poyo-results.example.invalid/generated/lacquered-pencil-box.png"
+					},
+					"fault": {
+						"phase": "reading the result download body",
+						"event": "connection reset after a partial PNG was received"
+					}
+				}
+			],
+			"expect": [
+				"The original provider task is finished. Output 1 stays saved, usable and linked to the task.",
+				"Output 2 remains unsaved after a partial download. Retry only its URL and keep both output indices. No new generation is required."
+			]
+		},
+		{
+			"name": "Request rejected by business code inside HTTP 200",
+			"exchanges": [
+				{
+					"request": {
+						"method": "POST",
+						"path": "/api/generate/submit",
+						"body": {
+							"model": "kling-4.0-image",
+							"input": {
+								"prompt": "A stack of linen sketchbooks beside a cedar ruler.",
+								"enable_sequential": true,
+								"n": 1,
+								"enable_safety_checker": false
+							}
+						}
+					},
+					"response": {
+						"httpStatus": 200,
+						"body": {
+							"code": 400,
+							"error": {
+								"type": "invalid_request_error",
+								"message": "Sequential generation requires at least two images."
+							}
+						}
+					}
+				}
+			],
+			"expect": [
+				"Report the documented validation rejection using the business code. There is no acknowledged task to poll and no automatic submission."
+			]
+		}
+	],
+	"description": "Offline synthetic exchanges. Submission payloads include the Siluet D4 preference even where a model manual omits it. The scenarios illustrate possible outcomes and do not verify runtime acceptance or filtering."
+}

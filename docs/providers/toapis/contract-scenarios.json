@@ -1,0 +1,277 @@
+{
+	"description": "Offline synthetic exchanges. Submission payloads include the Siluet D4 preference even where a model manual omits it. The scenarios illustrate possible outcomes and do not verify runtime acceptance or filtering.",
+	"scenarios": [
+		{
+			"name": "vidu_first_frame_acknowledged_and_completed",
+			"sources": ["https://docs.toapis.com/docs/en/api-reference/videos/vidu-ali/generation"],
+			"exchanges": [
+				{
+					"request": {
+						"method": "POST",
+						"path": "/v1/videos/generations",
+						"json": {
+							"model": "viduq3-pro-fast",
+							"prompt": "A folded paper sailboat drifts across a shallow puddle.",
+							"image_urls": ["https://inputs.example/sailboat.png"],
+							"disable_nsfw": false
+						}
+					},
+					"response": {
+						"status": 200,
+						"json": {
+							"id": "vid_siluet_sailboat_16",
+							"object": "generation.task",
+							"model": "viduq3-pro-fast",
+							"status": "queued",
+							"progress": 0,
+							"created_at": 1795305600
+						}
+					}
+				},
+				{
+					"request": {
+						"method": "GET",
+						"path": "/v1/videos/generations/vid_siluet_sailboat_16"
+					},
+					"response": {
+						"status": 200,
+						"json": {
+							"id": "vid_siluet_sailboat_16",
+							"object": "generation.task",
+							"model": "viduq3-pro-fast",
+							"status": "in_progress",
+							"progress": 34,
+							"created_at": 1795305600
+						}
+					}
+				},
+				{
+					"request": {
+						"method": "GET",
+						"path": "/v1/videos/generations/vid_siluet_sailboat_16"
+					},
+					"response": {
+						"status": 200,
+						"json": {
+							"id": "vid_siluet_sailboat_16",
+							"object": "generation.task",
+							"model": "viduq3-pro-fast",
+							"status": "completed",
+							"progress": 100,
+							"created_at": 1795305600,
+							"completed_at": 1795305694,
+							"expires_at": 1797897694,
+							"result": {
+								"type": "video",
+								"data": [
+									{
+										"url": "https://results.example/sailboat.mp4",
+										"format": "mp4"
+									}
+								]
+							}
+						}
+					}
+				}
+			],
+			"expectation": "Track one opaque task ID from acknowledgement through completion, expose its expiry and queue a separate download."
+		},
+		{
+			"name": "vidu_confirmed_task_failure",
+			"sources": [
+				"https://docs.toapis.com/docs/en/api-reference/videos/vidu-ali/generation#query-task",
+				"https://docs.toapis.com/docs/en/api-reference/errors#where-to-read-the-error"
+			],
+			"exchanges": [
+				{
+					"request": {
+						"method": "POST",
+						"path": "/v1/videos/generations",
+						"json": {
+							"model": "viduq3-ad",
+							"prompt": "Follow the pacing of this stop-motion clip to reveal a desk lamp.",
+							"url": "https://inputs.example/stop-motion.mp4",
+							"image_urls": ["https://inputs.example/lamp.png"],
+							"disable_nsfw": false
+						}
+					},
+					"response": {
+						"status": 200,
+						"json": {
+							"id": "vid_siluet_lamp_27",
+							"object": "generation.task",
+							"model": "viduq3-ad",
+							"status": "queued",
+							"progress": 0,
+							"created_at": 1795305700
+						}
+					}
+				},
+				{
+					"request": {
+						"method": "GET",
+						"path": "/v1/videos/generations/vid_siluet_lamp_27"
+					},
+					"response": {
+						"status": 200,
+						"json": {
+							"id": "vid_siluet_lamp_27",
+							"object": "generation.task",
+							"model": "viduq3-ad",
+							"status": "failed",
+							"progress": 100,
+							"created_at": 1795305700,
+							"completed_at": 1795305728,
+							"error": {
+								"code": "InvalidParameter",
+								"message": "This reference workflow requires structured subject input."
+							}
+						}
+					}
+				}
+			],
+			"expectation": "Record a confirmed execution failure despite HTTP 200 and progress 100. Surface the provider error and retain unconfirmed billing. No new generation request is triggered."
+		},
+		{
+			"name": "vidu_submission_response_lost",
+			"sources": [
+				"https://docs.toapis.com/docs/en/api-reference/videos/vidu-ali/generation",
+				"https://docs.toapis.com/docs/en/api-reference/errors#retries-and-request-recovery"
+			],
+			"exchanges": [
+				{
+					"request": {
+						"method": "POST",
+						"path": "/v1/videos/generations",
+						"json": {
+							"model": "viduq3-pro-fast",
+							"prompt": "A soft breeze turns the pages of a notebook.",
+							"image_urls": ["https://inputs.example/notebook.png"],
+							"disable_nsfw": false
+						}
+					},
+					"transportOutcome": "Request sent. Timed out before receiving any response bytes."
+				}
+			],
+			"expectation": "Preserve uncertain submission with no known provider task ID. Acceptance and cost are unknown. No polling with a fabricated ID, undocumented recovery field or automatic repeat POST."
+		},
+		{
+			"name": "gpt_image_pending_acknowledgement",
+			"sources": [
+				"https://docs.toapis.com/docs/en/api-reference/images/gpt-image-2.6/generation",
+				"https://docs.toapis.com/docs/en/api-reference/tasks/image-status"
+			],
+			"exchanges": [
+				{
+					"request": {
+						"method": "POST",
+						"path": "/v1/images/generations",
+						"json": {
+							"model": "gpt-image-2.6-flare",
+							"prompt": "A linocut of a pear on a checkered tea towel.",
+							"disable_nsfw": false
+						}
+					},
+					"response": {
+						"status": 200,
+						"json": {
+							"id": "tsk_img_siluet_linocut_42",
+							"object": "generation.task",
+							"model": "gpt-image-2.6-flare",
+							"status": "pending",
+							"progress": 0,
+							"created_at": 1795305800,
+							"metadata": {}
+						}
+					}
+				},
+				{
+					"request": {
+						"method": "GET",
+						"path": "/v1/images/generations/tsk_img_siluet_linocut_42"
+					},
+					"response": {
+						"status": 200,
+						"json": {
+							"id": "tsk_img_siluet_linocut_42",
+							"object": "generation.task",
+							"model": "gpt-image-2.6-flare",
+							"status": "completed",
+							"progress": 100,
+							"created_at": 1795305800,
+							"finished_at": 1795305934,
+							"completed_at": 1795305934,
+							"expires_at": 1797897934,
+							"result": {
+								"type": "image",
+								"data": [
+									{
+										"url": "https://results.example/linocut.png"
+									}
+								]
+							}
+						}
+					}
+				}
+			],
+			"expectation": "A pending acknowledgement with an ID is accepted. Poll the same ID. Completion exposes an image URL while absent billing remains unconfirmed."
+		},
+		{
+			"name": "seedance_completed_video_download_failed",
+			"sources": [
+				"https://docs.toapis.com/docs/en/api-reference/tasks/video-status#seedance-original-and-fallback-urls"
+			],
+			"exchanges": [
+				{
+					"request": {
+						"method": "GET",
+						"path": "/v1/videos/generations/tsk_vid_siluet_orchard_89"
+					},
+					"response": {
+						"status": 200,
+						"json": {
+							"id": "tsk_vid_siluet_orchard_89",
+							"object": "generation.task",
+							"model": "seedance-2-global",
+							"status": "completed",
+							"progress": 100,
+							"created_at": 1795306000,
+							"finished_at": 1795306096,
+							"completed_at": 1795306096,
+							"expires_at": 1797898096,
+							"result": {
+								"type": "video",
+								"data": [
+									{
+										"url": "https://original.example/orchard.mp4",
+										"fallback_url": "https://copy.example/orchard.mp4",
+										"format": "mp4"
+									}
+								]
+							}
+						}
+					}
+				},
+				{
+					"request": {
+						"method": "GET",
+						"url": "https://original.example/orchard.mp4"
+					},
+					"response": {
+						"status": 403
+					}
+				},
+				{
+					"request": {
+						"method": "GET",
+						"url": "https://copy.example/orchard.mp4"
+					},
+					"response": {
+						"status": 503
+					}
+				}
+			],
+			"expectation": "Try the original first and the corresponding fallback second. Both downloads fail, so the completed task retains its ID and output metadata while local retrieval remains failed. Retry retrieval separately from generation."
+		}
+	]
+}
