@@ -178,6 +178,16 @@ test.each([
 
 test.each([
 	["[user:private@assets.test]", "[[URL hidden]]"],
+	["“user:private@assets.test”", "“[URL hidden]”"],
+	["‘user:private@assets.test’", "‘[URL hidden]’"],
+	["«user:private@assets.test»", "«[URL hidden]»"],
+	["user:pw@assets.test—", "[URL hidden]—"],
+	["*user:pw@assets.test*", "*[URL hidden]*"],
+	["user:@assets.test", "[URL hidden]"],
+	["user:@[::1]", "[URL hidden]"],
+	["https://[::1].", "[URL hidden]."],
+	["[https://user:private@[::1]]", "[[URL hidden]]"],
+	["//[::1]", "[URL hidden]"],
 	["user:private@[::1].", "[URL hidden]."],
 	["(user:private@studio:8080)", "([URL hidden])"],
 	['Print "Credits:@artist" in gold.', 'Print "Credits:@artist" in gold.'],

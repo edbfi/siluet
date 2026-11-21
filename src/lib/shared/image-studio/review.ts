@@ -35,10 +35,12 @@ const bareHost = new RegExp(
 	String.raw`(?<![\p{L}\p{N}_.-])(?:www\.|(?:${host.source})(?=:\d+|[/?#])|\p{L}[\p{L}\p{N}_-]*(?=:\d+[/#?]))`,
 	"iu",
 );
+const closingPunctuation = /[.,;:!?'"…*\p{Pe}\p{Pf}\p{Pd}]/u;
 const authority = new RegExp(
-	String.raw`^(?:(?:${host.source})(?::\d+)?|\p{L}[\p{L}\p{N}_-]*:\d+)[.,;:!?)}\]'"]*$`,
+	String.raw`^(?:(?:${host.source})(?::\d+)?|\p{L}[\p{L}\p{N}_-]*:\d+)(?=$|[\p{P}\p{S}])`,
 	"iu",
 );
+const ipv6Authority = /^(?:(?:[a-z][a-z\d+.-]*:)?\/\/(?:[^/?#]*@)?)?\[[a-f\d:.%]+\]/iu;
 const linkStart = new RegExp(`(?:${schemeOrSlashes.source}|${bareHost.source})`, "iu");
 
 function redactLink(token: string): string {
@@ -46,16 +48,16 @@ function redactLink(token: string): string {
 	if (start < 0) {
 		const at = token.lastIndexOf("@");
 		const colon = token.indexOf(":");
-		if (colon < 0 || at <= colon + 1 || !authority.test(token.slice(at + 1))) return token;
+		if (colon < 0 || at <= colon || !authority.test(token.slice(at + 1))) return token;
 		start = at + 1;
 	}
 	let prefix = token.slice(0, start);
 	// A bare host can have user:password@ in front of it. Keep only its opening punctuation.
-	if (prefix.endsWith("@")) prefix = /^[('"“‘{[]*/u.exec(prefix)?.[0] ?? "";
+	if (prefix.endsWith("@")) prefix = /^['"*\p{Ps}\p{Pi}]*/u.exec(prefix)?.[0] ?? "";
 	// In a bracketed IPv6 authority, the closing bracket belongs to the address.
-	const hostEnd = token[start] === "[" ? token.indexOf("]", start) + 1 : start;
+	const hostEnd = start + (ipv6Authority.exec(token.slice(start))?.[0].length ?? 0);
 	let end = token.length;
-	while (end > hostEnd && ".,;:!?)}]'\"".includes(token[end - 1])) end--;
+	while (end > hostEnd && closingPunctuation.test(token[end - 1])) end--;
 	return `${prefix}[URL hidden]${token.slice(end)}`;
 }
 
