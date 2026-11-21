@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 128 128" role="img" aria-labelledby="siluet-title">
+  <title id="siluet-title">Siluet</title>
+  <rect x="4" y="4" width="120" height="120" rx="25" fill="#f4bf54"/>
+  <path fill="#23201d" d="M101 25H62c-22 0-35 10-35 25 0 12 7 19 22 23l21 6c5 1 7 3 7 5s-3 4-9 4H43l-14 17h39c21 0 33-10 33-24 0-13-8-21-22-25l-21-6c-5-1-7-3-7-5s3-3 9-3h27z"/>
+  <path stroke="#f4bf54" stroke-width="4" d="m52 82 29-29"/>
+</svg>
