@@ -92,7 +92,7 @@ function select(provider: SeedreamProvider | null, operation: SeedreamOperation 
 	selectionStatus = "";
 	if (draft.references.length) {
 		selectionStatus =
-			operation === "edit"
+			provider && operation === "edit"
 				? "Reference images cleared. Choose them again for this request."
 				: "Reference images cleared.";
 	}

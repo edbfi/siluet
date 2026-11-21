@@ -267,6 +267,46 @@ test("reference URL validation preserves signed paths, identifies the host and r
 		expect(parseReferenceUrl(value)).toBeNull();
 });
 
+// https://www.iana.org/assignments/iana-ipv6-special-registry
+// https://www.iana.org/assignments/ipv6-unicast-address-assignments
+test.each([
+	"2001:2::1",
+	"2001:1::4",
+	"2001:10::1",
+	"2001::1",
+	"2001:db8::1",
+	"2002:c000:201::1",
+	"3ffe::1",
+	"3fff:fff::1",
+	"2fff::1",
+	"2001:1000::1",
+	"2003:4000::1",
+	"2610:200::1",
+	"64:ff9b::7f00:1",
+])("rejects non-public IPv6 literal %s", (address) => {
+	expect(parseReferenceUrl(`https://[${address}]/image`)).toBeNull();
+});
+
+test.each([
+	"2001:1::3",
+	"2001:3::1",
+	"2001:4:112::1",
+	"2001:2f::1",
+	"2001:30::1",
+	"2001:200::1",
+	"2001:4860:4860::8888",
+	"2003:3fff::1",
+	"2410::1",
+	"2606:4700::1",
+	"2610:1ff::1",
+	"2620:4f:8000::1",
+	"2c0f:ffff::1",
+])("accepts eligible public IPv6 literal %s", (address) => {
+	expect(parseReferenceUrl(`https://[${address}]/image`)).toMatchObject({
+		hostname: `[${address}]`,
+	});
+});
+
 test("reference file validation applies each provider’s formats and decimal byte cap", () => {
 	// https://docs.poyo.ai/api-manual/image-series/seedream-5-5
 	// https://docs.toapis.com/docs/en/api-reference/images/seedream-5.5/generation

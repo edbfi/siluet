@@ -1,3 +1,5 @@
+import { hasCompleteGifStream } from "./gif";
+import { isPublicIpv6 } from "./ipv6";
 import type { SeedreamProvider } from "./seedream";
 
 export type LocalReference = { kind: "file"; file: File };
@@ -70,15 +72,17 @@ export async function checkReferenceFile(
 	const error = referenceFileError(provider, file);
 	if (error) return error;
 
-	let header: Uint8Array;
+	const format = fileFormat(provider, file);
+	let bytes: Uint8Array;
 	try {
-		header = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+		const source = format === "gif" ? file : file.slice(0, 16);
+		bytes = new Uint8Array(await source.arrayBuffer());
 	} catch {
 		return "Could not read this file. Choose it again.";
 	}
-	return imageFormat(header) === fileFormat(provider, file)
-		? null
-		: `Choose a valid ${referenceFileHelp(provider)}.`;
+	if (imageFormat(bytes) !== format) return `Choose a valid ${referenceFileHelp(provider)}.`;
+	if (format === "gif" && !hasCompleteGifStream(bytes)) return "Choose a complete GIF file.";
+	return null;
 }
 
 function imageFormat(bytes: Uint8Array): keyof typeof fileTypes | undefined {
@@ -97,9 +101,7 @@ function imageFormat(bytes: Uint8Array): keyof typeof fileTypes | undefined {
 // The browser can rule out local names and non-public address literals without DNS or requests.
 function isPublicHostname(hostname: string): boolean {
 	const host = hostname.replace(/\.$/, "");
-	if (host.startsWith("[")) {
-		return /^\[[23][0-9a-f]{3}:/.test(host) && !/^\[(?:2001:db8:|3fff:)/.test(host);
-	}
+	if (host.startsWith("[")) return isPublicIpv6(host);
 	const ipv4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host);
 	if (ipv4) {
 		const [, first, second, third] = ipv4.map(Number);

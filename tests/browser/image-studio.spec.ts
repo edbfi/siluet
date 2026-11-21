@@ -6,7 +6,7 @@ import {
 	providerFixtureKeys as keys,
 	startProviderFixtures,
 } from "../fixtures/provider-connections";
-import { referencePng } from "../fixtures/reference-image";
+import { referenceGif, referencePng, truncatedReferenceGif } from "../fixtures/reference-image";
 import { startStudio } from "./built-studio";
 
 const username = "image-owner";
@@ -179,7 +179,40 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(page.getByRole("group", { name: "Framing presets" })).toBeVisible();
 			await expect(page.getByRole("textbox", { name: "Prompt" })).toBeVisible();
 			await firstFile.setInputFiles(referenceImage);
-			await expect(preview.getByRole("img", { name: "Reference image 1" })).toBeVisible();
+			const localPreview = preview.getByRole("img", { name: "Reference image 1" });
+			await expect(localPreview).toBeVisible();
+			const originalSource = await localPreview.getAttribute("src");
+
+			// The browser decodes the first frame even though the second frame is truncated.
+			expect(
+				await page.evaluate(
+					async (bytes) => {
+						const frame = await createImageBitmap(
+							new Blob([Uint8Array.from(bytes)], { type: "image/gif" }),
+						);
+						const width = frame.width;
+						frame.close();
+						return width;
+					},
+					[...truncatedReferenceGif],
+				),
+			).toBe(1);
+			await firstFile.setInputFiles({
+				name: "truncated.gif",
+				mimeType: "image/gif",
+				buffer: truncatedReferenceGif,
+			});
+			await expect(page.getByText("Choose a complete GIF file.")).toBeVisible();
+			await expect(firstFile).toHaveAccessibleDescription(/fixture-reference\.png/);
+			await expect(localPreview).toHaveAttribute("src", originalSource ?? "");
+
+			await firstFile.setInputFiles({
+				name: "complete.gif",
+				mimeType: "image/gif",
+				buffer: referenceGif,
+			});
+			await expect(firstFile).toHaveAccessibleDescription(/complete\.gif/);
+			await expect(localPreview).not.toHaveAttribute("src", originalSource ?? "");
 			const response = await page.reload();
 			if (!response) throw new Error("Image Studio did not return a document.");
 			expect(response.headers()["cache-control"]).toBe("no-store");
@@ -234,6 +267,28 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(prompt).toHaveValue("");
 			await expect(operation).toHaveValue("generate");
 			await expect(firstFile).toHaveCount(0);
+		});
+
+		await test.step("clear staged media when the last eligible provider disappears", async () => {
+			await page.setViewportSize({ width: 1200, height: 850 });
+			await operation.selectOption("edit");
+			await firstFile.setInputFiles(referenceImage);
+			await expect(preview.getByRole("img", { name: "Reference image 1" })).toBeVisible();
+			await settingsLink.press("Enter");
+			const poyoLink = page.getByRole("link", { name: "Poyo.ai", exact: true });
+			const remove = page.getByRole("button", { name: "Remove key", exact: true });
+			await poyoLink.press("Enter");
+			await expect(poyoLink).toHaveAttribute("aria-current", "page");
+			await remove.press("Enter");
+			await expect(page.getByRole("status")).toHaveText("Key removed.");
+			await toapisLink.press("Enter");
+			await expect(toapisLink).toHaveAttribute("aria-current", "page");
+			await remove.press("Enter");
+			await expect(page.getByRole("status")).toHaveText("Key removed.");
+			await imageLink.press("Enter");
+			await expect(providers).toHaveCount(0);
+			await expect(firstFile).toHaveCount(0);
+			await expect(page.getByText("Reference images cleared.", { exact: true })).toBeVisible();
 		});
 
 		expect(fixtures.requests).toHaveLength(providerChecks);
