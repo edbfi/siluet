@@ -21,3 +21,7 @@ Track coverage by provider, model and operation so that one supported model cann
 ## D3 · Local persistence with embedded Turso and Drizzle
 
 Approved by the owner on 2026-11-21. The first approved feature that needs persistence will use embedded Turso through Drizzle ORM. An embedded database keeps setup local to the creator’s machine and requires no separate database service. Drizzle gives the TypeScript application typed queries. Each module’s spec will define the data it needs to retain.
+
+## D4 · Optional filtering on media requests
+
+Siluet uses a fixed default for image and video generation and edits so switching models keeps the single creator’s chosen filtering policy. The composer sends `input.enable_safety_checker: false` to Poyo.ai and `disable_nsfw: false` to ToAPIs. On eligible ToAPIs accounts and regions the latter permits fallback. Show known schema conflicts before queuing. Preserve a rejection because dropping a field and resubmitting could change the result and incur a second charge.
