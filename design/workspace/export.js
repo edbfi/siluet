@@ -10,6 +10,7 @@ const relative = (name) => new URL(name, import.meta.url);
 const read = (name) => readFileSync(relative(name), "utf8");
 
 const pricingScript = "pricing.generated.js";
+const walletScript = "wallet.generated.js";
 
 /**
  * @param {URL} destination
@@ -26,6 +27,13 @@ export async function exportWorkspace(destination, feed) {
 	});
 	const notice = feeds.poyo ? `/*\n${read("../../pricing/v1/LICENSE.poyo")}\n*/\n` : "";
 	const pricing = notice + (await bundle.outputs[0].text());
+	const walletBundle = await Bun.build({
+		entrypoints: [fileURLToPath(relative("wallet-observations.ts"))],
+		target: "browser",
+		format: "iife",
+		minify: { whitespace: true },
+	});
+	const wallet = await walletBundle.outputs[0].text();
 	/** @type {{ window: { SiluetFixtures: { src: string, mime: string }[] } }} */
 	const fixtureContext = { window: { SiluetFixtures: [] } };
 	runInNewContext(read("fixtures.js"), fixtureContext);
@@ -39,6 +47,7 @@ export async function exportWorkspace(destination, feed) {
 	const scripts = new Map([
 		["fixtures.js", `window.SiluetFixtures = ${JSON.stringify(fixtures)};`],
 		[pricingScript, pricing],
+		[walletScript, wallet],
 	]);
 	const markup = read("index.html")
 		.replace(/\bsrc="([^"]+)"/g, (attribute, src) => {
@@ -55,8 +64,13 @@ export async function exportWorkspace(destination, feed) {
 		});
 	const bundleFile = new URL(pricingScript, destination);
 	const standaloneFile = new URL("workspace.html", destination);
-	await Promise.all([Bun.write(bundleFile, pricing), Bun.write(standaloneFile, markup)]);
-	return [bundleFile, standaloneFile];
+	const walletFile = new URL(walletScript, destination);
+	await Promise.all([
+		Bun.write(bundleFile, pricing),
+		Bun.write(standaloneFile, markup),
+		Bun.write(walletFile, wallet),
+	]);
+	return [bundleFile, standaloneFile, walletFile];
 }
 
 if (import.meta.main) {

@@ -423,7 +423,7 @@
 	updateWallets();
 	mountRoute(pageFor(window.location.hash.slice(1)) ?? "dashboard");
 	studio.subscribe((topic) => {
-		if (topic === "settings") updateWallets();
+		if (topic === "settings" || topic === "wallet") updateWallets();
 		if (dashboardData) updateDashboard();
 	});
 	views.onboarding?.();

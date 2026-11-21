@@ -406,6 +406,58 @@
 		return `<div><dt>${html(label)}</dt><dd>${html(value)}</dd></div>`;
 	}
 
+	function walletAmount(delta, unit) {
+		const signed = delta.startsWith("-") ? `−${delta.slice(1)}` : delta === "0" ? "0" : `+${delta}`;
+		return `${signed} ${unit}`;
+	}
+
+	function walletReading(label, { amount, unit, observedAt }) {
+		return `<div><dt>${html(label)}</dt><dd>${html(amount)} ${html(unit)}
+			<time datetime="${new Date(observedAt).toISOString()}">${html(date(observedAt))}</time></dd></div>`;
+	}
+
+	const walletUnavailable = {
+		access: "Wallet access was unavailable",
+		cooldown: "The wallet was cooling down",
+		failed: "A wallet read failed",
+		interrupted: "The observation was interrupted",
+		uncertain: "Request acceptance is unknown",
+		overlap: "Overlapping requests",
+		"scope-mismatch": "The wallet or unit changed",
+	};
+
+	function walletBilling(job, jobs, batch) {
+		const change = window.Studio.walletComparison(job);
+		const history = window.Studio.walletHistory(job, jobs);
+		const label =
+			batch.length > 1 && !job.walletRunId
+				? "Observed batch wallet change"
+				: "Observed wallet change";
+		let rows = "";
+		if (change?.status === "observed") {
+			rows =
+				metadata(label, walletAmount(change.delta, change.unit)) +
+				walletReading("Balance before", change.before) +
+				walletReading("Balance after", change.after);
+		} else if (change?.status === "pending") {
+			rows = metadata(label, "Waiting for requests to finish");
+		} else {
+			const reason = walletUnavailable[change?.reason] ?? "Two wallet reads are required";
+			rows = metadata(label, `Unavailable · ${reason}`);
+		}
+		if (history) {
+			const count = `${history.sampleCount} ${history.sampleCount === 1 ? "sample" : "samples"}`;
+			rows += metadata(
+				"Historical observed wallet change",
+				`${walletAmount(history.delta, history.unit)} · ${count} · ${date(history.observedAt)}`,
+			);
+		}
+		return {
+			rows,
+			hasObservation: change?.status === "observed" || Boolean(history),
+		};
+	}
+
 	function rootId(job) {
 		return job.rootId ?? job.parentId ?? job.id;
 	}
@@ -518,6 +570,7 @@
 				? "The provider completed the job. The saved output is unavailable in this session."
 				: note;
 		const confirming = retryEstimate !== undefined;
+		const wallet = walletBilling(job, jobs, batch);
 
 		return `
 			<header class="studio-ops__detail-head">
@@ -561,7 +614,9 @@
 					${job.estimate?.advertisedUnitRate ? metadata("Advertised unit rate", window.SiluetPricing.toapisTokenRate(job.estimate.advertisedUnitRate)) : ""}
 					${rateSourceLabel(job.estimate) ? metadata("Rate source", rateSourceLabel(job.estimate)) : ""}
 					${metadata("Settled charge", "Unknown")}
+					${wallet.rows}
 				</dl>
+				${wallet.hasObservation ? '<p class="studio-ops__section-note">These are demo account balance changes. Reservations, top-ups and late settlement can affect the amount.</p>' : ""}
 			</section>
 			<section class="studio-ops__detail-section">
 				<h3>Request details</h3>

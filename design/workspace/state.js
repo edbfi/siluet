@@ -72,6 +72,13 @@
 		retryLimit: maxRetryLimit,
 	};
 	assignPreferences(saved?.settings ?? {});
+	const hasWalletAccess = (provider) =>
+		preferences.keys[provider] && (provider === "poyo" || preferences.wallet[provider]);
+	const wallets = window.SiluetWallets?.create(
+		saved?.walletObservations,
+		fixtureBalances,
+		hasWalletAccess,
+	);
 	const rows = Array.isArray(saved?.jobs) ? saved.jobs.map(restoreJob).filter(Boolean) : seedJobs();
 	const byId = new Map(rows.map((job) => [job.id, job]));
 	const childByParent = new Map(
@@ -97,11 +104,39 @@
 					settings: preferences,
 					jobs: rows,
 					cooldowns,
+					walletObservations: wallets?.snapshot(),
 				}),
 			);
 		} catch {
 			// The current session can still run when browser storage is unavailable.
 		}
+		if (wallets?.takeBalanceChange()) publish("wallet");
+	}
+
+	function walletRunId(job) {
+		return job.walletRunId ?? job.batchId;
+	}
+
+	function saveJobChanges(changed) {
+		const open = new Map();
+		for (const job of changed) {
+			const id = walletRunId(job);
+			if (wallets?.isOpen(job.provider, id)) {
+				open.set(`${job.provider}:${id}`, { provider: job.provider, id });
+			}
+		}
+		for (const { id, provider } of open.values()) {
+			const members = rows.filter((job) => job.provider === provider && walletRunId(job) === id);
+			if (members.some((job) => ["queued", "running"].includes(job.status) || job.retryAt !== null))
+				continue;
+			wallets.finish(
+				provider,
+				id,
+				Date.now(),
+				members.some((job) => job.status === "uncertain"),
+			);
+		}
+		persist();
 	}
 
 	function boundedRetryLimit(value, fallback = 0) {
@@ -310,7 +345,7 @@
 				scheduleRetry(job);
 			}
 		}
-		persist();
+		saveJobChanges([job]);
 		schedulePump();
 		publish("jobs", publicJob(job));
 		if (job.assetId) publish("assets");
@@ -339,6 +374,7 @@
 					changed.add(waiting);
 				}
 			} else {
+				wallets?.start(job.provider, walletRunId(job), now);
 				setJobStatus(job, "running");
 				slots[job.provider]--;
 				window.setTimeout(() => finishJob(job), fixtureDuration[job.kind]);
@@ -346,7 +382,7 @@
 			changed.add(job);
 		}
 		if (!changed.size) return;
-		persist();
+		saveJobChanges(changed);
 		for (const job of changed) publish("jobs", publicJob(job));
 	}
 
@@ -393,7 +429,8 @@
 				const reason = blockedReason(parent);
 				if (reason) {
 					clearRetry(parent);
-					persist();
+					saveJobChanges([parent]);
+					publish("jobs", publicJob(parent));
 					return;
 				}
 				const child = queueRetry(parent, parent.outcome, parent.retryLimit);
@@ -489,6 +526,7 @@
 			throw new Error("The price estimate changed. Review it again before approving.");
 		}
 		const child = queueRetry(parent, "success", 0, estimate);
+		child.walletRunId = child.id;
 		persist();
 		schedulePump();
 		publish("jobs", publicJob(child));
@@ -533,7 +571,7 @@
 			"Stopped before submission.",
 			(job) => job.id === id,
 		);
-		persist();
+		saveJobChanges(affected);
 		for (const job of affected) publish("jobs", publicJob(job));
 		return id;
 	}
@@ -543,6 +581,7 @@
 		assignPreferences(changes);
 		const affected = new Set();
 		for (const provider of providers) {
+			if (!hasWalletAccess(provider)) wallets?.revoke(provider);
 			if (previous.keys[provider] && !preferences.keys[provider]) {
 				for (const job of stopRequests(
 					(job) => job.provider === provider,
@@ -560,7 +599,7 @@
 			))
 				affected.add(job);
 		}
-		persist();
+		saveJobChanges(affected);
 		publish("settings", structuredClone(preferences));
 		for (const job of affected) publish("jobs", publicJob(job));
 	}
@@ -700,6 +739,7 @@
 			createdAt,
 			attempt,
 			parentId: typeof parentId === "string" ? parentId : null,
+			walletRunId: parentId && value.walletRunId === id ? id : undefined,
 			reason: typeof reason === "string" ? reason : null,
 			assetId:
 				assetId === `output-${id}` || (id.startsWith("seed-") && assetId === fixtureId)
@@ -903,10 +943,12 @@
 		balance(provider) {
 			if (!providers.includes(provider)) return { value: null, unit: "", asOf: null };
 			const balance = fixtureBalances[provider];
-			return preferences.keys[provider] && (provider === "poyo" || preferences.wallet[provider])
-				? { ...balance }
+			return hasWalletAccess(provider)
+				? (wallets?.balance(provider) ?? { ...balance })
 				: { value: null, unit: balance.unit, asOf: null };
 		},
+		walletComparison: (job) => wallets?.comparison(job),
+		walletHistory: (job, jobs) => wallets?.history(job, jobs, Date.now()),
 		subscribe(listener) {
 			listeners.add(listener);
 			return () => listeners.delete(listener);
