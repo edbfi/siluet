@@ -1,6 +1,6 @@
 # Siluet ground-floor spec
 
-Siluet's first deliverable is a working local build that a contributor can verify without a provider account. The [decision record](decisions.md) sets the product direction. Product modules will have separate specs after the owner approves Siluet's capability map.
+Siluet's first deliverable is a working local build that a contributor can verify without a provider account. The [decision record](decisions.md) sets the product direction. The production milestones below build on this foundation.
 
 ## Acceptance criteria
 
@@ -9,4 +9,14 @@ Siluet's first deliverable is a working local build that a contributor can verif
 3. Type checking, Biome, focused tests and a production build pass. A Chromium smoke test opens the built server, checks the page and verifies its health response. The [README](../README.md) lists the local commands.
 4. The initial PR runs the real `ci-ok` and `pr-policy` checks. CI installs Chromium before running the smoke test. Default-branch protections and dependency auto-merge follow the upstream [edbfi-ci onboarding order](https://github.com/edbfi/edbfi-ci/blob/main/SETUP.md).
 
-The ground floor needs no persistence, credentials, model catalog or paid submissions. Its page is a build fixture. Production UI follows the owner's choice of mockup.
+The ground floor needs no persistence, credentials, model catalog or paid submissions. Milestone 1 replaces the status fixture with the protected Svelte studio.
+
+## First production milestones
+
+| Order | Capability | What the creator can verify |
+| --- | --- | --- |
+| 1 | [Owner access](SPEC-owner-access.md) | Claim a fresh installation, enter the protected Svelte studio, sign out and sign back in after restarting. |
+| 2 | Image Studio | Connect a provider in Settings, select a model by family, choose a connected provider and review the request with its local estimate. |
+| 3 | First saved image | Submit one reviewed request, follow the job, save the image and find it in Gallery after restarting. |
+
+Video Studio can reuse the submission and media paths. External sign-in builds on owner access through Security settings.
