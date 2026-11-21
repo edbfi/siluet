@@ -21,7 +21,19 @@ let menuReady = $state(false);
 let signedOut = $state(false);
 const settings = $derived(pathname.startsWith("/settings"));
 const image = $derived(pathname === "/image");
-const destination = $derived(settings ? "Providers" : image ? "Image Studio" : "Studio home");
+const jobs = $derived(pathname === "/jobs");
+const gallery = $derived(pathname === "/gallery" || pathname.startsWith("/gallery/"));
+const destination = $derived(
+	settings
+		? "Providers"
+		: image
+			? "Image Studio"
+			: jobs
+				? "Jobs"
+				: gallery
+					? "Gallery"
+					: "Studio home",
+);
 const imageDraftMemory = $state<ImageDraftMemory>({});
 setImageDraftContext(imageDraftMemory);
 
@@ -74,6 +86,29 @@ onMount(() =>
 				<path d="m4 17 5-4 3 2 4-4 5 5" />
 			</svg>
 			Image Studio
+		</a>
+		<a
+			class={shell.navLink}
+			href="/jobs"
+			aria-current={jobs ? "page" : undefined}
+			onclick={() => (menuOpen = false)}
+		>
+			<svg class={shell.icon} viewBox="0 0 24 24" aria-hidden="true">
+				<path d="m3 6 1.5 1.5L7 4m3 2h11M3 12h4m3 0h11M3 18h4m3 0h11" />
+			</svg>
+			Jobs
+		</a>
+		<a
+			class={shell.navLink}
+			href="/gallery"
+			aria-current={gallery ? (pathname === "/gallery" ? "page" : "location") : undefined}
+			onclick={() => (menuOpen = false)}
+		>
+			<svg class={shell.icon} viewBox="0 0 24 24" aria-hidden="true">
+				<rect x="6" y="3" width="15" height="14" rx="2" />
+				<path d="m7 14 4-4 3 2 3-4 3 3M3 8v11a2 2 0 0 0 2 2h12" />
+			</svg>
+			Gallery
 		</a>
 		<a
 			class={shell.navLink}

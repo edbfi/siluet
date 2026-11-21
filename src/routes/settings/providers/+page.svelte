@@ -61,7 +61,11 @@ function save(
 			try {
 				if (result.type === "success" || result.type === "failure") {
 					if (result.data?.provider === id) feedbackByProvider[id] = result.data;
-					if (result.type === "success" || result.data?.outcome === "superseded") {
+					if (
+						result.type === "success" ||
+						result.data?.outcome === "superseded" ||
+						result.data?.outcome === "job-warning"
+					) {
 						const hadFocus = formElement.contains(document.activeElement);
 						await refreshAll();
 						if (
@@ -132,6 +136,12 @@ function save(
 							Enter a key again to restore this connection.
 						</p>
 					{/if}
+					{#if provider.neededByJobs}
+						<p class={cx(styles.warning, styles.notice)} id="job-key-warning">
+							Jobs still need this key. Replacing or removing it pauses status checks and prevents
+							saving their unsaved results.
+						</p>
+					{/if}
 					{#if provider.state === "repair"}
 						<p class={cx(styles.warning, styles.notice)}>{providerStorageRepairMessage}</p>
 					{:else}
@@ -142,6 +152,9 @@ function save(
 							use:enhance={save(provider.id, "connect")}
 						>
 							<input type="hidden" name="provider" value={provider.id}>
+							{#if provider.neededByJobs}
+								<input type="hidden" name="jobWarning" value="seen">
+							{/if}
 							<label class={styles.label} for="provider-key">API key</label>
 							<div class={styles.formControls}>
 								<input
@@ -159,6 +172,7 @@ function save(
 									class={cx(styles.action, styles.connect)}
 									type="submit"
 									aria-disabled={!!pending}
+									aria-describedby={provider.neededByJobs ? "job-key-warning" : undefined}
 								>
 									{pending === "connect"
 										? pendingMessages.connect
@@ -183,10 +197,14 @@ function save(
 							use:enhance={save(provider.id, "remove")}
 						>
 							<input type="hidden" name="provider" value={provider.id}>
+							{#if provider.neededByJobs}
+								<input type="hidden" name="jobWarning" value="seen">
+							{/if}
 							<button
 								class={cx(studioButton({ appearance: "secondary" }), styles.action)}
 								type="submit"
 								aria-disabled={!!pending}
+								aria-describedby={provider.neededByJobs ? "job-key-warning" : undefined}
 							>
 								{pending === "remove" ? pendingMessages.remove : "Remove key"}
 							</button>

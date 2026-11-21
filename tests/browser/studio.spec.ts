@@ -60,6 +60,14 @@ test("one owner can claim the studio and sign in after a process restart", async
 				"background-color",
 				"rgb(29, 41, 59)",
 			);
+			const jobsLink = serverRendered.getByRole("link", { name: "Jobs", exact: true });
+			await jobsLink.click();
+			await expect(jobsLink).toHaveAttribute("aria-current", "page");
+			await expect(serverRendered).toHaveTitle("Jobs · Siluet");
+			await expect(serverRendered.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
+			await expect(
+				serverRendered.getByRole("link", { name: "Gallery", exact: true }),
+			).toBeVisible();
 		} finally {
 			await serverRendered.close();
 		}

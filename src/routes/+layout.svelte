@@ -19,6 +19,9 @@ onMount(() => {
 {#if data.username &&
 	(page.url.pathname === "/" ||
 		page.url.pathname === "/image" ||
+		page.url.pathname === "/jobs" ||
+		page.url.pathname === "/gallery" ||
+		page.url.pathname.startsWith("/gallery/") ||
 		page.url.pathname.startsWith("/settings/"))}
 	<StudioShell pathname={page.url.pathname} signOutGeneration={data.signOutGeneration}>
 		{@render children()}

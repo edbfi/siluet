@@ -5,7 +5,10 @@ import { openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
 import { checkPoyoConnection } from "../../providers/poyo/connection";
 import { checkToapisConnection } from "../../providers/toapis/connection";
+import { createGallery } from "../gallery/gallery";
+import { createJobTracking } from "../jobs/tracking";
 import { createProviderConnections } from "../providers/connections";
+import { createSubmissionQueue } from "../queue/submission";
 import { createOwnerAccess, rotationMs } from "./access";
 import { studioOrigin } from "./origin";
 
@@ -23,10 +26,18 @@ export async function initializeOwner(dev: boolean) {
 		);
 	const installation = await openInstallation(directory);
 	const access = createOwnerAccess(installation);
-	const providers = createProviderConnections(providerStore(installation), {
+	const store = providerStore(installation);
+	const providers = createProviderConnections(store, {
 		poyo: checkPoyoConnection(),
 		toapis: checkToapisConnection(),
 	});
+	const jobs = createJobTracking(installation, store);
+	const gallery = createGallery(installation, (id) => jobs.resultUrl(id));
+	const queue = await createSubmissionQueue(installation, store.credential, (...args) =>
+		jobs.dispatch(...args),
+	);
+	await gallery.recover();
+	await jobs.resume();
 	let rotation: ReturnType<typeof setTimeout> | undefined;
 	async function announce() {
 		if (await installation.hasOwner()) return;
@@ -43,12 +54,16 @@ export async function initializeOwner(dev: boolean) {
 	else {
 		lifecycle.once("sveltekit:shutdown", () => {
 			clearTimeout(rotation);
+			jobs.close();
 			void installation.close().catch(() => console.error("Unable to close studio storage."));
 		});
 		lifecycle.emit("siluet:ready", ready);
 	}
 	return {
 		origin,
+		jobs,
+		gallery,
+		queue,
 		access,
 		providers,
 		hasOwner: installation.hasOwner,

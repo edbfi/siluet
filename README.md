@@ -16,7 +16,9 @@
   <a href="https://github.com/edbfi/siluet/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/edbfi/siluet/ci.yml?branch=main&amp;event=push&amp;label=CI&amp;style=flat" alt="CI on main"></a>
 </p>
 
-Siluet runs on your machine. Claim your studio with the token printed in the server terminal, then sign in with your local username and password. In **Settings → Providers**, connect Poyo.ai or ToAPIs with your own model API key. Siluet checks the key when you submit it and shows when the provider last accepted it. Open **Image Studio** to compose a Seedream 5.5 generation or reference-guided edit and review its outgoing request and estimated credits offline.
+Siluet runs on your machine. Claim your studio with the token printed in the server terminal, then sign in with your local username and password. In **Settings → Providers**, connect Poyo.ai or ToAPIs with your own model API key. Siluet checks the key when you submit it and shows when the provider last accepted it. Open **Image Studio** to compose a Seedream 5.5 generation or reference-guided edit and review its outgoing request and estimated credits offline. To generate one image, choose **Review request**, confirm any unknown price, and choose **Queue 1 request**. Follow the result in **Jobs** and choose **Save to Gallery** to keep a local copy. Saved images open offline after a restart.
+
+If Jobs says **May have been submitted**, check your provider history before authorizing another request. Siluet reserves one attempt per review and never automatically resends it after an interrupted submission.
 
 ## Tech stack
 
@@ -26,7 +28,7 @@ Siluet runs on your machine. Claim your studio with the token printed in the ser
 | Framework | Svelte 5 and SvelteKit 3 with server-side rendering |
 | Runtime and packages | Bun for development, CI and production |
 | Local server | `@sveltejs/adapter-bun` bound to loopback |
-| Database | Embedded Turso with Drizzle ORM for the owner and sessions |
+| Database | Embedded Turso with Drizzle ORM for owner access, sessions, encrypted provider credentials, jobs and Gallery metadata |
 | Styling and components | Panda CSS 2 and Ark UI for Svelte |
 | Code checks | Biome, `svelte-check` and prek |
 | Tests | Bun’s test runner and a Playwright smoke test in Chromium |

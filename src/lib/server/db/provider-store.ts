@@ -1,10 +1,11 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
 import {
 	type ProviderConnectionStatus,
 	type ProviderId,
 	providerIds,
 } from "../../shared/providers/connections";
+import { jobsNeedCredential } from "./image-job-store";
 import type { Installation } from "./installation";
 import { ProviderKeyPolicyError, prepareProviderKey, readProviderKey } from "./provider-key";
 
@@ -26,23 +27,83 @@ function encrypt(key: Buffer, credential: string, data: Buffer) {
 	return Buffer.concat([nonce, cipher.getAuthTag(), ciphertext]).toString("base64");
 }
 
-function canDecrypt(key: Buffer, encoded: string, data: Buffer) {
+function decrypt(key: Buffer, encoded: string, data: Buffer) {
 	const payload = Buffer.from(encoded, "base64");
-	if (payload.length <= nonceSize + tagSize) return false;
+	if (payload.length <= nonceSize + tagSize) throw new Error("Invalid stored credential.");
 	const decipher = createDecipheriv(algorithm, key, payload.subarray(0, nonceSize), {
 		authTagLength: tagSize,
 	});
 	decipher.setAAD(data);
 	decipher.setAuthTag(payload.subarray(nonceSize, nonceSize + tagSize));
-	decipher.update(payload.subarray(nonceSize + tagSize)).fill(0);
-	decipher.final().fill(0);
-	return true;
+	const clear = decipher.update(payload.subarray(nonceSize + tagSize));
+	try {
+		decipher.final();
+		return clear;
+	} catch (error) {
+		clear.fill(0);
+		throw error;
+	}
 }
 
 export function providerStore(installation: Installation) {
 	const { directory, use } = installation;
 	const revisionQuery = (id: ProviderId) =>
 		sql`SELECT revision FROM provider_credential WHERE provider=${id}`;
+	const verified = new Map<ProviderId, string>();
+	async function inspectConnections() {
+		const revisions = new Map<ProviderId, number>();
+		const rows = await use((db) =>
+			db.all<{
+				provider: ProviderId;
+				revision: number;
+				ciphertext: string;
+				verified_at: number;
+				seedream: number;
+			}>(sql`SELECT provider, revision, ciphertext, verified_at, seedream
+				FROM provider_credential WHERE ciphertext IS NOT NULL`),
+		);
+
+		let key: Buffer | null;
+		try {
+			key = await readProviderKey(directory);
+		} catch (error) {
+			if (!(error instanceof ProviderKeyPolicyError)) throw error;
+			const statuses = providerIds.map<ProviderConnectionStatus>((id) => ({
+				id,
+				state: "repair",
+				hasCredential: rows.some((row) => row.provider === id),
+			}));
+			return { statuses, revisions };
+		}
+
+		const statuses = providerIds.map<ProviderConnectionStatus>((id) => {
+			const row = rows.find((row) => row.provider === id);
+			if (!row) return { id, state: "disconnected" };
+			const verifiedAt = row.verified_at;
+			const seedream = row.seedream === 1;
+			try {
+				if (key) {
+					const data = associatedData(id, row.revision, verifiedAt, seedream);
+					// Only reuse a successful authentication for the exact key, metadata and ciphertext.
+					const fingerprint = createHmac("sha256", key)
+						.update(data)
+						.update(row.ciphertext)
+						.digest("hex");
+					if (verified.get(id) !== fingerprint) {
+						decrypt(key, row.ciphertext, data).fill(0);
+						verified.set(id, fingerprint);
+					}
+					if (seedream) revisions.set(id, row.revision);
+					return { id, state: "connected", verifiedAt, seedream };
+				}
+			} catch {
+				// The credential is unreadable. Retain its row until reconnect or removal.
+			}
+			return { id, state: "reconnect" };
+		});
+		return { statuses, revisions };
+	}
+
 	return {
 		revision(id: ProviderId) {
 			return use(async (db) => {
@@ -51,50 +112,40 @@ export function providerStore(installation: Installation) {
 				return row.revision;
 			});
 		},
+		async credential(id: ProviderId, expectedRevision?: number) {
+			const row = await use((db) =>
+				db.get<{ revision: number; verified_at: number; ciphertext: string }>(
+					sql`SELECT revision, verified_at,ciphertext FROM provider_credential
+				    WHERE provider=${id} AND seedream=1 AND ciphertext IS NOT NULL`,
+				),
+			);
+			if (!row || (expectedRevision !== undefined && expectedRevision !== row.revision))
+				return null;
+			try {
+				const key = await readProviderKey(directory);
+				if (!key) return null;
+				const clear = decrypt(
+					key,
+					row.ciphertext,
+					associatedData(id, row.revision, row.verified_at, true),
+				);
+				try {
+					return { revision: row.revision, key: clear.toString("utf8") };
+				} finally {
+					clear.fill(0);
+				}
+			} catch {
+				return null;
+			}
+		},
 		async checkKeyStorage() {
 			await readProviderKey(directory);
 		},
-		async statuses(): Promise<ProviderConnectionStatus[]> {
-			const rows = await use((db) =>
-				db.all<{
-					provider: ProviderId;
-					revision: number;
-					ciphertext: string;
-					verified_at: number;
-					seedream: number;
-				}>(sql`SELECT provider, revision, ciphertext, verified_at, seedream
-					FROM provider_credential WHERE ciphertext IS NOT NULL`),
-			);
-
-			let key: Buffer | null;
-			try {
-				key = await readProviderKey(directory);
-			} catch (error) {
-				if (!(error instanceof ProviderKeyPolicyError)) throw error;
-				return providerIds.map((id) => ({
-					id,
-					state: "repair",
-					hasCredential: rows.some((row) => row.provider === id),
-				}));
-			}
-
-			return providerIds.map((id) => {
-				const row = rows.find((row) => row.provider === id);
-				if (!row) return { id, state: "disconnected" };
-				const verifiedAt = row.verified_at;
-				const seedream = row.seedream === 1;
-				try {
-					if (
-						key &&
-						canDecrypt(key, row.ciphertext, associatedData(id, row.revision, verifiedAt, seedream))
-					) {
-						return { id, state: "connected", verifiedAt, seedream };
-					}
-				} catch {
-					// The credential is unreadable. Retain its row until reconnect or removal.
-				}
-				return { id, state: "reconnect" };
-			});
+		async statuses() {
+			return (await inspectConnections()).statuses;
+		},
+		async readableRevisions() {
+			return (await inspectConnections()).revisions;
 		},
 		async save(
 			id: ProviderId,
@@ -102,6 +153,7 @@ export function providerStore(installation: Installation) {
 			verifiedAt: number,
 			seedream: boolean,
 			expectedRevision: number,
+			guardActiveJobs = false,
 		) {
 			for (let attempt = 0; attempt < 2; attempt++) {
 				const prepared = await prepareProviderKey(directory);
@@ -112,6 +164,11 @@ export function providerStore(installation: Installation) {
 								// Removal and replacement advance the revision, including across handles.
 								const row = await tx.get<{ revision: number }>(revisionQuery(id));
 								if (row?.revision !== expectedRevision) return false;
+								if (
+									guardActiveJobs &&
+									(await tx.get(sql`SELECT 1 WHERE ${jobsNeedCredential(id)}`))
+								)
+									return "job-warning" as const;
 								if (!(await prepared.publishIfCurrent())) return null;
 								const revision = expectedRevision + 1;
 								const ciphertext = encrypt(
@@ -133,10 +190,13 @@ export function providerStore(installation: Installation) {
 			}
 			throw new Error("The provider key changed during both save attempts.");
 		},
-		remove(id: ProviderId) {
+		remove(id: ProviderId, guardActiveJobs = false) {
 			return use(async (db) => {
-				await db.run(sql`UPDATE provider_credential SET revision=revision+1, ciphertext=NULL,
-					verified_at=NULL, seedream=NULL WHERE provider=${id}`);
+				const guard = guardActiveJobs ? sql`AND NOT ${jobsNeedCredential(id)}` : sql``;
+				const changed =
+					await db.get(sql`UPDATE provider_credential SET revision=revision+1, ciphertext=NULL,
+					verified_at=NULL, seedream=NULL WHERE provider=${id} ${guard} RETURNING revision`);
+				if (!changed) return "job-warning" as const;
 			});
 		},
 	};

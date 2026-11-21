@@ -1,0 +1,32 @@
+export const imageJobPollingWindowMs = 120_000;
+
+export const imageJobSchema = `CREATE TABLE image_job (
+	id TEXT PRIMARY KEY NOT NULL,
+	binding TEXT NOT NULL,
+	provider TEXT NOT NULL CHECK (provider IN ('poyo', 'toapis')),
+	revision INTEGER NOT NULL,
+	quote TEXT NOT NULL,
+	accepted_unknown INTEGER NOT NULL DEFAULT 0 CHECK (accepted_unknown IN (0, 1)),
+	state TEXT NOT NULL CHECK (state IN ('submitting', 'unknown', 'rejected', 'waiting', 'running', 'completed', 'failed')),
+	model TEXT NOT NULL,
+	created_at INTEGER NOT NULL,
+	poll_deadline INTEGER NOT NULL CHECK (poll_deadline = (CASE WHEN task_id IS NULL THEN created_at ELSE submission_recorded_at END) + 120000),
+	updated_at INTEGER,
+	dispatch_started_at INTEGER,
+	submission_recorded_at INTEGER,
+	task_id TEXT,
+	next_read_at INTEGER,
+	read_token TEXT,
+	read_failures INTEGER NOT NULL DEFAULT 0,
+	pause_reason TEXT,
+	rejection TEXT,
+	billing TEXT,
+	expires_at INTEGER,
+	wallet_open INTEGER NOT NULL DEFAULT 0 CHECK (wallet_open IN (0, 1)),
+	wallet_overlap INTEGER NOT NULL DEFAULT 0 CHECK (wallet_overlap IN (0, 1)),
+	wallet_finish_by INTEGER,
+	wallet_before TEXT,
+	wallet_before_at INTEGER,
+	wallet_after TEXT,
+	wallet_after_at INTEGER
+);`;

@@ -10,8 +10,24 @@ if (!fixtureOrigin) throw new Error("Missing provider fixture origin.");
 globalThis.fetch = new Proxy(globalThis.fetch, {
 	async apply(read: typeof fetch, _receiver, [input, init]: Parameters<typeof fetch>) {
 		const url = new URL(input instanceof Request ? input.url : input);
-		const path = endpoints.get(url.href);
-		if (path) return read(new URL(path, fixtureOrigin), init);
+		let path = endpoints.get(url.href);
+		if (url.origin === "https://api.poyo.ai") {
+			if (url.pathname === "/api/generate/submit") path = "/poyo/submit";
+			if (url.pathname.startsWith("/api/generate/status/"))
+				path = url.pathname.replace("/api/generate/status/", "/poyo/status/");
+		}
+		if (url.origin === "https://toapis.com") {
+			if (url.pathname === "/v1/images/generations") path = "/toapis/submit";
+			if (url.pathname.startsWith("/v1/images/generations/"))
+				path = url.pathname.replace("/v1/images/generations/", "/toapis/status/");
+		}
+		if (url.origin === "https://93.184.216.34" && url.pathname === "/result/image")
+			path = "/media/image";
+		if (path) {
+			const response = await read(new URL(path, fixtureOrigin), init);
+			if (response.headers.get("x-siluet-fixture-exit") === "yes") process.exit(79);
+			return response;
+		}
 		// Track every other server-side request without contacting its destination.
 		await read(new URL("/unexpected", fixtureOrigin), { method: "POST" });
 		throw new Error("Unexpected outbound request in provider fixture.");

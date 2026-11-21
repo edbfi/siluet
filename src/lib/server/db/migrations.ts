@@ -1,5 +1,7 @@
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/tursodatabase/wasm-migrator";
+import { gallerySchema } from "./gallery-schema";
+import { imageJobSchema } from "./image-job-schema";
 
 export const ownerMigrations = {
 	"20261121000000_owner_access": `CREATE TABLE installation (
@@ -33,6 +35,12 @@ export const installationMigrations = {
 	);
 	--> statement-breakpoint
 	INSERT INTO provider_credential (provider) VALUES ('poyo'), ('toapis');`,
+	"20261121223139_first_saved_image": [
+		"CREATE TABLE image_review_key (singleton INTEGER PRIMARY KEY CHECK (singleton=1), secret TEXT NOT NULL);",
+		"INSERT INTO image_review_key VALUES(1, lower(hex(randomblob(32))));",
+		imageJobSchema,
+		gallerySchema,
+	].join("\n--> statement-breakpoint\n"),
 };
 
 export async function migrateInstallation(

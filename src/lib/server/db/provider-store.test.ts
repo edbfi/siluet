@@ -85,6 +85,23 @@ test("provider verification metadata survives restart alongside encrypted creden
 	});
 });
 
+test("readable Seedream revisions follow ciphertext and key changes between Jobs loads", async () => {
+	const store = providerStore(installation);
+	await saveCurrent(store, "poyo", poyoKey, 123, true);
+	await saveCurrent(store, "toapis", toapisKey, 456, false);
+	expect(await store.readableRevisions()).toEqual(new Map([["poyo", 1]]));
+	await saveCurrent(store, "poyo", poyoKey, 124, true);
+	expect(await store.readableRevisions()).toEqual(new Map([["poyo", 2]]));
+	await installation.use((db) =>
+		db.run(sql`UPDATE provider_credential SET ciphertext='corrupt' WHERE provider='poyo'`),
+	);
+	expect(await store.readableRevisions()).toEqual(new Map());
+	await saveCurrent(store, "toapis", toapisKey, 457, true);
+	expect(await store.readableRevisions()).toEqual(new Map([["toapis", 2]]));
+	await writeFile(keyPath(), Buffer.alloc(32, 42));
+	expect(await store.readableRevisions()).toEqual(new Map());
+});
+
 test.each(["missing", "malformed", "unmatched"])(
 	"a missing, malformed, or unmatched key (%s) requires reconnect without erasing verification metadata",
 	async (failure) => {
@@ -323,9 +340,9 @@ test("independent installations save simultaneous provider checks with a single 
 
 test("removal survives a brief write lock held by another installation", async () => {
 	const other = await openInstallation(directory);
-	let removal: Promise<void> | undefined;
+	const store = providerStore(other);
+	let removal: ReturnType<typeof store.remove> | undefined;
 	try {
-		const store = providerStore(other);
 		await saveCurrent(store, "poyo", poyoKey, 123, true);
 		const revision = await store.revision("poyo");
 		await installation.use((db) =>
@@ -402,3 +419,14 @@ test.skipIf(process.platform === "win32")(
 		expect(reads).toBe(1);
 	},
 );
+
+test("dispatch opens an eligible credential only at the requested revision", async () => {
+	const store = providerStore(installation);
+	await saveCurrent(store, "poyo", poyoKey, 123, true);
+	expect(await store.credential("poyo", 1)).toEqual({ revision: 1, key: poyoKey });
+	expect(await store.credential("poyo", 2)).toBeNull();
+	await saveCurrent(store, "poyo", toapisKey, 125, false);
+	expect(await store.credential("poyo")).toBeNull();
+	await store.remove("poyo");
+	expect(await store.credential("poyo", 1)).toBeNull();
+});

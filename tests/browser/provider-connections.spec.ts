@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
+import { jobResponses } from "../fixtures/job-responses";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import {
 	providerFixtureKeys as keys,
@@ -210,6 +211,46 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 		await rm(directory, { recursive: true, force: true });
 	}
 	assertRedacted(diagnostics.join("\n"));
+});
+
+test("an open Settings page warns before changing a key needed by a new job", async ({ page }) => {
+	const directory = await createOwnerDirectory();
+	const fixtures = startProviderFixtures(jobResponses());
+	let server: Studio | undefined;
+	try {
+		server = await startStudio(directory, "0", false, fixtures.env);
+		await claimStudio(page, server);
+		await page.goto(settingsUrl(server));
+		await selectProvider(page, "ToAPIs");
+		expect(await submit(page, "Connect", keys.toapis)).toBe(200);
+		const warning = page.getByText(/Jobs still need this key/);
+		await expect(warning).toHaveCount(0);
+
+		const studio = await page.context().newPage();
+		await studio.goto(new URL("/image", server.origin).href);
+		await studio.getByRole("button", { name: "Use example" }).press("Enter");
+		await studio.getByRole("button", { name: "Review request", exact: true }).press("Enter");
+		await studio.getByRole("checkbox", { name: /unknown cost/i }).check();
+		await studio.getByRole("button", { name: "Queue 1 request" }).press("Enter");
+		await expect(studio).toHaveURL(/\/jobs/);
+
+		expect(await submit(page, "Replace key", keys.toapis)).toBe(409);
+		await expect(warning).toBeVisible();
+		for (const name of ["Remove key", "Replace key"]) {
+			await expect(page.getByRole("button", { name, exact: true })).toHaveAccessibleDescription(
+				/unsaved results/,
+			);
+		}
+		expect(fixtures.requests.filter(({ path }) => path === "/toapis/models")).toHaveLength(1);
+		expect(await submit(page, "Remove key")).toBe(200);
+		await studio.reload();
+		await expect(studio.getByRole("article")).toContainText("original API key");
+		await expect(studio.getByRole("button", { name: "Refresh status" })).toHaveCount(0);
+	} finally {
+		await server?.stop();
+		fixtures.stop();
+		await rm(directory, { recursive: true, force: true });
+	}
 });
 
 test("removing a connection while the built server checks a replacement leaves it disconnected", async ({

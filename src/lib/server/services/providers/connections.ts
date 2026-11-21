@@ -5,6 +5,7 @@ import type { ConnectionCheck } from "../../providers/connection-check";
 
 type MutationOutcome =
 	| "connected"
+	| "job-warning"
 	| "removed"
 	| "rejected"
 	| "unavailable"
@@ -16,7 +17,7 @@ type MutationOutcome =
 	| "storage-unavailable";
 
 export function createProviderConnections(
-	store: ReturnType<typeof providerStore>,
+	store: Omit<ReturnType<typeof providerStore>, "credential" | "readableRevisions">,
 	checks: Record<ProviderId, ConnectionCheck>,
 	elapsed = () => performance.now(),
 ) {
@@ -34,6 +35,7 @@ export function createProviderConnections(
 		async connect(
 			provider: ProviderId,
 			value: FormDataEntryValue | null,
+			warningSeen = false,
 		): Promise<MutationOutcome> {
 			if (typeof value !== "string") return "invalid";
 			const key = value.trim();
@@ -50,7 +52,15 @@ export function createProviderConnections(
 				attempts[provider] = [...recent, elapsed()];
 				const checked = await checks[provider](key);
 				if (checked.outcome !== "accepted") return checked.outcome;
-				const saved = await store.save(provider, key, Date.now(), checked.seedream, revision);
+				const saved = await store.save(
+					provider,
+					key,
+					Date.now(),
+					checked.seedream,
+					revision,
+					!warningSeen,
+				);
+				if (saved === "job-warning") return saved;
 				return saved ? "connected" : "superseded";
 			} catch (error) {
 				return error instanceof ProviderKeyPolicyError ? "storage-repair" : "storage-unavailable";
@@ -58,10 +68,9 @@ export function createProviderConnections(
 				checking.delete(provider);
 			}
 		},
-		async remove(provider: ProviderId): Promise<MutationOutcome> {
+		async remove(provider: ProviderId, warningSeen = false): Promise<MutationOutcome> {
 			try {
-				await store.remove(provider);
-				return "removed";
+				return (await store.remove(provider, !warningSeen)) ?? "removed";
 			} catch {
 				return "storage-unavailable";
 			}
