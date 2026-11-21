@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { expect, test } from "@playwright/test";
+import { createOwnerDirectory } from "../fixtures/owner-directory";
 
 async function startStudio(directory: string, port = "0", collide = false) {
 	const processHandle = fork(collide ? "tests/browser/occupied-port.ts" : "scripts/start.ts", [], {
@@ -67,7 +68,7 @@ async function startStudio(directory: string, port = "0", collide = false) {
 }
 
 test("one owner can claim the studio and sign in after a process restart", async ({ browser }) => {
-	const directory = await mkdtemp(join(tmpdir(), "siluet-owner-"));
+	const directory = await createOwnerDirectory();
 	const password = randomUUID();
 	const owner = await browser.newContext();
 	let server: Awaited<ReturnType<typeof startStudio>> | undefined;

@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmod, lstat, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
+import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
 import { openInstallation } from "./installation";
 
 let directory: string;
 beforeEach(async () => {
-	directory = await mkdtemp(join(tmpdir(), "siluet-storage-"));
+	directory = await createOwnerDirectory();
 });
 afterEach(async () => {
 	await rm(directory, { recursive: true, force: true });
