@@ -18,8 +18,8 @@ import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory
 import { createProviderConnections } from "../services/providers/connections";
 import { type Installation, openInstallation } from "./installation";
 import { migrateInstallation, ownerMigrations } from "./migrations";
-import { readProviderKey } from "./provider-key";
-import { providerKeyFilename, providerStore } from "./provider-store";
+import { providerKeyFilename, readProviderKey } from "./provider-key";
+import { providerStore } from "./provider-store";
 
 let directory: string;
 let installation: Installation;

@@ -22,7 +22,7 @@ export const ownerMigrations = {
 
 export const installationMigrations = {
 	...ownerMigrations,
-	"20261122000000_provider_credentials": `CREATE TABLE provider_credential (
+	"20261121191912_provider_credentials": `CREATE TABLE provider_credential (
 		provider TEXT PRIMARY KEY NOT NULL CHECK (provider IN ('poyo', 'toapis')),
 		revision INTEGER NOT NULL DEFAULT 0,
 		ciphertext TEXT,

@@ -106,6 +106,7 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 		await expect(page.getByRole("heading", { name: "Provider connections" })).toBeVisible();
 		await expect(page.getByText("Disconnected", { exact: true })).toBeVisible();
 		expect(await submit(page, "Connect", keys.poyo)).toBe(200);
+		await expect(page.getByRole("button", { name: "Replace key" })).toBeFocused();
 		await expect(page.getByRole("status")).toHaveText("Key accepted and saved.");
 		const acceptance = page.locator("time");
 		await expect(acceptance).toBeVisible();
@@ -179,6 +180,7 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 		await page.getByRole("link", { name: "ToAPIs", exact: true }).press("Enter");
 		await expect(page.getByText("Reconnect required")).toBeVisible();
 		expect(await submit(page, "Remove key")).toBe(200);
+		await expect(page.getByRole("status")).toBeFocused();
 		await expect(page.getByText("Disconnected", { exact: true })).toBeVisible();
 		await page.getByRole("link", { name: "Poyo.ai", exact: true }).press("Enter");
 		await expect(page.getByText("Reconnect required")).toBeVisible();
@@ -271,8 +273,9 @@ for (const [outcome, key, message] of [
 				await route.fulfill({ response });
 			});
 			await page.getByLabel("API key").fill(key);
-			await page.getByRole("button", { name: "Connect", exact: true }).click();
+			await page.getByRole("button", { name: "Connect", exact: true }).press("Enter");
 			await delayed.promise;
+			await expect(page.getByRole("button", { name: "Checking key…" })).toBeFocused();
 			await page.getByRole("link", { name: "ToAPIs", exact: true }).click();
 			await expect(page.getByLabel("API key")).toBeEnabled();
 			expect(await submit(page, "Connect", keys.toapis)).toBe(200);

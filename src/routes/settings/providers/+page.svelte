@@ -12,6 +12,7 @@ let { data, form }: PageProps = $props();
 type Operation = "connect" | "remove";
 type ConnectionFeedback = NonNullable<ActionData>;
 const feedbackByProvider = $state<Partial<Record<ProviderId, ConnectionFeedback>>>({});
+let lastSubmitted = $state<ProviderId>();
 const pendingByProvider = $state<Partial<Record<ProviderId, Operation>>>({});
 const names = { poyo: "Poyo.ai", toapis: "ToAPIs" };
 const statuses = {
@@ -27,7 +28,7 @@ const dateFormat = new Intl.DateTimeFormat("en", {
 });
 const provider = $derived(
 	data.providers.find(
-		({ id }) => id === (page.url.searchParams.get("provider") ?? form?.provider),
+		({ id }) => id === (page.url.searchParams.get("provider") ?? lastSubmitted ?? form?.provider),
 	) ??
 		data.providers.find(({ state }) => state === "connected") ??
 		data.providers[0],
@@ -50,24 +51,27 @@ function save(
 			cancel();
 			return;
 		}
+		lastSubmitted = id;
 		pendingByProvider[id] = operation;
 		if (operation === "connect") formElement.reset();
 		return async ({ result, update }) => {
 			try {
-				if (
-					(result.type === "success" || result.type === "failure") &&
-					result.data?.provider === id
-				) {
-					feedbackByProvider[id] = result.data;
-				}
-				const refresh =
-					result.type === "success" ||
-					(result.type === "failure" && result.data?.outcome === "superseded");
-				if (formElement.isConnected) {
-					await update({ navigate: false, refreshAll: refresh });
-				} else if (refresh) {
-					// The owner has navigated away. Refresh eligibility at their current destination.
-					await refreshAll();
+				if (result.type === "success" || result.type === "failure") {
+					if (result.data?.provider === id) feedbackByProvider[id] = result.data;
+					if (result.type === "success" || result.data?.outcome === "superseded") {
+						const hadFocus = formElement.contains(document.activeElement);
+						await refreshAll();
+						if (
+							hadFocus &&
+							!formElement.isConnected &&
+							provider?.id === id &&
+							document.activeElement === document.body
+						) {
+							document.getElementById("connection-feedback")?.focus({ preventScroll: true });
+						}
+					}
+				} else if (formElement.isConnected) {
+					await update({ navigate: false });
 				}
 			} finally {
 				delete pendingByProvider[id];
@@ -138,10 +142,10 @@ function save(
 									autocomplete="off"
 									spellcheck="false"
 									required
-									disabled={!!pending}
+									readonly={!!pending}
 									aria-describedby="key-help"
 								>
-								<button type="submit" disabled={!!pending}>
+								<button type="submit" aria-disabled={!!pending}>
 									{pending === "connect"
 										? pendingMessages.connect
 										: provider.state === "connected"
@@ -165,12 +169,12 @@ function save(
 							use:enhance={save(provider.id, "remove")}
 						>
 							<input type="hidden" name="provider" value={provider.id}>
-							<button class="secondary" type="submit" disabled={!!pending}>
+							<button class="secondary" type="submit" aria-disabled={!!pending}>
 								{pending === "remove" ? pendingMessages.remove : "Remove key"}
 							</button>
 						</form>
 					{/if}
-					<p class="feedback" role="status">
+					<p class="feedback" role="status" tabindex="-1" id="connection-feedback">
 						{pending ? pendingMessages[pending] : isSuccess ? feedback?.message : ""}
 					</p>
 					<p class="feedback warning" role="alert">
@@ -324,7 +328,7 @@ button {
 button {
 	font-size: 0.875rem;
 }
-button:disabled {
+button[aria-disabled="true"] {
 	opacity: 0.65;
 	cursor: wait;
 }

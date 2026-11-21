@@ -8,8 +8,6 @@ import {
 import type { Installation } from "./installation";
 import { ProviderKeyPolicyError, prepareProviderKey, readProviderKey } from "./provider-key";
 
-export { providerKeyFilename } from "./provider-key";
-
 const algorithm = "aes-256-gcm";
 const nonceSize = 12;
 const tagSize = 16;
