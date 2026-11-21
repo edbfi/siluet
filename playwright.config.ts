@@ -5,7 +5,7 @@ export default defineConfig({
 	use: { browserName: "chromium" },
 	webServer: {
 		command: "bun run start",
-		env: { SILUET_SERVER_PORT: "0", SILUET_SERVER_HOST: "127.0.0.1" },
+		env: { SILUET_SERVER_PORT: "0" },
 		wait: { stdout: /Listening on (?<siluet_test_url>http:\/\/127\.0\.0\.1:\d+)/ },
 	},
 });
