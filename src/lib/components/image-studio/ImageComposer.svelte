@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount, tick, untrack } from "svelte";
+import { onMount, type Snippet, tick, untrack } from "svelte";
 import {
 	maxSeedreamReferences,
 	referenceFileHelp,
@@ -27,6 +27,8 @@ import SeedreamSize from "./SeedreamSize.svelte";
 let {
 	eligibleProviders,
 	settingsHref = "/settings/providers",
+	reviewHref,
+	reviewPanel,
 	draft = $bindable(
 		untrack(() =>
 			createSeedreamDraft(
@@ -38,6 +40,8 @@ let {
 }: {
 	eligibleProviders: readonly SeedreamProvider[];
 	settingsHref?: string;
+	reviewHref: string;
+	reviewPanel: Snippet;
 	draft?: SeedreamDraft;
 	reviewInput?: SeedreamReviewInput | null;
 } = $props();
@@ -155,7 +159,10 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 
 	<div class="layout">
 		<section class="request" aria-labelledby={`${id}-request`}>
-			<h2 id={`${id}-request`}>Request</h2>
+			<div class="request-heading">
+				<h2 id={`${id}-request`}>Request</h2>
+				<a class="review-jump" href={reviewHref}>Review request</a>
+			</div>
 
 			<div class="field">
 				<div class="model-label">
@@ -318,12 +325,15 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 				</details>
 			{/if}
 		</section>
-		<ImageReferencePreview
-			bind:this={preview}
-			operation={draft.operation}
-			index={previewIndex}
-			reference={draft.references[previewIndex]}
-		/>
+		<div class="inspection">
+			<ImageReferencePreview
+				bind:this={preview}
+				operation={draft.operation}
+				index={previewIndex}
+				reference={draft.references[previewIndex]}
+			/>
+			{@render reviewPanel()}
+		</div>
 	</div>
 </div>
 
@@ -355,6 +365,21 @@ header p {
 	border: 1px solid var(--line);
 	border-radius: 15px;
 	background: var(--surface);
+}
+.inspection {
+	display: grid;
+	min-width: 0;
+	gap: 1rem;
+}
+.request-heading {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 0.25rem 0.75rem;
+}
+.review-jump {
+	display: none;
 }
 h2 {
 	font:
@@ -521,6 +546,11 @@ a,
 @container (max-width: 41rem) {
 	.layout {
 		grid-template-columns: minmax(0, 1fr);
+	}
+	.review-jump {
+		display: inline-flex;
+		min-height: 44px;
+		align-items: center;
 	}
 }
 @media (forced-colors: active) {

@@ -1,6 +1,5 @@
 <script lang="ts">
 import { Tabs } from "@ark-ui/svelte/tabs";
-import { onMount } from "svelte";
 import type { ImageReviewData, ReviewOperation } from "#lib/shared/image-studio/review.ts";
 import {
 	estimateReviewPrice,
@@ -19,7 +18,6 @@ let {
 	nowMs,
 	provider = undefined,
 	operation = "generate",
-	schemaWarning = undefined,
 	headingId = "studio-review-title",
 }: {
 	review: ImageReviewData | null;
@@ -27,7 +25,6 @@ let {
 	nowMs: number;
 	provider?: PricingProvider;
 	operation?: ReviewOperation;
-	schemaWarning?: string;
 	headingId?: string;
 } = $props();
 
@@ -51,23 +48,17 @@ const quote = $derived(
 );
 const expiry = $derived(reviewPriceExpiry(quote ?? undefined));
 
-onMount(() => {
-	const refresh = () => {
-		browserNow = Date.now();
-	};
-	refresh();
-	window.addEventListener("focus", refresh);
-	document.addEventListener("visibilitychange", refresh);
-	return () => {
-		window.removeEventListener("focus", refresh);
-		document.removeEventListener("visibilitychange", refresh);
-	};
-});
 $effect(() => {
-	if (expiry !== undefined)
-		return watchReviewExpiry(expiry, (time) => {
-			browserNow = time;
-		});
+	const watch = watchReviewExpiry(expiry, (time) => {
+		browserNow = time;
+	});
+	window.addEventListener("focus", watch.refresh);
+	document.addEventListener("visibilitychange", watch.refresh);
+	return () => {
+		watch.stop();
+		window.removeEventListener("focus", watch.refresh);
+		document.removeEventListener("visibilitychange", watch.refresh);
+	};
 });
 </script>
 
@@ -182,9 +173,6 @@ $effect(() => {
 		</Tabs.Content>
 	</Tabs.Root>
 
-	{#if schemaWarning}
-		<p class="note">{schemaWarning}</p>
-	{/if}
 	{#if selectedProvider === "toapis"}
 		<p class="note">
 			ToAPIs may use a fallback for eligible accounts and regions. Fallback pricing is unknown.

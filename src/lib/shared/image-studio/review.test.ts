@@ -231,7 +231,7 @@ test("the open Review clock refreshes at the evidence boundary, including beyond
 	const checked: number[] = [];
 	const maxDelay = 2_147_483_647;
 	const expiry = now + maxDelay + 1000;
-	const stop = watchReviewExpiry(expiry, (time) => checked.push(time), {
+	const watch = watchReviewExpiry(expiry, (time) => checked.push(time), {
 		now: () => current,
 		schedule(callback, milliseconds) {
 			runTimer = callback;
@@ -248,6 +248,29 @@ test("the open Review clock refreshes at the evidence boundary, including beyond
 	current += delay;
 	runTimer?.();
 	expect(checked.at(-1)).toBe(expiry);
-	stop();
+	watch.stop();
 	expect(runTimer).toBeUndefined();
+});
+
+test("rechecking a suspended Review re-arms the timer from the current wall clock", () => {
+	const expiry = now + 10_000;
+	let current = now;
+	let delay = 0;
+	let cancelled = 0;
+	const watch = watchReviewExpiry(expiry, () => {}, {
+		now: () => current,
+		schedule(_callback, milliseconds) {
+			delay = milliseconds;
+			return () => {
+				cancelled++;
+			};
+		},
+	});
+	expect(delay).toBe(10_000);
+	current = expiry - 500;
+	watch.refresh();
+	expect(cancelled).toBe(1);
+	expect(delay).toBe(500);
+	watch.stop();
+	expect(cancelled).toBe(2);
 });

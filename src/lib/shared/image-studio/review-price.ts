@@ -59,17 +59,22 @@ const systemTimer: ReviewTimer = {
 };
 
 export function watchReviewExpiry(
-	expiresAt: number,
+	expiresAt: number | undefined,
 	update: (nowMs: number) => void,
 	timer = systemTimer,
-): () => void {
+) {
 	let cancel: (() => void) | undefined;
+	function stop() {
+		cancel?.();
+		cancel = undefined;
+	}
 	function refresh() {
+		stop();
 		const now = timer.now();
 		update(now);
-		if (now < expiresAt)
+		if (expiresAt !== undefined && now < expiresAt)
 			cancel = timer.schedule(refresh, Math.min(expiresAt - now, maximumTimerDelay));
 	}
 	refresh();
-	return () => cancel?.();
+	return { refresh, stop };
 }
