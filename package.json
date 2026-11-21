@@ -1,0 +1,37 @@
+{
+	"name": "siluet",
+	"private": true,
+	"version": "0.0.0",
+	"license": "AGPL-3.0-or-later",
+	"type": "module",
+	"packageManager": "bun@1.4.5",
+	"scripts": {
+		"prepare": "bun --bun svelte-kit sync && bun --bun panda codegen",
+		"dev": "bun --bun vite dev",
+		"build": "bun --bun vite build",
+		"start": "bun ./build",
+		"check": "bun run prepare && bun --bun svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+		"lint": "bun --bun biome ci",
+		"test": "bun test ./src",
+		"smoke": "bun --bun playwright test"
+	},
+	"imports": {
+		"#styled-system/*": "./styled-system/*/index.js"
+	},
+	"devDependencies": {
+		"@ark-ui/svelte": "5.25.1",
+		"@biomejs/biome": "2.6.8",
+		"@pandacss/dev": "2.6.0",
+		"@pandacss/preset-base": "2.6.0",
+		"@pandacss/vite": "2.6.0",
+		"@playwright/test": "1.65.1",
+		"@sveltejs/adapter-bun": "1.0.2",
+		"@sveltejs/kit": "3.4.0",
+		"@sveltejs/vite-plugin-svelte": "7.3.1",
+		"@types/bun": "1.4.5",
+		"svelte": "5.59.1",
+		"svelte-check": "4.7.8",
+		"typescript": "6.0.3",
+		"vite": "8.3.8"
+	}
+}

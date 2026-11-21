@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copy to the repo root; preserve existing project hooks. Keep this filename: Dependabot's
+# pre-commit updater can't read prek.toml. CI runs prek run --all-files --hook-stage manual.
+default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit, manual]
+repos:
+  - repo: builtin
+    hooks:
+      # Installed agent skills are vendored: the fixers skip them, the security hooks don't.
+      - id: trailing-whitespace
+        exclude: ^(\.agents/skills|\.claude/skills|\.claude/agents|\.opencode)/
+      - id: end-of-file-fixer
+        exclude: ^(\.agents/skills|\.claude/skills|\.claude/agents|\.opencode)/
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: ^(\.agents/skills|\.claude/skills|\.claude/agents|\.opencode)/
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+        # Impeccable ships larger scripts and data files.
+        exclude: ^(\.agents|\.claude|\.opencode)/skills/impeccable/scripts/
+      - id: detect-private-key
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+      - id: no-commit-to-branch
+        args: [--branch, main]
+        stages: [pre-commit]
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: 33b50eb042bee26eac0ee96ad84aa9c1b4dccdd8  # frozen: v4.5.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+
+  # Local only: it scans --staged, so it finds nothing under --all-files.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # frozen: v8.30.1
+    hooks:
+      - id: gitleaks
+        stages: [pre-commit]
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca  # frozen: v1.7.12
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: 06a39750ec31860bb44f2acf67182c40016cd1e7  # frozen: v1.32.0
+    hooks:
+      - id: zizmor
+
+  - repo: https://github.com/edbfi/edbfi-ci
+    rev: d07ccc13141d4aee4fa28546f4328f4e48d5363b  # frozen: v0.1.0
+    hooks:
+      - id: privileged-jobs
+      - id: check-peers
+
+  - repo: local
+    hooks:
+      # package.json: "lint": "bun --bun biome ci". biome.json alone decides which files Biome
+      # owns: an extension allowlist, so a language a Biome release adds stays out until listed,
+      # and `!!` entries for .agents/skills, .claude, .codex, .impeccable, .opencode and
+      # skills-lock.json, which only their installers change.
+      - id: biome
+        name: Biome checks
+        entry: bun run --bun lint
+        language: system
+        pass_filenames: false
+        always_run: true
+      # biome.json's $schema stays ./node_modules/@biomejs/biome/configuration_schema.json,
+      # so a version bump alone doesn't rewrite it.
+      - id: biome-migrate
+        name: Migrate Biome configuration
+        entry: bunx --bun --no-install biome migrate --write
+        language: system
+        stages: [manual]
+        pass_filenames: false
+        always_run: true
+      - id: tests
+        name: Unit tests
+        entry: bun run --bun test
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: check
+        name: Type check
+        entry: bun run --bun check
+        language: system
+        pass_filenames: false
+        always_run: true
