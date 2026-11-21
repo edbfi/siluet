@@ -41,14 +41,19 @@ async function privateWindowsAcl(directory: string) {
 	return (await child.exited) === 0;
 }
 
+function requireOutsideCheckout(checkout: string, directory: string) {
+	const fromStudio = relative(checkout, directory);
+	if (!isAbsolute(fromStudio) && fromStudio !== ".." && !fromStudio.startsWith(`..${sep}`))
+		throw new Error("Choose a data directory outside the studio files.");
+}
+
 export async function preparePrivateDirectory(directory: string) {
 	if (!isAbsolute(directory)) throw new Error("An absolute data directory is required.");
+	requireOutsideCheckout(process.cwd(), directory);
 	await mkdir(directory, { recursive: true, mode: 0o700 });
 	const info = await lstat(directory);
 	if (!info.isDirectory()) throw new Error("Expected a private directory.");
-	const fromStudio = relative(await realpath(process.cwd()), await realpath(directory));
-	if (!isAbsolute(fromStudio) && fromStudio !== ".." && !fromStudio.startsWith(`..${sep}`))
-		throw new Error("Choose a data directory outside the studio files.");
+	requireOutsideCheckout(await realpath(process.cwd()), await realpath(directory));
 	const privateAccess =
 		process.platform === "win32"
 			? await privateWindowsAcl(directory)

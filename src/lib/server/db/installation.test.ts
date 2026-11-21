@@ -60,7 +60,9 @@ test("a private directory inside the studio checkout is rejected before credenti
 	try {
 		const alias = join(directory, "alias");
 		await symlink(served, alias, "junction");
-		for (const root of [served, alias]) {
+		const outward = join(served, "external");
+		await symlink(directory, outward, "junction");
+		for (const root of [served, alias, outward]) {
 			const data = join(root, "settings");
 			await expect(openInstallation(data)).rejects.toThrow("storage");
 			expect(await Bun.file(join(data, "installation.id")).exists()).toBe(false);
