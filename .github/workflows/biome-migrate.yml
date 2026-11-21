@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# Commits Biome migrations and formatter output to Dependabot's Biome PRs.
+# Commits `biome migrate` and Biome's formatter output (never lint fixes) to Dependabot's Biome PRs, then
+# re-enables auto-merge on the new head, because this workflow races dependabot-auto-merge.yml.
 # A Biome release can reformat source without any configuration change. The migrate job formats the tracked files
 # its `case` allowlist selects, and the apply job re-validates every changed path against the same allowlist:
 # keep the two lists identical (tools/test_templates.py checks that they agree).
@@ -78,8 +79,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: { actions: read, contents: read, pull-requests: read }
+    outputs:
+      sha: ${{ steps.apply.outputs.sha }}
     steps:
-      - env:
+      - id: apply
+        env:
           GH_TOKEN: ${{ github.token }}
           PUSH_TOKEN: ${{ secrets.BIOME_MIGRATE_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -132,3 +136,31 @@ jobs:
           [ "$(git -c core.hooksPath=/dev/null rev-parse HEAD^)" = "$HEAD_SHA" ]
           push_auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 | tr -d '\n')"
           git -c core.hooksPath=/dev/null -c "http.extraheader=AUTHORIZATION: basic $push_auth" push "--force-with-lease=refs/heads/$HEAD_REF:$HEAD_SHA" origin "HEAD:refs/heads/$HEAD_REF"
+          echo "sha=$next" >> "$GITHUB_OUTPUT"
+  enable:
+    needs: [apply]
+    if: needs.apply.outputs.sha != '' && github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == 'dependabot[bot]' # zizmor: ignore[bot-conditions] -- PR author is checked; actor only filters later pushes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - env:
+          HEAD_SHA: ${{ needs.apply.outputs.sha }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.DEPENDENCY_AUTOMERGE_TOKEN }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if output="$(gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL" 2>&1)"; then
+              printf '%s\n' "$output"
+              exit 0
+            fi
+            printf '%s\n' "$output" >&2
+            current="$(gh pr view "$PR_URL" --json headRefOid --jq .headRefOid)" || { echo "::error::enable failed and head lookup failed"; exit 1; }
+            if [ -n "$current" ] && [ "$current" != "$HEAD_SHA" ]; then echo "head moved to $current; its writer enables auto-merge"; exit 0; fi
+            if [ "$current" = "$HEAD_SHA" ] && [[ "$output" == *"Pull request is in unstable status"* ]] && [ "$attempt" -lt 5 ]; then
+              echo "Merge state is still settling; retrying in 5 seconds"
+              sleep 5
+              continue
+            fi
+            echo "::error::enable failed for the current head"; exit 1
+          done
