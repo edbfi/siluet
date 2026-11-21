@@ -37,7 +37,7 @@ const bareHost = new RegExp(
 );
 const sentencePunctuation = /[.,;:!?'"…\p{Pe}\p{Pf}]/u;
 const authorityPunctuation = /[.,;:!?'"…*\p{Pe}\p{Pf}\p{Pd}]/u;
-const literalHandleSuffix = /^\p{Pc}[\p{L}\p{M}\p{N}\p{Pc}-]*[.,;!'"\p{Pe}\p{Pf}]*$/u;
+const literalHandleSuffix = /^\p{Pc}[\p{L}\p{M}\p{N}\p{Pc}-]*[.,;!'"…*\p{Pe}\p{Pf}]*$/u;
 const authority = new RegExp(
 	String.raw`^(?:(?:${host.source})(?::\d+)?|\p{L}[\p{L}\p{N}_-]*:\d+)(?=$|[\p{P}\p{S}])`,
 	"iu",
