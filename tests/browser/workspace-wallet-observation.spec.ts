@@ -36,19 +36,14 @@ test.afterAll(async () => {
 
 async function openStudio(page: Page, filename = "index.html") {
 	await page.clock.install({ time });
-	await page.addInitScript(() => {
-		const key = "siluet.workspace.v1";
-		if (localStorage.getItem(key)) return;
-		localStorage.setItem(
-			key,
-			JSON.stringify({
-				version: 1,
-				settings: { onboarded: true, keys: { poyo: true, toapis: true } },
-			}),
-		);
-	});
 	const entry = filename === "workspace.html" ? portableEntry : sourceEntry;
 	await page.goto(`${entry.href}#image`);
+	const setup = page.getByRole("dialog", { name: "Choose your demo providers" });
+	await setup.getByRole("checkbox", { name: /Poyo.ai/ }).check();
+	await setup.getByRole("button", { name: "Continue" }).click();
+	await page.getByRole("button", { name: "Connect Poyo.ai demo key" }).click();
+	await page.getByRole("button", { name: "Continue" }).click();
+	await page.getByRole("button", { name: "Open studio" }).click();
 }
 
 async function queue(page: Page, prompt: string, count = 1) {
