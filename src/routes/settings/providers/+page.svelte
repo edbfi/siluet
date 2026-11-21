@@ -1,10 +1,13 @@
 <script lang="ts">
+import type { ProviderId } from "#lib/shared/providers/connections.ts";
 import { enhance, type SubmitFunction } from "$app/forms";
+import { refreshAll } from "$app/navigation";
 import { page } from "$app/state";
 import type { PageProps } from "./$types";
 
 let { data, form }: PageProps = $props();
-let pending = $state<"connect" | "remove" | null>(null);
+type Operation = "connect" | "remove";
+const pendingByProvider = $state<Partial<Record<ProviderId, Operation>>>({});
 const names = { poyo: "Poyo.ai", toapis: "ToAPIs" };
 const statuses = {
 	disconnected: "Disconnected",
@@ -23,27 +26,32 @@ const provider = $derived(
 		data.providers.find(({ state }) => state === "connected") ??
 		data.providers[0],
 );
+const pending = $derived(provider && pendingByProvider[provider.id]);
 const feedback = $derived(!pending && form?.provider === provider?.id ? form : null);
 const isSuccess = $derived(feedback?.outcome === "connected" || feedback?.outcome === "removed");
 const pendingMessages = { connect: "Checking key…", remove: "Removing key…" };
 
-function save(operation: "connect" | "remove"): SubmitFunction {
+function save(id: ProviderId, operation: Operation): SubmitFunction {
 	return ({ formElement, cancel }) => {
-		if (pending) {
+		if (pendingByProvider[id]) {
 			cancel();
 			return;
 		}
-		pending = operation;
+		pendingByProvider[id] = operation;
 		if (operation === "connect") formElement.reset();
 		return async ({ result, update }) => {
 			try {
-				await update({
-					refreshAll:
-						result.type === "success" ||
-						(result.type === "failure" && result.data?.outcome === "superseded"),
-				});
+				const refresh =
+					result.type === "success" ||
+					(result.type === "failure" && result.data?.outcome === "superseded");
+				if (formElement.isConnected) {
+					await update({ navigate: false, refreshAll: refresh });
+				} else if (refresh) {
+					// The owner has navigated away. Refresh eligibility at their current destination.
+					await refreshAll();
+				}
 			} finally {
-				pending = null;
+				delete pendingByProvider[id];
 			}
 		};
 	};
@@ -96,7 +104,7 @@ function save(operation: "connect" | "remove"): SubmitFunction {
 						class="key-form"
 						method="POST"
 						action={`?/connect&provider=${provider.id}`}
-						use:enhance={save("connect")}
+						use:enhance={save(provider.id, "connect")}
 					>
 						<input type="hidden" name="provider" value={provider.id}>
 						<label for="provider-key">API key</label>
@@ -129,7 +137,7 @@ function save(operation: "connect" | "remove"): SubmitFunction {
 							class="remove-form"
 							method="POST"
 							action={`?/remove&provider=${provider.id}`}
-							use:enhance={save("remove")}
+							use:enhance={save(provider.id, "remove")}
 						>
 							<input type="hidden" name="provider" value={provider.id}>
 							<button class="secondary" type="submit" disabled={!!pending}>

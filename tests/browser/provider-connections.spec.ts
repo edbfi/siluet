@@ -245,3 +245,48 @@ test("removing a connection while the built server checks a replacement leaves i
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+test("a pending connection keeps the other provider usable and preserves the selected provider", async ({
+	page,
+}) => {
+	const directory = await createOwnerDirectory();
+	const fixtures = startProviderFixtures();
+	const delayed = Promise.withResolvers<void>();
+	const deliver = Promise.withResolvers<void>();
+	let server: Studio | undefined;
+	try {
+		server = await startStudio(directory, "0", false, fixtures.env);
+		await claimStudio(page, server);
+		await page.goto(settingsUrl(server));
+		await page.route("**/settings/providers?*/connect&provider=poyo", async (route) => {
+			const response = await route.fetch();
+			delayed.resolve();
+			await deliver.promise;
+			await route.fulfill({ response });
+		});
+		await page.getByLabel("API key").fill(keys.poyo);
+		await page.getByRole("button", { name: "Connect", exact: true }).click();
+		await delayed.promise;
+		await page.getByRole("link", { name: "ToAPIs", exact: true }).click();
+		await expect(page.getByLabel("API key")).toBeEnabled();
+		expect(await submit(page, "Connect", keys.toapis)).toBe(200);
+		await expect(page.getByRole("status")).toHaveText("Key accepted and saved.");
+		const refresh = page.waitForResponse(
+			(response) => response.request().method() === "GET" && response.url().includes("__data.json"),
+		);
+		deliver.resolve();
+		await refresh;
+		await expect(page.getByRole("link", { name: "ToAPIs" })).toHaveAttribute(
+			"aria-current",
+			"page",
+		);
+		await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+		await page.getByRole("link", { name: "Poyo.ai" }).click();
+		await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+	} finally {
+		deliver.resolve();
+		await server?.stop();
+		await fixtures.stop();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
