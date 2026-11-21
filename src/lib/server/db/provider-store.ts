@@ -26,17 +26,22 @@ function encrypt(key: Buffer, credential: string, data: Buffer) {
 	return Buffer.concat([nonce, cipher.getAuthTag(), ciphertext]).toString("base64");
 }
 
-function canDecrypt(key: Buffer, encoded: string, data: Buffer) {
+function decrypt(key: Buffer, encoded: string, data: Buffer) {
 	const payload = Buffer.from(encoded, "base64");
-	if (payload.length <= nonceSize + tagSize) return false;
+	if (payload.length <= nonceSize + tagSize) throw new Error("Invalid stored credential.");
 	const decipher = createDecipheriv(algorithm, key, payload.subarray(0, nonceSize), {
 		authTagLength: tagSize,
 	});
 	decipher.setAAD(data);
 	decipher.setAuthTag(payload.subarray(nonceSize, nonceSize + tagSize));
-	decipher.update(payload.subarray(nonceSize + tagSize)).fill(0);
-	decipher.final().fill(0);
-	return true;
+	const clear = decipher.update(payload.subarray(nonceSize + tagSize));
+	try {
+		decipher.final();
+		return clear;
+	} catch (error) {
+		clear.fill(0);
+		throw error;
+	}
 }
 
 export function providerStore(installation: Installation) {
@@ -50,6 +55,32 @@ export function providerStore(installation: Installation) {
 				if (!row) throw new Error("Missing provider credential slot.");
 				return row.revision;
 			});
+		},
+		async credential(id: ProviderId, expectedRevision?: number) {
+			const row = await use((db) =>
+				db.get<{ revision: number; verified_at: number; ciphertext: string }>(
+					sql`SELECT revision, verified_at,ciphertext FROM provider_credential
+				    WHERE provider=${id} AND seedream=1 AND ciphertext IS NOT NULL`,
+				),
+			);
+			if (!row || (expectedRevision !== undefined && expectedRevision !== row.revision))
+				return null;
+			try {
+				const key = await readProviderKey(directory);
+				if (!key) return null;
+				const clear = decrypt(
+					key,
+					row.ciphertext,
+					associatedData(id, row.revision, row.verified_at, true),
+				);
+				try {
+					return { revision: row.revision, key: clear.toString("utf8") };
+				} finally {
+					clear.fill(0);
+				}
+			} catch {
+				return null;
+			}
 		},
 		async checkKeyStorage() {
 			await readProviderKey(directory);
@@ -84,10 +115,12 @@ export function providerStore(installation: Installation) {
 				const verifiedAt = row.verified_at;
 				const seedream = row.seedream === 1;
 				try {
-					if (
-						key &&
-						canDecrypt(key, row.ciphertext, associatedData(id, row.revision, verifiedAt, seedream))
-					) {
+					if (key) {
+						decrypt(
+							key,
+							row.ciphertext,
+							associatedData(id, row.revision, verifiedAt, seedream),
+						).fill(0);
 						return { id, state: "connected", verifiedAt, seedream };
 					}
 				} catch {

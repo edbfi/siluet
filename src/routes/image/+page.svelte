@@ -44,6 +44,7 @@ $effect(() => {
 	{#snippet reviewPanel()}
 		<ImageReview
 			{review}
+			{draft}
 			{headingId}
 			feeds={data.pricingFeeds}
 			nowMs={data.pricingNowMs}

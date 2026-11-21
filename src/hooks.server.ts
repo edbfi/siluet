@@ -13,7 +13,9 @@ export const handleError: HandleServerError = ({ event, kind }) => {
 };
 export const handle: Handle = async ({ event, resolve }) => {
 	const { request, route, locals, cookies } = event;
-	const headers = { "cache-control": "no-store" };
+	const headers = {
+		"cache-control": route.id === "/gallery/[jobId]/media" ? "private, no-store" : "no-store",
+	};
 	const deny = (status: number) =>
 		new Response(`Open the studio at ${studio.origin.origin}/.`, { status, headers });
 	const move = (location: string) =>

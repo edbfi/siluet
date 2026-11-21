@@ -53,8 +53,8 @@ export const shell = {
 		fontSize: "0.875rem",
 		fontWeight: 600,
 		textDecoration: "none",
-		"&:not([aria-current=page]):hover": railHover,
-		_currentPage: {
+		"&:not([aria-current]):hover": railHover,
+		"&[aria-current]": {
 			borderColor: "railCurrentBorder",
 			background: "railCurrent",
 			color: "railCurrentInk",

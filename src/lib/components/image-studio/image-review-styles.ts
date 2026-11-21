@@ -89,10 +89,22 @@ export const actions = css({
 
 export const queue = css({
 	minHeight: "44px",
-	borderColor: "line",
-	background: "canvas",
-	color: "muted",
-	cursor: "not-allowed",
+	_disabled: {
+		borderColor: "line",
+		background: "canvas",
+		color: "muted",
+		cursor: "not-allowed",
+	},
 });
 
 export const exposure = css({ fontSize: "0.85rem", fontWeight: 650 });
+
+export const consent = css({
+	display: "flex",
+	alignItems: "center",
+	gap: "0.6rem",
+	minHeight: "44px",
+	fontSize: "0.9rem",
+	cursor: "pointer",
+	"& input": { accentColor: "accent", flexShrink: 0 },
+});

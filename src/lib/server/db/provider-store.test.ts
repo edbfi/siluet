@@ -402,3 +402,14 @@ test.skipIf(process.platform === "win32")(
 		expect(reads).toBe(1);
 	},
 );
+
+test("dispatch opens an eligible credential only at the requested revision", async () => {
+	const store = providerStore(installation);
+	await saveCurrent(store, "poyo", poyoKey, 123, true);
+	expect(await store.credential("poyo", 1)).toEqual({ revision: 1, key: poyoKey });
+	expect(await store.credential("poyo", 2)).toBeNull();
+	await saveCurrent(store, "poyo", toapisKey, 125, false);
+	expect(await store.credential("poyo")).toBeNull();
+	await store.remove("poyo");
+	expect(await store.credential("poyo", 1)).toBeNull();
+});

@@ -201,6 +201,56 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await reviewTab.click();
 		});
 
+		await test.step("accept only the authoritative terms of the current Review", async () => {
+			const inspect = review.getByRole("button", { name: "Review request", exact: true });
+			const consent = review.getByRole("checkbox", { name: /unknown cost/i });
+			const reviews: boolean[] = [];
+			const queued: { token: string; acceptUnknown: boolean }[] = [];
+			await page.route("**/image/review", (route) => {
+				reviews.push(route.request().postDataJSON().acceptUnknown);
+				return route.fulfill({
+					json: {
+						token: `review-${reviews.length}`,
+						quote: { status: "unknown", reason: "missing-feed", maxAttempts: 1 },
+						requiresConsent: true,
+						acceptUnknown: false,
+					},
+				});
+			});
+			await page.route("**/image/queue", (route) => {
+				const { token, acceptUnknown } = route.request().postDataJSON();
+				queued.push({ token, acceptUnknown });
+				return route.fulfill({ status: 409, json: { error: "stale" } });
+			});
+			await toapis.check();
+			await expect(queue(1)).toBeDisabled();
+			await expect(inspect).toBeEnabled();
+			expect(reviews).toEqual([]);
+			await inspect.press("Enter");
+			await expect(price).toContainText("No local rate feed is available.");
+			await expect(consent).not.toBeChecked();
+			await expect(queue(1)).toBeDisabled();
+			await consent.check();
+			await expect(queue(1)).toBeEnabled();
+			await prompt.fill(`${promptText} More light.`);
+			await prompt.fill(promptText);
+			await expect(queue(1)).toBeDisabled();
+			await expect(consent).toHaveCount(0);
+			expect(reviews).toEqual([false]);
+			await inspect.press("Enter");
+			await expect(consent).not.toBeChecked();
+			await consent.check();
+			await queue(1).press("Enter");
+			await expect(review).toContainText("Review the request again");
+			await expect(queue(1)).toBeDisabled();
+			await expect(consent).toHaveCount(0);
+			expect(queued).toEqual([{ token: "review-2", acceptUnknown: true }]);
+			expect(reviews).toEqual([false, false]);
+			await page.unroute("**/image/queue");
+			await page.unroute("**/image/review");
+			await poyo.check();
+		});
+
 		await test.step("stage mixed references and retain the draft across Settings navigation", async () => {
 			await operation.selectOption("edit");
 			await expect(page.getByRole("button", { name: "Follow references" })).toHaveAttribute(

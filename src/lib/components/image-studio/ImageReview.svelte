@@ -1,5 +1,6 @@
 <script lang="ts">
 import { Tabs } from "@ark-ui/svelte/tabs";
+import { onDestroy, tick } from "svelte";
 import type { ImageReviewData, ReviewOperation } from "#lib/shared/image-studio/review.ts";
 import {
 	estimateReviewPrice,
@@ -10,11 +11,15 @@ import {
 	reviewRetryLimits,
 	watchReviewExpiry,
 } from "#lib/shared/image-studio/review-price.ts";
+import type { SeedreamDraft } from "#lib/shared/image-studio/seedream.ts";
+import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
 import type { PricingFeeds, PricingProvider } from "#lib/shared/pricing/feeds.ts";
+import { goto } from "$app/navigation";
 import * as styles from "./image-review-styles.ts";
 
 let {
 	review,
+	draft,
 	feeds,
 	nowMs,
 	provider = undefined,
@@ -22,6 +27,7 @@ let {
 	headingId = "studio-review-title",
 }: {
 	review: ImageReviewData | null;
+	draft: SeedreamDraft;
 	feeds: PricingFeeds;
 	nowMs: number;
 	provider?: PricingProvider;
@@ -44,14 +50,127 @@ const maxAttempts = $derived(maximumReviewAttempts(batch));
 const selectedProvider = $derived(review?.pricing.provider ?? provider);
 const providerName = $derived(selectedProvider && providerNames[selectedProvider]);
 const isEdit = $derived((review?.pricing.operation ?? operation) === "edit");
-const quote = $derived(
+type QueueInput = { draft: SeedreamDraft; count: number; retryLimit: number };
+type ReviewTerms = { token: string; quote: PriceEstimate; requiresConsent: boolean };
+const supported = $derived(!isEdit && count === 1 && retryLimit === 0);
+const request = $derived(
+	review && supported ? { draft: $state.snapshot(draft), count, retryLimit } : null,
+);
+let authorized = $state.raw<{ request: QueueInput; terms: ReviewTerms } | null>(null);
+let pending = $state<"review" | "queue" | null>(null);
+let acceptedToken = $state<string | null>(null);
+let feedback = $state.raw<{ request: QueueInput; message: string } | null>(null);
+let tabValue = $state("review");
+let mounted = true;
+onDestroy(() => {
+	mounted = false;
+});
+const terms = $derived(authorized?.request === request ? authorized.terms : null);
+const offlineQuote = $derived(
 	review && estimateReviewPrice(feeds, review.pricing, batch, browserNow ?? nowMs),
 );
-const expiry = $derived(reviewPriceExpiry(quote ?? undefined));
+const expiry = $derived(reviewPriceExpiry(terms?.quote ?? offlineQuote ?? undefined));
+const expired = $derived(expiry !== undefined && (browserNow ?? nowMs) >= expiry);
+const current = $derived(!expired ? terms : null);
+const quote = $derived(current?.quote ?? offlineQuote);
+const canQueue = $derived(current && (!current.requiresConsent || acceptedToken === current.token));
 
 $effect(() => {
-	const watch = watchReviewExpiry(expiry, (time) => {
+	if (authorized && authorized.request !== request) {
+		authorized = null;
+		acceptedToken = null;
+	}
+	if (feedback && feedback.request !== request) feedback = null;
+});
+
+function post(path: string, body: object) {
+	return fetch(path, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body),
+	});
+}
+
+async function inspect() {
+	const input = request;
+	if (!input || pending) return;
+	pending = "review";
+	acceptedToken = null;
+	authorized = null;
+	feedback = null;
+	tabValue = "review";
+	try {
+		const response = await post("/image/review", { ...input, acceptUnknown: false });
+		if (!response.ok) throw new Error();
+		const terms: ReviewTerms = await response.json();
+		if (mounted && input === request) {
+			const focusHeading =
+				document.activeElement?.id === `${headingId}-inspect` ||
+				document.activeElement === document.body;
+			authorized = { request: input, terms };
+			if (focusHeading) {
+				await tick();
+				document.getElementById(headingId)?.focus({ preventScroll: true });
+			}
+		}
+	} catch {
+		feedback = {
+			request: input,
+			message: "Review is unavailable. Check the provider connection and try again.",
+		};
+	} finally {
+		pending = null;
+	}
+}
+
+async function queue() {
+	const input = request;
+	if (!input || !current || !canQueue || pending || tabValue !== "review") return;
+	pending = "queue";
+	feedback = null;
+	try {
+		const response = await post("/image/queue", {
+			...input,
+			token: current.token,
+			acceptUnknown: acceptedToken === current.token,
+		});
+		if (response.status === 409 || response.status === 400) {
+			authorized = null;
+			acceptedToken = null;
+			feedback = {
+				request: input,
+				message: "The request or its terms changed. Review the request again before queuing.",
+			};
+			return;
+		}
+		if (!response.ok) throw new Error();
+		const { jobId } = await response.json();
+		if (typeof jobId !== "string" || !jobId) throw new Error();
+		if (mounted) await goto(`/jobs#job-${encodeURIComponent(jobId)}`);
+	} catch {
+		feedback = {
+			request: input,
+			message: "Queue confirmation is unavailable. Check Jobs before starting another request.",
+		};
+	} finally {
+		pending = null;
+	}
+}
+
+$effect(() => {
+	const reviewed = terms;
+	const input = request;
+	const expiresAt = expiry;
+	const watch = watchReviewExpiry(expiresAt, (time) => {
 		browserNow = time;
+		if (reviewed && input && expiresAt !== undefined && time >= expiresAt) {
+			authorized = null;
+			acceptedToken = null;
+			feedback = {
+				request: input,
+				message: "The reviewed rates expired. Review the request again before queuing.",
+			};
+		}
 	});
 	window.addEventListener("focus", watch.refresh);
 	document.addEventListener("visibilitychange", watch.refresh);
@@ -67,15 +186,24 @@ $effect(() => {
 	<p class={styles.note}>
 		{selectedProvider === "toapis" ? "Feed collected" : "Rates dated"}
 		<time datetime={sourceDate}>{sourceDate.slice(0, 10)}</time>
-		{#if selectedProvider === "toapis"}
-			· Expires <time datetime={expiresAt}>{expiresAt.slice(0, 10)}</time>
-		{/if}
+		· Expires
+		<time datetime={expiresAt}
+			>{current
+				? `${new Date(expiresAt).toISOString().slice(0, 19).replace("T", " ")} UTC`
+				: expiresAt.slice(0, 10)}</time
+		>
 	</p>
 {/snippet}
 
 <section class={styles.panel} aria-labelledby={headingId}>
 	<h2 class={styles.heading} id={headingId} tabindex="-1">Review request</h2>
-	<Tabs.Root defaultValue="review" activationMode="automatic" loopFocus ids={{ content: panelId }}>
+	<Tabs.Root
+		value={tabValue}
+		onValueChange={({ value }) => (tabValue = value)}
+		activationMode="automatic"
+		loopFocus
+		ids={{ content: panelId }}
+	>
 		<Tabs.List class={styles.tabList} aria-labelledby={headingId}>
 			{#each tabs as tab (tab.value)}
 				<Tabs.Trigger class={styles.tab} value={tab.value} aria-controls={panelId(tab.value)}
@@ -122,7 +250,11 @@ $effect(() => {
 						{/if}
 						{#if quote?.status === "known"}
 							<p>Estimated {quote.perRequest} {providerName} credits per request</p>
-							<p>Estimated {quote.batch} {providerName} credits for the initial batch</p>
+							{#if current && quote.unit === "toapis_credit"}
+								<p>Standard-route estimate ${quote.usd.perRequest} USD.</p>
+							{:else if !current}
+								<p>Estimated {quote.batch} {providerName} credits for the initial batch</p>
+							{/if}
 							{@render rateDates(quote.sourceDate, quote.expiresAt)}
 						{:else if quote?.status === "unknown"}
 							<p>Unknown. {reviewPriceReason(quote)}</p>
@@ -193,20 +325,58 @@ $effect(() => {
 			ToAPIs may use a fallback for eligible accounts and regions. Fallback pricing is unknown.
 		</p>
 	{/if}
+	{#if current?.requiresConsent && tabValue === "review"}
+		<label class={styles.consent} for={`${headingId}-consent`}>
+			<input
+				id={`${headingId}-consent`}
+				type="checkbox"
+				checked={acceptedToken === current.token}
+				onchange={(event) =>
+					(acceptedToken = event.currentTarget.checked ? (current?.token ?? null) : null)}
+			>
+			{selectedProvider !== "toapis"
+				? "I accept the unknown cost of this request."
+				: current.quote.status === "known"
+					? "I accept the unknown cost if ToAPIs uses a fallback."
+					: "I accept the unknown cost on the standard route or a fallback."}
+		</label>
+	{/if}
 	<div class={styles.actions}>
+		{#if supported && !current}
+			<button
+				type="button"
+				id={`${headingId}-inspect`}
+				class={styles.queue}
+				disabled={!request || !!pending}
+				onclick={inspect}
+			>
+				{pending === "review" ? "Reviewing…" : "Review request"}
+			</button>
+		{/if}
 		<button
 			class={styles.queue}
 			type="button"
-			disabled
+			disabled={!canQueue || !!pending || tabValue !== "review"}
+			onclick={queue}
 			aria-describedby={`${headingId}-exposure ${headingId}-availability`}
 		>
-			Queue {count} {count === 1 ? "request" : "requests"}
+			{pending === "queue" ? "Queuing…" : `Queue ${count} ${count === 1 ? "request" : "requests"}`}
 		</button>
 		<p id={`${headingId}-exposure`} class={styles.exposure} aria-live="polite">
 			Up to {maxAttempts} potentially billable {maxAttempts === 1 ? "submission" : "submissions"}.
 		</p>
 	</div>
-	<p id={`${headingId}-availability`} class={styles.note}>
-		Queue is unavailable in offline review.
+	<p id={`${headingId}-availability`} class={styles.note} role="status">
+		{#if feedback && feedback.request === request}
+			{feedback.message}
+		{:else if !supported}
+			Queue supports text to image with one request and zero additional attempts.
+		{:else if current && tabValue !== "review"}
+			Open the Review tab to queue this request.
+		{:else if current}
+			{canQueue ? "Ready to queue." : "Confirm the unknown cost before queuing."}
+		{:else}
+			Review the completed request to confirm its current terms.
+		{/if}
 	</p>
 </section>

@@ -2,9 +2,16 @@ import { error, fail, type RequestEvent } from "@sveltejs/kit";
 import { providerIds, providerStorageRepairMessage } from "#lib/shared/providers/connections.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ locals }) => ({
-	providers: await locals.studio.providers.statuses(),
-});
+export const load: PageServerLoad = async ({ locals }) => {
+	const connections = await locals.studio.providers.statuses();
+	const providers = await Promise.all(
+		connections.map(async (connection) => ({
+			...connection,
+			neededByJobs: await locals.studio.jobs.needsCredential(connection.id),
+		})),
+	);
+	return { providers };
+};
 
 const messages = {
 	connected: { message: "Key accepted and saved." },
@@ -42,6 +49,13 @@ async function changeConnection(
 	const data = await request.formData();
 	const provider = providerIds.find((id) => id === data.get("provider"));
 	if (!provider) error(400, "Unknown provider.");
+	if (data.get("jobWarning") !== "seen" && (await locals.studio.jobs.needsCredential(provider))) {
+		return fail(409, {
+			provider,
+			outcome: "job-warning" as const,
+			message: "Jobs now need this key. Review the warning before changing the connection.",
+		});
+	}
 	const connections = locals.studio.providers;
 	const outcome =
 		operation === "connect"

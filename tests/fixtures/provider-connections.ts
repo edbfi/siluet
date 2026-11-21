@@ -9,7 +9,9 @@ export const providerFixtureKeys = {
 
 export const providerFixtureAccount = "fixture-poyo-account@example.test";
 
-export function startProviderFixtures() {
+export function startProviderFixtures(
+	jobResponse?: (request: Request, path: string) => Response | null,
+) {
 	const requests: { path: string; method: string; key: string | null }[] = [];
 	const slowStarted = Promise.withResolvers<void>();
 	const slowRelease = Promise.withResolvers<void>();
@@ -21,6 +23,8 @@ export function startProviderFixtures() {
 			const authorization = request.headers.get("authorization");
 			const key = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
 			requests.push({ path, method: request.method, key });
+			const job = jobResponse?.(request, path);
+			if (job) return job;
 			if (request.method !== "GET") return new Response(null, { status: 405 });
 			if (path === "/poyo/balance") {
 				if (key === providerFixtureKeys.slow) {
