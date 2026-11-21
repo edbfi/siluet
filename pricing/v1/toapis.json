@@ -1,0 +1,116 @@
+{
+	"version": 1,
+	"provider": "toapis",
+	"observedAt": "2026-11-21T15:07:33Z",
+	"creditsPerUsd": "200",
+	"conversionSourceUrl": "https://toapis.com/pricing",
+	"conversionCacheAgeSeconds": null,
+	"rates": [
+		{
+			"model": "doubao-seedream-5-5",
+			"operations": ["generate", "edit"],
+			"unit": "image",
+			"conditions": {
+				"size": "1K",
+				"outputCount": 1,
+				"layerDecomposition": false
+			},
+			"usd": "0.016",
+			"approximateCredits": "3.2",
+			"source": {
+				"url": "https://toapis.com/model-guide/doubao-seedream-5-5",
+				"scope": "public-advertised",
+				"region": "global-site",
+				"tier": null,
+				"publishedAt": null,
+				"cacheAgeSeconds": null
+			}
+		},
+		{
+			"model": "doubao-seedream-5-5",
+			"operations": ["generate", "edit"],
+			"unit": "image",
+			"conditions": {
+				"size": "1.5K",
+				"outputCount": 1,
+				"layerDecomposition": false
+			},
+			"usd": "0.016",
+			"approximateCredits": "3.2",
+			"source": {
+				"url": "https://toapis.com/model-guide/doubao-seedream-5-5",
+				"scope": "public-advertised",
+				"region": "global-site",
+				"tier": null,
+				"publishedAt": null,
+				"cacheAgeSeconds": null
+			}
+		},
+		{
+			"model": "doubao-seedream-5-5",
+			"operations": ["generate", "edit"],
+			"unit": "image",
+			"conditions": {
+				"size": "2K",
+				"outputCount": 1,
+				"layerDecomposition": false
+			},
+			"usd": "0.028",
+			"approximateCredits": "5.6",
+			"source": {
+				"url": "https://toapis.com/model-guide/doubao-seedream-5-5",
+				"scope": "public-advertised",
+				"region": "global-site",
+				"tier": null,
+				"publishedAt": null,
+				"cacheAgeSeconds": null
+			}
+		},
+		{
+			"model": "seedance-2-5",
+			"operations": ["generate", "edit"],
+			"unit": "million-total-tokens",
+			"conditions": {
+				"videoInput": false
+			},
+			"usd": "10",
+			"approximateCredits": "2000",
+			"source": {
+				"url": "https://toapis.com/model-guide/seedance-2-5",
+				"scope": "public-advertised",
+				"region": "global-site",
+				"tier": null,
+				"publishedAt": null,
+				"cacheAgeSeconds": null
+			}
+		},
+		{
+			"model": "seedance-2-5",
+			"operations": ["generate", "edit"],
+			"unit": "million-total-tokens",
+			"conditions": {
+				"videoInput": true
+			},
+			"usd": "6",
+			"approximateCredits": "1200",
+			"source": {
+				"url": "https://toapis.com/model-guide/seedance-2-5",
+				"scope": "public-advertised",
+				"region": "global-site",
+				"tier": null,
+				"publishedAt": null,
+				"cacheAgeSeconds": null
+			}
+		}
+	],
+	"gaps": [
+		{
+			"model": "doubao-seedream-5-5",
+			"reason": "unpriced-image-options"
+		},
+		{
+			"model": "seedance-2-5",
+			"reason": "token-usage-unknown"
+		}
+	]
+}

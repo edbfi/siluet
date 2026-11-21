@@ -35,6 +35,15 @@ Siluet runs on your machine. The current build serves a studio status page and a
 
 Run `bun design/workspace/export.js` and open `design/workspace/workspace.html` in a browser. Use a demo key or choose **Explore without keys**. The preview runs locally with simulated jobs and balances.
 
+## Credit estimates
+
+```sh
+bun run pricing:estimate --model seedream-5.5 --operation edit --resolution 2K --references 2 --batch 5
+bun run pricing:estimate --provider toapis --model doubao-seedream-5-5 --size 2K
+```
+
+Estimates use bundled public rates offline. After the repository publishes its first feed for a provider, run `bun run pricing:refresh` for Poyo.ai or `bun run pricing:refresh --provider toapis` for ToAPIs. Until then, the refresh command reports that the feed is unavailable and estimates use local rates. Unsupported or expired rates return an unknown total. Use `pricing:estimate --help` for options.
+
 ## Development
 
 From the repository root, install the locked dependencies, build Siluet, and start the built application:
