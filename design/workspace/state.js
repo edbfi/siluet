@@ -223,7 +223,7 @@
 		return job;
 	}
 
-	function attemptInput(job, outcome = job.outcome) {
+	function attemptInput(job, outcome, estimate) {
 		const { provider, model, kind, operation, prompt, sourceIds, sources, options, title } = job;
 		return {
 			provider,
@@ -236,7 +236,47 @@
 			options,
 			title,
 			outcome,
+			estimate,
 		};
+	}
+
+	function estimateAttempt({ provider, model, operation, options, sourceIds, sources }) {
+		const quote = window.SiluetPricing?.quote({
+			provider,
+			model,
+			operation,
+			options,
+			sourceCount: sourceIds.length,
+			sourceKinds: sourceIds.map(
+				(id) => sources.find((source) => source.id === id)?.kind ?? "unknown",
+			),
+			count: 1,
+			retryLimit: 0,
+		});
+		return restoreEstimate(quote, provider, model);
+	}
+
+	function restoreEstimate(quote, provider, model) {
+		if (provider === "toapis") {
+			return window.SiluetPricing?.restoreToapisAttempt?.(quote, model) ?? null;
+		}
+		if (quote?.status === "unknown") return { status: "unknown" };
+		if (quote?.status !== "known" || quote.unit !== "poyo_credit") return null;
+		const { status, unit, perRequest, sourceDate, revision } = quote;
+		if (
+			typeof perRequest !== "string" ||
+			!/^\d+(\.\d{1,6})?$/.test(perRequest) ||
+			typeof sourceDate !== "string" ||
+			!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(
+				sourceDate,
+			) ||
+			!Number.isFinite(Date.parse(sourceDate)) ||
+			new Date(sourceDate.slice(0, 10)).toISOString().slice(0, 10) !== sourceDate.slice(0, 10) ||
+			typeof revision !== "string" ||
+			!/^[a-f\d]{40}$/.test(revision)
+		)
+			return null;
+		return { status, unit, perRequest, sourceDate, revision };
 	}
 
 	function saveResult(job) {
@@ -334,9 +374,9 @@
 		job.retryAt = null;
 	}
 
-	function queueRetry(parent, outcome, retryLimit) {
+	function queueRetry(parent, outcome, retryLimit, estimate = parent.estimate) {
 		clearRetry(parent);
-		const child = queueJob(attemptInput(parent, outcome), {
+		const child = queueJob(attemptInput(parent, outcome, estimate), {
 			parent,
 			batchId: parent.batchId,
 			retryLimit,
@@ -422,8 +462,9 @@
 		};
 		const batchId = crypto.randomUUID();
 		const retryLimit = preferences.retryEnabled ? preferences.retryLimit : 0;
+		const estimate = estimateAttempt(input);
 		const batch = Array.from({ length: count }, () =>
-			queueJob(input, { batchId, retryLimit, fixtureId }),
+			queueJob({ ...input, estimate }, { batchId, retryLimit, fixtureId }),
 		);
 		persist();
 		schedulePump();
@@ -431,7 +472,7 @@
 		return batch.map((job) => job.id);
 	}
 
-	function retry(id) {
+	function retry(id, reviewedEstimate) {
 		const parent = byId.get(id);
 		if (!parent || !["failed", "uncertain"].includes(parent.status)) {
 			throw new Error("Choose a failed or uncertain attempt to resubmit.");
@@ -440,7 +481,14 @@
 		if (existing) return existing.id;
 		const reason = blockedReason(parent);
 		if (reason) throw new Error(reason);
-		const child = queueRetry(parent, "success", 0);
+		const estimate = estimateAttempt(parent);
+		if (
+			reviewedEstimate !== undefined &&
+			JSON.stringify(reviewedEstimate) !== JSON.stringify(estimate)
+		) {
+			throw new Error("The price estimate changed. Review it again before approving.");
+		}
+		const child = queueRetry(parent, "success", 0, estimate);
 		persist();
 		schedulePump();
 		publish("jobs", publicJob(child));
@@ -669,6 +717,7 @@
 			sourceIds,
 			sources,
 			options: options && typeof options === "object" && !Array.isArray(options) ? options : {},
+			estimate: restoreEstimate(value.estimate, provider, model),
 			throttleSeen: value.throttleSeen === true,
 			retryRevoked: value.retryRevoked === true,
 		};
@@ -866,6 +915,10 @@
 		stageFile,
 		stageUrl,
 		unstageSource,
+		retryEstimate(id) {
+			const job = byId.get(id);
+			return job ? estimateAttempt(job) : null;
+		},
 		retry,
 		stopQueued,
 		recoverDownload,

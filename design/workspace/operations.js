@@ -447,7 +447,39 @@
 		</section>`;
 	}
 
-	function renderJob(job, jobs, assets, batch, confirming, message) {
+	function estimateLabel(estimate) {
+		if (estimate?.status === "known") {
+			if (estimate.unit === "toapis_credit") {
+				return window.SiluetPricing.toapisImageAmount(estimate.perRequest, estimate.usd.perRequest);
+			}
+			return `${estimate.perRequest} Poyo.ai credits estimated`;
+		}
+		return estimate ? "Estimate unavailable" : "No estimate recorded";
+	}
+
+	function rateSourceLabel(estimate) {
+		if (estimate?.unit === "poyo_credit") {
+			return `Rates dated ${estimate.sourceDate.slice(0, 10)} · ${estimate.revision.slice(0, 12)}`;
+		}
+		const observed =
+			estimate?.unit === "toapis_credit"
+				? estimate.sourceDate
+				: estimate?.advertisedUnitRate?.sourceDate;
+		return observed ? `Public rates observed ${observed.slice(0, 10)}` : "";
+	}
+
+	function estimateDetails(estimate) {
+		const unitRate = estimate?.advertisedUnitRate;
+		return [
+			estimateLabel(estimate),
+			unitRate && window.SiluetPricing.toapisTokenRate(unitRate),
+			rateSourceLabel(estimate),
+		]
+			.filter(Boolean)
+			.join(" · ");
+	}
+
+	function renderJob(job, jobs, assets, batch, retryEstimate, message) {
 		const [outcome, note] = jobOutcome(job);
 		const reason = jobReason(job);
 		const attempts = jobs
@@ -485,6 +517,7 @@
 			job.status === "completed" && job.assetId && !assets.has(job.assetId)
 				? "The provider completed the job. The saved output is unavailable in this session."
 				: note;
+		const confirming = retryEstimate !== undefined;
 
 		return `
 			<header class="studio-ops__detail-head">
@@ -514,11 +547,21 @@
 					<div class="studio-ops__approval">
 						<h4 tabindex="-1" data-approval>Authorize a new attempt</h4>
 						<p>${job.status === "uncertain" ? "The original request may already have used credits. A new request can charge you again." : "The provider may charge for the new request, even if it fails."} The demo uses the same prompt, sources and model options.</p>
+						<p>${html(retryEstimate ? estimateDetails(retryEstimate) : "Estimate unavailable")}</p>
 						<div>${action("dismiss", "Cancel")}${action("retry", "Approve new submission", { primary: true })}</div>
 					</div>`
 						: ""
 				}
 				${message ? `<p role="status" class="studio-ops__action-message">${html(message)}</p>` : ""}
+			</section>
+			<section class="studio-ops__detail-section" aria-label="Billing">
+				<h3>Billing</h3>
+				<dl class="studio-ops__metadata">
+					${metadata("Estimate at submission", estimateLabel(job.estimate))}
+					${job.estimate?.advertisedUnitRate ? metadata("Advertised unit rate", window.SiluetPricing.toapisTokenRate(job.estimate.advertisedUnitRate)) : ""}
+					${rateSourceLabel(job.estimate) ? metadata("Rate source", rateSourceLabel(job.estimate)) : ""}
+					${metadata("Settled charge", "Unknown")}
+				</dl>
 			</section>
 			<section class="studio-ops__detail-section">
 				<h3>Request details</h3>
@@ -584,7 +627,7 @@
 		const announcement = panel.querySelector("[data-announcement]");
 		const rows = new Map();
 		let selectedId;
-		let confirming = false;
+		let retryEstimate;
 		let message = "";
 		let lastDetail = "";
 		let lastStatus;
@@ -644,7 +687,7 @@
 				: "Jobs will appear here after your first submission.";
 			const selectedBatch = batches.get(selected?.batchId) ?? [];
 			const nextDetail = selected
-				? renderJob(selected, jobs, assets, selectedBatch, confirming, message)
+				? renderJob(selected, jobs, assets, selectedBatch, retryEstimate, message)
 				: `
 				<header class="studio-ops__detail-head"><h2 id="ops-job-title" tabindex="-1">Inspect a job</h2>
 				<p>Choose a job to see its inputs, outcome and related attempts.</p></header>`;
@@ -682,7 +725,7 @@
 
 		function select(id, focus = false) {
 			selectedId = id;
-			confirming = false;
+			retryEstimate = undefined;
 			message = "";
 			update();
 			if (focus) detail.querySelector("h2").focus();
@@ -715,19 +758,22 @@
 						studio.go(id);
 						break;
 					case "review":
-						confirming = true;
+						if (!job) return;
+						retryEstimate = studio.retryEstimate(job.id);
+						message = "";
 						update();
 						detail.querySelector("details")?.setAttribute("open", "");
 						detail.querySelector("[data-approval]")?.focus();
 						break;
 					case "dismiss":
-						confirming = false;
+						retryEstimate = undefined;
+						message = "";
 						update();
 						detail.querySelector('[data-action="review"]')?.focus();
 						break;
 					case "retry":
-						if (!confirming || !job) return;
-						select(studio.retry(job.id), true);
+						if (retryEstimate === undefined || !job) return;
+						select(studio.retry(job.id, retryEstimate), true);
 						break;
 					case "download":
 						if (!job) return;
@@ -746,6 +792,7 @@
 				}
 			} catch (error) {
 				message = error instanceof Error ? error.message : "The job could not be updated.";
+				if (name === "retry" && job) retryEstimate = studio.retryEstimate(job.id);
 				update();
 			}
 		});

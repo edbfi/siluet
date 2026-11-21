@@ -33,7 +33,7 @@ Siluet runs on your machine. The current build serves a studio status page and a
 
 ## Offline studio preview
 
-Run `bun design/workspace/export.js` and open `design/workspace/workspace.html` in a browser. Use a demo key or choose **Explore without keys**. The preview runs locally with simulated jobs and balances.
+Run `bun design/workspace/export.js` and open `design/workspace/workspace.html` in a browser. Use a demo key or choose **Explore without keys**. The preview runs locally with simulated jobs and balances. Review shows an estimate from the bundled rates. To use rates you have refreshed locally, rebuild the preview with `bun design/workspace/export.js --local-pricing`.
 
 ## Credit estimates
 

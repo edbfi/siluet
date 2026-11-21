@@ -31,6 +31,9 @@
 		maxBytes: 29_999_999,
 		maxSize: "30 MB",
 	};
+	// ToAPIs channels that review Seedance media reject reference URLs longer than 2048 bytes.
+	// https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation#asset-review
+	const toapisSeedanceMaxUrlBytes = 2048;
 	// Poyo.ai specifies the image count. File types, URL schemes and size are inferred from Alibaba.
 	// https://www.alibabacloud.com/help/en/model-studio/qwen-image-generation-and-editing-api-reference
 	const qwenReferences = {
@@ -308,7 +311,7 @@
 				evidence: "https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation",
 				resolutions: seedanceResolutions,
 				resolutionDefault: "720p",
-				// Frame inputs, reference modes and extension are outside this prototype.
+				// Reference modes and extension are outside this prototype.
 				operations: [
 					{
 						id: "generate",
@@ -317,6 +320,23 @@
 						ratios: seedanceRatios,
 						duration: seedanceDuration,
 					},
+					...keyframes.map((operation) => ({
+						...operation,
+						duration: seedanceDuration,
+						framing: "Seedance follows the starting frame.",
+						source: {
+							...operation.source,
+							...toapisImages,
+							field: "image_with_roles",
+							wireRoles: ["first_frame", "last_frame"],
+							maxUrlBytes: toapisSeedanceMaxUrlBytes,
+							// ToAPIs defers to the model's format limits. Still formats are inferred from Seedance.
+							// https://docs.byteplus.com/en/docs/ModelArk/seedance-2-5
+							protocols: httpOrHttps,
+							formats: stillFormats,
+						},
+						fixed: { aspect_ratio: "adaptive" },
+					})),
 					{
 						id: "edit",
 						label: "Edit video",
@@ -329,6 +349,7 @@
 							roles: ["Source video"],
 							field: "video_with_roles",
 							wireRole: "reference_video",
+							maxUrlBytes: toapisSeedanceMaxUrlBytes,
 							protocols: httpOrHttps,
 							// https://docs.volcengine.com/docs/ark/seedance-2-5?lang=en
 							formats: ["mp4", "mov"],

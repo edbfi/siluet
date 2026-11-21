@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { toapisRates } from "../../../../tests/fixtures/toapis-feed";
 import { decodePricingFeed, type PricingFeed } from "./feed";
+import { decodePricingFeeds } from "./feeds";
+import { decodeToapisPricingFeed } from "./toapis-feed";
 
 const feed = {
 	version: 1,
@@ -83,4 +86,17 @@ describe("PoYo pricing v1 feed", () => {
 			).toBeUndefined();
 		}
 	});
+});
+
+test("loads a single Studio feed or a pair without dropping the valid sibling", () => {
+	const toapis = decodeToapisPricingFeed(toapisRates);
+	if (!toapis) throw new Error("Invalid ToAPIs test fixture");
+	expect(decodePricingFeeds(feed)).toEqual({ poyo: feed });
+	expect(decodePricingFeeds(toapisRates)).toEqual({ toapis });
+	expect(decodePricingFeeds({ poyo: feed, toapis: toapisRates })).toEqual({ poyo: feed, toapis });
+	expect(decodePricingFeeds({ poyo: {}, toapis: toapisRates })).toEqual({
+		poyo: undefined,
+		toapis,
+	});
+	expect(decodePricingFeeds(null)).toEqual({});
 });

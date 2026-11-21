@@ -34,7 +34,9 @@ test("Image Studio opens a four-field Review and keeps Queue available across ta
 		"Media sent",
 		"Price",
 	]);
-	await expect(facts.getByText("Unknown", { exact: true })).toBeVisible();
+	await expect(facts.locator("[data-studio-price]")).toHaveText(
+		/^(?:Unknown|[\d.]+ Poyo\.ai credits estimated · Rates dated \d{4}-\d{2}-\d{2}|Estimate unavailable · .+\.)$/,
+	);
 	await expect(facts.getByRole("button")).toHaveCount(0);
 	await expect(review.getByLabel("Batch count")).toBeHidden();
 	await expect(review.getByText("Simulation controls")).toBeHidden();
