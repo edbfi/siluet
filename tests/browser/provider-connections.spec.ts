@@ -24,6 +24,12 @@ async function claimStudio(page: Page, studio: Studio) {
 	await expect(page).toHaveURL(studio.origin.href);
 }
 
+async function selectProvider(page: Page, name: "Poyo.ai" | "ToAPIs") {
+	const link = page.getByRole("link", { name, exact: true });
+	await link.press("Enter");
+	await expect(link).toHaveAttribute("aria-current", "page");
+}
+
 async function submit(page: Page, button: "Connect" | "Replace key" | "Remove key", key = "") {
 	if (key) await page.getByLabel("API key").fill(key);
 	const post = page.waitForResponse((response) => response.request().method() === "POST");
@@ -128,7 +134,7 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 			{ path: "/poyo/balance", method: "GET", key: keys.unavailable },
 		]);
 
-		await page.getByRole("link", { name: "ToAPIs", exact: true }).press("Enter");
+		await selectProvider(page, "ToAPIs");
 		await expect(page.getByText("Disconnected", { exact: true })).toBeVisible();
 		expect(await submit(page, "Connect", keys.restricted)).toBe(200);
 		await expect(page.getByText("Seedream 5.5 access unavailable.")).toBeVisible();
@@ -150,7 +156,7 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 		server = await startStudio(directory, origin.port, false, fixtures.env);
 		await page.reload();
 		await expect(acceptance).toHaveAttribute("datetime", String(toapisAccepted));
-		await page.getByRole("link", { name: "Poyo.ai", exact: true }).press("Enter");
+		await selectProvider(page, "Poyo.ai");
 		await expect(acceptance).toHaveAttribute("datetime", String(poyoAccepted));
 		expect(fixtures.requests.slice(3)).toEqual([
 			{ path: "/toapis/models", method: "GET", key: keys.restricted },
@@ -177,12 +183,13 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 		await page.reload();
 		await expect(page.getByText("Reconnect required")).toBeVisible();
 		await expect(acceptance).toHaveCount(0);
-		await page.getByRole("link", { name: "ToAPIs", exact: true }).press("Enter");
+		await selectProvider(page, "ToAPIs");
 		await expect(page.getByText("Reconnect required")).toBeVisible();
 		expect(await submit(page, "Remove key")).toBe(200);
+		await expect(page.getByRole("status")).toHaveText("Key removed.");
 		await expect(page.getByRole("status")).toBeFocused();
 		await expect(page.getByText("Disconnected", { exact: true })).toBeVisible();
-		await page.getByRole("link", { name: "Poyo.ai", exact: true }).press("Enter");
+		await selectProvider(page, "Poyo.ai");
 		await expect(page.getByText("Reconnect required")).toBeVisible();
 		expect(fixtures.requests).toHaveLength(5);
 		expect(await submit(page, "Connect", keys.poyo)).toBe(200);
@@ -235,7 +242,7 @@ test("removing a connection while the built server checks a replacement leaves i
 		assertRedacted(await result.text());
 		await page.goto(`${settingsUrl(server)}?provider=poyo`);
 		await expect(page.getByText("Disconnected", { exact: true })).toBeVisible();
-		await page.getByRole("link", { name: "ToAPIs", exact: true }).press("Enter");
+		await selectProvider(page, "ToAPIs");
 		await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 		expect(fixtures.requests).toEqual([
 			{ path: "/poyo/balance", method: "GET", key: keys.poyo },
