@@ -16,8 +16,13 @@ onMount(() => {
 </script>
 
 <svelte:head><link rel="icon" href={icon}></svelte:head>
-{#if data.username && (page.url.pathname === "/" || page.url.pathname.startsWith("/settings/"))}
-	<StudioShell pathname={page.url.pathname}>{@render children()}</StudioShell>
+{#if data.username &&
+	(page.url.pathname === "/" ||
+		page.url.pathname === "/image" ||
+		page.url.pathname.startsWith("/settings/"))}
+	<StudioShell pathname={page.url.pathname} signOutGeneration={data.signOutGeneration}>
+		{@render children()}
+	</StudioShell>
 {:else}
 	{@render children()}
 {/if}

@@ -1,13 +1,29 @@
 <script lang="ts">
 import { Dialog } from "@ark-ui/svelte/dialog";
-import { onMount, type Snippet } from "svelte";
+import { onMount, type Snippet, tick } from "svelte";
 import icon from "#lib/assets/siluet-icon.svg";
+import {
+	type ImageDraftMemory,
+	setImageDraftContext,
+} from "#lib/components/image-studio/draft-context.ts";
+import { watchSignOut } from "#lib/shared/owner/session-notice.ts";
 
-let { pathname, children }: { pathname: string; children: Snippet } = $props();
+let {
+	pathname,
+	signOutGeneration,
+	children,
+}: { pathname: string; signOutGeneration: string | null; children: Snippet } = $props();
 let menuOpen = $state(false);
+let menuReady = $state(false);
+let signedOut = $state(false);
 const settings = $derived(pathname.startsWith("/settings"));
+const image = $derived(pathname === "/image");
+const destination = $derived(settings ? "Providers" : image ? "Image Studio" : "Studio home");
+const imageDraftMemory = $state<ImageDraftMemory>({});
+setImageDraftContext(imageDraftMemory);
 
 onMount(() => {
+	menuReady = true;
 	const mobile = matchMedia("(max-width: 760px)");
 	const closeOnDesktop = () => {
 		if (!mobile.matches) menuOpen = false;
@@ -15,6 +31,16 @@ onMount(() => {
 	mobile.addEventListener("change", closeOnDesktop);
 	return () => mobile.removeEventListener("change", closeOnDesktop);
 });
+
+onMount(() =>
+	watchSignOut(signOutGeneration, async () => {
+		if (signedOut) return;
+		signedOut = true;
+		imageDraftMemory.draft = undefined;
+		await tick();
+		location.replace("/sign-in");
+	}),
+);
 </script>
 
 {#snippet navigation()}
@@ -31,6 +57,14 @@ onMount(() => {
 				<rect x="14" y="14" width="7" height="7" rx="1" />
 			</svg>
 			Studio home
+		</a>
+		<a href="/image" aria-current={image ? "page" : undefined} onclick={() => (menuOpen = false)}>
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<rect x="3" y="4" width="18" height="16" rx="2" />
+				<circle cx="8.5" cy="9" r="1.5" />
+				<path d="m4 17 5-4 3 2 4-4 5 5" />
+			</svg>
+			Image Studio
 		</a>
 		<a
 			href="/settings/providers"
@@ -56,7 +90,7 @@ onMount(() => {
 			<div class="frame location">
 				<div class="mobile-menu">
 					<Dialog.Root bind:open={menuOpen} lazyMount unmountOnExit>
-						<Dialog.Trigger class="studio-menu-button" aria-label="Menu">
+						<Dialog.Trigger class="studio-menu-button" aria-label="Menu" disabled={!menuReady}>
 							<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
 						</Dialog.Trigger>
 						<Dialog.Backdrop class="studio-scrim" />
@@ -86,10 +120,14 @@ onMount(() => {
 				</div>
 				<span class="location-parent">{settings ? "Settings" : "Workspace"}</span>
 				<span class="location-parent" aria-hidden="true">/</span>
-				<span class="location-current">{settings ? "Providers" : "Studio home"}</span>
+				<span class="location-current">{destination}</span>
 			</div>
 		</header>
-		<main id="workspace-main" tabindex="-1" class="frame content">{@render children()}</main>
+		<main id="workspace-main" tabindex="-1" class="frame content">
+			{#if !signedOut}
+				{@render children()}
+			{/if}
+		</main>
 	</div>
 </div>
 
