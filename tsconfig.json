@@ -1,5 +1,5 @@
 {
 	"extends": "$app/tsconfig",
 	"compilerOptions": { "strict": true, "types": ["$app/types", "bun"] },
-	"include": ["src", "tests", "scripts/pricing", "*.ts"]
+	"include": ["src", "tests", "scripts", "*.ts"]
 }
