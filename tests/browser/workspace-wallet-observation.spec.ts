@@ -6,6 +6,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { exportWorkspace } from "../../design/workspace/export";
 import { loadBundledPricing } from "../../scripts/pricing/local-feed";
+import { reloadTest } from "./file-reload";
 
 const workspace = new URL("../../design/workspace/", import.meta.url);
 const time = new Date("2026-11-21T12:00:00Z");
@@ -73,7 +74,7 @@ async function jobs(page: Page) {
 }
 
 for (const filename of ["index.html", "workspace.html"]) {
-	test(`${filename} shows one wallet interval for a completed batch`, async ({ page }) => {
+	reloadTest(`${filename} shows one wallet interval for a completed batch`, async ({ page }) => {
 		const requests: string[] = [];
 		await page.route(/^https?:/, (route) => {
 			requests.push(route.request().url());
@@ -157,7 +158,7 @@ test("an automatic retry keeps its original wallet window open", async ({ page }
 	expect(end - start).toBeGreaterThanOrEqual(3000);
 });
 
-test("an approved manual retry keeps its own wallet readings after reload", async ({ page }) => {
+reloadTest("manual retry wallet readings survive reload", async ({ page }) => {
 	await openStudio(page);
 	await page.getByRole("tab", { name: "Batch" }).click();
 	await page.getByText("Simulation controls", { exact: true }).click();
