@@ -6,9 +6,10 @@ export class DirectoryPolicyError extends Error {}
 
 // Windows mode bits do not expose NTFS permissions. Read the ACL by SID so
 // localized account names and inherited grants are handled the same way.
-async function privateWindowsAcl(directory: string) {
+async function verifyWindowsAcl(directory: string) {
 	const systemRoot = process.env.SystemRoot;
-	if (!systemRoot || !isAbsolute(systemRoot)) return false;
+	if (!systemRoot || !isAbsolute(systemRoot))
+		throw new DirectoryPolicyError("Cannot locate Windows to verify data directory permissions.");
 	const script = `
 		$ErrorActionPreference = 'Stop'
 		$sidType = [System.Security.Principal.SecurityIdentifier]
@@ -17,11 +18,11 @@ async function privateWindowsAcl(directory: string) {
 		$paths = @($env:SILUET_ACL_PATH) + @(Get-ChildItem -Force -LiteralPath $env:SILUET_ACL_PATH | ForEach-Object { $_.FullName })
 		foreach ($path in $paths) {
 			$acl = Get-Acl -LiteralPath $path
-			if ($acl.GetOwner($sidType).Value -notin $trusted) { exit 1 }
+			if ($acl.GetOwner($sidType).Value -notin $trusted) { exit 10 }
 			$rules = $acl.GetAccessRules($true, $true, $sidType)
-			if (!$rules.Count) { exit 1 }
+			if (!$rules.Count) { exit 11 }
 			foreach ($rule in $rules) {
-				if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin $trusted) { exit 1 }
+				if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin $trusted) { exit 12 }
 			}
 		}
 		exit 0
@@ -31,8 +32,8 @@ async function privateWindowsAcl(directory: string) {
 			join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
 			"-NoProfile",
 			"-NonInteractive",
-			"-Command",
-			script,
+			"-EncodedCommand",
+			Buffer.from(script, "utf16le").toString("base64"),
 		],
 		{
 			env: { ...process.env, SILUET_ACL_PATH: directory },
@@ -41,7 +42,22 @@ async function privateWindowsAcl(directory: string) {
 			stderr: "ignore",
 		},
 	);
-	return (await child.exited) === 0;
+	switch (await child.exited) {
+		case 0:
+			return;
+		case 10:
+			throw new DirectoryPolicyError("The data directory must be private. Check ownership.");
+		case 11:
+			throw new DirectoryPolicyError(
+				"The data directory must be private. No access rules were found.",
+			);
+		case 12:
+			throw new DirectoryPolicyError(
+				"The data directory must be private. Check grants to other accounts.",
+			);
+		default:
+			throw new DirectoryPolicyError("Windows could not read the data directory permissions.");
+	}
 }
 
 function requireOutsideCheckout(checkout: string, directory: string) {
@@ -73,9 +89,9 @@ export async function preparePrivateDirectory(directory: string) {
 	const info = await lstat(directory);
 	if (!info.isDirectory()) throw new DirectoryPolicyError("Expected a private directory.");
 	requireOutsideCheckout(realCheckout, await realpath(directory));
-	const privateAccess =
-		process.platform === "win32"
-			? await privateWindowsAcl(directory)
-			: info.uid === process.getuid?.() && (info.mode & 0o077) === 0;
-	if (!privateAccess) throw new DirectoryPolicyError("The data directory must be private.");
+	if (process.platform === "win32") {
+		await verifyWindowsAcl(directory);
+	} else if (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) {
+		throw new DirectoryPolicyError("The data directory must be private.");
+	}
 }
