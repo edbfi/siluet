@@ -390,6 +390,7 @@
 			media.addEventListener(
 				"error",
 				() => {
+					if (stage.firstChild !== media) return;
 					const message = document.createElement("p");
 					message.className = "studio-gallery-viewer-error";
 					message.textContent = "This file could not be previewed.";
