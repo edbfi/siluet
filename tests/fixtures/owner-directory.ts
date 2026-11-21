@@ -6,8 +6,7 @@ import { join } from "node:path";
 export async function createOwnerDirectory() {
 	const directory = await mkdtemp(join(tmpdir(), "siluet-owner-"));
 	if (process.platform === "win32") {
-		// mkdtemp inherits the runner's temp ACL. Give this empty fixture and its
-		// children the permissions expected of a private owner installation.
+		// Make this fixture private regardless of permissions inherited from the temp directory.
 		try {
 			execFileSync(
 				"powershell.exe",

@@ -15,9 +15,10 @@ async function verifyWindowsAcl(directory: string) {
 		$sidType = [System.Security.Principal.SecurityIdentifier]
 		$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 		$trusted = @($user, 'S-1-5-18', 'S-1-5-32-544')
-		$paths = @($env:SILUET_ACL_PATH) + @(Get-ChildItem -Force -LiteralPath $env:SILUET_ACL_PATH | ForEach-Object { $_.FullName })
-		foreach ($path in $paths) {
-			$acl = Get-Acl -LiteralPath $path
+		$root = [System.IO.DirectoryInfo]::new($env:SILUET_ACL_PATH)
+		try { $entries = @($root) + $root.GetFileSystemInfos() } catch { exit 20 }
+		foreach ($entry in $entries) {
+			try { $acl = $entry.GetAccessControl() } catch { exit 21 }
 			if ($acl.GetOwner($sidType).Value -notin $trusted) { exit 10 }
 			$rules = $acl.GetAccessRules($true, $true, $sidType)
 			if (!$rules.Count) { exit 11 }
@@ -54,6 +55,12 @@ async function verifyWindowsAcl(directory: string) {
 		case 12:
 			throw new DirectoryPolicyError(
 				"The data directory must be private. Check grants to other accounts.",
+			);
+		case 20:
+			throw new DirectoryPolicyError("Windows could not enumerate the private data directory.");
+		case 21:
+			throw new DirectoryPolicyError(
+				"Windows could not read a data directory access control list.",
 			);
 		default:
 			throw new DirectoryPolicyError("Windows could not read the data directory permissions.");

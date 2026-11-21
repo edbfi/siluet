@@ -74,6 +74,18 @@ test("a private directory inside the studio checkout is rejected before credenti
 });
 
 test.skipIf(process.platform !== "win32")(
+	"a new installation inherits its private parent ACL",
+	async () => {
+		const installation = await openInstallation(join(directory, "siluet"));
+		try {
+			expect(await installation.hasOwner()).toBe(false);
+		} finally {
+			await installation.close();
+		}
+	},
+);
+
+test.skipIf(process.platform !== "win32")(
 	"an NTFS grant to other local users prevents initialization",
 	async () => {
 		// Give the well-known Users group read access on this empty fixture only.
@@ -82,7 +94,7 @@ test.skipIf(process.platform !== "win32")(
 			stderr: "ignore",
 		});
 		expect(await grant.exited).toBe(0);
-		await expect(openInstallation(directory)).rejects.toThrow("must be private");
+		await expect(openInstallation(directory)).rejects.toThrow("Check grants to other accounts");
 		expect(await Bun.file(join(directory, "installation.id")).exists()).toBe(false);
 	},
 );
