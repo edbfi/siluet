@@ -448,7 +448,7 @@
 		const reason = jobReason(job);
 		const attempts = jobs
 			.filter((other) => other.id !== job.id && rootId(job) === rootId(other))
-			.sort((a, b) => a.attempt - b.attempt);
+			.sort((a, b) => (a.attempt ?? 1) - (b.attempt ?? 1));
 		const batchName = batchLabel(job, batch);
 		const siblings = batch.filter((other) => other.id !== rootId(job));
 		const child = attempts.find(({ parentId }) => parentId === job.id);

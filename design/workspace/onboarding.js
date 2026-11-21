@@ -58,8 +58,8 @@
 								({ id, name, mark }) => `
 							<label class="studio-setup__choice">
 								<span class="studio-setup__mark" aria-hidden="true">${mark}</span>
-								<span><strong>${name}</strong><small>${initial.keys[id] ? "Demo key connected" : "Demo connection available"}</small></span>
-								<input type="checkbox" data-provider="${id}" ${picked.has(id) ? "checked" : ""}>
+								<span><strong>${name}</strong><small>${initial.keys[id] ? "Connected · manage in Settings" : "Demo connection available"}</small></span>
+								<input type="checkbox" data-provider="${id}" ${picked.has(id) ? "checked" : ""} ${initial.keys[id] ? "disabled" : ""}>
 							</label>`,
 							)
 							.join("")}
