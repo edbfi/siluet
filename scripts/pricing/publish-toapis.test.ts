@@ -110,6 +110,10 @@ test("publishes one ToAPIs feed and preserves the last good observation on inval
 
 		const newer = { ...observation, observedAt: observed(2) };
 		for (const [bad, reason] of [
+			[
+				{ ...newer, receiptDelaySeconds: { conversion: daySeconds + 1, image: 0, video: 0 } },
+				/rollback/i,
+			],
 			[{ ...newer, conversionCacheAgeSeconds: daySeconds + 1 }, /rollback/i],
 			[
 				{
@@ -161,6 +165,10 @@ test("publishes one ToAPIs feed and preserves the last good observation on inval
 test("the TypeScript decoder and jq agree on ToAPIs observation and paired-rate validation", () => {
 	const [first, second, ...other] = observation.rates;
 	const rejected = [
+		{ ...observation, receiptDelaySeconds: { conversion: 0, image: 1, video: 0 } },
+		{ ...observation, receiptDelaySeconds: { conversion: 4, image: 2, video: -1 } },
+		{ ...observation, receiptDelaySeconds: { conversion: 4, image: 2.5, video: 1 } },
+		{ ...observation, receiptDelaySeconds: null },
 		{ ...observation, observedAt: observation.observedAt.replace("Z", ".125Z") },
 		{ ...observation, observedAt: observation.observedAt.replace("Z", "+00:00") },
 		{
@@ -186,6 +194,7 @@ test("the TypeScript decoder and jq agree on ToAPIs observation and paired-rate 
 	const filter = resolve(import.meta.dir, "providers/toapis/publish.jq");
 	for (const [feed, valid] of [
 		[observation, true],
+		[{ ...observation, receiptDelaySeconds: { conversion: 4, image: 2, video: 0 } }, true],
 		...rejected.map((candidate) => [candidate, false] as const),
 	] as const) {
 		const output = Bun.spawnSync(["jq", "-RsceS", "-L", import.meta.dir, "-f", filter], {

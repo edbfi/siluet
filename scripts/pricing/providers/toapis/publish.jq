@@ -34,7 +34,15 @@ def valid_amounts:
 
 def valid_feed($observed):
   $observed >= 0
-  and (.conversionCacheAgeSeconds | cache_age($observed))
+  and (if has("receiptDelaySeconds") then
+    .receiptDelaySeconds | type == "object" and keys == ["conversion", "image", "video"]
+      and all(.[]; type == "number" and floor == . and . >= 0 and . <= $observed)
+      and .conversion >= .image and .image >= .video
+  else true end)
+  and ((.receiptDelaySeconds.conversion // 0) as $delay | .conversionCacheAgeSeconds | cache_age($observed - $delay))
+  and (.receiptDelaySeconds as $delays | all(.rates[];
+    (if .unit == "image" then $delays.image else $delays.video end // 0) as $delay
+    | .source.cacheAgeSeconds | cache_age($observed - $delay)))
   and (.rates | type == "array"
     and map(del(.usd, .approximateCredits, .source.cacheAgeSeconds))
       == [image_rate("1K"), image_rate("1.5K"), image_rate("2K"), video_rate(false), video_rate(true)]
@@ -44,7 +52,7 @@ def valid_feed($observed):
 
 read_feed
 | if type == "object"
-  and keys == ["conversionCacheAgeSeconds", "conversionSourceUrl", "creditsPerUsd", "gaps",
+  and (del(.receiptDelaySeconds) | keys) == ["conversionCacheAgeSeconds", "conversionSourceUrl", "creditsPerUsd", "gaps",
     "observedAt", "provider", "rates", "version"]
   and .version == 1 and .provider == "toapis" and (.observedAt | timestamp)
   and .creditsPerUsd == "200" and .conversionSourceUrl == "https://toapis.com/pricing"

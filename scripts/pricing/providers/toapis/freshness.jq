@@ -2,7 +2,10 @@
 
 def effective_observations:
   (.observedAt | fromdateiso8601) as $observed
-  | [(.conversionCacheAgeSeconds // 0), (.rates[] | .source.cacheAgeSeconds // 0)]
+  | .receiptDelaySeconds as $delays
+  | [((.conversionCacheAgeSeconds // 0) + ($delays.conversion // 0)),
+     (.rates[] | (.source.cacheAgeSeconds // 0) +
+       ((if .unit == "image" then $delays.image else $delays.video end) // 0))]
   | map($observed - .);
 
 ($candidate | effective_observations) as $current

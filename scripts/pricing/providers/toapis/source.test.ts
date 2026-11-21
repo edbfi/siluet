@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { toapisEffectiveObservations } from "../../../../src/lib/shared/pricing/toapis-feed";
 import { collectToapisPricing } from "./source.ts";
 
 const pricingUrl = "https://toapis.com/pricing";
@@ -207,22 +208,28 @@ test("rejects a snapshot with an impossible page cache age", async () => {
 	).rejects.toThrow();
 });
 
-test("sequential GETs preserve each source receipt time", async () => {
-	const pages = new Map([
-		[pricingUrl, pricing],
-		[imageUrl, images],
-		[videoUrl, videos],
-	]);
-	let ms = observed.getTime();
-	const feed = await collectToapisPricing(
-		async (url) => {
-			ms += 2000;
-			return html(pages.get(url) ?? "", { Age: "1" });
-		},
-		() => new Date(ms),
-	);
-	expect([
-		feed.conversionCacheAgeSeconds,
-		...feed.rates.map((row) => row.source.cacheAgeSeconds),
-	]).toEqual([5, 3, 3, 3, 1, 1]);
-});
+test.each([1, null])(
+	"sequential GETs preserve reported Age %s and each receipt time",
+	async (age) => {
+		const pages = new Map([
+			[pricingUrl, pricing],
+			[imageUrl, images],
+			[videoUrl, videos],
+		]);
+		let ms = observed.getTime();
+		const feed = await collectToapisPricing(
+			async (url) => {
+				ms += 2000;
+				return html(pages.get(url) ?? "", age === null ? {} : { Age: String(age) });
+			},
+			() => new Date(ms),
+		);
+		expect(feed.conversionCacheAgeSeconds).toBe(age);
+		for (const rate of feed.rates) expect(rate.source.cacheAgeSeconds).toBe(age);
+		expect(feed.receiptDelaySeconds).toEqual({ conversion: 4, image: 2, video: 0 });
+		const stamp = Date.parse(feed.observedAt);
+		expect(toapisEffectiveObservations(feed).map((time) => (stamp - time) / 1000)).toEqual(
+			[4, 2, 2, 2, 0, 0].map((delay) => delay + (age ?? 0)),
+		);
+	},
+);

@@ -67,10 +67,10 @@ async function readPage(
 	}
 }
 
-function adjustedAge(page: ReceivedPage, observedMs: number) {
+function receiptDelay(page: ReceivedPage, observedMs: number) {
 	const elapsed = Math.floor(observedMs / 1000) - Math.floor(page.receivedMs / 1000);
 	if (elapsed < 0) throw new Error("Clock moved back while collecting ToAPIs prices.");
-	return elapsed === 0 ? page.cacheAgeSeconds : (page.cacheAgeSeconds ?? 0) + elapsed;
+	return elapsed;
 }
 
 export async function collectToapisPricing(
@@ -91,14 +91,13 @@ export async function collectToapisPricing(
 		observedAt: observed.toISOString().replace(/\.\d{3}Z$/, "Z"),
 		creditsPerUsd,
 		conversionSourceUrl,
-		conversionCacheAgeSeconds: adjustedAge(conversion, observed.getTime()),
-		rates: [...imageRates, ...videoRates].map((rate) => ({
-			...rate,
-			source: {
-				...rate.source,
-				cacheAgeSeconds: adjustedAge(rate.unit === "image" ? image : video, observed.getTime()),
-			},
-		})),
+		conversionCacheAgeSeconds: conversion.cacheAgeSeconds,
+		receiptDelaySeconds: {
+			conversion: receiptDelay(conversion, observed.getTime()),
+			image: receiptDelay(image, observed.getTime()),
+			video: receiptDelay(video, observed.getTime()),
+		},
+		rates: [...imageRates, ...videoRates],
 		gaps: [
 			{ model: "doubao-seedream-5-5", reason: "unpriced-image-options" },
 			{ model: "seedance-2-5", reason: "token-usage-unknown" },
