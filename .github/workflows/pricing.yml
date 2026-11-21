@@ -1,0 +1,140 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+name: Public pricing feed
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pricing.yml'
+      - 'pricing/v1/**'
+      - 'scripts/pricing/**'
+      - 'src/lib/shared/pricing/**'
+  schedule:
+    - cron: '27 5 * * *'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: pricing-${{ github.ref }}
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  collect-poyo:
+    name: Collect PoYo pricing
+    if: &collect_default_or_pr >-
+      github.event_name == 'pull_request' ||
+      ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      github.repository == 'edbfi/siluet' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: { contents: read }
+    outputs:
+      feed: ${{ steps.upstream.outputs.feed }}
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - &setup_bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with: { bun-version-file: package.json }
+      - name: Test the PoYo pricing contract offline
+        run: bun test ./scripts/pricing/providers/poyo ./scripts/pricing/publish.test.ts
+      - name: Collect the PoYo catalog revision
+        id: upstream
+        if: github.event_name != 'pull_request'
+        env: { PRICING_COLLECTOR: scripts/pricing/collect.ts }
+        run: &collect_feed |
+          feed=$(bun "$PRICING_COLLECTOR" | jq -ces '
+            if length == 1 and (.[0] | type == "object") then .[0]
+            else error("Expected one pricing feed object") end
+          ')
+          printf 'feed=%s\n' "$feed" >> "$GITHUB_OUTPUT"
+
+  collect-toapis:
+    name: Collect ToAPIs pricing
+    if: *collect_default_or_pr
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: { contents: read }
+    outputs:
+      feed: ${{ steps.upstream.outputs.feed }}
+    steps:
+      - *checkout
+      - *setup_bun
+      - name: Test the ToAPIs pricing contract offline
+        run: bun test ./scripts/pricing/providers/toapis ./scripts/pricing/publish-toapis.test.ts
+      - name: Observe the advertised ToAPIs rates
+        id: upstream
+        if: github.event_name != 'pull_request'
+        env: { PRICING_COLLECTOR: scripts/pricing/providers/toapis/source.ts }
+        run: *collect_feed
+
+  # Keep credentials in an action-free job that reads only trusted scripts and feed data.
+  publish-poyo:
+    name: Publish PoYo pricing
+    if: &trusted_default >-
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      github.repository == 'edbfi/siluet' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: collect-poyo
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: { contents: write } # Advance the PoYo data branch.
+    env: { PRICING_PROVIDER: poyo }
+    steps:
+      - &load_publisher
+        name: Load the publisher from the current default branch
+        id: publisher
+        run: |
+          git init --bare "$RUNNER_TEMP/pricing-publisher"
+          cd "$RUNNER_TEMP/pricing-publisher"
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_REF"
+          if [[ $(git rev-parse FETCH_HEAD) != "$GITHUB_SHA" ]]; then
+            echo "The default branch has advanced. A current run can publish pricing."
+            exit 0
+          fi
+          script_dir="$RUNNER_TEMP/pricing-scripts"
+          paths=(publish.sh publish-validation.jq "providers/$PRICING_PROVIDER/publish.jq")
+          if [[ "$PRICING_PROVIDER" == toapis ]]; then
+            paths+=(providers/toapis/freshness.jq)
+          fi
+          for path in "${paths[@]}"; do
+            mkdir -p -- "$(dirname -- "$script_dir/$path")"
+            git show "$GITHUB_SHA:scripts/pricing/$path" > "$script_dir/$path"
+          done
+          if [[ $PRICING_PROVIDER == poyo ]]; then
+            git show "$GITHUB_SHA:pricing/v1/LICENSE.poyo" > "$script_dir/LICENSE.poyo"
+          fi
+          printf 'ready=true\n' >> "$GITHUB_OUTPUT"
+      - name: Publish the validated feed
+        if: steps.publisher.outputs.ready == 'true'
+        env:
+          PRICING_FEED: ${{ needs.collect-poyo.outputs.feed }}
+          PRICING_PUSH_TOKEN: ${{ github.token }}
+        run: &publish_feed |
+          cd "$RUNNER_TEMP/pricing-publisher"
+          script_dir="$RUNNER_TEMP/pricing-scripts"
+          args=("$PRICING_PROVIDER")
+          if [[ $PRICING_PROVIDER == poyo ]]; then
+            args+=("$script_dir/LICENSE.poyo")
+          fi
+          bash -- "$script_dir/publish.sh" "${args[@]}" <<<"$PRICING_FEED"
+
+  publish-toapis:
+    name: Publish ToAPIs pricing
+    if: *trusted_default
+    needs: collect-toapis
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: { contents: write } # Advance the ToAPIs data branch.
+    env: { PRICING_PROVIDER: toapis }
+    steps:
+      - *load_publisher
+      - name: Publish the validated feed
+        if: steps.publisher.outputs.ready == 'true'
+        env:
+          PRICING_FEED: ${{ needs.collect-toapis.outputs.feed }}
+          PRICING_PUSH_TOKEN: ${{ github.token }}
+        run: *publish_feed
