@@ -164,13 +164,18 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 		]);
 
 		await page.setViewportSize({ width: 320, height: 720 });
-		await page.getByRole("button", { name: "Menu", exact: true }).press("Enter");
+		const menu = page.getByRole("button", { name: "Menu", exact: true });
 		const drawer = page.getByRole("dialog");
-		await expect(drawer).toBeVisible();
+		const closeMenu = drawer.getByRole("button", { name: "Close menu", exact: true });
+		await expect(menu).toBeEnabled();
+		await menu.press("Enter");
+		// Ark UI moves initial focus into the drawer after it becomes visible.
+		await expect(closeMenu).toBeFocused();
 		await drawer.getByRole("link", { name: "Studio home" }).press("Enter");
 		await expect(page.getByRole("heading", { name: "Studio home" })).toBeVisible();
 		await expect(drawer).toHaveCount(0);
-		await page.getByRole("button", { name: "Menu", exact: true }).press("Enter");
+		await menu.press("Enter");
+		await expect(closeMenu).toBeFocused();
 		await drawer.getByRole("link", { name: "Settings", exact: true }).press("Enter");
 		await expect(page.getByRole("heading", { name: "Provider connections" })).toBeVisible();
 		await expect(acceptance).toHaveAttribute("datetime", String(poyoAccepted));
