@@ -32,6 +32,21 @@ let portableEntry: URL;
 
 test.use({ offline: true });
 
+const testWithPersistentProfile = test.extend({
+	context: async ({ browserName, headless, offline, playwright }, use) => {
+		// Exercise direct-file reloads with a fresh, disk-backed profile.
+		const context = await playwright[browserName].launchPersistentContext("", {
+			headless,
+			offline,
+		});
+		try {
+			await use(context);
+		} finally {
+			await context.close();
+		}
+	},
+});
+
 test.beforeAll(async () => {
 	previewDirectory = await mkdtemp(join(tmpdir(), "siluet-pricing-"));
 	const sourceDirectory = pathToFileURL(`${previewDirectory}/source/`);
@@ -152,32 +167,33 @@ test("an expired Image Studio quote returns to Review before Queue can create a 
 	await expect(page.getByRole("region", { name: "Billing" })).toContainText("Estimate unavailable");
 });
 
-test("Jobs keeps the reviewed estimate through an automatic retry, expiry, and reload", async ({
-	page,
-}) => {
-	await page.goto(`${sourceEntry.href}#image`);
-	await page.getByLabel("Prompt", { exact: true }).fill("Tide over black basalt");
-	await page.getByRole("tab", { name: "Batch" }).click();
-	await page.getByText("Simulation controls", { exact: true }).click();
-	await page.getByLabel("Simulated outcome").selectOption("transient");
-	await page.getByRole("button", { name: "Queue 1 request" }).click();
-	await page.clock.setSystemTime(expiredAt);
-	await page.clock.runFor(2500);
+testWithPersistentProfile(
+	"Jobs keeps the reviewed estimate through an automatic retry, expiry, and reload",
+	async ({ page }) => {
+		await page.goto(`${sourceEntry.href}#image`);
+		await page.getByLabel("Prompt", { exact: true }).fill("Tide over black basalt");
+		await page.getByRole("tab", { name: "Batch" }).click();
+		await page.getByText("Simulation controls", { exact: true }).click();
+		await page.getByLabel("Simulated outcome").selectOption("transient");
+		await page.getByRole("button", { name: "Queue 1 request" }).click();
+		await page.clock.setSystemTime(expiredAt);
+		await page.clock.runFor(2500);
 
-	await page.getByRole("link", { name: "Jobs", exact: true }).click();
-	const billing = page.getByRole("region", { name: "Billing" });
-	await expect(billing).toContainText("2 Poyo.ai credits estimated");
-	await expect(billing).toContainText("2026-11-19");
-	await expect(billing.getByText("Settled charge", { exact: true })).toBeVisible();
-	await expect(billing.getByText("Unknown", { exact: true })).toBeVisible();
-	await page.getByRole("button", { name: "Attempt 1", exact: true }).click();
-	await page.reload();
-	await expect(billing).toContainText("2 Poyo.ai credits estimated");
-	await page.getByRole("link", { name: "Image Studio", exact: true }).click();
-	await page.getByRole("tab", { name: "Review", exact: true }).click();
-	await expect(reviewPrice(page)).toContainText("Estimate unavailable");
-	await expect(reviewPrice(page)).toContainText("published rates have expired");
-});
+		await page.getByRole("link", { name: "Jobs", exact: true }).click();
+		const billing = page.getByRole("region", { name: "Billing" });
+		await expect(billing).toContainText("2 Poyo.ai credits estimated");
+		await expect(billing).toContainText("2026-11-19");
+		await expect(billing.getByText("Settled charge", { exact: true })).toBeVisible();
+		await expect(billing.getByText("Unknown", { exact: true })).toBeVisible();
+		await page.getByRole("button", { name: "Attempt 1", exact: true }).click();
+		await page.reload();
+		await expect(billing).toContainText("2 Poyo.ai credits estimated");
+		await page.getByRole("link", { name: "Image Studio", exact: true }).click();
+		await page.getByRole("tab", { name: "Review", exact: true }).click();
+		await expect(reviewPrice(page)).toContainText("Estimate unavailable");
+		await expect(reviewPrice(page)).toContainText("published rates have expired");
+	},
+);
 
 test("an explicit retry reviews and records a fresh estimate for its one attempt", async ({
 	page,
@@ -246,34 +262,38 @@ for (const filename of ["index.html", "workspace.html"]) {
 	});
 }
 
-test("Jobs retains an advertised ToAPIs estimate and source across automatic retries and reload", async ({
-	page,
-}) => {
-	await page.goto(`${sourceEntry.href}#image`);
-	await page.getByLabel("Model", { exact: true }).selectOption("seedream-5.5");
-	await page.getByRole("radio", { name: "ToAPIs", exact: true }).check();
-	await page.getByLabel("Prompt", { exact: true }).fill("Tide over black basalt");
-	await page.getByRole("tab", { name: "Batch" }).click();
-	await page.getByText("Simulation controls", { exact: true }).click();
-	await page.getByLabel("Simulated outcome").selectOption("transient");
-	await page.getByRole("button", { name: "Queue 1 request" }).click();
-	await page.clock.setSystemTime(expiredAt);
-	await page.clock.runFor(6500);
+testWithPersistentProfile(
+	"Jobs retains an advertised ToAPIs estimate and source across automatic retries and reload",
+	async ({ page }) => {
+		await page.goto(`${sourceEntry.href}#image`);
+		const title = "Tide over black basalt";
+		await page.getByLabel("Model", { exact: true }).selectOption("seedream-5.5");
+		await page.getByRole("radio", { name: "ToAPIs", exact: true }).check();
+		await page.getByLabel("Prompt", { exact: true }).fill(title);
+		await page.getByRole("tab", { name: "Batch" }).click();
+		await page.getByText("Simulation controls", { exact: true }).click();
+		await page.getByLabel("Simulated outcome").selectOption("transient");
+		await page.getByRole("button", { name: "Queue 1 request" }).click();
+		await page.clock.setSystemTime(expiredAt);
+		await page.clock.runFor(11000);
 
-	await page.getByRole("link", { name: "Jobs", exact: true }).click();
-	const billing = page.getByRole("region", { name: "Billing" });
-	await expect(billing).toContainText("≈5.6 ToAPIs credits");
-	await expect(billing).toContainText("Public rates observed 2026-11-20");
-	await expect(billing).toContainText("Settled charge");
-	await page.getByRole("button", { name: "Attempt 1", exact: true }).click();
-	await page.reload();
-	await page
-		.getByRole("list", { name: "Job attempts" })
-		.getByRole("button", { name: /Tide over black basalt/ })
-		.first()
-		.click();
-	await expect(billing).toContainText("≈5.6 ToAPIs credits");
-});
+		await page.getByRole("link", { name: "Jobs", exact: true }).click();
+		const attempts = page
+			.getByRole("list", { name: "Job attempts" })
+			.getByRole("button", { name: new RegExp(title) });
+		await expect(attempts).toHaveCount(4);
+		await page.getByRole("button", { name: "Attempt 1", exact: true }).click();
+		const billing = page.getByRole("region", { name: "Billing" });
+		await expect(billing).toContainText("≈5.6 ToAPIs credits");
+		await expect(billing).toContainText("Public rates observed 2026-11-20");
+		await expect(billing).toContainText("Settled charge");
+		await page.reload();
+		await expect(attempts).toHaveCount(4);
+		await expect(page.getByRole("button", { name: "Attempt 1", exact: true })).toBeVisible();
+		await expect(billing).toContainText("≈5.6 ToAPIs credits");
+		await expect(billing).toContainText("Public rates observed 2026-11-20");
+	},
+);
 
 test("Video Studio shows the applicable Seedance token rate with an unknown request total", async ({
 	page,
