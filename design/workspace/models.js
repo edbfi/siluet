@@ -31,7 +31,7 @@
 		maxBytes: 29_999_999,
 		maxSize: "30 MB",
 	};
-	// PoYo specifies the image count. File types, URL schemes and size are inferred from Alibaba.
+	// Poyo.ai specifies the image count. File types, URL schemes and size are inferred from Alibaba.
 	// https://www.alibabacloud.com/help/en/model-studio/qwen-image-generation-and-editing-api-reference
 	const qwenReferences = {
 		kind: "image",
@@ -352,7 +352,7 @@
 				modelKey: "seedance-2.5",
 				evidence: "https://docs.poyo.ai/api-manual/video-series/seedance-2.5",
 				schemaWarning:
-					"PoYo’s published Seedance schema excludes enable_safety_checker. The provider may reject this request.",
+					"Poyo.ai’s published Seedance schema excludes enable_safety_checker. The provider may reject this request.",
 				resolutions: seedanceResolutions,
 				resolutionDefault: "720p",
 				duration: seedanceDuration,

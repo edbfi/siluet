@@ -18,8 +18,10 @@ Approved by the owner on 2026-11-21. Siluet aims to support the image and video 
 
 Track coverage by provider, model and operation so that one supported model cannot be mistaken for support for a provider's entire catalog. Official provider sources establish capabilities. Record gaps and unknowns explicitly. This is the coverage target for future modules.
 
-Media submissions carry the creator’s preference to turn off optional NSFW filtering. PoYo receives `input.enable_safety_checker: false`. On ToAPIs, `disable_nsfw: false` permits fallback where the account and region qualify. Show known schema conflicts before queuing and preserve any rejection without silently removing a field and resubmitting.
-
 ## D3 · Local persistence with embedded Turso and Drizzle
 
 Approved by the owner on 2026-11-21. The first approved feature that needs persistence will use embedded Turso through Drizzle ORM. An embedded database keeps setup local to the creator’s machine and requires no separate database service. Drizzle gives the TypeScript application typed queries. Each module’s spec will define the data it needs to retain.
+
+## D4 · Optional filtering on media requests
+
+Siluet uses a fixed default for image and video generation and edits so switching models keeps the single creator’s chosen filtering policy. The composer sends `input.enable_safety_checker: false` to Poyo.ai and `disable_nsfw: false` to ToAPIs. On eligible ToAPIs accounts and regions the latter permits fallback. Show known schema conflicts before queuing. Preserve a rejection because dropping a field and resubmitting could change the result and incur a second charge.

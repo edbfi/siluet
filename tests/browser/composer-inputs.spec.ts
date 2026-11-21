@@ -2,7 +2,13 @@ import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 
 async function openComposer(page: Page, kind: "image" | "video", provider: string) {
-	await page.setContent("<main></main>");
+	const base = process.env.SILUET_TEST_URL;
+	if (!base) throw new Error("The built server did not report its loopback URL.");
+	const entry = new URL("/composer-test", base).href;
+	await page.route(entry, (route) =>
+		route.fulfill({ contentType: "text/html", body: "<main></main>" }),
+	);
+	await page.goto(entry);
 	for (const script of ["fixtures", "state", "models", "studios"]) {
 		await page.addScriptTag({
 			path: fileURLToPath(new URL(`../../design/workspace/${script}.js`, import.meta.url)),
@@ -39,7 +45,7 @@ test("Z-Image edits enforce the model's image formats and byte limit", async ({ 
 	await expect(page.getByText(/Choose a non-empty .* up to 10 MB/)).toBeVisible();
 });
 
-test("Seedance defaults to text generation and shows the PoYo schema conflict in Review", async ({
+test("Seedance defaults to text generation and shows the Poyo.ai schema conflict in Review", async ({
 	page,
 }) => {
 	await openComposer(page, "video", "toapis");
@@ -49,5 +55,25 @@ test("Seedance defaults to text generation and shows the PoYo schema conflict in
 		Reflect.get(window, "Studio").configure({ keys: { poyo: true, toapis: true } }),
 	);
 	await page.getByRole("radio", { name: "Poyo.ai", exact: true }).check();
-	await expect(page.getByText(/schema excludes enable_safety_checker/)).toBeVisible();
+	await expect(
+		page.getByText(/Poyo\.ai’s published Seedance schema excludes enable_safety_checker/),
+	).toBeVisible();
+});
+
+test("the outgoing edit request hides the private path and query of a source URL", async ({
+	page,
+}) => {
+	await openComposer(page, "image", "poyo");
+	await page.locator("#studio-model").selectOption("z-image");
+	await page.locator("#studio-operation").selectOption("edit");
+	await page.locator(".studio-source-url summary").click();
+	await page
+		.locator("[data-source-url]")
+		.fill("https://example.invalid/private-frame.png?token=fixture-secret");
+	await page.getByRole("button", { name: "Use URL", exact: true }).click();
+	await page.getByText("Outgoing request", { exact: true }).click();
+	const preview = page.locator("[data-studio-wire-inner]");
+	await expect(preview).toContainText("[remote URL hidden]");
+	await expect(preview).not.toContainText("private-frame.png");
+	await expect(preview).not.toContainText("fixture-secret");
 });
