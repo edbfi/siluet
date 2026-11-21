@@ -125,12 +125,6 @@ export async function readLocalPricing(
 	};
 }
 
-export async function loadBundledPricing(
-	provider: PricingProvider,
-): Promise<ProviderPricingFeed | undefined> {
-	return decodeProviderFeed(provider, await readLocalJson(pricingBundledPath(provider)));
-}
-
 export async function loadLocalPricing(
 	nowMs: number,
 	{

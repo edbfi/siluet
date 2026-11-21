@@ -42,7 +42,7 @@ bun run pricing:estimate --model seedream-5.5 --operation edit --resolution 2K -
 bun run pricing:estimate --provider toapis --model doubao-seedream-5-5 --size 2K
 ```
 
-Estimates use bundled public rates offline. Run `bun run pricing:refresh` to update PoYo rates from GitHub, or add `--provider toapis` for ToAPIs. Unsupported or expired rates return an unknown total. Use `pricing:estimate --help` for options.
+Estimates use bundled public rates offline. After the repository publishes its first feed for a provider, run `bun run pricing:refresh` for Poyo.ai or `bun run pricing:refresh --provider toapis` for ToAPIs. Until then, the refresh command reports that the feed is unavailable and estimates use local rates. Unsupported or expired rates return an unknown total. Use `pricing:estimate --help` for options.
 
 ## Development
 

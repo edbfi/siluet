@@ -3,7 +3,7 @@ import { hasKeys, parsePricingInstant, pricingMaxAgeMs } from "./feed";
 
 const imageModel = "doubao-seedream-5-5";
 const videoModel = "seedance-2-5";
-export const toapisConversionUrl = "https://toapis.com/pricing";
+const toapisConversionUrl = "https://toapis.com/pricing";
 const operations = ["generate", "edit"] as const;
 const sizes = ["1K", "1.5K", "2K"] as const;
 type Size = (typeof sizes)[number];
@@ -57,7 +57,7 @@ export type ToapisPricingFeed = Readonly<{
 	gaps: typeof gaps;
 }>;
 
-export function validToapisCacheAge(value: unknown, observedMs: number): value is number | null {
+function validToapisCacheAge(value: unknown, observedMs: number): value is number | null {
 	return (
 		value === null ||
 		(typeof value === "number" &&
@@ -67,7 +67,7 @@ export function validToapisCacheAge(value: unknown, observedMs: number): value i
 	);
 }
 
-export function decodeToapisRateSource(
+function decodeToapisRateSource(
 	value: unknown,
 	model: Model,
 	observedMs: number,
