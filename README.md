@@ -26,6 +26,7 @@ Siluet runs on your machine. The current build serves a studio status page and a
 | Framework | Svelte 5 and SvelteKit 3 with server-side rendering |
 | Runtime and packages | Bun for development, CI and production |
 | Local server | `@sveltejs/adapter-bun` bound to loopback |
+| Database (planned) | Embedded Turso with Drizzle ORM, starting with the first approved feature that needs persistence |
 | Styling and components | Panda CSS 2 and Ark UI for Svelte |
 | Code checks | Biome, `svelte-check` and prek |
 | Tests | Bun’s test runner and a Playwright smoke test in Chromium |
