@@ -2,6 +2,10 @@ import type { EventEmitter } from "node:events";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { openInstallation } from "../../db/installation";
+import { providerStore } from "../../db/provider-store";
+import { checkPoyoConnection } from "../../providers/poyo/connection";
+import { checkToapisConnection } from "../../providers/toapis/connection";
+import { createProviderConnections } from "../providers/connections";
 import { createOwnerAccess, rotationMs } from "./access";
 import { studioOrigin } from "./origin";
 
@@ -19,6 +23,10 @@ export async function initializeOwner(dev: boolean) {
 		);
 	const installation = await openInstallation(directory);
 	const access = createOwnerAccess(installation);
+	const providers = createProviderConnections(providerStore(installation), {
+		poyo: checkPoyoConnection(),
+		toapis: checkToapisConnection(),
+	});
 	let rotation: ReturnType<typeof setTimeout> | undefined;
 	async function announce() {
 		if (await installation.hasOwner()) return;
@@ -42,6 +50,7 @@ export async function initializeOwner(dev: boolean) {
 	return {
 		origin,
 		access,
+		providers,
 		hasOwner: installation.hasOwner,
 		cookieName: `siluet_${installation.id}`,
 	};

@@ -20,6 +20,21 @@ export const ownerMigrations = {
 	CREATE TABLE auth_attempt (id TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL, started INTEGER NOT NULL);`,
 };
 
+export const installationMigrations = {
+	...ownerMigrations,
+	"20261121191912_provider_credentials": `CREATE TABLE provider_credential (
+		provider TEXT PRIMARY KEY NOT NULL CHECK (provider IN ('poyo', 'toapis')),
+		revision INTEGER NOT NULL DEFAULT 0,
+		ciphertext TEXT,
+		verified_at INTEGER,
+		seedream INTEGER CHECK (seedream IN (0, 1)),
+		CHECK ((ciphertext IS NULL AND verified_at IS NULL AND seedream IS NULL)
+			OR (ciphertext IS NOT NULL AND verified_at IS NOT NULL AND seedream IS NOT NULL))
+	);
+	--> statement-breakpoint
+	INSERT INTO provider_credential (provider) VALUES ('poyo'), ('toapis');`,
+};
+
 export async function migrateInstallation(
 	db: Parameters<typeof migrate>[0],
 	fresh: boolean,

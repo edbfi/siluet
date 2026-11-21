@@ -6,7 +6,10 @@ export class DirectoryPolicyError extends Error {}
 
 // Windows mode bits do not expose NTFS permissions. Read the ACL by SID so
 // localized account names and inherited grants are handled the same way.
-async function verifyWindowsAcl(directory: string) {
+async function verifyWindowsAcl(
+	directory: string,
+	scope: { mode: "installation" | "entry"; filename?: string },
+) {
 	const systemRoot = process.env.SystemRoot;
 	if (!systemRoot || !isAbsolute(systemRoot))
 		throw new DirectoryPolicyError("Cannot locate Windows to verify data directory permissions.");
@@ -16,7 +19,14 @@ async function verifyWindowsAcl(directory: string) {
 		$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 		$trusted = @($user, 'S-1-5-18', 'S-1-5-32-544')
 		$root = [System.IO.DirectoryInfo]::new($env:SILUET_ACL_PATH)
-		try { $entries = @($root) + $root.GetFileSystemInfos() } catch { exit 20 }
+		try {
+			$entries = @($root)
+			if ($env:SILUET_ACL_SCOPE -eq 'installation') {
+				$entries += @($root.GetFileSystemInfos() | Where-Object { $_.Name -ne $env:SILUET_ACL_FILE })
+			} elseif ($env:SILUET_ACL_FILE) {
+				$entries += [System.IO.FileInfo]::new([System.IO.Path]::Combine($root.FullName, $env:SILUET_ACL_FILE))
+			}
+		} catch { exit 20 }
 		foreach ($entry in $entries) {
 			try { $acl = $entry.GetAccessControl() } catch { exit 21 }
 			if ($acl.GetOwner($sidType).Value -notin $trusted) { exit 10 }
@@ -37,7 +47,12 @@ async function verifyWindowsAcl(directory: string) {
 			Buffer.from(script, "utf16le").toString("base64"),
 		],
 		{
-			env: { ...process.env, SILUET_ACL_PATH: directory },
+			env: {
+				...process.env,
+				SILUET_ACL_PATH: directory,
+				SILUET_ACL_SCOPE: scope.mode,
+				SILUET_ACL_FILE: scope.filename ?? "",
+			},
 			stdin: "ignore",
 			stdout: "ignore",
 			stderr: "ignore",
@@ -67,6 +82,11 @@ async function verifyWindowsAcl(directory: string) {
 	}
 }
 
+// Unlike installation startup, a key lookup only needs the directory and the named file.
+export function verifyWindowsKeyAcl(directory: string, filename?: string) {
+	return verifyWindowsAcl(directory, { mode: "entry", filename });
+}
+
 function requireOutsideCheckout(checkout: string, directory: string) {
 	const fromStudio = relative(checkout, directory);
 	if (!isAbsolute(fromStudio) && fromStudio !== ".." && !fromStudio.startsWith(`..${sep}`))
@@ -85,7 +105,7 @@ async function prospectivePath(directory: string): Promise<string> {
 	}
 }
 
-export async function preparePrivateDirectory(directory: string) {
+export async function preparePrivateDirectory(directory: string, deferredFile?: string) {
 	if (!isAbsolute(directory))
 		throw new DirectoryPolicyError("An absolute data directory is required.");
 	const checkout = dirname(createRequire(import.meta.url).resolve("#studio-manifest"));
@@ -97,7 +117,7 @@ export async function preparePrivateDirectory(directory: string) {
 	if (!info.isDirectory()) throw new DirectoryPolicyError("Expected a private directory.");
 	requireOutsideCheckout(realCheckout, await realpath(directory));
 	if (process.platform === "win32") {
-		await verifyWindowsAcl(directory);
+		await verifyWindowsAcl(directory, { mode: "installation", filename: deferredFile });
 	} else if (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) {
 		throw new DirectoryPolicyError("The data directory must be private.");
 	}
