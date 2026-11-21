@@ -2,6 +2,24 @@
 import sampleImage from "#lib/assets/tide-study.webp";
 import type { SeedreamReference } from "#lib/shared/image-studio/references.ts";
 import type { SeedreamOperation } from "#lib/shared/image-studio/seedream.ts";
+import { css } from "#styled-system/css";
+import { studioPanel } from "#styled-system/recipes";
+
+const previewImage = css({
+	display: "block",
+	width: "100%",
+	height: "100%",
+	minWidth: 0,
+	minHeight: 0,
+	objectFit: "contain",
+});
+const previewMessage = css({
+	maxWidth: "28ch",
+	padding: "0.75rem",
+	color: "muted",
+	fontSize: "0.88rem",
+	textAlign: "center",
+});
 
 let {
 	operation,
@@ -46,13 +64,30 @@ export function focus() {
 }
 </script>
 
-<figure bind:this={figure} tabindex="-1">
-	<div class="stage">
+<figure
+	class={[studioPanel(), css({ minWidth: 0, margin: 0, overflow: "clip" })]}
+	bind:this={figure}
+	tabindex="-1"
+>
+	<div
+		class={css({
+			display: "grid",
+			aspectRatio: "3 / 2",
+			placeItems: "center",
+			overflow: "hidden",
+			backgroundColor: "color-mix(in srgb, {colors.canvas} 55%, {colors.line})",
+		})}
+	>
 		{#if operation === "generate"}
-			<img src={sampleImage} alt="An amber lamp at the water’s edge at blue hour">
+			<img
+				class={previewImage}
+				src={sampleImage}
+				alt="An amber lamp at the water’s edge at blue hour"
+			>
 		{:else if objectUrl && file && !failed}
 			{#key objectUrl}
 				<img
+					class={previewImage}
 					src={objectUrl}
 					alt={label}
 					onerror={() => {
@@ -61,60 +96,26 @@ export function focus() {
 				>
 			{/key}
 		{:else if failed && file}
-			<p>Preview unavailable for this file.</p>
+			<p class={previewMessage}>Preview unavailable for this file.</p>
 		{:else if reference?.kind === "url"}
-			<p>Previews are available for local files.</p>
+			<p class={previewMessage}>Previews are available for local files.</p>
 		{:else}
-			<p>Choose an image to preview it here.</p>
+			<p class={previewMessage}>Choose an image to preview it here.</p>
 		{/if}
 	</div>
-	<figcaption><strong>{title}</strong><span>{label}</span></figcaption>
+	<figcaption
+		class={css({
+			display: "flex",
+			alignItems: "baseline",
+			flexWrap: "wrap",
+			justifyContent: "space-between",
+			gap: "0.25rem 1rem",
+			padding: "0.66rem 0.9rem",
+			color: "muted",
+			fontSize: "0.8rem",
+			overflowWrap: "anywhere",
+		})}
+	>
+		<strong class={css({ color: "ink", fontSize: "0.93rem" })}>{title}</strong><span>{label}</span>
+	</figcaption>
 </figure>
-
-<style>
-figure {
-	min-width: 0;
-	margin: 0;
-	overflow: clip;
-	border: 1px solid var(--line);
-	border-radius: 15px;
-	background: var(--surface);
-}
-.stage {
-	display: grid;
-	aspect-ratio: 3 / 2;
-	place-items: center;
-	overflow: hidden;
-	background: color-mix(in srgb, var(--canvas) 55%, var(--line));
-}
-img {
-	display: block;
-	width: 100%;
-	height: 100%;
-	min-width: 0;
-	min-height: 0;
-	object-fit: contain;
-}
-p {
-	max-width: 28ch;
-	padding: 0.75rem;
-	color: var(--muted);
-	font-size: 0.88rem;
-	text-align: center;
-}
-figcaption {
-	display: flex;
-	align-items: baseline;
-	flex-wrap: wrap;
-	justify-content: space-between;
-	gap: 0.25rem 1rem;
-	padding: 0.66rem 0.9rem;
-	color: var(--muted);
-	font-size: 0.8rem;
-	overflow-wrap: anywhere;
-}
-strong {
-	color: var(--ink);
-	font-size: 0.93rem;
-}
-</style>

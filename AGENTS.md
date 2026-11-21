@@ -20,6 +20,7 @@ Organize files by responsibility and domain throughout the repository. Add a cat
 - Give each provider a server-only home under `src/lib/server/providers/<provider>/`. Group image and video operations, model inputs, uploads and job handling within the provider as its contract requires. Share only behavior evidenced by multiple adapters. Providers have no dependency on one another.
 - Put storage operations behind focused database functions when an approved module first needs persistence. Keep provider calls out of the storage layer.
 - Put types and behavior that can reach the browser under `src/lib/shared/<domain>/`. Keep secrets, environment access and provider requests under `src/lib/server/`. Group components by the feature that uses them.
+- Style production Svelte components with Panda tokens, recipes and utilities. Check the generated styles on the built pages, including the states exposed by Ark UI.
 - Keep focused tests near the behavior they exercise. Put browser tests in `tests/browser/`. Keep generated files under their tool's control.
 
 ## Provider work

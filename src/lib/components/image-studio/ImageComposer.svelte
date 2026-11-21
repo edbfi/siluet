@@ -20,9 +20,71 @@ import {
 	switchSeedreamDraft,
 	validateSeedreamDraft,
 } from "#lib/shared/image-studio/seedream.ts";
+import { css } from "#styled-system/css";
+import { studioPanel } from "#styled-system/recipes";
 import ImageReferencePreview from "./ImageReferencePreview.svelte";
 import ImageReferenceSlot from "./ImageReferenceSlot.svelte";
+import {
+	requestControl,
+	requestError,
+	requestField,
+	requestFields,
+	requestFieldset,
+	requestHelp,
+	requestLabel,
+	requestLegend,
+} from "./request-styles.ts";
 import SeedreamSize from "./SeedreamSize.svelte";
+
+const alignFields = css({ alignItems: "start" });
+const fieldHeading = css({
+	display: "flex",
+	flexWrap: "wrap",
+	alignItems: "baseline",
+	justifyContent: "space-between",
+	gap: "0 0.5rem",
+});
+const requestLink = {
+	color: "accent",
+	fontSize: "0.85rem",
+	fontWeight: 650,
+	textDecoration: "underline",
+	textUnderlineOffset: "0.16em",
+} as const;
+const providerOption = css({
+	position: "relative",
+	display: "grid",
+	flex: 1,
+	placeItems: "center",
+	minHeight: "38px",
+	paddingInline: "0.25rem",
+	border: "1px solid transparent",
+	borderRadius: "6px",
+	color: "muted",
+	fontSize: "0.85rem",
+	cursor: "pointer",
+	_hover: { color: "accent" },
+	"&:has(:checked)": {
+		borderColor: "accent",
+		background: "surface",
+		color: "accent",
+		fontWeight: 650,
+		"@media (forced-colors: active)": { borderColor: "Highlight" },
+	},
+	"&:has(:focus-visible)": {
+		outline: "3px solid {colors.accent}",
+		outlineOffset: "2px",
+	},
+});
+const providerRadio = css({
+	position: "absolute",
+	inset: 0,
+	width: "100%",
+	height: "100%",
+	margin: 0,
+	opacity: 0,
+	cursor: "pointer",
+});
 
 let {
 	eligibleProviders,
@@ -151,39 +213,100 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 }
 </script>
 
-<div class="composer">
-	<header>
+<div class={css({ containerType: "inline-size" })}>
+	<header class={css({ marginBottom: "clamp(1.15rem, 2.8vw, 2rem)" })}>
 		<h1>Image Studio</h1>
-		<p>Create a still or edit an image with references.</p>
+		<p class={css({ marginTop: "0.45rem", color: "muted" })}>
+			Create a still or edit an image with references.
+		</p>
 	</header>
 
-	<div class="layout">
-		<section class="request" aria-labelledby={`${id}-request`}>
-			<div class="request-heading">
-				<h2 id={`${id}-request`}>Request</h2>
-				<a class="review-jump" href={reviewHref}>Review request</a>
+	<div
+		class={css({
+			display: "grid",
+			gridTemplateColumns: "minmax(0, 0.94fr) minmax(0, 1.06fr)",
+			alignItems: "start",
+			gap: "clamp(1rem, 2.4vw, 1.9rem)",
+			"@container (max-width: 41rem)": { gridTemplateColumns: "minmax(0, 1fr)" },
+		})}
+	>
+		<section
+			class={[
+				studioPanel(),
+				css({
+					display: "grid",
+					minWidth: 0,
+					margin: 0,
+					gap: "1rem",
+					padding: "clamp(1rem, 2.25vw, 1.5rem)",
+				}),
+			]}
+			aria-labelledby={`${id}-request`}
+		>
+			<div
+				class={css({
+					display: "flex",
+					flexWrap: "wrap",
+					justifyContent: "space-between",
+					alignItems: "baseline",
+					gap: "0.25rem 0.75rem",
+				})}
+			>
+				<h2
+					class={css({
+						font: "680 1.18rem / 1.2 system-ui, sans-serif",
+						letterSpacing: "-0.02em",
+					})}
+					id={`${id}-request`}
+				>
+					Request
+				</h2>
+				<a
+					class={css(requestLink, {
+						display: "none",
+						"@container (max-width: 41rem)": {
+							display: "inline-flex",
+							minHeight: "44px",
+							alignItems: "center",
+						},
+					})}
+					href={reviewHref}
+					>Review request</a
+				>
 			</div>
 
-			<div class="field">
-				<div class="model-label">
+			<div class={[requestField, requestLabel]}>
+				<div class={fieldHeading}>
 					<label for={`${id}-model`}>Model</label>
-					<span id={`${id}-family`}>ByteDance / Seedream</span>
+					<span class={css({ color: "muted", fontWeight: 500 })} id={`${id}-family`}
+						>ByteDance / Seedream</span
+					>
 				</div>
-				<select id={`${id}-model`} aria-describedby={`${id}-family`}>
+				<select class={requestControl} id={`${id}-model`} aria-describedby={`${id}-family`}>
 					<optgroup label="ByteDance / Seedream">
 						<option value="seedream-5.5">Seedream 5.5</option>
 					</optgroup>
 				</select>
 			</div>
 
-			<div class="fields">
-				<fieldset>
-					<legend>API provider</legend>
+			<div class={[requestFields, alignFields]}>
+				<fieldset class={requestFieldset}>
+					<legend class={requestLegend}>API provider</legend>
 					{#if connectedProviders.length}
-						<div class="providers">
+						<div
+							class={css({
+								display: "flex",
+								gap: "0.15rem",
+								padding: "2px",
+								border: "1px solid {colors.border}",
+								borderRadius: "8px",
+								background: "canvas",
+							})}
+						>
 							{#each connectedProviders as provider (provider)}
-								<label class="provider">
+								<label class={providerOption}>
 									<input
+										class={providerRadio}
 										type="radio"
 										name={`${id}-provider`}
 										value={provider}
@@ -195,14 +318,15 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 							{/each}
 						</div>
 					{:else}
-						<p class="help">Connect a provider to prepare a request.</p>
-						<a href={settingsHref}>Open Settings</a>
+						<p class={requestHelp}>Connect a provider to prepare a request.</p>
+						<a class={css(requestLink)} href={settingsHref}>Open Settings</a>
 					{/if}
 				</fieldset>
 
-				<div class="field">
+				<div class={[requestField, requestLabel]}>
 					<label for={`${id}-operation`}>Operation</label>
 					<select
+						class={requestControl}
 						id={`${id}-operation`}
 						value={draft.operation}
 						onchange={(event) =>
@@ -217,9 +341,9 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 			{#if draft.provider && draft.operation === "edit"}
 				{@const provider = draft.provider}
 				{#key provider}
-					<fieldset class="references" aria-describedby={`${id}-reference-help`}>
-						<legend>Reference images</legend>
-						<p class="help" id={`${id}-reference-help`}>
+					<fieldset class={requestFieldset} aria-describedby={`${id}-reference-help`}>
+						<legend class={requestLegend}>Reference images</legend>
+						<p class={requestHelp} id={`${id}-reference-help`}>
 							Add 1–{maxSeedreamReferences} images in prompt order.
 							{referenceFileHelp(provider)} each.
 						</p>
@@ -238,14 +362,42 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 					</fieldset>
 				{/key}
 			{/if}
-			<p class="help selection-status" role="status">{selectionStatus}</p>
+			<p class={[requestHelp, css({ _empty: { position: "absolute" } })]} role="status">
+				{selectionStatus}
+			</p>
 
-			<div class="field">
-				<div class="prompt-label">
+			<div class={[requestField, requestLabel]}>
+				<div class={fieldHeading}>
 					<label for={`${id}-prompt`}>Prompt</label>
-					<button class="text-button" type="button" onclick={useExample}>Use example</button>
+					<button
+						class={css(requestLink, {
+							minHeight: "44px",
+							padding: 0,
+							border: 0,
+							background: "transparent",
+						})}
+						type="button"
+						onclick={useExample}
+					>
+						Use example
+					</button>
 				</div>
 				<textarea
+					class={css({
+						width: "100%",
+						minWidth: 0,
+						font: "inherit",
+						fontWeight: 400,
+						resize: "vertical",
+						minHeight: "7rem",
+						padding: "0.65rem 0.8rem",
+						border: "1px solid {colors.border}",
+						borderRadius: "7px",
+						background: "surface",
+						color: "ink",
+						caretColor: "accent",
+						_placeholder: { color: "muted" },
+					})}
 					bind:this={promptField}
 					bind:value={draft.prompt}
 					id={`${id}-prompt`}
@@ -263,9 +415,9 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 						: "Describe the subject, setting, and light."}
 				></textarea>
 				{#if promptTouched && errors.prompt}
-					<p class="help error" id={`${id}-prompt-help`}>{errors.prompt}</p>
+					<p class={requestError} id={`${id}-prompt-help`}>{errors.prompt}</p>
 				{:else if draft.provider === "poyo"}
-					<p class="help" id={`${id}-prompt-help`}>
+					<p class={requestHelp} id={`${id}-prompt-help`}>
 						{poyoPromptLimits.min}–{poyoPromptLimits.max.toLocaleString("en-US")} characters
 					</p>
 				{/if}
@@ -279,12 +431,26 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 					error={errors.size}
 				/>
 
-				<details class="advanced">
-					<summary>Advanced options</summary>
-					<div class="fields">
-						<div class="field">
+				<details class={css({ minWidth: 0, borderTop: "1px solid {colors.line}" })}>
+					<summary
+						class={[
+							requestLabel,
+							css({
+								width: "fit-content",
+								minHeight: "44px",
+								padding: "0.75rem 0",
+								cursor: "pointer",
+								"&::marker": { color: "accent" },
+							}),
+						]}
+					>
+						Advanced options
+					</summary>
+					<div class={[requestFields, alignFields]}>
+						<div class={[requestField, requestLabel]}>
 							<label for={`${id}-background`}>Background</label>
 							<select
+								class={requestControl}
 								id={`${id}-background`}
 								bind:value={() => draft.options.background, setBackground}
 							>
@@ -295,9 +461,13 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 								{/each}
 							</select>
 						</div>
-						<div class="field">
+						<div class={[requestField, requestLabel]}>
 							<label for={`${id}-format`}>Output format</label>
-							<select id={`${id}-format`} bind:value={draft.options.outputFormat}>
+							<select
+								class={requestControl}
+								id={`${id}-format`}
+								bind:value={draft.options.outputFormat}
+							>
 								{#each seedreamOutputFormats as format (format)}
 									<option
 										value={format}
@@ -310,14 +480,22 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 						</div>
 					</div>
 					{#if draft.options.background === "transparent"}
-						<p class="help transparency-help">Transparency requires PNG.</p>
+						<p class={[requestHelp, css({ marginTop: "0.375rem" })]}>Transparency requires PNG.</p>
 					{/if}
 					{#if draft.provider === "toapis"}
-						<label class="watermark"
-							><input type="checkbox" bind:checked={draft.options.watermark}> Visible
-							watermark</label
+						<label
+							class={[
+								requestLabel,
+								css({ display: "flex", alignItems: "center", gap: "0.5rem", minHeight: "44px" }),
+							]}
+							><input
+								class={css({ accentColor: "accent" })}
+								type="checkbox"
+								bind:checked={draft.options.watermark}
+							>
+							Visible watermark</label
 						>
-						<p class="help">
+						<p class={requestHelp}>
 							ToAPIs may use a fallback when your account and region are eligible. Fallback is
 							unavailable in mainland China and China sales regions.
 						</p>
@@ -325,7 +503,7 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 				</details>
 			{/if}
 		</section>
-		<div class="inspection">
+		<div class={css({ display: "grid", minWidth: 0, gap: "1rem" })}>
 			<ImageReferencePreview
 				bind:this={preview}
 				operation={draft.operation}
@@ -336,226 +514,3 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 		</div>
 	</div>
 </div>
-
-<style>
-.composer {
-	--composer-error: light-dark(#992c28, #ffb7ae);
-	--composer-selection: color-mix(in srgb, var(--accent) 8%, var(--surface));
-	container-type: inline-size;
-}
-header {
-	margin-bottom: clamp(1.15rem, 2.8vw, 2rem);
-}
-header p {
-	margin-top: 0.45rem;
-	color: var(--muted);
-}
-.layout {
-	display: grid;
-	grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr);
-	align-items: start;
-	gap: clamp(1rem, 2.4vw, 1.9rem);
-}
-.request {
-	display: grid;
-	min-width: 0;
-	margin: 0;
-	gap: 1rem;
-	padding: clamp(1rem, 2.25vw, 1.5rem);
-	border: 1px solid var(--line);
-	border-radius: 15px;
-	background: var(--surface);
-}
-.inspection {
-	display: grid;
-	min-width: 0;
-	gap: 1rem;
-}
-.request-heading {
-	display: flex;
-	flex-wrap: wrap;
-	justify-content: space-between;
-	align-items: baseline;
-	gap: 0.25rem 0.75rem;
-}
-.review-jump {
-	display: none;
-}
-h2 {
-	font:
-		680 1.18rem / 1.2 system-ui,
-		sans-serif;
-	letter-spacing: -0.02em;
-}
-.fields {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(min(8rem, 100%), 1fr));
-	gap: 0.75rem;
-	align-items: start;
-}
-.field {
-	display: grid;
-	gap: 0.35rem;
-	min-width: 0;
-	font-size: 0.85rem;
-	font-weight: 650;
-}
-.model-label,
-.prompt-label {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 0 0.5rem;
-}
-.model-label span {
-	color: var(--muted);
-	font-weight: 500;
-}
-fieldset {
-	min-width: 0;
-	margin: 0;
-	padding: 0;
-	border: 0;
-}
-legend,
-summary {
-	padding: 0;
-	font-size: 0.85rem;
-	font-weight: 650;
-}
-legend {
-	margin-bottom: 0.35rem;
-}
-.providers {
-	display: flex;
-	gap: 0.15rem;
-	padding: 2px;
-	border: 1px solid var(--border);
-	border-radius: 8px;
-	background: var(--canvas);
-}
-.provider {
-	position: relative;
-	display: grid;
-	flex: 1;
-	place-items: center;
-	min-height: 38px;
-	padding-inline: 0.25rem;
-	border: 1px solid transparent;
-	border-radius: 6px;
-	color: var(--muted);
-	font-size: 0.85rem;
-	cursor: pointer;
-}
-.provider:has(:checked) {
-	border-color: var(--accent);
-	background: var(--surface);
-	color: var(--accent);
-	font-weight: 650;
-}
-.provider:has(:focus-visible) {
-	outline: 3px solid var(--accent);
-	outline-offset: 2px;
-}
-.provider input {
-	position: absolute;
-	inset: 0;
-	width: 100%;
-	height: 100%;
-	margin: 0;
-	opacity: 0;
-	cursor: pointer;
-}
-.provider:hover {
-	color: var(--accent);
-}
-select,
-textarea {
-	width: 100%;
-	min-width: 0;
-	min-height: 44px;
-	font: inherit;
-	font-weight: 400;
-}
-textarea {
-	resize: vertical;
-	min-height: 7rem;
-	padding: 0.65rem 0.8rem;
-	border: 1px solid var(--border);
-	border-radius: 7px;
-	background: var(--surface);
-	color: var(--ink);
-	caret-color: var(--accent);
-}
-textarea::placeholder {
-	color: var(--muted);
-}
-a,
-.text-button {
-	color: var(--accent);
-	font-size: 0.85rem;
-	font-weight: 650;
-	text-decoration: underline;
-	text-underline-offset: 0.16em;
-}
-.text-button {
-	min-height: 44px;
-	padding: 0;
-	border: 0;
-	background: transparent;
-}
-.help {
-	color: var(--muted);
-	font-size: 0.8rem;
-	font-weight: 400;
-}
-.error {
-	color: var(--composer-error);
-}
-.selection-status:empty {
-	position: absolute;
-}
-.advanced {
-	min-width: 0;
-	border-top: 1px solid var(--line);
-}
-.advanced summary {
-	width: fit-content;
-	min-height: 44px;
-	padding-block: 0.75rem;
-	cursor: pointer;
-}
-.advanced summary::marker {
-	color: var(--accent);
-}
-.transparency-help {
-	margin-top: 0.375rem;
-}
-.watermark {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	min-height: 44px;
-	font-size: 0.85rem;
-	font-weight: 650;
-}
-.watermark input {
-	accent-color: var(--accent);
-}
-@container (max-width: 41rem) {
-	.layout {
-		grid-template-columns: minmax(0, 1fr);
-	}
-	.review-jump {
-		display: inline-flex;
-		min-height: 44px;
-		align-items: center;
-	}
-}
-@media (forced-colors: active) {
-	.provider:has(:checked) {
-		border-color: Highlight;
-	}
-}
-</style>

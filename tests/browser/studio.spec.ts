@@ -13,7 +13,7 @@ import { startStudio } from "./built-studio";
 test("one owner can claim the studio and sign in after a process restart", async ({ browser }) => {
 	const directory = await createOwnerDirectory();
 	const password = randomUUID();
-	const owner = await browser.newContext();
+	const owner = await browser.newContext({ colorScheme: "light" });
 	let server: Awaited<ReturnType<typeof startStudio>> | undefined;
 	try {
 		server = await startStudio(directory, "0", true);
@@ -47,6 +47,22 @@ test("one owner can claim the studio and sign in after a process restart", async
 		await page.getByRole("button", { name: "Claim studio" }).press("Enter");
 		await expect(page).toHaveURL(origin.href);
 		await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+		const serverRendered = await browser.newPage({
+			storageState: await owner.storageState(),
+			javaScriptEnabled: false,
+			colorScheme: "dark",
+		});
+		try {
+			await serverRendered.goto(origin.href);
+			const panel = serverRendered.getByRole("region", { name: "Your workspace" });
+			await expect(panel).toHaveCSS("background-color", "rgb(29, 41, 59)");
+			await expect(panel.getByRole("button", { name: "Sign out" })).toHaveCSS(
+				"background-color",
+				"rgb(29, 41, 59)",
+			);
+		} finally {
+			await serverRendered.close();
+		}
 		const missing = await page.request.get(new URL("/missing-studio-route", origin).href);
 		expect(missing.status()).toBe(404);
 		expect(await missing.text()).toContain("Not Found");
@@ -67,18 +83,22 @@ test("one owner can claim the studio and sign in after a process restart", async
 		await expect(homeLink).toHaveCSS("outline-color", "rgb(244, 196, 97)");
 		await page.getByLabel("Appearance").selectOption("dark");
 		await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
+		await expect(page.locator("html")).toHaveCSS("background-color", "rgb(21, 30, 46)");
 		await page.setViewportSize({ width: 320, height: 720 });
 		await page.getByRole("button", { name: "Menu", exact: true }).click();
 		await expect(page.getByRole("dialog")).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(page.getByRole("button", { name: "Menu", exact: true })).toBeFocused();
+		await page.emulateMedia({ colorScheme: "dark" });
 		await page.getByLabel("Appearance").selectOption("light");
 		await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
+		await expect(page.locator("html")).toHaveCSS("background-color", "rgb(242, 245, 250)");
 		await server.stop();
 		server = undefined;
 		server = await startStudio(directory, origin.port);
 		await page.reload();
 		await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+		await expect(page.locator("html")).toHaveCSS("background-color", "rgb(242, 245, 250)");
 		await page.getByRole("button", { name: "Sign out" }).click();
 		await page.goto(origin.href);
 		await expect(page).toHaveURL(new URL("/sign-in", origin).href);

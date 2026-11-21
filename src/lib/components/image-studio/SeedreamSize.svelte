@@ -6,6 +6,52 @@ import {
 	type SeedreamProvider,
 	seedreamResolutions,
 } from "#lib/shared/image-studio/seedream.ts";
+import { css } from "#styled-system/css";
+import {
+	requestControl,
+	requestError,
+	requestField,
+	requestFields,
+	requestFieldset,
+	requestHelp,
+	requestLabel,
+	requestLegend,
+} from "./request-styles.ts";
+
+const framingButton = {
+	display: "grid",
+	placeItems: "center",
+	minWidth: "2.85rem",
+	minHeight: "3.65rem",
+	padding: "0.25rem 0.32rem 0.32rem",
+	border: "1px solid {colors.border}",
+	borderRadius: "8px",
+	background: "surface",
+	color: "muted",
+	fontSize: "0.75rem",
+	fontWeight: 650,
+	fontVariantNumeric: "tabular-nums",
+	lineHeight: 1.1,
+	_hover: { borderColor: "accent", color: "accent" },
+	_pressed: {
+		borderColor: "accent",
+		color: "accent",
+		background: "color-mix(in srgb, {colors.accent} 8%, {colors.surface})",
+		"@media (forced-colors: active)": { borderColor: "Highlight", textDecoration: "underline" },
+	},
+} as const;
+const ratioButton = css(framingButton, { gridTemplateRows: "32px auto" });
+const followReferencesButton = css(framingButton, {
+	gridTemplateRows: "1fr",
+	maxWidth: "5.7rem",
+	paddingInline: "0.65rem",
+});
+const frame = css({
+	width: "var(--frame-width)",
+	height: "var(--frame-height)",
+	border: "1px solid currentColor",
+	borderRadius: "1px",
+});
 
 let {
 	provider,
@@ -28,32 +74,41 @@ const toapisPresets = [
 	{ ratio: "9:16", width: 1440, height: 2560 },
 ] as const;
 
-function frame(ratio: string) {
+function frameDimensions(ratio: string) {
 	const [width, height] = ratio.split(":").map(Number);
 	const scale = 31 / Math.max(width, height);
-	return `width: ${width * scale}px; height: ${height * scale}px;`;
+	return { width: `${width * scale}px`, height: `${height * scale}px` };
 }
 </script>
 
-<div class="size">
-	<fieldset>
-		<legend>{provider === "poyo" ? "Aspect ratio" : "Framing presets"}</legend>
-		<div class="ratios">
+<div class={css({ display: "grid", gap: "0.75rem" })}>
+	<fieldset class={requestFieldset}>
+		<legend class={requestLegend}>
+			{provider === "poyo" ? "Aspect ratio" : "Framing presets"}
+		</legend>
+		<div class={css({ display: "flex", flexWrap: "wrap", gap: "0.375rem" })}>
 			{#if provider === "poyo"}
 				{#each poyoAspectRatios as ratio (ratio)}
+					{@const dimensions = frameDimensions(ratio)}
 					<button
+						class={ratioButton}
 						type="button"
 						aria-pressed={options.aspectRatio === ratio}
 						onclick={() => {
 							options.aspectRatio = ratio;
 						}}
 					>
-						<span class="frame" style={frame(ratio)} aria-hidden="true"></span>{ratio}
+						<span
+							class={frame}
+							style:--frame-width={dimensions.width}
+							style:--frame-height={dimensions.height}
+							aria-hidden="true"
+						></span>{ratio}
 					</button>
 				{/each}
 				{#if operation === "edit"}
 					<button
-						class="automatic"
+						class={followReferencesButton}
 						type="button"
 						aria-pressed={options.aspectRatio === "auto"}
 						onclick={() => {
@@ -65,7 +120,9 @@ function frame(ratio: string) {
 				{/if}
 			{:else}
 				{#each toapisPresets as { ratio, width, height } (ratio)}
+					{@const dimensions = frameDimensions(ratio)}
 					<button
+						class={ratioButton}
 						type="button"
 						aria-pressed={!error &&
 							options.sizeMode === "pixels" &&
@@ -76,27 +133,32 @@ function frame(ratio: string) {
 							options = { ...options, sizeMode: "pixels", width, height };
 						}}
 					>
-						<span class="frame" style={frame(ratio)} aria-hidden="true"></span>{ratio}
+						<span
+							class={frame}
+							style:--frame-width={dimensions.width}
+							style:--frame-height={dimensions.height}
+							aria-hidden="true"
+						></span>{ratio}
 					</button>
 				{/each}
 			{/if}
 		</div>
 	</fieldset>
 
-	<div class="fields">
+	<div class={requestFields}>
 		{#if provider === "toapis"}
-			<div class="field">
-				<label for={`${id}-size-mode`}>Size mode</label>
-				<select id={`${id}-size-mode`} bind:value={options.sizeMode}>
+			<div class={requestField}>
+				<label class={requestLabel} for={`${id}-size-mode`}>Size mode</label>
+				<select class={requestControl} id={`${id}-size-mode`} bind:value={options.sizeMode}>
 					<option value="tier">Resolution tier</option>
 					<option value="pixels">Exact dimensions</option>
 				</select>
 			</div>
 		{/if}
 		{#if provider === "poyo" || options.sizeMode === "tier"}
-			<div class="field">
-				<label for={`${id}-resolution`}>Resolution</label>
-				<select id={`${id}-resolution`} bind:value={options.resolution}>
+			<div class={requestField}>
+				<label class={requestLabel} for={`${id}-resolution`}>Resolution</label>
+				<select class={requestControl} id={`${id}-resolution`} bind:value={options.resolution}>
 					{#each seedreamResolutions as resolution (resolution)}
 						<option value={resolution}>{resolution}</option>
 					{/each}
@@ -106,10 +168,11 @@ function frame(ratio: string) {
 	</div>
 	{#if provider === "toapis"}
 		{#if options.sizeMode === "pixels"}
-			<div class="fields">
-				<label class="field">
+			<div class={requestFields}>
+				<label class={[requestField, requestLabel]}>
 					Width (px)
 					<input
+						class={requestControl}
 						type="number"
 						min="1"
 						step="1"
@@ -118,9 +181,10 @@ function frame(ratio: string) {
 						aria-describedby={`${id}-dimensions`}
 					>
 				</label>
-				<label class="field">
+				<label class={[requestField, requestLabel]}>
 					Height (px)
 					<input
+						class={requestControl}
 						type="number"
 						min="1"
 						step="1"
@@ -130,101 +194,11 @@ function frame(ratio: string) {
 					>
 				</label>
 			</div>
-			<p class:error id={`${id}-dimensions`}>
+			<p class={error ? requestError : requestHelp} id={`${id}-dimensions`}>
 				{error ?? "921,600–4,624,220 pixels total. Ratio from 1:16 to 16:1."}
 			</p>
 		{:else}
-			<p>The provider chooses the ratio at this resolution.</p>
+			<p class={requestHelp}>The provider chooses the ratio at this resolution.</p>
 		{/if}
 	{/if}
 </div>
-
-<style>
-.size {
-	display: grid;
-	gap: 0.75rem;
-}
-fieldset {
-	min-width: 0;
-	margin: 0;
-	padding: 0;
-	border: 0;
-}
-legend,
-label {
-	font-size: 0.85rem;
-	font-weight: 650;
-}
-legend {
-	padding: 0;
-	margin-bottom: 0.35rem;
-}
-.ratios {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.375rem;
-}
-button {
-	display: grid;
-	grid-template-rows: 32px auto;
-	place-items: center;
-	min-width: 2.85rem;
-	min-height: 3.65rem;
-	padding: 0.25rem 0.32rem 0.32rem;
-	border: 1px solid var(--border);
-	border-radius: 8px;
-	background: var(--surface);
-	color: var(--muted);
-	font-size: 0.75rem;
-	font-weight: 650;
-	font-variant-numeric: tabular-nums;
-	line-height: 1.1;
-}
-button.automatic {
-	grid-template-rows: 1fr;
-	max-width: 5.7rem;
-	padding-inline: 0.65rem;
-}
-button:hover,
-button[aria-pressed="true"] {
-	border-color: var(--accent);
-	color: var(--accent);
-}
-button[aria-pressed="true"] {
-	background: var(--composer-selection);
-}
-.frame {
-	border: 1px solid currentColor;
-	border-radius: 1px;
-}
-.fields {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(min(8rem, 100%), 1fr));
-	gap: 0.75rem;
-}
-.field {
-	display: grid;
-	min-width: 0;
-	gap: 0.35rem;
-}
-select,
-input {
-	width: 100%;
-	min-width: 0;
-	min-height: 44px;
-	font-weight: 400;
-}
-p {
-	color: var(--muted);
-	font-size: 0.8rem;
-}
-.error {
-	color: var(--composer-error);
-}
-@media (forced-colors: active) {
-	button[aria-pressed="true"] {
-		border-color: Highlight;
-		text-decoration: underline;
-	}
-}
-</style>

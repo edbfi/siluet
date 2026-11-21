@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import {
 	providerFixtureKeys as keys,
@@ -410,6 +410,21 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.keyboard.press("ArrowLeft");
 			await expect(outgoingTab).toBeFocused();
 			await expect(outgoingTab).toHaveAttribute("aria-selected", "true");
+			await test.step("show the selected tab underline in light and dark appearance", async () => {
+				const underlineColor = (tab: Locator) =>
+					tab.evaluate((element) => getComputedStyle(element).borderBlockEndColor);
+				try {
+					await page.emulateMedia({ colorScheme: "light" });
+					const lightSelected = await underlineColor(outgoingTab);
+					expect(lightSelected).not.toBe(await underlineColor(reviewTab));
+					await page.emulateMedia({ colorScheme: "dark" });
+					const darkSelected = await underlineColor(outgoingTab);
+					expect(darkSelected).not.toBe(await underlineColor(reviewTab));
+					expect(darkSelected).not.toBe(lightSelected);
+				} finally {
+					await page.emulateMedia({ colorScheme: null });
+				}
+			});
 			await prompt.fill(promptText.repeat(20));
 			const jsonRegion = outgoing.getByRole("region", { name: "JSON request body" });
 			await jsonRegion.focus();
