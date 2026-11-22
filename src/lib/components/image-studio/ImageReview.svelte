@@ -210,10 +210,21 @@ async function queue() {
 			token: current.token,
 			acceptUnknown: acceptedToken === current.token,
 		});
+		if (response.status === 429) {
+			const result: { until?: unknown } | null = await response.json().catch(() => null);
+			const until = result?.until;
+			if (typeof until !== "number" || !Number.isFinite(until)) throw new Error();
+			if (!mounted || input !== request) return;
+			// No job was claimed, so the same Review token and consent queue it later.
+			const deadline = new Date(Math.ceil(until / 1000) * 1000).toISOString().slice(0, 19);
+			feedback = {
+				request: input,
+				message: `The provider is cooling down. Click Queue again after ${deadline.replace("T", " ")} UTC.`,
+			};
+			return;
+		}
 		if (response.status === 409 || response.status === 400) {
-			const result: { review?: ReviewTerms; until?: number } | null = await response
-				.json()
-				.catch(() => null);
+			const result: { review?: ReviewTerms } | null = await response.json().catch(() => null);
 			if (!mounted || input !== request) return;
 			const fresh = result?.review;
 			authorized = null;
@@ -221,11 +232,9 @@ async function queue() {
 			if (!fresh || applyTerms(input, fresh)) {
 				feedback = {
 					request: input,
-					message: result?.until
-						? `The provider is cooling down. Review and click Queue again after ${new Date(result.until).toISOString()}.`
-						: fresh
-							? "The terms changed. Check the updated Review before queuing."
-							: "Review is unavailable for these terms. Check the provider connection and review again.",
+					message: fresh
+						? "The terms changed. Check the updated Review before queuing."
+						: "Review is unavailable for these terms. Check the provider connection and review again.",
 				};
 			}
 			tabValue = "review";

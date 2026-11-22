@@ -12,5 +12,14 @@ export async function queueAction(
 	const input = parseQueueRequest(value, operation);
 	if (!input) return json({ error: "invalid" }, { status: 400 });
 	const result = await locals.studio.queue[operation](locals.owner, input);
-	return json(result, { status: "error" in result ? (result.error === "stale" ? 409 : 400) : 200 });
+	return json(result, {
+		status:
+			"error" in result
+				? result.error === "cooldown"
+					? 429
+					: result.error === "stale"
+						? 409
+						: 400
+				: 200,
+	});
 }

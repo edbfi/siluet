@@ -364,3 +364,62 @@ for (const point of ["before-dispatch", "after-acceptance"] as const) {
 		}
 	});
 }
+
+test("429 shows the deadline and the next Queue reuses the same token", async ({ page }) => {
+	test.setTimeout(60_000);
+	page.setDefaultTimeout(12_000);
+	const dir = await createOwnerDirectory();
+	const cacheHome = await createOwnerDirectory();
+	const fixtures = startProviderFixtures(jobResponses());
+	let server: Studio | undefined;
+	try {
+		server = await startStudio(dir, "0", false, { ...fixtures.env, XDG_CACHE_HOME: cacheHome });
+		const origin = server.origin.origin;
+		await connect(page, server, "poyo");
+		// Z-Image has no rate, so Review asks for consent to an unknown cost.
+		await writeReviewPricing(cacheHome);
+		const reviews: unknown[] = [];
+		const queued: { token: string; acceptUnknown: boolean }[] = [];
+		const until = Date.parse("2030-01-02T03:04:05.250Z");
+		page.on("request", (request) => {
+			if (request.url() === `${origin}/image/review`) reviews.push(request.postDataJSON());
+		});
+		// The first Queue meets the provider cooldown. Later clicks reach the built server.
+		await page.route(`${origin}/image/queue`, (route) => {
+			queued.push(route.request().postDataJSON());
+			return queued.length === 1
+				? route.fulfill({ status: 429, json: { error: "cooldown", until } })
+				: route.continue();
+		});
+		await page.goto(`${origin}/image`);
+		await page.getByLabel("Model", { exact: true }).selectOption("z-image");
+		await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(prompt);
+		const review = page.getByRole("region", { name: "Review request", exact: true });
+		await review.getByRole("button", { name: "Review request", exact: true }).press("Enter");
+		const consent = review.getByRole("checkbox", { name: /unknown cost/i });
+		await consent.check();
+		const queue = review.getByRole("button", { name: "Queue 1 request" });
+		await queue.press("Enter");
+		await expect(review.getByRole("status")).toHaveText(
+			"The provider is cooling down. Click Queue again after 2030-01-02 03:04:06 UTC.",
+		);
+		await expect(consent).toBeChecked();
+		await expect(queue).toBeEnabled();
+		expect(fixtures.requests.filter((row) => row.path.endsWith("/submit"))).toEqual([]);
+
+		await queue.press("Enter");
+		await expect(page).toHaveURL(/\/jobs#job-/);
+		expect(reviews).toHaveLength(1);
+		expect(queued).toHaveLength(2);
+		expect(queued[1].token).toBe(queued[0].token);
+		expect(queued.map((body) => body.acceptUnknown)).toEqual([true, true]);
+		expect(fixtures.requests.filter((row) => row.path.endsWith("/submit"))).toEqual([
+			{ method: "POST", path: "/poyo/submit", key: providerFixtureKeys.poyo },
+		]);
+	} finally {
+		await server?.stop();
+		fixtures.stop();
+		await rm(cacheHome, { recursive: true, force: true });
+		await rm(dir, { recursive: true, force: true });
+	}
+});
