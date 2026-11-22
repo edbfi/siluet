@@ -59,6 +59,9 @@ export class LocalCopy {
 	// An expired copy is cleaned again once per attach or Try again, so an idle
 	// tab does not hold scratch space and the preparation slot indefinitely.
 	#renewed = false;
+	// The page was hidden while a copy was ready or being prepared. Only then does
+	// a page restored from the back-forward cache clean the file again.
+	#resume = false;
 
 	constructor(source: () => File | null) {
 		$effect(() => {
@@ -71,7 +74,9 @@ export class LocalCopy {
 		$effect(() => {
 			const hide = () => this.#suspend();
 			const show = (event: PageTransitionEvent) => {
-				if (event.persisted && this.file) this.#restart();
+				if (!event.persisted || !this.file || !this.#resume) return;
+				this.#resume = false;
+				void this.#prepare(false);
 			};
 			addEventListener("pagehide", hide);
 			addEventListener("pageshow", show);
@@ -116,6 +121,7 @@ export class LocalCopy {
 
 	// Retire the copy but keep the file, which a restored page cleans again.
 	#suspend() {
+		this.#resume = !this.failed && (this.stage !== null || this.pending);
 		this.#preparing?.abort();
 		this.#preparing = null;
 		this.#retire();
