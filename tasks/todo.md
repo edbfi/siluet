@@ -12,7 +12,6 @@
 ## R0 operations
 
 - [ ] Each R0 PR passes the local checks, `ci-ok` and `pr-policy`. The pricing PRs also pass their pricing run and the failing tests listed in each PR body.
-- [ ] Close [#3](https://github.com/edbfi/siluet/pull/3) and delete its branch. The next Monday Dependabot run opens no TypeScript PR.
 - [ ] Dispatch `pricing.yml`. `pricing-data` gains `pricing/v2/poyo.json` with `sourceDate` 2026-11-19T13:42:30Z and that day's `confirmedAt`, and the v1 blob ID is unchanged. A same-day rerun prints the skip notice.
 - [ ] `check-freshness` passes for the published feeds and reports the bundled feed. `pricing:refresh` reports "updated" with both dates.
 - [ ] Dispatch the `ci.yml` `pricing-freshness` job and see it pass. The last editors of the `pricing.yml` and `ci.yml` cron lines receive scheduled-failure email.
