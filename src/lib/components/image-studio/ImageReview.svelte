@@ -204,16 +204,36 @@ async function queue() {
 	if (!input || !current || !canQueue || pending || tabValue !== "review") return;
 	pending = "queue";
 	feedback = null;
+	const token = current.token;
 	try {
 		const response = await post("/image/queue", {
 			...input,
-			token: current.token,
-			acceptUnknown: acceptedToken === current.token,
+			token,
+			acceptUnknown: acceptedToken === token,
 		});
+		if (response.status === 429) {
+			const result: { until?: unknown } | null = await response.json().catch(() => null);
+			// Expiry may have cleared this Review while the request was in flight.
+			if (!mounted || input !== request || current?.token !== token) return;
+			// No job was claimed, so the same Review token and consent queue it later.
+			const until = result?.until;
+			const date = new Date(
+				typeof until === "number" ? Math.ceil(until / 1000) * 1000 : Number.NaN,
+			);
+			const deadline = Number.isNaN(date.getTime())
+				? " shortly"
+				: ` after ${date
+						.toISOString()
+						.replace(/\.\d{3}Z$/, "")
+						.replace("T", " ")} UTC`;
+			feedback = {
+				request: input,
+				message: `The provider is cooling down. Nothing was sent. Click Queue again${deadline}.`,
+			};
+			return;
+		}
 		if (response.status === 409 || response.status === 400) {
-			const result: { review?: ReviewTerms; until?: number } | null = await response
-				.json()
-				.catch(() => null);
+			const result: { review?: ReviewTerms } | null = await response.json().catch(() => null);
 			if (!mounted || input !== request) return;
 			const fresh = result?.review;
 			authorized = null;
@@ -221,11 +241,9 @@ async function queue() {
 			if (!fresh || applyTerms(input, fresh)) {
 				feedback = {
 					request: input,
-					message: result?.until
-						? `The provider is cooling down. Review and click Queue again after ${new Date(result.until).toISOString()}.`
-						: fresh
-							? "The terms changed. Check the updated Review before queuing."
-							: "Review is unavailable for these terms. Check the provider connection and review again.",
+					message: fresh
+						? "The terms changed. Check the updated Review before queuing."
+						: "Review is unavailable for these terms. Check the provider connection and review again.",
 				};
 			}
 			tabValue = "review";
