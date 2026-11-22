@@ -1078,6 +1078,18 @@ test("built Review prepares and previews one cleaned local copy while Queue stay
 			await expect(queue).toBeDisabled();
 		});
 
+		await test.step("a JPEG over the 16 MiB source limit is refused before upload", async () => {
+			const large = Buffer.alloc(16 * 1024 * 1024 + 1);
+			large.set([0xff, 0xd8, 0xff]);
+			await firstFile.setInputFiles({ name: "large.jpg", mimeType: "image/jpeg", buffer: large });
+			await expect(
+				page.getByText(
+					"The image exceeds the 16 MiB local preparation limit. Choose a smaller SDR JPEG or PNG.",
+				),
+			).toBeVisible();
+			await expect(cleaned).toHaveCount(0);
+		});
+
 		await test.step("other-tab security change clears it", async () => {
 			await firstFile.setInputFiles({
 				name: "upright.png",

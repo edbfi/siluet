@@ -40,16 +40,20 @@ test("JPEG and PNG source size is checked separately from cleaned upload size", 
 	expect(
 		referenceFileError("poyo", { ...sample, type: "image/webp", name: "a.webp" }),
 	).not.toBeNull();
-	expect(
-		referenceFileError("toapis", { ...sample, type: "image/png", size: 32_000_001 }),
-	).not.toBeNull();
+	// The browser refuses a source above the server's 16 MiB preparation limit before upload.
+	const limit = 16 * 1024 * 1024;
+	expect(referenceFileError("toapis", { ...sample, type: "image/png", size: limit })).toBeNull();
+	for (const provider of ["poyo", "toapis", null] as const)
+		expect(referenceFileError(provider, { ...sample, size: limit + 1 })).toBe(
+			"The image exceeds the 16 MiB local preparation limit. Choose a smaller SDR JPEG or PNG.",
+		);
 });
 
 test("with no provider connected, only a local JPEG or PNG is offered", async () => {
 	const png = new File([new Uint8Array([...pngHeader, 0, 0])], "ref.png", { type: "image/png" });
 	expect(await checkReferenceFile(null, png)).toBeNull();
 	expect(referenceFileError(null, { name: "a.webp", type: "image/webp", size: 10 })).toBe(
-		"Choose a non-empty image. Supported files are JPEG or PNG.",
+		"Choose a non-empty image. Supported files are JPEG or PNG up to 16 MiB.",
 	);
 	expect(referenceFileAccept(null)).toBe("image/jpeg,.jpg,.jpeg,image/png,.png");
 });

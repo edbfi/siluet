@@ -1,3 +1,8 @@
+import {
+	localImageLimit,
+	localImageLimitRefusal,
+	maxLocalImageBytes,
+} from "../media-staging/limits";
 import { hasCompleteGifStream } from "./gif";
 import { isPublicIpv6 } from "./ipv6";
 import type { SeedreamProvider } from "./seedream";
@@ -36,8 +41,8 @@ const stillFormats = ["jpeg", "png", "webp"] as const;
 // Before a provider is connected, only a local copy can be prepared for offline Review.
 const localLimits = {
 	formats: ["jpeg", "png"],
-	maxBytes: 32_000_000,
-	description: "JPEG or PNG",
+	maxBytes: maxLocalImageBytes,
+	description: localImageLimit,
 } as const;
 const referenceLimits = {
 	poyo: {
@@ -84,12 +89,15 @@ export function referenceFileError(
 	file: Pick<File, "name" | "size" | "type">,
 ): string | null {
 	const { maxBytes, description } = limitsFor(provider);
-	// A JPEG or PNG is checked again after local cleanup, which can change its size.
 	const format = fileFormat(provider, file);
-	const sourceLimit = format === "jpeg" || format === "png" ? 32_000_000 : maxBytes;
-	return format && file.size > 0 && file.size <= sourceLimit
-		? null
-		: `Choose a non-empty image. Supported files are ${description}.`;
+	if (!format || file.size < 1)
+		return `Choose a non-empty image. Supported files are ${description}.`;
+	// A JPEG or PNG is prepared locally first. Its cleaned size is checked again later.
+	if (format === "jpeg" || format === "png")
+		return file.size > maxLocalImageBytes ? localImageLimitRefusal.join(" ") : null;
+	return file.size > maxBytes
+		? `Choose a non-empty image. Supported files are ${description}.`
+		: null;
 }
 
 export async function checkReferenceFile(

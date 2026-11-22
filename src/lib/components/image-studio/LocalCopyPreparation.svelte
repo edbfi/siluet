@@ -4,6 +4,7 @@ import {
 	type MediaDescriptor,
 	parseStageDescriptor,
 } from "#lib/shared/media-staging/descriptor.ts";
+import { localImageLimitRefusal } from "#lib/shared/media-staging/limits.ts";
 import * as styles from "./local-copy-styles.ts";
 
 let { file, headingId }: { file: File; headingId: string } = $props();
@@ -75,7 +76,7 @@ async function prepare() {
 			result && typeof result === "object" && "error" in result ? result.error : undefined;
 		message =
 			response.status === 413
-				? "The file exceeds the 32 MB local preparation limit. Choose a smaller SDR JPEG or PNG."
+				? localImageLimitRefusal.join(" ")
 				: typeof error === "string"
 					? error
 					: "Image preparation unavailable. Try again.";

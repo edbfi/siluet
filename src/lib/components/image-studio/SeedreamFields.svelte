@@ -282,8 +282,8 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 					Queue supports 1–{maxSeedreamReferences} public image URLs. For offline Review, you can
 					also stage files ({referenceFileHelp(provider)} each).
 				{:else}
-					Queue needs a connected provider. For offline Review, you can prepare a local
-					{referenceFileHelp(provider)} copy now.
+					Queue needs a connected provider. For offline Review, you can prepare a local copy of one
+					{referenceFileHelp(provider)}.
 				{/if}
 			</p>
 			{#if provider}

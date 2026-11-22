@@ -1,5 +1,7 @@
+import { localImageLimitRefusal, maxLocalImageBytes } from "../../../shared/media-staging/limits";
+
 // Both qualified cleaners impose a lower encoded limit than the 32,000,000-byte transport.
-export const maxPreparationBytes = 16 * 1024 * 1024;
+export const maxPreparationBytes = maxLocalImageBytes;
 export const maxRefusalBytes = 512;
 
 export function mediaMime(bytes: Uint8Array) {
@@ -9,7 +11,7 @@ export function mediaMime(bytes: Uint8Array) {
 
 const failures = {
 	format: ["Unsupported image format.", "Choose a single-frame SDR JPEG or PNG."],
-	limit: ["The image exceeds local preparation limits.", "Choose a smaller SDR JPEG or PNG."],
+	limit: localImageLimitRefusal,
 	busy: ["Another file is being prepared.", "Retry after the current preparation finishes."],
 	cancelled: ["Image preparation was cancelled.", "Select the file again to retry."],
 	timeout: ["Image preparation timed out.", "Choose a smaller SDR JPEG or PNG and try again."],
