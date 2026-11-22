@@ -11,7 +11,7 @@ import { providerStore } from "../../db/provider-store";
 import type { CheckFetch } from "../../providers/connection-check";
 import { batchHistory } from "../jobs/batch-history";
 import { createJobTracking } from "../jobs/tracking";
-import { loadBundledPricing } from "../pricing/local-feed";
+import { loadBundledPricing } from "../pricing/studio-feeds";
 import type { BatchAuthorization } from "./batch-dispatch";
 import { parseQueueRequest } from "./request";
 import { createSubmissionQueue } from "./submission";

@@ -14,7 +14,7 @@ import { decodeToapisPricingFeed } from "../../../shared/pricing/toapis-feed";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerKeyFilename } from "../../db/provider-key";
 import { providerStore } from "../../db/provider-store";
-import { loadBundledPricing } from "../pricing/local-feed";
+import { loadBundledPricing } from "../pricing/studio-feeds";
 import { createProviderConnections } from "../providers/connections";
 import { parseQueueRequest } from "./request";
 import { createSubmissionQueue } from "./submission";

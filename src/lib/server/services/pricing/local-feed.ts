@@ -1,8 +1,5 @@
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import poyoFeed from "../../../../../pricing/v1/feed.json";
-import toapisFeed from "../../../../../pricing/v1/toapis.json";
-import poyoV2Feed from "../../../../../pricing/v2/poyo.json";
 import {
 	decodePricingFeed,
 	isPricingClock,
@@ -10,7 +7,6 @@ import {
 	parsePricingInstant,
 } from "../../../shared/pricing/feed";
 import {
-	type PricingFeeds,
 	type PricingProvider,
 	type ProviderPricingFeed,
 	pricingSourceDate,
@@ -27,8 +23,14 @@ import {
 
 /** A local pricing file. `poyo` is the v1 Poyo.ai feed and `poyo-v2` its confirmed successor. */
 export type PricingFile = PricingProvider | "poyo-v2";
+/** Feeds already in memory, such as those embedded in the Studio build. */
+export type BundledPricingFeeds = Readonly<
+	Partial<Record<PricingFile, ProviderPricingFeed | undefined>>
+>;
 export type PricingPaths = {
 	provider?: PricingProvider;
+	/** Read bundled files from these paths, else use `bundledFeeds`. */
+	bundledFeeds?: BundledPricingFeeds;
 	bundledPath?: string;
 	cachePath?: string;
 	/** Poyo.ai only: the v2 files, selected alongside the v1 files above. */
@@ -51,12 +53,6 @@ export function pricingFileLocation(file: PricingFile): string {
 	return `${directory}/${name}`;
 }
 
-const bundledFeeds = {
-	poyo: decodePricingFeed(poyoFeed),
-	"poyo-v2": decodePoyoV2Feed(poyoV2Feed),
-	toapis: decodeToapisPricingFeed(toapisFeed),
-} satisfies Record<PricingFile, ProviderPricingFeed | undefined>;
-
 export function pricingCachePath(
 	cacheHome = process.env.XDG_CACHE_HOME,
 	file: PricingFile = "poyo",
@@ -75,7 +71,8 @@ export function decodePricingFile(
 	return decodeToapisPricingFeed(value);
 }
 
-function canonicalJson(value: unknown): string {
+/** JSON with record keys sorted, so key order never makes two feeds differ. */
+export function canonicalJson(value: unknown): string {
 	return JSON.stringify(value, (_key, field: unknown) =>
 		isPricingRecord(field)
 			? Object.fromEntries(Object.entries(field).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
@@ -159,8 +156,11 @@ function decodeCache(file: PricingFile, value: unknown): CachedPricingFeed | und
 	return { checkedAt, feed };
 }
 
+/** A bundled feed as a file path, an in-memory feed, or none. */
+type BundledSource = string | ProviderPricingFeed | undefined;
+
 export async function readLocalPricing(
-	bundledPath: string | undefined,
+	bundledSource: BundledSource,
 	cachePath: string,
 	file: PricingFile,
 ): Promise<{
@@ -168,7 +168,7 @@ export async function readLocalPricing(
 	cache: CachedPricingFeed | null | undefined;
 }> {
 	const [bundled, cache] = await Promise.all([
-		loadBundledFile(file, bundledPath),
+		loadBundledFile(file, bundledSource),
 		readLocalJson(cachePath, pricingFiles[file].byteLimit),
 	]);
 	return {
@@ -179,11 +179,11 @@ export async function readLocalPricing(
 
 async function loadBundledFile(
 	file: PricingFile,
-	bundledPath?: string,
+	source: BundledSource,
 ): Promise<ProviderPricingFeed | undefined> {
-	return bundledPath === undefined
-		? bundledFeeds[file]
-		: decodePricingFile(file, await readLocalJson(bundledPath, pricingFiles[file].byteLimit));
+	return typeof source === "string"
+		? decodePricingFile(file, await readLocalJson(source, pricingFiles[file].byteLimit))
+		: source;
 }
 
 /** Prefer the confirmed v2 feed unless the v1 feed has a strictly newer source. */
@@ -199,22 +199,28 @@ function preferPoyoFeed(
 
 export async function loadBundledPricing(
 	provider: PricingProvider,
-	{ bundledPath, v2BundledPath }: Pick<PricingPaths, "bundledPath" | "v2BundledPath"> = {},
+	{
+		bundledFeeds,
+		bundledPath,
+		v2BundledPath,
+	}: Pick<PricingPaths, "bundledFeeds" | "bundledPath" | "v2BundledPath">,
 ): Promise<ProviderPricingFeed | undefined> {
-	if (provider === "toapis") return loadBundledFile(provider, bundledPath);
+	if (provider === "toapis") {
+		return loadBundledFile(provider, bundledPath ?? bundledFeeds?.toapis);
+	}
 	const [v1, v2] = await Promise.all([
-		loadBundledFile("poyo", bundledPath),
-		loadBundledFile("poyo-v2", v2BundledPath),
+		loadBundledFile("poyo", bundledPath ?? bundledFeeds?.poyo),
+		loadBundledFile("poyo-v2", v2BundledPath ?? bundledFeeds?.["poyo-v2"]),
 	]);
 	return preferPoyoFeed(v1, v2);
 }
 
 async function selectLocalFile(
 	file: PricingFile,
-	bundledPath: string | undefined,
+	bundledSource: BundledSource,
 	cachePath: string,
 ): Promise<ProviderPricingFeed | undefined> {
-	const { bundled, cache } = await readLocalPricing(bundledPath, cachePath, file);
+	const { bundled, cache } = await readLocalPricing(bundledSource, cachePath, file);
 	if (!cache || (bundled && pricingFeedConflict(cache.feed, bundled))) return bundled;
 	// Keep the newest source after a clock correction. The calculator checks source time itself.
 	return cache.feed;
@@ -224,6 +230,7 @@ export async function loadLocalPricing(
 	nowMs: number,
 	{
 		provider = "poyo",
+		bundledFeeds,
 		bundledPath,
 		cachePath = pricingCachePath(undefined, provider),
 		v2BundledPath,
@@ -231,32 +238,12 @@ export async function loadLocalPricing(
 	}: PricingPaths = {},
 ): Promise<ProviderPricingFeed | undefined> {
 	if (!isPricingClock(nowMs)) return;
-	if (provider === "toapis") return selectLocalFile(provider, bundledPath, cachePath);
+	if (provider === "toapis") {
+		return selectLocalFile(provider, bundledPath ?? bundledFeeds?.toapis, cachePath);
+	}
 	const [v1, v2] = await Promise.all([
-		selectLocalFile("poyo", bundledPath, cachePath),
-		selectLocalFile("poyo-v2", v2BundledPath, v2CachePath),
+		selectLocalFile("poyo", bundledPath ?? bundledFeeds?.poyo, cachePath),
+		selectLocalFile("poyo-v2", v2BundledPath ?? bundledFeeds?.["poyo-v2"], v2CachePath),
 	]);
 	return preferPoyoFeed(v1, v2);
-}
-
-/** Load the selected local snapshots for use during browser-only composition and review. */
-export async function loadStudioPricingFeeds(
-	nowMs: number,
-	cacheHome?: string,
-): Promise<PricingFeeds> {
-	const [poyo, toapis] = await Promise.all([
-		loadLocalPricing(nowMs, {
-			provider: "poyo",
-			cachePath: pricingCachePath(cacheHome, "poyo"),
-			v2CachePath: pricingCachePath(cacheHome, "poyo-v2"),
-		}),
-		loadLocalPricing(nowMs, {
-			provider: "toapis",
-			cachePath: pricingCachePath(cacheHome, "toapis"),
-		}),
-	]);
-	return {
-		poyo: poyo?.provider === "poyo" ? poyo : undefined,
-		toapis: toapis?.provider === "toapis" ? toapis : undefined,
-	};
 }

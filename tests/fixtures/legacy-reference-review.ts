@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { openInstallation } from "../../src/lib/server/db/installation";
-import { loadStudioPricingFeeds } from "../../src/lib/server/services/pricing/local-feed";
+import { loadStudioPricingFeeds } from "../../src/lib/server/services/pricing/studio-feeds";
 
 const previousDisclosure = [
 	"Queue sends ToAPIs your prompt and full reference URL, including its path, query with any signature, and fragment. ToAPIs and its upstream model services may process these inputs and fetch the image, including through a fallback for eligible accounts and regions.",

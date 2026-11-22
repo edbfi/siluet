@@ -9,7 +9,7 @@ import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
 import { checkVideoInventory } from "../../providers/toapis/connection";
 import { createJobTracking } from "../jobs/tracking";
-import { loadStudioPricingFeeds } from "../pricing/local-feed";
+import { loadStudioPricingFeeds } from "../pricing/studio-feeds";
 import { createVideoAccess } from "../providers/video-access";
 import { createVideoQueue } from "./video";
 

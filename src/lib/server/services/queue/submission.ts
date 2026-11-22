@@ -10,7 +10,7 @@ import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import type { Installation } from "../../db/installation";
 import { nextProviderStart } from "../../db/provider-gate";
 import type { providerStore } from "../../db/provider-store";
-import { loadStudioPricingFeeds } from "../pricing/local-feed";
+import { loadStudioPricingFeeds } from "../pricing/studio-feeds";
 import type { BatchAuthorization } from "./batch-dispatch";
 import type { LiveRequest } from "./request";
 import { batchDisclosureVersion, reviewBinding } from "./review-binding";

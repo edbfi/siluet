@@ -7,12 +7,8 @@ import toapisFeed from "../../../../../pricing/v1/toapis.json";
 import poyoV2Bundle from "../../../../../pricing/v2/poyo.json";
 import h3Fixture from "../../../../../tests/fixtures/h3-rate.v2.json";
 import { decodePoyoV2Feed } from "../../../shared/pricing/poyo-feed";
-import {
-	loadLocalPricing,
-	loadStudioPricingFeeds,
-	pricingCachePath,
-	pricingFeedConflict,
-} from "./local-feed";
+import { pricingCachePath, pricingFeedConflict } from "./local-feed";
+import { loadStudioPricingFeeds } from "./studio-feeds";
 
 const day = 24 * 60 * 60 * 1000;
 let directory: string;
@@ -163,11 +159,6 @@ describe("confirmed PoYo v2 cache", () => {
 	test("bounds cache files at 256 KiB", async () => {
 		const bytes = 256 * 1024 + 1;
 		await writeCache(v2Path(), `${JSON.stringify({ checkedAt, feed: later })}${" ".repeat(bytes)}`);
-		expect<unknown>(
-			await loadLocalPricing(now, {
-				cachePath: pricingCachePath(directory, "poyo"),
-				v2CachePath: v2Path(),
-			}),
-		).toEqual(bundled);
+		expect<unknown>(await studio()).toEqual(bundled);
 	});
 });
