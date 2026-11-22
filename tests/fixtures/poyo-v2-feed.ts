@@ -37,7 +37,10 @@ function deepRate(depth: number): Record<string, unknown> {
  */
 export function sizedPoyoV2Feed(
 	bytes: number,
-	{ depth = 4, base = poyoV2Feed }: { depth?: number; base?: typeof poyoV2Feed } = {},
+	{
+		depth = 4,
+		base = poyoV2Feed,
+	}: { depth?: number; base?: { readonly rates: object; readonly [field: string]: unknown } } = {},
 ) {
 	const rates: Record<string, unknown> = { ...base.rates };
 	const feed = { ...base, rates };

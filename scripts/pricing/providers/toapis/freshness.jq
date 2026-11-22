@@ -8,7 +8,10 @@ def effective_observations:
        ((if .unit == "image" then $delays.image else $delays.video end) // 0))]
   | map($observed - .);
 
-($candidate | effective_observations) as $current
+# The publisher passes each feed as a file, so both arrive slurped.
+$candidate[0] as $candidate
+| $previous[0] as $previous
+| ($candidate | effective_observations) as $current
 | if ($current | min) + (30 * 86400) <= ($now | fromdateiso8601) then
     error("The ToAPIs candidate has expired source evidence.")
   elif $previous != null then

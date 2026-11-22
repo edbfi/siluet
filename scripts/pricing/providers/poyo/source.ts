@@ -1,8 +1,8 @@
+import { parsePricingInstant } from "../../../../src/lib/shared/pricing/feed.ts";
 import {
-	decodePricingFeed,
-	type PricingFeed,
-	parsePricingInstant,
-} from "../../../../src/lib/shared/pricing/feed.ts";
+	decodePoyoV2Feed,
+	type PoyoPricingFeedV2,
+} from "../../../../src/lib/shared/pricing/poyo-feed.ts";
 import { normalizeRates, type ReportGap } from "./catalog.ts";
 
 const catalogPath = "artifacts/capability-catalog.json";
@@ -49,7 +49,10 @@ export async function collectPoyoPricing(
 	fetchSource: SourceFetch,
 	expectedLicense: string,
 	reportGap?: ReportGap,
-): Promise<PricingFeed> {
+	now: () => number = Date.now,
+): Promise<PoyoPricingFeedV2> {
+	// This history check is the confirmation, so one clock reading dates both.
+	const checkedMs = Math.floor(now() / 1000) * 1000;
 	// Filter the default branch history by artifact path and fetch raw files
 	// from the resulting commit so provenance and catalog cannot race.
 	// https://docs.github.com/en/rest/commits/commits#list-commits
@@ -77,14 +80,24 @@ export async function collectPoyoPricing(
 		throw new Error("Invalid PoYo catalog commit provenance.");
 	}
 
-	if (commitTime > Date.now()) throw new Error("The PoYo catalog commit date is in the future.");
+	if (!Number.isFinite(checkedMs) || commitTime > checkedMs) {
+		throw new Error("The PoYo catalog commit date is in the future.");
+	}
+	const confirmedAt = new Date(checkedMs).toISOString().replace(".000Z", "Z");
 
 	const rawBase = `https://raw.githubusercontent.com/${upstream}/${revision}/`;
 	const catalog = await getText(fetchSource, rawBase + catalogPath, "catalog", 4 * 1024 * 1024);
 	const license = await getText(fetchSource, `${rawBase}LICENSE`, "license", 8 * 1024);
 	if (license !== expectedLicense) throw new Error("The upstream PoYo license changed.");
 	const rates = normalizeRates(catalog, reportGap);
-	const feed = decodePricingFeed({ version: 1, provider: "poyo", revision, sourceDate, rates });
+	const feed = decodePoyoV2Feed({
+		version: 2,
+		provider: "poyo",
+		revision,
+		sourceDate,
+		confirmedAt,
+		rates,
+	});
 	if (!feed) throw new Error("The normalized PoYo rates failed feed validation.");
 	return feed;
 }

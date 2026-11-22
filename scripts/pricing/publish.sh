@@ -12,118 +12,178 @@ fail() {
 provider=${1:-}
 case "$#:$provider" in
   2:poyo)
-    feed_file=feed.json
     data_ref=refs/heads/pricing-data
-    date_field=sourceDate
     label=PoYo
     ;;
   1:toapis)
-    feed_file=toapis.json
     data_ref=refs/heads/pricing-data-toapis
-    date_field=observedAt
     label=ToAPIs
     ;;
-  *) fail "Usage: publish.sh poyo LICENSE.poyo | publish.sh toapis" ;;
+  *) fail "Usage: publish.sh poyo LICENSE.poyo < poyo.json | publish.sh toapis < toapis.json" ;;
 esac
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# Feeds stay in files so no feed passes through argv or the environment.
+work=$(mktemp -d)
+trap 'rm -rf -- "$work"' EXIT
 
+# Record the outcome as a run annotation and a summary line.
+report() {
+  printf '::notice title=%s::%s\n' "$1" "$2"
+  if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
+    printf -- '- %s\n' "$2" >>"$GITHUB_STEP_SUMMARY"
+  fi
+}
+
+skip() {
+  report "Pricing not published" "$1"
+  exit 0
+}
+
+# Write the canonical compact JSON and its trailing LF. Reject input over the byte limit.
 canonical_feed() {
-  head -c 4097 | jq -RsceS -L "$script_dir" -f "$script_dir/providers/$provider/publish.jq"
+  local filter=$1 limit=$2
+  head -c "$((limit + 1))" | jq -RsceS -L "$script_dir" -f "$script_dir/$filter"
+}
+
+field() {
+  jq -r --arg field "$1" '.[$field]' "$2"
 }
 
 # Construct the exact data-only tree without checking out the branch.
 # https://git-scm.com/docs/git-mktree
 build_tree() {
-  local feed_blob=$1 license_blob=$2 v1_tree pricing_tree
+  local v1_feed=$1 license=$2 v2_feed=${3:-} v1_tree v2_tree='' pricing_tree
   v1_tree=$({
-    printf '100644 blob %s\t%s\n' "$feed_blob" "$feed_file"
-    if [[ -n $license_blob ]]; then
-      printf '100644 blob %s\tLICENSE.poyo\n' "$license_blob"
+    printf '100644 blob %s\t%s\n' "$v1_feed" "$v1_name"
+    if [[ -n $license ]]; then
+      printf '100644 blob %s\tLICENSE.poyo\n' "$license"
     fi
   } | git mktree) || return
-  pricing_tree=$(printf '040000 tree %s\tv1\n' "$v1_tree" | git mktree) || return
+  if [[ -n $v2_feed ]]; then
+    v2_tree=$(printf '100644 blob %s\tLICENSE.poyo\n100644 blob %s\tpoyo.json\n' \
+      "$license" "$v2_feed" | git mktree) || return
+  fi
+  pricing_tree=$({
+    printf '040000 tree %s\tv1\n' "$v1_tree"
+    if [[ -n $v2_tree ]]; then
+      printf '040000 tree %s\tv2\n' "$v2_tree"
+    fi
+  } | git mktree) || return
   printf '040000 tree %s\tpricing\n' "$pricing_tree" | git mktree
 }
 
-check_poyo_update() {
-  local revision old_revision
-  revision=$(jq -r '.revision' <<<"$candidate")
-  old_revision=$(jq -r '.revision' <<<"$previous")
-  if [[ "$revision" == "$old_revision" ]]; then
-    [[ "$source_date" == "$old_date" && "$license_blob" == "$old_license" ]] ||
-      fail "The same PoYo revision produced a different source date or license."
-    if [[ "$candidate" == "$previous" ]]; then
-      printf '%s\n' "Pricing feed is unchanged."
-      exit 0
-    fi
-    # A reviewed collector update can fill a gap at the same source revision.
-    jq -e --argjson old "$previous" '
-      all(.rates | to_entries[];
-        . as $rate | $old.rates[$rate.key] as $old_rate
-        | $old_rate == $rate.value or $old_rate == {kind: "unavailable"})
-    ' <<<"$candidate" >/dev/null ||
-      fail "The same PoYo revision changed an existing rate."
-  else
-    [[ "$source_date" > "$old_date" ]] ||
-      fail "The pricing candidate does not have a newer source date."
-  fi
-}
-
-check_toapis_update() {
-  jq -en --argjson candidate "$candidate" --argjson previous "${previous:-null}" --arg now "$now" \
-    -f "$script_dir/providers/toapis/freshness.jq" >/dev/null || fail "ToAPIs source freshness validation failed."
-  [[ -n $previous ]] || return 0
-  if [[ "$candidate" == "$previous" ]]; then
-    printf '%s\n' "Pricing feed is unchanged."
-    exit 0
-  fi
-  [[ "$source_date" > "$old_date" ]] ||
-    fail "The ToAPIs candidate does not have a newer observation."
-  if [[ ${source_date:0:10} == "${old_date:0:10}" ]]; then
-    printf '%s\n' "ToAPIs pricing was already published today."
-    exit 0
-  fi
-}
-
-candidate=$(canonical_feed)
-source_date=$(jq -r --arg field "$date_field" '.[$field]' <<<"$candidate")
 now=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-[[ "$source_date" > "$now" ]] && fail "The pricing candidate source date is in the future."
-license_blob=''
-old_license=''
+now_seconds=$(date -u -d "$now" '+%s')
+
 if [[ $provider == poyo ]]; then
+  v1_name=feed.json
+  canonical_feed providers/poyo/publish-v2.jq 65536 >"$work/candidate.json"
+  # The published blob, including its trailing LF, must fit the 64 KiB wire limit.
+  (($(wc -c <"$work/candidate.json") <= 65536)) || fail "The pricing feed exceeds the size limit."
+  source_date=$(field sourceDate "$work/candidate.json")
+  confirmed_at=$(field confirmedAt "$work/candidate.json")
   license_blob=$(git hash-object --no-filters -w -- "$2")
+else
+  v1_name=toapis.json
+  canonical_feed providers/toapis/publish.jq 4096 >"$work/candidate.json"
+  source_date=$(field observedAt "$work/candidate.json")
+  license_blob=''
 fi
+[[ "$source_date" > "$now" ]] && fail "The pricing candidate source date is in the future."
 
 parents=()
-previous=''
+old_v1=''
+old_v2=''
+old_license=''
 if git ls-remote --exit-code --refs origin "$data_ref" >/dev/null; then
   git fetch --no-tags --depth=1 origin "$data_ref"
   parent=$(git rev-parse FETCH_HEAD)
   parents=(-p "$parent")
-  old_feed=$(git rev-parse "$parent:pricing/v1/$feed_file")
+  old_v1=$(git rev-parse "$parent:pricing/v1/$v1_name")
   if [[ $provider == poyo ]]; then
     old_license=$(git rev-parse "$parent:pricing/v1/LICENSE.poyo")
+    old_v2=$(git rev-parse --verify --quiet "$parent:pricing/v2/poyo.json" || true)
   fi
-  expected_tree=$(build_tree "$old_feed" "$old_license")
+  expected_tree=$(build_tree "$old_v1" "$old_license" "$old_v2")
   [[ $(git rev-parse "$parent^{tree}") == "$expected_tree" ]] ||
     fail "Unexpected contents in the $data_ref branch."
-  previous=$(git cat-file blob "$old_feed" | canonical_feed)
-  old_date=$(jq -r --arg field "$date_field" '.[$field]' <<<"$previous")
   if [[ $provider == poyo ]]; then
-    check_poyo_update
+    git cat-file blob "$old_v1" | canonical_feed providers/poyo/publish.jq 4096 >"$work/previous-v1.json"
+  else
+    git cat-file blob "$old_v1" | canonical_feed providers/toapis/publish.jq 4096 >"$work/previous-v1.json"
+  fi
+  if [[ -n $old_v2 ]]; then
+    git cat-file blob "$old_v2" | canonical_feed providers/poyo/publish-v2.jq 65536 >"$work/previous-v2.json"
   fi
 else
   [[ $? == 2 ]] || fail "Could not determine whether the $data_ref branch exists."
 fi
-if [[ $provider == toapis ]]; then
-  check_toapis_update
+
+if [[ $provider == poyo ]]; then
+  # A rerun of the same collection publishes nothing.
+  if [[ -n $old_v2 && $license_blob == "$old_license" ]] &&
+    cmp -s "$work/candidate.json" "$work/previous-v2.json"; then
+    skip "PoYo pricing is unchanged."
+  fi
+  # Only this run's history check mints a confirmation, so it must be current.
+  confirmed_seconds=$(date -u -d "$confirmed_at" '+%s')
+  ((confirmed_seconds <= now_seconds)) || fail "The PoYo confirmation is in the future."
+  ((confirmed_seconds + 30 * 86400 > now_seconds)) || fail "The PoYo confirmation has expired."
+  ((now_seconds - confirmed_seconds <= 3600)) ||
+    fail "The PoYo confirmation is more than one hour older than the publisher's clock."
+  if [[ -n $old_license ]]; then
+    previous="$work/previous-v1.json"
+    if [[ -n $old_v2 ]]; then
+      previous="$work/previous-v2.json"
+    fi
+    license_state=same
+    [[ $license_blob == "$old_license" ]] || license_state=changed
+    update=$(jq -r --slurpfile previous "$previous" --arg license "$license_state" \
+      -L "$script_dir" -f "$script_dir/providers/poyo/order.jq" "$work/candidate.json") ||
+      fail "PoYo pricing ordering validation failed."
+    # Publish at most one confirmation-only update per UTC day.
+    if [[ -n $old_v2 && $update == confirmation &&
+      ${confirmed_at:0:10} == "$(field confirmedAt "$previous" | cut -c1-10)" ]]; then
+      skip "PoYo pricing was already confirmed today."
+    fi
+  fi
+  # Older readers keep v1. Reuse its blob unless the projection changes.
+  jq -c -L "$script_dir" -f "$script_dir/providers/poyo/project-v1.jq" "$work/candidate.json" |
+    canonical_feed providers/poyo/publish.jq 4096 >"$work/projection.json"
+  if [[ -n $old_v1 ]] && cmp -s "$work/projection.json" "$work/previous-v1.json"; then
+    v1_blob=$old_v1
+  else
+    v1_blob=$(git hash-object -w -- "$work/projection.json")
+  fi
+  v2_blob=$(git hash-object -w -- "$work/candidate.json")
+  revision=$(field revision "$work/candidate.json")
+  outcome="PoYo pricing published: revision ${revision:0:12}, source $source_date, confirmed $confirmed_at."
+else
+  if [[ -z $old_v1 ]]; then
+    : >"$work/previous-v1.json"
+  fi
+  jq -en --slurpfile candidate "$work/candidate.json" --slurpfile previous "$work/previous-v1.json" \
+    --arg now "$now" -f "$script_dir/providers/toapis/freshness.jq" >/dev/null ||
+    fail "ToAPIs source freshness validation failed."
+  if [[ -n $old_v1 ]]; then
+    if cmp -s "$work/candidate.json" "$work/previous-v1.json"; then
+      skip "ToAPIs pricing is unchanged."
+    fi
+    old_date=$(field observedAt "$work/previous-v1.json")
+    [[ "$source_date" > "$old_date" ]] ||
+      fail "The ToAPIs candidate does not have a newer observation."
+    if [[ ${source_date:0:10} == "${old_date:0:10}" ]]; then
+      skip "ToAPIs pricing was already published today."
+    fi
+  fi
+  v1_blob=$(git hash-object -w -- "$work/candidate.json")
+  v2_blob=''
+  outcome="ToAPIs pricing published: observed $source_date."
 fi
 
 # https://git-scm.com/docs/git-commit-tree
-feed_blob=$(printf '%s\n' "$candidate" | git hash-object -w --stdin)
-tree=$(build_tree "$feed_blob" "$license_blob")
+tree=$(build_tree "$v1_blob" "$license_blob" "$v2_blob")
 export GIT_AUTHOR_NAME='github-actions[bot]' GIT_COMMITTER_NAME='github-actions[bot]'
 export GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com'
 export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
@@ -142,3 +202,4 @@ if [[ -n ${PRICING_PUSH_TOKEN:-} ]]; then
 else
   git push origin "$commit:$data_ref"
 fi
+report "Pricing published" "$outcome"
