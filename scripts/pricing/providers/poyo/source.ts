@@ -50,6 +50,7 @@ export async function collectPoyoPricing(
 	expectedLicense: string,
 	reportGap?: ReportGap,
 	now: () => number = Date.now,
+	githubToken = "",
 ): Promise<PoyoPricingFeedV2> {
 	// This history check is the confirmation, so one clock reading dates both.
 	const checkedMs = Math.floor(now() / 1000) * 1000;
@@ -58,9 +59,13 @@ export async function collectPoyoPricing(
 	// https://docs.github.com/en/rest/commits/commits#list-commits
 	const commitsUrl = new URL(`https://api.github.com/repos/${upstream}/commits`);
 	commitsUrl.search = new URLSearchParams({ path: catalogPath, per_page: "1" }).toString();
+	// Anonymous REST calls share a small per-IP limit on hosted runners, so CI
+	// authenticates this one request. Raw file downloads stay anonymous.
+	// https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
 	const history = await getText(fetchSource, commitsUrl.href, "catalog history", 64 * 1024, {
 		Accept: "application/vnd.github+json",
 		"X-GitHub-Api-Version": "2022-11-28",
+		...(githubToken ? { Authorization: `Bearer ${githubToken}` } : {}),
 	});
 	const commits: unknown = JSON.parse(history);
 	const revision: unknown = Array.isArray(commits) ? commits[0]?.sha : undefined;
