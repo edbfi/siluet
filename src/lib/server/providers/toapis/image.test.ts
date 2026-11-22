@@ -32,6 +32,9 @@ test("ToAPIs POST preserves the approved route flag and records the id", async (
 test("ToAPIs treats documented errors separately from transport or upstream uncertainty", async () => {
 	for (const [code, reason] of [
 		["invalid_request", "validation"],
+		["invalid_image", "validation"],
+		["invalid_image_file", "validation"],
+		["invalid_private_assets", "validation"],
 		["insufficient_user_quota", "quota"],
 		["prompt_blocked", "filtering"],
 		["do_request_failed", null],
@@ -49,6 +52,35 @@ test("ToAPIs treats documented errors separately from transport or upstream unce
 	});
 	expect(await unavailable.submit(key, request)).toEqual({ kind: "unknown" });
 });
+
+test.each(["invalid_request", "invalid_image_file"])(
+	"ToAPIs keeps timeout, rate-limit, upstream and contradictory %s responses uncertain",
+	async (code) => {
+		const error = { code };
+		for (const [status, body] of [
+			[408, { error }],
+			[429, { error }],
+			[503, { error }],
+			[400, { error, id: taskId }],
+			[400, { error, id: "invalid/id" }],
+			[400, { error, id: "" }],
+			[400, { error, id: 42 }],
+			[400, { error, id: null }],
+			[400, { error, success: true }],
+			[400, { error, object: "generation.task" }],
+			[400, { error, status: "pending" }],
+			[200, { id: taskId, success: false }],
+			[200, { id: taskId, error }],
+		] as const) {
+			const image = createToapisImage(async () => Response.json(body, { status }));
+			expect(await image.submit(key, request)).toEqual({ kind: "unknown" });
+		}
+		const timedOut = createToapisImage(async () => {
+			throw new DOMException("private request details", "TimeoutError");
+		});
+		expect(await timedOut.submit(key, request)).toEqual({ kind: "unknown" });
+	},
+);
 
 test("ToAPIs preserves exact decimal settlement and expiry without retaining response details", async () => {
 	const credits = "100.0000000001";
@@ -101,4 +133,32 @@ test("ToAPIs recognizes pending without a charge and failed with a confirmed ref
 		const image = createToapisImage(async () => Response.json({ id: taskId, ...body }));
 		expect(await image.status(key, taskId)).toMatchObject({ kind: "observed", ...expected });
 	}
+});
+
+test("ToAPIs exposes only the bounded reason from a matching failed task", async () => {
+	const error = {
+		code: "generation_failed",
+		reason: "reference_media_unreadable",
+		input_media_errors: [{ message: "https://ref.example.net/private.png?sig=private" }],
+	};
+	const failed = createToapisImage(async () =>
+		Response.json({ id: taskId, status: "failed", error }),
+	);
+	expect(await failed.status(key, taskId)).toEqual({
+		kind: "observed",
+		state: "failed",
+		failureReason: "reference_media_unreadable",
+		billing: { status: "unknown" },
+		resultUrl: null,
+		expiresAt: null,
+		retryAfter: null,
+	});
+	const unrelated = createToapisImage(async () =>
+		Response.json({ id: "different-task", status: "failed", error }),
+	);
+	expect(await unrelated.status(key, taskId)).toEqual({ kind: "temporary", retryAfter: null });
+	const running = createToapisImage(async () =>
+		Response.json({ id: taskId, status: "in_progress", error }),
+	);
+	expect(await running.status(key, taskId)).toEqual({ kind: "temporary", retryAfter: null });
 });

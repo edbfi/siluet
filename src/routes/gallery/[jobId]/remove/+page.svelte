@@ -14,7 +14,7 @@ let { data, form }: PageProps = $props();
 		<strong>Image {data.image.jobId.slice(0, 8)}</strong>
 		<SavedImageDetails {...data.image} />
 	</div>
-	<p>This deletes the image from this device. You can still find the generation in Jobs.</p>
+	<p>This deletes the image from this device. You can still find the job in Jobs.</p>
 	{#if form?.message}
 		<p role="alert">{form.message}</p>
 	{/if}

@@ -11,6 +11,7 @@ export type Submission =
 	| { kind: "unknown" };
 
 export type TaskState = "waiting" | "running" | "completed" | "failed";
+export type TaskFailureReason = "reference_media_unreadable";
 export type StatusPause = "authorization" | "missing-task" | "unknown-status";
 export type TaskBilling =
 	| { status: "reported"; credits: string }
@@ -21,6 +22,7 @@ export type TaskObservation = { retryAfter: string | null } & (
 	| {
 			kind: "observed";
 			state: TaskState;
+			failureReason: TaskFailureReason | null;
 			billing: TaskBilling | null;
 			resultUrl: string | null;
 			expiresAt: number | null;

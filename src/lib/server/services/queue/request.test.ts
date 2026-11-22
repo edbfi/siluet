@@ -36,3 +36,87 @@ test.each([null, 512.5])(
 		expect(parse("pixels")).toBeNull();
 	},
 );
+
+const editUrl = "https://images.example.org/fan%2fdetail%20one?sig=A%2bZ&v=1&v=2#panel";
+const editDraft = {
+	...createSeedreamDraft("poyo", "edit"),
+	prompt: "add fine lines to the folding screen",
+	references: [{ kind: "url", url: `  ${editUrl}  `, hostname: "forged.example.org" }],
+};
+
+test.each(["poyo", "toapis"] as const)(
+	"a %s edit uses one public URL with its exact trimmed spelling",
+	(provider) => {
+		const parsed = parseQueueRequest({ ...request, draft: { ...editDraft, provider } });
+		expect(parsed?.input.references).toEqual([
+			{ kind: "url", url: editUrl, hostname: "images.example.org" },
+		]);
+		if (provider === "poyo") {
+			expect(parsed?.request.body).toEqual({
+				model: "seedream-5.5",
+				input: {
+					prompt: editDraft.prompt,
+					size: "auto",
+					resolution: "2K",
+					background: "auto",
+					output_format: "png",
+					enable_safety_checker: false,
+					image_urls: [editUrl],
+				},
+			});
+		} else {
+			expect(parsed?.request.body).toEqual({
+				model: "doubao-seedream-5-5",
+				prompt: editDraft.prompt,
+				size: "2K",
+				disable_nsfw: false,
+				metadata: { background: "auto", output_format: "png", watermark: false },
+				image_urls: [editUrl],
+			});
+		}
+	},
+);
+
+test("live edit rejects unsupported attempts, output controls, and reference shapes", () => {
+	const remote = editDraft.references[0];
+	const file = { kind: "file", file: { name: "local.png", size: 90, type: "image/png" } };
+	for (const overrides of [
+		{ count: 0 },
+		{ count: 2 },
+		{ count: "1" },
+		{ retryLimit: 1 },
+		{ retryLimit: "0" },
+		{ editDisclosure: ["forged terms"] },
+		{ draft: { ...editDraft, layer_decomposition: true } },
+		{ draft: { ...editDraft, options: { ...editDraft.options, layer_decomposition: true } } },
+	]) {
+		expect(parseQueueRequest({ ...request, draft: editDraft, ...overrides })).toBeNull();
+	}
+	for (const references of [
+		[],
+		[remote, remote],
+		[file],
+		[remote, file],
+		[null],
+		[{ url: editUrl }],
+		[{ ...remote, url: 3 }],
+		[{ ...remote, hostname: true }],
+		[{ ...remote, file }],
+		{ 0: remote, length: 1 },
+	]) {
+		expect(parseQueueRequest({ ...request, draft: { ...editDraft, references } })).toBeNull();
+	}
+});
+
+test.each([
+	"/image.png",
+	"ftp://images.example.org/image.png",
+	"https://user:password@images.example.org/image.png",
+	"https://printer.local/image.png",
+	"http://127.1/image.png",
+	"http://169.254.169.254/image.png",
+	"http://[::1]/image.png",
+])("live edit rejects %s even with a supplied public hostname", (url) => {
+	const references = [{ kind: "url", url, hostname: "images.example.org" }];
+	expect(parseQueueRequest({ ...request, draft: { ...editDraft, references } })).toBeNull();
+});

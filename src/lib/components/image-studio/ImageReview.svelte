@@ -51,10 +51,21 @@ const selectedProvider = $derived(review?.pricing.provider ?? provider);
 const providerName = $derived(selectedProvider && providerNames[selectedProvider]);
 const isEdit = $derived((review?.pricing.operation ?? operation) === "edit");
 type QueueInput = { draft: SeedreamDraft; count: number; retryLimit: number };
-type ReviewTerms = { token: string; quote: PriceEstimate; requiresConsent: boolean };
-const supported = $derived(!isEdit && count === 1 && retryLimit === 0);
+type ReviewTerms = {
+	token: string;
+	quote: PriceEstimate;
+	requiresConsent: boolean;
+	editDisclosure?: readonly string[];
+};
+const unavailable = $derived(
+	count !== 1 || retryLimit !== 0
+		? "Queue supports one request and zero additional attempts."
+		: isEdit && (draft.references.length !== 1 || draft.references[0]?.kind !== "url")
+			? "Queue requires exactly one public image URL. Files and multiple references can be staged for offline Review."
+			: null,
+);
 const request = $derived(
-	review && supported ? { draft: $state.snapshot(draft), count, retryLimit } : null,
+	review && !unavailable ? { draft: $state.snapshot(draft), count, retryLimit } : null,
 );
 let authorized = $state.raw<{ request: QueueInput; terms: ReviewTerms } | null>(null);
 let pending = $state<"review" | "queue" | null>(null);
@@ -73,6 +84,7 @@ const expiry = $derived(reviewPriceExpiry(terms?.quote ?? offlineQuote ?? undefi
 const expired = $derived(expiry !== undefined && (browserNow ?? nowMs) >= expiry);
 const current = $derived(!expired ? terms : null);
 const quote = $derived(current?.quote ?? offlineQuote);
+const disclosure = $derived(isEdit ? current?.editDisclosure : undefined);
 const canQueue = $derived(current && (!current.requiresConsent || acceptedToken === current.token));
 
 $effect(() => {
@@ -91,6 +103,35 @@ function post(path: string, body: object) {
 	});
 }
 
+function applyTerms(input: QueueInput, terms: ReviewTerms) {
+	const disclosure = terms.editDisclosure;
+	if (
+		input.draft.operation === "edit" &&
+		(!Array.isArray(disclosure) ||
+			disclosure.length === 0 ||
+			!disclosure.every((line) => typeof line === "string" && line.trim()))
+	) {
+		authorized = null;
+		feedback = {
+			request: input,
+			message: "Provider disclosure is unavailable. Review again before queuing.",
+		};
+		return false;
+	}
+	authorized = { request: input, terms };
+	return true;
+}
+
+async function focusReview(trigger: "inspect" | "queue") {
+	if (
+		document.activeElement?.id === `${headingId}-${trigger}` ||
+		document.activeElement === document.body
+	) {
+		await tick();
+		document.getElementById(headingId)?.focus();
+	}
+}
+
 async function inspect() {
 	const input = request;
 	if (!input || pending) return;
@@ -103,16 +144,7 @@ async function inspect() {
 		const response = await post("/image/review", { ...input, acceptUnknown: false });
 		if (!response.ok) throw new Error();
 		const terms: ReviewTerms = await response.json();
-		if (mounted && input === request) {
-			const focusHeading =
-				document.activeElement?.id === `${headingId}-inspect` ||
-				document.activeElement === document.body;
-			authorized = { request: input, terms };
-			if (focusHeading) {
-				await tick();
-				document.getElementById(headingId)?.focus({ preventScroll: true });
-			}
-		}
+		if (mounted && input === request && applyTerms(input, terms)) await focusReview("inspect");
 	} catch {
 		feedback = {
 			request: input,
@@ -135,16 +167,21 @@ async function queue() {
 			acceptUnknown: acceptedToken === current.token,
 		});
 		if (response.status === 409 || response.status === 400) {
-			const { review: fresh } = await response.json();
+			const result: { review?: ReviewTerms } | null = await response.json().catch(() => null);
 			if (!mounted || input !== request) return;
-			authorized = fresh ? { request: input, terms: fresh } : null;
+			const fresh = result?.review;
+			authorized = null;
 			acceptedToken = null;
-			feedback = {
-				request: input,
-				message: fresh
-					? "The terms changed. Check the updated Review before queuing."
-					: "Review is unavailable for these terms. Check the provider connection and review again.",
-			};
+			if (!fresh || applyTerms(input, fresh)) {
+				feedback = {
+					request: input,
+					message: fresh
+						? "The terms changed. Check the updated Review before queuing."
+						: "Review is unavailable for these terms. Check the provider connection and review again.",
+				};
+			}
+			tabValue = "review";
+			await focusReview("queue");
 			return;
 		}
 		if (!response.ok) throw new Error();
@@ -227,15 +264,13 @@ $effect(() => {
 					<dd class={styles.detail}>{isEdit ? "Reference-guided image edit" : "Text to image"}</dd>
 				</div>
 				<div class={styles.fact}>
-					<dt class={styles.term}>Media on submission</dt>
+					<dt class={styles.term}>{isEdit ? "Reference images" : "Media on submission"}</dt>
 					<dd class={styles.detail}>
 						{#if review?.sources.length}
 							<ol class={styles.mediaList}>
 								{#each review.sources as source}
 									<li>
-										{source.label}{source.kind === "url"
-											? " (provider fetches the full URL)"
-											: " (file upload)"}
+										{source.label}{source.kind === "url" ? " (URL reference)" : " (local file)"}
 									</li>
 								{/each}
 							</ol>
@@ -275,6 +310,14 @@ $effect(() => {
 					</dd>
 				</div>
 			</dl>
+			{#if disclosure}
+				<h3 class={styles.disclosureHeading} id={`${headingId}-disclosure`}>Provider disclosure</h3>
+				<ul class={styles.disclosure} aria-labelledby={`${headingId}-disclosure`}>
+					{#each disclosure as line, index (index)}
+						<li>{line}</li>
+					{/each}
+				</ul>
+			{/if}
 		</Tabs.Content>
 
 		<Tabs.Content value="batch" class={styles.tabContent}>
@@ -346,7 +389,7 @@ $effect(() => {
 		</label>
 	{/if}
 	<div class={styles.actions}>
-		{#if supported && !current}
+		{#if !unavailable && !current}
 			<button
 				type="button"
 				id={`${headingId}-inspect`}
@@ -360,6 +403,7 @@ $effect(() => {
 		<button
 			class={styles.queue}
 			type="button"
+			id={`${headingId}-queue`}
 			disabled={!canQueue || !!pending || tabValue !== "review"}
 			onclick={queue}
 			aria-describedby={`${headingId}-exposure ${headingId}-availability`}
@@ -373,8 +417,8 @@ $effect(() => {
 	<p id={`${headingId}-availability`} class={styles.note} role="status">
 		{#if feedback && feedback.request === request}
 			{feedback.message}
-		{:else if !supported}
-			Queue supports text to image with one request and zero additional attempts.
+		{:else if unavailable}
+			{unavailable}
 		{:else if current && tabValue !== "review"}
 			Open the Review tab to queue this request.
 		{:else if current}

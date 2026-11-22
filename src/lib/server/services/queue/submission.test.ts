@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createHmac } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { toapisRates } from "../../../../../tests/fixtures/toapis-feed";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
-import { pricingMaxAgeMs } from "../../../shared/pricing/feed";
+import { decodePricingFeed, pricingMaxAgeMs } from "../../../shared/pricing/feed";
 import { decodeToapisPricingFeed } from "../../../shared/pricing/toapis-feed";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
@@ -15,14 +16,19 @@ import { createSubmissionQueue } from "./submission";
 let db: Installation;
 let dir: string;
 let posted: string[];
-function makeInput(provider: "poyo" | "toapis" = "poyo") {
+const referenceUrl =
+	"https://photo-fixture.example.org/private%2Ffan?sig=private%2Bnz&v=1&v=2#layer-id";
+const prompt = "private prompt with a folded fan";
+function makeInput(provider: "poyo" | "toapis" = "poyo", url?: string) {
+	const draft = createSeedreamDraft(provider, url ? "edit" : "generate");
+	if (url) draft.references = [{ kind: "url", url, hostname: "mock.example" }];
 	const parsed = parseQueueRequest({
-		draft: { ...createSeedreamDraft(provider), prompt: "private prompt with a folded fan" },
+		draft: { ...draft, prompt },
 		count: 1,
 		retryLimit: 0,
 		acceptUnknown: false,
 	});
-	if (!parsed) throw new Error("Invalid generation fixture");
+	if (!parsed) throw new Error("Invalid live request fixture");
 	return parsed;
 }
 function queue() {
@@ -54,6 +60,7 @@ test.each(["poyo", "toapis"] as const)(
 		const api = await queue();
 		const review = await api.review("owner", input);
 		if ("error" in review) throw new Error("expected Review");
+		expect(review).not.toHaveProperty("editDisclosure");
 		expect(review.requiresConsent).toBe(true);
 		const click = { ...input, token: review.token };
 		expect(await api.submit("owner", click)).toEqual({ error: "invalid" });
@@ -84,6 +91,185 @@ test.each(["poyo", "toapis"] as const)(
 		expect(JSON.stringify(rows)).not.toContain(input.input.prompt);
 	},
 );
+
+test("legacy generation Review tokens and accepted bindings remain compatible", async () => {
+	const input = makeInput();
+	const api = await queue();
+	const review = await api.review("owner", input);
+	if ("error" in review) throw new Error("Expected Review.");
+	const row = await db.use((conn) =>
+		conn.get<{ secret: string }>(sql`SELECT secret FROM image_review_key WHERE singleton=1`),
+	);
+	if (!row) throw new Error("Expected installation signing key.");
+	const digest = (...parts: unknown[]) =>
+		createHmac("sha256", Buffer.from(row.secret, "hex"))
+			.update(JSON.stringify(parts))
+			.digest("hex");
+	const id = review.token.split(".")[0];
+	const terms = digest("review-terms-v1", 1, review.quote, true, null);
+	const signature = digest("review-v1", id, terms, "owner", "poyo", input.request.body, 1, 0);
+	expect(review.token).toBe(`${id}.${terms}.${signature}`);
+	expect(await api.submit("owner", { ...input, token: review.token, acceptUnknown: true })).toEqual(
+		{
+			jobId: id,
+		},
+	);
+	const job = await db.use((conn) =>
+		conn.get<{ binding: string }>(sql`SELECT binding FROM image_job WHERE id=${id}`),
+	);
+	expect(job?.binding).toBe(digest("accepted-v1", signature, true));
+});
+
+test.each(["poyo", "toapis"] as const)(
+	"a %s edit binds the full provider payload and replays one accepted Review after restart",
+	async (provider) => {
+		const delivered: unknown[] = [];
+		const openQueue = () =>
+			createSubmissionQueue(
+				db,
+				providerStore(db).credential,
+				async (_id, route, key, request) => {
+					delivered.push({ route, key, request });
+				},
+				async () => ({}),
+			);
+		const input = makeInput(provider, referenceUrl);
+		const api = await openQueue();
+		const review = await api.review("owner", input);
+		if ("error" in review) throw new Error("Expected Review.");
+		const disclosure = "editDisclosure" in review ? review.editDisclosure : undefined;
+		expect(disclosure).toBeArray();
+		const text = Array.isArray(disclosure) ? disclosure.join(" ") : "";
+		expect(text).toMatch(/path.*query.*fragment/i);
+		expect(text).toMatch(/upstream/i);
+		expect(text).toMatch(/signed link.*expir/i);
+		expect(text).toMatch(/keep a copy/i);
+		expect(text).toMatch(/reference image.*retention|retention.*reference image/i);
+		expect(text).toMatch(
+			provider === "poyo" ? /task history.*three months/i : /fallback.*90 days/i,
+		);
+		expect(JSON.stringify(review)).not.toContain(referenceUrl);
+		expect(delivered).toBeEmpty();
+
+		const click = { ...input, token: review.token, acceptUnknown: true };
+		expect(await api.submit("other", click)).toEqual({ error: "invalid" });
+		for (const altered of [
+			makeInput(provider, referenceUrl.replace("private%2Bnz", "other%2Bnz")),
+			makeInput(provider, referenceUrl.replace("&v=1&v=2", "&v=2&v=1")),
+			makeInput(provider, referenceUrl.replace("#layer-id", "#other-layer")),
+			makeInput(provider),
+		]) {
+			expect(await api.submit("owner", { ...click, ...altered, token: review.token })).toEqual({
+				error: "invalid",
+			});
+		}
+		expect(delivered).toBeEmpty();
+		expect(await db.use((conn) => conn.all(sql`SELECT id FROM image_job`))).toBeEmpty();
+
+		const [first, second] = await Promise.all([
+			api.submit("owner", click),
+			api.submit("owner", click),
+		]);
+		expect(first).toHaveProperty("jobId");
+		expect(second).toEqual(first);
+		expect(delivered).toEqual([
+			{ route: provider, key: `fixture-${provider}`, request: input.request },
+		]);
+		const persisted = JSON.stringify(
+			await db.use((conn) => conn.all(sql`SELECT * FROM image_job`)),
+		);
+		for (const privateMarker of [
+			prompt,
+			"photo-fixture",
+			"private%2Ffan",
+			"private%2Bnz",
+			"layer-id",
+		]) {
+			expect(persisted).not.toContain(privateMarker);
+		}
+		await providerStore(db).remove(provider);
+		await db.close();
+		db = await openInstallation(dir);
+		const reopened = await openQueue();
+		expect(await reopened.submit("owner", click)).toEqual(first);
+		expect(await reopened.submit("owner", { ...click, acceptUnknown: false })).toEqual({
+			error: "invalid",
+		});
+		expect(delivered).toHaveLength(1);
+	},
+);
+
+test("changing only the edit disclosure content stales unused consent and preserves a claimed replay", async () => {
+	const input = makeInput("poyo", referenceUrl);
+	let disclosure = ["The reference is retained for three months."];
+	const openQueue = () =>
+		createSubmissionQueue(
+			db,
+			providerStore(db).credential,
+			async () => {
+				posted.push("accepted");
+			},
+			async () => ({}),
+			Date.now,
+			() => disclosure,
+		);
+	const api = await openQueue();
+	const original = await api.review("owner", input);
+	if ("error" in original) throw new Error("Expected Review.");
+	expect(original).toMatchObject({ editDisclosure: disclosure });
+	disclosure = ["The reference is retained for four months."];
+	const result = await api.submit("owner", {
+		...input,
+		token: original.token,
+		acceptUnknown: true,
+	});
+	expect(result).toMatchObject({
+		error: "stale",
+		review: { quote: original.quote, editDisclosure: disclosure, acceptUnknown: false },
+	});
+	expect(posted).toBeEmpty();
+	expect(await db.use((conn) => conn.all(sql`SELECT id FROM image_job`))).toBeEmpty();
+	if (!("review" in result)) throw new Error("Expected current Review terms.");
+	const fresh = { ...input, token: result.review.token, acceptUnknown: true };
+	const accepted = await api.submit("owner", fresh);
+	expect(accepted).toHaveProperty("jobId");
+	expect(posted).toEqual(["accepted"]);
+	await db.close();
+	db = await openInstallation(dir);
+	disclosure = ["The reference is now retained for twelve months."];
+	const reopened = await openQueue();
+	expect(await reopened.submit("owner", fresh)).toEqual(accepted);
+	expect(posted).toEqual(["accepted"]);
+});
+
+test("a Poyo.ai edit quote includes one reference charge", async () => {
+	const feed = decodePricingFeed({
+		version: 1,
+		provider: "poyo",
+		revision: "a".repeat(40),
+		sourceDate: "2026-11-19T13:42:30Z",
+		rates: {
+			"z-image": { kind: "per-request", credits: "2" },
+			"seedream-5.5": {
+				kind: "per-image-with-references",
+				resolutions: { "1K": "4", "1.5K": "4", "2K": "7" },
+				perReference: "1.6",
+			},
+		},
+	});
+	if (!feed) throw new Error("Invalid fixture rate.");
+	const api = await createSubmissionQueue(
+		db,
+		providerStore(db).credential,
+		async () => {},
+		async () => ({ poyo: feed }),
+		() => Date.parse(feed.sourceDate) + 100,
+	);
+	expect(await api.review("owner", makeInput("poyo", referenceUrl))).toMatchObject({
+		quote: { status: "known", perRequest: "8.6", maxAttempts: 1, sourceDate: feed.sourceDate },
+		requiresConsent: false,
+	});
+});
 
 test("removing the reviewed credential before first claim requires a fresh review and sends nothing", async () => {
 	const input = makeInput();
@@ -176,42 +362,51 @@ test("a queued job during replacement validation requires a warning before chang
 	expect(await connections.connect("poyo", "replacement-key", true)).toBe("connected");
 });
 
-test("a known ToAPIs standard rate requires fallback consent, and changing or expiring its rate invalidates the review", async () => {
-	const feed = decodeToapisPricingFeed(toapisRates);
-	if (!feed) throw new Error("Invalid fixture rate.");
-	let time = Date.parse(feed.observedAt) + 100;
-	let available = true;
-	const input = makeInput("toapis");
-	const api = await createSubmissionQueue(
-		db,
-		providerStore(db).credential,
-		async () => {
-			posted.push("accepted");
-		},
-		async () => (available ? { toapis: feed } : {}),
-		() => time,
-	);
-	const terms = await api.review("owner", input);
-	if ("error" in terms) throw new Error("Expected Review");
-	expect(terms.quote.status).toBe("known");
-	expect(terms.requiresConsent).toBe(true);
-	expect(await api.submit("owner", { ...input, token: terms.token })).toEqual({ error: "invalid" });
-	available = false;
-	expect(
-		await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true }),
-	).toMatchObject({
-		error: "stale",
-	});
-	available = true;
-	time += pricingMaxAgeMs;
-	const changed = await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true });
-	expect(changed).toMatchObject({ error: "stale", review: { acceptUnknown: false } });
-	expect(posted).toBeEmpty();
-	if (!("review" in changed)) throw new Error("Expected updated review terms.");
-	const expired = changed.review;
-	expect(expired.quote).toMatchObject({ status: "unknown", reason: "expired-feed" });
-	expect(
-		await api.submit("owner", { ...input, token: expired.token, acceptUnknown: true }),
-	).toHaveProperty("jobId");
-	expect(posted).toHaveLength(1);
-});
+test.each(["generate", "edit"] as const)(
+	"a known ToAPIs %s rate requires fallback consent and stale rates refresh the Review",
+	async (operation) => {
+		const feed = decodeToapisPricingFeed(toapisRates);
+		if (!feed) throw new Error("Invalid fixture rate.");
+		let time = Date.parse(feed.observedAt) + 100;
+		let available = true;
+		const input = makeInput("toapis", operation === "edit" ? referenceUrl : undefined);
+		const api = await createSubmissionQueue(
+			db,
+			providerStore(db).credential,
+			async () => {
+				posted.push("accepted");
+			},
+			async () => (available ? { toapis: feed } : {}),
+			() => time,
+		);
+		const terms = await api.review("owner", input);
+		if ("error" in terms) throw new Error("Expected Review");
+		expect(terms.quote).toMatchObject({ status: "known", perRequest: "5.6", maxAttempts: 1 });
+		expect(terms.requiresConsent).toBe(true);
+		expect(await api.submit("owner", { ...input, token: terms.token })).toEqual({
+			error: "invalid",
+		});
+		available = false;
+		expect(
+			await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true }),
+		).toMatchObject({
+			error: "stale",
+		});
+		available = true;
+		time += pricingMaxAgeMs;
+		const changed = await api.submit("owner", {
+			...input,
+			token: terms.token,
+			acceptUnknown: true,
+		});
+		expect(changed).toMatchObject({ error: "stale", review: { acceptUnknown: false } });
+		expect(posted).toBeEmpty();
+		if (!("review" in changed)) throw new Error("Expected updated review terms.");
+		const expired = changed.review;
+		expect(expired.quote).toMatchObject({ status: "unknown", reason: "expired-feed" });
+		expect(
+			await api.submit("owner", { ...input, token: expired.token, acceptUnknown: true }),
+		).toHaveProperty("jobId");
+		expect(posted).toHaveLength(1);
+	},
+);

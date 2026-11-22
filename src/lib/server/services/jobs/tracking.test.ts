@@ -17,6 +17,8 @@ import { createJobTracking } from "./tracking";
 const start = 1_799_000_000_000;
 const taskId = "task-fixture-542";
 const signedUrl = "https://cdn.example.net/media/sample.png?secret=signed-result-sentinel";
+const referenceUrl =
+	"https://reference-sentinel.example.net/reference-path.png?sig=reference-query#reference-fragment";
 const prompt = "A vibrant orange prompt-sentinel";
 const quote = { status: "unknown", reason: "missing-feed", maxAttempts: 1 } as const;
 const credential = "key-sentinel";
@@ -57,14 +59,23 @@ function makeTracking(read: CheckFetch) {
 	return tracker;
 }
 
-function dispatch(provider: ProviderId, id = "job") {
-	const validation = validateSeedreamDraft({ ...createSeedreamDraft(provider), prompt });
+function dispatch(provider: ProviderId, id = "job", reference?: string) {
+	const draft = createSeedreamDraft(provider, reference ? "edit" : "generate");
+	const validation = validateSeedreamDraft({
+		...draft,
+		prompt,
+		references: reference
+			? [{ kind: "url", url: reference, hostname: new URL(reference).hostname }]
+			: [],
+	});
 	if (!validation.ok || !tracker) throw new Error("Invalid fixture");
 	return tracker.dispatch(
 		id,
 		provider,
 		credential,
-		buildSeedreamRequest(validation.input, () => ""),
+		buildSeedreamRequest(validation.input, (reference) =>
+			reference.kind === "url" ? reference.url : "",
+		),
 	);
 }
 
@@ -136,6 +147,73 @@ test("durable acknowledgement resumes automatic reads without resubmitting", asy
 	expect(submits).toBe(1);
 	expect(await latest()).toMatchObject({ state: "completed", tracking: "done", canSave: true });
 });
+
+test.each([
+	["failed", "reference_media_unreadable", "The provider could not read the reference image."],
+	["failed", "private-unknown-reason", "The provider reported that the job failed."],
+	["completed", null, null],
+] as const)(
+	"ToAPIs edit stores only bounded status data after %s (%s) and restart",
+	async (state, reason, message) => {
+		const echo = { prompt, input_media_errors: [{ message: referenceUrl }] };
+		let submits = 0;
+		let reads = 0;
+		const read: CheckFetch = async (url, request) => {
+			if (request.method === "POST") {
+				submits++;
+				expect(url).toBe("https://toapis.com/v1/images/generations");
+				expect(JSON.parse(String(request.body))).toMatchObject({
+					prompt,
+					image_urls: [referenceUrl],
+				});
+				return Response.json({ id: taskId, status: "pending", metadata: echo });
+			}
+			reads++;
+			expect(url).toBe(`https://toapis.com/v1/images/generations/${taskId}`);
+			return Response.json(
+				state === "failed"
+					? {
+							id: taskId,
+							status: state,
+							error: { ...echo, reason: reads === 1 ? reason : undefined },
+						}
+					: { id: taskId, status: state, metadata: echo, result: { data: [{ url: signedUrl }] } },
+			);
+		};
+		const jobs = makeTracking(read);
+		await jobs.resume();
+		await insert();
+		await dispatch("toapis", "job", referenceUrl);
+		now += 5_000;
+		await jobs.refresh("job");
+		expect(await latest()).toMatchObject({ state, message });
+		const restarted = await reopen(read);
+		await restarted.resume();
+		expect(await latest()).toMatchObject({ state, message });
+		now += 5_000;
+		if (state === "completed") expect(await restarted.resultUrl("job")).toBe(signedUrl);
+		else await restarted.refresh("job");
+		expect(await latest()).toMatchObject({ state, message });
+		expect(submits).toBe(1);
+		expect(reads).toBe(2);
+		const rows = await installation.use((db) => db.all(sql`SELECT * FROM image_job`));
+		expect(rows).toMatchObject([
+			{ failure_reason: reason === "reference_media_unreadable" ? reason : null },
+		]);
+		const serialized = JSON.stringify([rows, await restarted.list()]);
+		for (const privateValue of [
+			credential,
+			prompt,
+			signedUrl,
+			"reference-sentinel",
+			"reference-path",
+			"reference-query",
+			"reference-fragment",
+			"private-unknown-reason",
+		])
+			expect(serialized).not.toContain(privateValue);
+	},
+);
 
 test("automatic tracking starts with the durable acknowledgement even after a slow submission", async () => {
 	await insert();

@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
+import { editDisclosure } from "../../../shared/image-studio/edit-disclosure";
 import { createImageReview } from "../../../shared/image-studio/review";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
@@ -25,6 +26,7 @@ export async function createSubmissionQueue(
 	) => Promise<void>,
 	loadFeeds: (now: number) => Promise<PricingFeeds> = loadStudioPricingFeeds,
 	now = Date.now,
+	discloseEdit = editDisclosure,
 ) {
 	const stored = await installation.use((db) =>
 		db.get<{ secret: string }>(sql`SELECT secret FROM image_review_key WHERE singleton=1`),
@@ -36,32 +38,49 @@ export async function createSubmissionQueue(
 		return createHmac("sha256", key).update(JSON.stringify(fields)).digest("hex");
 	}
 	function signature(id: string, terms: string, owner: string, live: LiveRequest) {
+		if (live.input.operation === "edit") {
+			const { method, url, body } = live.request;
+			return digest(
+				"edit-review-v1",
+				id,
+				terms,
+				owner,
+				live.input.provider,
+				method,
+				url,
+				body,
+				1,
+				0,
+			);
+		}
 		return digest("review-v1", id, terms, owner, live.input.provider, live.request.body, 1, 0);
 	}
-	function price(live: LiveRequest, feeds: PricingFeeds, revision: number, time: number) {
+	function reviewTerms(live: LiveRequest, feeds: PricingFeeds, revision: number, time: number) {
 		const provider = live.input.provider;
 		const { pricing } = createImageReview(live.input, live.request);
 		const quote = estimateReviewPrice(feeds, pricing, { count: 1, retryLimit: 0 }, time);
 		const requiresConsent = quote.status === "unknown" || provider === "toapis";
-		const terms = digest(
-			"review-terms-v1",
-			revision,
-			quote,
-			requiresConsent,
-			feeds[provider] ?? null,
-		);
-		return { quote, requiresConsent, terms };
+		const priceTerms = [revision, quote, requiresConsent, feeds[provider] ?? null];
+		if (live.input.operation === "edit") {
+			const disclosure = discloseEdit(provider);
+			return {
+				quote,
+				requiresConsent,
+				editDisclosure: disclosure,
+				terms: digest("edit-review-terms-v1", ...priceTerms, disclosure),
+			};
+		}
+		return { quote, requiresConsent, terms: digest("review-terms-v1", ...priceTerms) };
 	}
 	async function review(owner: string, live: LiveRequest) {
 		const provider = live.input.provider;
 		const [saved, feeds] = await Promise.all([credential(provider), loadFeeds(now())]);
 		if (!saved) return stale;
-		const { quote, requiresConsent, terms } = price(live, feeds, saved.revision, now());
+		const { terms, ...display } = reviewTerms(live, feeds, saved.revision, now());
 		const id = crypto.randomUUID();
 		return {
 			token: [id, terms, signature(id, terms, owner, live)].join("."),
-			quote,
-			requiresConsent,
+			...display,
 			acceptUnknown: false,
 		};
 	}
@@ -94,7 +113,7 @@ export async function createSubmissionQueue(
 					WHERE provider=${provider} AND ciphertext IS NOT NULL AND seedream=1`);
 						if (current?.revision !== saved.revision) return stale;
 						const time = now();
-						const reviewed = price(live, feeds, saved.revision, time);
+						const reviewed = reviewTerms(live, feeds, saved.revision, time);
 						if (reviewed.terms !== terms) return stale;
 						if (reviewed.requiresConsent && !live.acceptUnknown) return invalid;
 						await tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,accepted_unknown,state,created_at,model,poll_deadline)

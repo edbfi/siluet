@@ -31,6 +31,9 @@ const errors = new Map<unknown, Rejection>([
 	["invalid_parameter_error", "validation"],
 	["invalid_value", "validation"],
 	["invalid_json", "validation"],
+	["invalid_image", "validation"],
+	["invalid_image_file", "validation"],
+	["invalid_private_assets", "validation"],
 	["unknown_parameter", "validation"],
 	["unsupported_value", "validation"],
 	["provider_capability_not_supported", "validation"],
@@ -93,10 +96,22 @@ export function createToapisImage(read: CheckFetch = fetch) {
 		async submit(key: string, request: ReviewedImageRequest): Promise<Submission> {
 			if (request.url !== endpoint) return { kind: "unknown" };
 			const { ok, status, body } = await requestImageJson(read, endpoint, key, request);
-			if (isRecord(body) && isTaskId(body.id))
-				return ok && !body.error && body.success !== false
-					? { kind: "accepted", taskId: body.id }
-					: { kind: "unknown" };
+			if (isRecord(body)) {
+				if (Object.hasOwn(body, "id")) {
+					return ok &&
+						isTaskId(body.id) &&
+						body.error == null &&
+						(body.success === undefined || body.success === true)
+						? { kind: "accepted", taskId: body.id }
+						: { kind: "unknown" };
+				}
+				if (
+					body.object === "generation.task" ||
+					states.has(body.status) ||
+					(body.success !== undefined && body.success !== false)
+				)
+					return { kind: "unknown" };
+			}
 			const reason = rejection(status, body);
 			return reason ? { kind: "rejected", reason } : { kind: "unknown" };
 		},
@@ -108,11 +123,14 @@ export function createToapisImage(read: CheckFetch = fetch) {
 				`${endpoint}/${taskId}`,
 				key,
 			);
-			const error = isRecord(body) && isRecord(body.error) ? body.error : null;
+			const task = isRecord(body) ? body : null;
+			const state = task?.id === taskId ? states.get(task.status) : undefined;
+			const error = isRecord(task?.error) ? task.error : null;
 			if (
 				status === 401 ||
 				status === 403 ||
 				(ok &&
+					state !== "failed" &&
 					(error?.code === 401 ||
 						error?.code === 403 ||
 						rejection(status, body) === "authorization"))
@@ -121,21 +139,25 @@ export function createToapisImage(read: CheckFetch = fetch) {
 			if (
 				status === 404 ||
 				(ok &&
+					state !== "failed" &&
 					(error?.code === 404 ||
 						error?.code === "task_not_found" ||
 						error?.code === "task_not_exist"))
 			)
 				return { kind: "paused", reason: "missing-task", retryAfter };
-			if (!ok || !isRecord(body)) return { kind: "temporary", retryAfter };
-			const state = body.id === taskId ? states.get(body.status) : undefined;
+			if (!ok || !task) return { kind: "temporary", retryAfter };
 			if (error && state !== "failed") return { kind: "temporary", retryAfter };
 			if (!state) return { kind: "paused", reason: "unknown-status", retryAfter };
 			return {
 				kind: "observed",
 				state,
-				billing: billing(body.billing),
-				resultUrl: state === "completed" ? oneImage(body.result) : null,
-				expiresAt: state === "completed" ? expiry(body.expires_at) : null,
+				failureReason:
+					state === "failed" && error?.reason === "reference_media_unreadable"
+						? "reference_media_unreadable"
+						: null,
+				billing: billing(task.billing),
+				resultUrl: state === "completed" ? oneImage(task.result) : null,
+				expiresAt: state === "completed" ? expiry(task.expires_at) : null,
 				retryAfter,
 			};
 		},

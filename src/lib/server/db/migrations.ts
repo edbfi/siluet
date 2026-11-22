@@ -41,6 +41,9 @@ export const installationMigrations = {
 		imageJobSchema,
 		gallerySchema,
 	].join("\n--> statement-breakpoint\n"),
+	"20261122000549_seedream_reference_failure": `ALTER TABLE image_job ADD COLUMN failure_reason TEXT
+		CHECK (failure_reason IS NULL OR (failure_reason='reference_media_unreadable'
+			AND provider='toapis' AND state='failed'))`,
 };
 
 export async function migrateInstallation(

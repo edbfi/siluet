@@ -36,6 +36,7 @@ test("Poyo POST uses the approved JSON and records the valid acknowledgement", a
 test("Poyo distinguishes business validation and quota rejection from an unknown submission", async () => {
 	for (const [code, type, reason] of [
 		[400, "invalid_request_error", "validation"],
+		[400, "file_format_error", "validation"],
 		[400, "content_moderation_error", "filtering"],
 		[402, "insufficient_credits_error", "quota"],
 	] as const) {
@@ -56,6 +57,15 @@ test("Poyo distinguishes business validation and quota rejection from an unknown
 		Response.json({ code: 400, error: { type: "validation_error" } }, { status: 502 }),
 	);
 	expect(await upstream.submit(key, request)).toEqual({ kind: "unknown" });
+});
+
+test("Poyo keeps a file-format error with any task-ID field uncertain", async () => {
+	for (const id of [taskId, "invalid/id", "", 42, null]) {
+		const image = createPoyoImage(async () =>
+			Response.json({ code: 400, data: { task_id: id }, error: { type: "file_format_error" } }),
+		);
+		expect(await image.submit(key, request)).toEqual({ kind: "unknown" });
+	}
 });
 
 test("Poyo reads only image entries and separates task credits and wallet credits", async () => {

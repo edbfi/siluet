@@ -14,7 +14,7 @@ const href = $derived(`/gallery/${encodeURIComponent(data.image.jobId)}`);
 	{#if data.image.available}
 		<img
 			src={`${href}/media`}
-			alt={`Generated image from job ${data.image.jobId.slice(0, 8)}`}
+			alt={`Saved image from job ${data.image.jobId.slice(0, 8)}`}
 			class={viewer}
 			width={data.image.width}
 			height={data.image.height}

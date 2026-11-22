@@ -6,6 +6,7 @@ import {
 	type Submission,
 	statusTimeoutMs,
 	type TaskBilling,
+	type TaskFailureReason,
 	type TaskState,
 } from "../providers/image-job";
 import { imageJobPollingWindowMs } from "./image-job-schema";
@@ -29,6 +30,7 @@ export type ImageJob = {
 	read_failures: number;
 	pause_reason: StatusNote | null;
 	rejection: Rejection | null;
+	failure_reason: TaskFailureReason | null;
 	billing: string | null;
 	expires_at: number | null;
 	wallet_open: number;
@@ -45,6 +47,7 @@ type StatusUpdate = {
 	nextReadAt: number;
 	failures: number;
 	note: StatusNote | null;
+	failureReason: TaskFailureReason | null;
 	billing: TaskBilling | null;
 	expiresAt: number | null;
 };
@@ -179,6 +182,7 @@ export function imageJobStore({ use }: Installation) {
 				db.get<ImageJob>(sql`UPDATE image_job SET state=${update.state},
 				next_read_at=${update.nextReadAt}, read_token=NULL, read_failures=${update.failures},
 				pause_reason=${update.note}, billing=${update.billing && JSON.stringify(update.billing)},
+				failure_reason=COALESCE(${update.failureReason}, failure_reason),
 				expires_at=${update.expiresAt}, updated_at=${now},
 				wallet_finish_by=CASE WHEN wallet_open=1 AND state IN ('waiting','running')
 					AND ${update.state} IN ('completed','failed') THEN ${now + walletFinishWindowMs} ELSE wallet_finish_by END

@@ -57,8 +57,7 @@ async function transfer(source: string, transport: Transport, signal: AbortSigna
 		const address = isIP(hostname) ? hostname : await transport.resolve(hostname);
 		const family = isIP(address);
 		const literal = family === 6 ? `[${address}]` : address;
-		if (!family || address.startsWith("192.88.99.") || !parseReferenceUrl(`https://${literal}/`))
-			throw invalid();
+		if (!family || !parseReferenceUrl(`https://${literal}/`)) throw invalid();
 		signal.throwIfAborted();
 		// Bun dials the numeric URL and uses serverName for SNI and certificate checks.
 		// https://bun.com/docs/runtime/networking/fetch#connecting-to-a-specific-address

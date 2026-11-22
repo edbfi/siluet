@@ -7,6 +7,7 @@ import {
 	type ReviewedImageRequest,
 	statusTimeoutMs,
 	type TaskBilling,
+	type TaskFailureReason,
 	type TaskObservation,
 } from "../../providers/image-job";
 import { createPoyoImage } from "../../providers/poyo/image";
@@ -48,6 +49,7 @@ function statusUpdate(job: ImageJob, observation: TaskObservation, now: number, 
 	const delay = Math.min(60_000, interval * 2 ** failures);
 	let note: StatusNote | null = null;
 	let state = job.state;
+	let failureReason: TaskFailureReason | null = null;
 	let billing = storedBilling(job);
 	let expiresAt = job.expires_at;
 	let resultUrl: string | null = null;
@@ -58,6 +60,7 @@ function statusUpdate(job: ImageJob, observation: TaskObservation, now: number, 
 	if (observation.kind === "observed") {
 		if (isActive(job) || job.state === observation.state) {
 			state = observation.state;
+			failureReason = observation.failureReason;
 			billing = mergeBilling(billing, observation.billing);
 			expiresAt = observation.expiresAt ?? job.expires_at;
 			if (state === "completed") {
@@ -75,6 +78,7 @@ function statusUpdate(job: ImageJob, observation: TaskObservation, now: number, 
 			billing,
 			expiresAt,
 			note,
+			failureReason,
 			failures,
 			nextReadAt:
 				observation.kind !== "observed"
