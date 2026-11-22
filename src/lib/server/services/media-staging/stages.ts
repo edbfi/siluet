@@ -91,8 +91,12 @@ export function createStages(
 		if (stage.boundary) await stage.boundary.catch(() => false);
 		if (!stages.delete(stage.descriptor.handle)) return;
 		clearTimeout(stage.expiry);
-		await stage.readers.retire();
-		await unlink(stage.path, stage.reservation);
+		try {
+			await stage.readers.retire();
+		} finally {
+			// A failed unlink stays charged in leftovers for the next sweep.
+			await unlink(stage.path, stage.reservation);
+		}
 	}
 	function timer(handle: string) {
 		return setTimeout(() => {
@@ -363,6 +367,8 @@ export function createStages(
 		},
 		close() {
 			closed = true;
+			// Stop open previews now rather than after queued writes and unlink retries.
+			for (const stage of stages.values()) stage.readers.abort();
 			return serialize(async () => {
 				for (const s of stages.values()) await remove(s);
 				await sweep();

@@ -7,9 +7,17 @@ export class ChangedStage extends StageError {
 		super("Staged file changed.");
 	}
 }
-// A lease pins the opened inode. Revocation waits for opens already in flight
-// as well as closing each reader before the stage returns its disk reservation.
-export function stageReaders(path: string, identity: BigIntStats, changed: () => void) {
+const openStage = (path: string) => open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+
+// A lease pins the opened inode. Revocation waits for opens already in flight, and
+// each reader closes its file only after its own reads and checks settle, before
+// the stage returns its disk reservation.
+export function stageReaders(
+	path: string,
+	identity: BigIntStats,
+	changed: () => void,
+	openFile: (path: string) => Promise<FileHandle> = openStage,
+) {
 	const controller = new AbortController();
 	const handles = new Set<() => Promise<void>>();
 	const opening = new Set<Promise<unknown>>();
@@ -18,7 +26,7 @@ export function stageReaders(path: string, identity: BigIntStats, changed: () =>
 		signal.throwIfAborted();
 		let file: FileHandle;
 		try {
-			file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+			file = await openFile(path);
 		} catch (error) {
 			if (
 				error instanceof Error &&
@@ -28,14 +36,28 @@ export function stageReaders(path: string, identity: BigIntStats, changed: () =>
 				throw new ChangedStage();
 			throw error;
 		}
+		// Reads and stats in flight on this file. Closing waits for them.
+		const active = new Set<Promise<unknown>>();
+		const track = <T>(work: Promise<T>) => {
+			active.add(work);
+			void work.then(
+				() => active.delete(work),
+				() => active.delete(work),
+			);
+			return work;
+		};
 		let closing: Promise<void> | undefined;
 		const close = () => {
-			closing ??= file.close().finally(() => handles.delete(close));
+			closing ??= (async () => {
+				// A settled read can start its identity check, so wait until none remain.
+				while (active.size) await Promise.allSettled(active);
+				await file.close();
+			})().finally(() => handles.delete(close));
 			return closing;
 		};
 		handles.add(close);
 		async function verify() {
-			const current = await file.stat({ bigint: true });
+			const current = await track(file.stat({ bigint: true }));
 			if (
 				!current.isFile() ||
 				current.dev !== identity.dev ||
@@ -53,7 +75,8 @@ export function stageReaders(path: string, identity: BigIntStats, changed: () =>
 				close,
 				read: async (bytes: Uint8Array, offset: number, length: number, position: number) => {
 					signal.throwIfAborted();
-					const result = await file.read(bytes, offset, length, position);
+					if (closing) throw new StageError("Reader closed.");
+					const result = await track(file.read(bytes, offset, length, position));
 					try {
 						await verify();
 					} catch (error) {
@@ -77,10 +100,11 @@ export function stageReaders(path: string, identity: BigIntStats, changed: () =>
 			opening.add(pending);
 			return pending.finally(() => opening.delete(pending));
 		},
+		/** Abort, then close every reader. Never rejects: a failed close leaves removal to retry. */
 		async retire() {
 			controller.abort();
 			await Promise.allSettled(opening);
-			await Promise.all([...handles].map((close) => close()));
+			await Promise.allSettled([...handles].map((close) => close()));
 		},
 	};
 }

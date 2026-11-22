@@ -254,3 +254,31 @@ test("closing removes every staged file and returns its space", async () => {
 	expect(pool.used).toBe(0);
 	await expect(stages.put(scope(), png(1))).rejects.toThrow("Stage unavailable");
 });
+
+test("closing stops open previews at once, before a queued write settles", async () => {
+	const write = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	let stall = false;
+	const { stages, files } = await setup(8, {
+		writeFile: async (path, bytes) => {
+			if (stall) {
+				entered.resolve();
+				await write.promise;
+			}
+			await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
+		},
+	});
+	const owner = scope();
+	const staged = await stages.put(owner, png(1, 2));
+	const lease = await stages.openPreview(owner, staged.handle);
+	if (!lease) throw new Error("missing stage");
+	stall = true;
+	const queued = stages.put(scope(), png(3)).catch(() => null);
+	await entered.promise;
+	const closed = stages.close();
+	expect(lease.signal.aborted).toBe(true);
+	write.resolve();
+	await Promise.all([queued, closed]);
+	await lease.handle.close();
+	expect(await files()).toEqual([]);
+});
