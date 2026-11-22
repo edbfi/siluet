@@ -56,8 +56,11 @@ jobs:
       - run: bun run --bun build
       - run: bunx --bun --no-install playwright install --with-deps chromium
       - run: bun run --bun smoke
-  windows-owner:
-    runs-on: windows-latest
+  native-owner:
+    strategy:
+      fail-fast: false
+      matrix: { os: [windows-latest, macos-15] }
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     permissions: { contents: read }
     steps:
@@ -66,10 +69,10 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with: { bun-version-file: package.json }
       - run: bun ci
-      - run: bun test --timeout 30000 ./src/lib/server/db/installation.test.ts ./src/lib/server/db/provider-store.test.ts
+      - run: bun test --timeout 30000 ./src/lib/server/db ./src/lib/server/services/owner ./src/routes/settings/security ./scripts/owner-recover.test.ts
       - run: bun run --bun build
       - run: bunx --bun --no-install playwright install chromium
-      - run: bun run --bun smoke tests/browser/studio.spec.ts --workers=1
+      - run: bun run --bun smoke tests/browser/studio.spec.ts tests/browser/authenticator.spec.ts --workers=1
   native-video:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
@@ -96,7 +99,7 @@ jobs:
       - run: bun run --bun smoke tests/browser/first-saved-video.spec.ts --workers=1
   ci-ok:
     if: always()
-    needs: [checks, smoke, windows-owner, native-video]
+    needs: [checks, smoke, native-owner, native-video]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}

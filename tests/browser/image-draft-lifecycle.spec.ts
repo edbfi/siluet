@@ -34,6 +34,7 @@ const test = base.extend<{ studio: { origin: URL; password: string } }>({
 			await page.getByLabel("Username", { exact: true }).fill(username);
 			await page.getByLabel("Password", { exact: true }).fill(password);
 			await page.getByRole("button", { name: "Claim studio" }).click();
+			await page.getByRole("link", { name: "Skip for now" }).click();
 			await expect(page).toHaveURL(origin.href);
 
 			await page.goto(new URL("/settings/providers", origin).href);
@@ -223,5 +224,76 @@ test("a paused fallback tab clears its old draft after another tab signs back in
 		await expect(prompt).toHaveValue("A fresh draft after signing back in.");
 	} finally {
 		await otherTab.close();
+	}
+});
+
+test("Security rotation clears a sibling draft and a delayed stale request leaves the new session and issued codes readable", async ({
+	browser,
+	context,
+	page,
+	studio,
+}) => {
+	test.setTimeout(60000);
+	const { TOTP } = await import("otpauth");
+	const { origin, password } = studio;
+	const draft = page.getByRole("textbox", { name: "Prompt", exact: true });
+	await draft.fill(privatePrompt);
+	const video = await context.newPage();
+	const security = await context.newPage();
+	const stale = await browser.newContext({ storageState: await context.storageState() });
+	const started = Promise.withResolvers<void>(),
+		deliver = Promise.withResolvers<void>();
+	try {
+		await video.goto(new URL("/video", origin).href);
+		const videoPrompt = video.getByRole("textbox", { name: "Prompt", exact: true });
+		await videoPrompt.fill("A private reviewed video draft.");
+		await video.getByRole("button", { name: "Review request" }).click();
+		const consent = video.getByRole("checkbox", { name: /I accept/ });
+		await consent.check();
+		await expect(consent).toBeChecked();
+		await security.goto(new URL("/settings/security", origin).href);
+		await security.getByLabel("Current password").fill(password);
+		await security.getByRole("button", { name: "Set up authenticator" }).click();
+		const seed = await security.locator("section code").first().textContent();
+		if (!seed) throw new Error("Missing manual setup.");
+		await security.getByLabel("New authenticator code").fill(new TOTP({ secret: seed }).generate());
+		// Keep the original browser credentials while the winning response is in transit.
+		const observer = await context.newPage();
+		await observer.goto(origin.href);
+		await observer.route("**/image/queue", async (route) => {
+			started.resolve();
+			await deliver.promise;
+			const response = await stale.request.post(route.request().url(), {
+				headers: { Origin: origin.origin },
+				maxRedirects: 0,
+			});
+			expect(response.status()).toBe(401);
+			expect(response.headers()["set-cookie"] ?? "").not.toMatch(/(?:^|\n)siluet_[a-f0-9-]+=/);
+			await route.fulfill({ response });
+		});
+		const delayed = observer.evaluate(
+			async () => (await fetch("/image/queue", { method: "POST" })).status,
+		);
+		await started.promise;
+		await security.getByRole("button", { name: "Confirm authenticator" }).click();
+		const codes = security.locator("section li");
+		await expect(codes).toHaveCount(10);
+		const before = await codes.allTextContents();
+		deliver.resolve();
+		expect(await delayed).toBe(401);
+		await expect(draft).toHaveValue("");
+		await expect(videoPrompt).toHaveValue("");
+		await expect(consent).toHaveCount(0);
+		await expect(video.getByRole("button", { name: "Queue 1 request" })).toHaveCount(0);
+		expect((await security.request.get(origin.href, { maxRedirects: 0 })).status()).toBe(200);
+		expect(JSON.stringify(await codes.allTextContents()) === JSON.stringify(before)).toBe(true);
+		await security.getByRole("link", { name: "Done" }).click();
+		await security.goBack();
+		expect((await security.locator("body").textContent())?.includes(before[0])).toBe(false);
+	} finally {
+		deliver.resolve();
+		await stale.close();
+		await security.close();
+		await video.close();
 	}
 });

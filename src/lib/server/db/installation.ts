@@ -1,4 +1,4 @@
-import { lstat, readdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { connect } from "@tursodatabase/database";
 import { sql } from "drizzle-orm";
@@ -7,20 +7,36 @@ import { installationMigrations, migrateInstallation } from "./migrations";
 
 import { DirectoryPolicyError, preparePrivateDirectory } from "./private-directory";
 import { providerKeyFilename } from "./provider-key";
+import { acquireRecoveryLock, lockFilename } from "./recovery-lock";
+import { verifyRecoverySchema } from "./recovery-schema";
 
 const storageError = () =>
 	new Error(
 		"Studio storage could not be verified. Check the installation directory. If initialization was interrupted, restore the installation backup or choose a new empty directory for a fresh setup.",
 	);
 
-export async function openInstallation(directory: string) {
+export async function openInstallation(
+	directory: string,
+	mode: "startup" | "recovery" = "startup",
+) {
+	const recovery = mode === "recovery";
+	let lock: Awaited<ReturnType<typeof acquireRecoveryLock>> | undefined;
 	let client: Awaited<ReturnType<typeof connect>> | undefined;
 	try {
 		// The provider store checks its key before use and can report a reconnect.
-		await preparePrivateDirectory(directory, providerKeyFilename);
+		await preparePrivateDirectory(directory, providerKeyFilename, recovery);
+		directory = await realpath(directory);
 		const marker = join(directory, "installation.id");
 		const database = join(directory, "studio.db");
-		const fresh = (await readdir(directory)).length === 0;
+		const contents = await readdir(directory);
+		if (
+			!recovery &&
+			contents.some((name) => name !== lockFilename && name !== `${lockFilename}-journal`) &&
+			!contents.includes("installation.id")
+		)
+			throw storageError();
+		lock = await acquireRecoveryLock(directory, recovery);
+		const fresh = !recovery && (await readdir(directory)).every((name) => name === lockFilename);
 		if (fresh) await writeFile(marker, crypto.randomUUID(), { flag: "wx", mode: 0o600 });
 		if (!(await lstat(marker)).isFile() || (!fresh && !(await lstat(database)).isFile()))
 			throw storageError();
@@ -30,7 +46,8 @@ export async function openInstallation(directory: string) {
 		// The embedded Turso driver waits for a competing writer for at most 500 ms.
 		client = await connect(database, { fileMustExist: !fresh, timeout: 500 });
 		const db = drizzle({ client });
-		await migrateInstallation(db, fresh, installationMigrations);
+		if (recovery) await verifyRecoverySchema(db);
+		else await migrateInstallation(db, fresh, installationMigrations);
 		if (fresh) {
 			await db.run(
 				sql`INSERT INTO installation(singleton, installation_id, claimed) VALUES (1, ${id}, 0)`,
@@ -55,7 +72,7 @@ export async function openInstallation(directory: string) {
 		await db.all(
 			sql`SELECT provider, revision, ciphertext, verified_at, seedream FROM provider_credential LIMIT 0`,
 		);
-		await hasOwner();
+		if (!(await hasOwner()) && recovery) throw storageError();
 		const opened = client;
 		// Keep work on this connection outside any other caller's open transaction.
 		let tail = Promise.resolve();
@@ -70,16 +87,23 @@ export async function openInstallation(directory: string) {
 		return {
 			id,
 			directory,
+			mode,
 			use,
 			hasOwner: () => use(hasOwner),
-			close: () => use(() => opened.close()),
+			close: () =>
+				use(async () => {
+					await opened.close();
+					lock?.close();
+				}),
 		};
 	} catch (error) {
 		await client?.close().catch(() => {});
+		lock?.close();
 		if (error instanceof DirectoryPolicyError) throw error;
 		throw storageError();
 	}
 }
 export type Installation = Awaited<ReturnType<typeof openInstallation>>;
-type Connection = Parameters<Parameters<Installation["use"]>[0]>[0];
-export type InstallationTransaction = Parameters<Parameters<Connection["transaction"]>[0]>[0];
+export type StudioDatabase = Parameters<Parameters<Installation["use"]>[0]>[0];
+export type InstallationTransaction = Parameters<Parameters<StudioDatabase["transaction"]>[0]>[0];
+export type OwnerTransaction = InstallationTransaction;

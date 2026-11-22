@@ -26,6 +26,12 @@ In **Settings → Providers → ToAPIs**, choose **Check video access** for your
 
 New video submissions and saves require the pinned FFmpeg and ffprobe 9.0.2_1 build on glibc Linux ARM64, with `/usr/bin/setpriv` and `/usr/bin/prlimit`. Set `SILUET_FFMPEG_DIR` before starting the server. With that environment variable set, the unit and smoke suites exercise the native codec matrix and built-app playback. See [native qualification](docs/decisions.md#d6--verify-stored-video-samples-before-gallery-publication).
 
+## Owner sign-in and recovery
+
+After claim, choose **Skip for now** to enter the studio or reenter your password to enroll an authenticator. **Settings → Security** lets you replace it, turn it off or generate ten new recovery codes. Save the codes at issuance. Each code works once, after your password.
+
+If you lose access, stop Siluet and run `bun run owner:recover` in an interactive terminal as the installation owner, using the same data directory. Choose a new password and restart. Recovery preserves your providers, jobs and Gallery and signs out all sessions. Back up the whole stopped installation, including its factor keys and `owner-recovery.sqlite`. For an older backup, start the installed version once and stop it before recovery. On Windows, sudden power loss can leave a referenced factor key missing. Use the same stopped-service recovery command.
+
 ## Tech stack
 
 | Concern | Choice |

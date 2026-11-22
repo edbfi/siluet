@@ -6,7 +6,11 @@ import {
 	type ImageDraftMemory,
 	setImageDraftContext,
 } from "#lib/components/image-studio/draft-context.ts";
-import { watchSignOut } from "#lib/shared/owner/session-notice.ts";
+import {
+	securityNoticeName,
+	signOutNoticeName,
+	watchNotice,
+} from "#lib/shared/owner/session-notice.ts";
 import { skipLink } from "#lib/shared/styles/navigation.ts";
 import { cx } from "#styled-system/css";
 import { drawer, shell } from "./studio-shell-styles.ts";
@@ -14,8 +18,14 @@ import { drawer, shell } from "./studio-shell-styles.ts";
 let {
 	pathname,
 	signOutGeneration,
+	securityGeneration,
 	children,
-}: { pathname: string; signOutGeneration: string | null; children: Snippet } = $props();
+}: {
+	pathname: string;
+	signOutGeneration: string | null;
+	securityGeneration: string | null;
+	children: Snippet;
+} = $props();
 let menuOpen = $state(false);
 let menuReady = $state(false);
 let signedOut = $state(false);
@@ -25,7 +35,9 @@ const jobs = $derived(pathname === "/jobs");
 const gallery = $derived(pathname === "/gallery" || pathname.startsWith("/gallery/"));
 const destination = $derived(
 	settings
-		? "Providers"
+		? pathname.startsWith("/settings/security")
+			? "Security"
+			: "Providers"
 		: pathname === "/video"
 			? "Video Studio"
 			: image
@@ -50,12 +62,18 @@ onMount(() => {
 });
 
 onMount(() =>
-	watchSignOut(signOutGeneration, async () => {
+	watchNotice(signOutNoticeName(location), signOutGeneration, async () => {
 		if (signedOut) return;
 		signedOut = true;
 		imageDraftMemory.draft = undefined;
 		await tick();
 		location.replace("/sign-in");
+	}),
+);
+onMount(() =>
+	watchNotice(securityNoticeName(location), securityGeneration, () => {
+		imageDraftMemory.draft = undefined;
+		if (location.pathname === "/image" || location.pathname === "/video") location.reload();
 	}),
 );
 </script>

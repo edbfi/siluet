@@ -1,6 +1,6 @@
 <script lang="ts">
 import OwnerForm from "#lib/components/owner/OwnerForm.svelte";
 
-let { form } = $props();
+let { form, data } = $props();
 </script>
-<OwnerForm message={form?.message} username={form?.username} />
+<OwnerForm pending={data.pending} message={form?.message} username={form?.username} />

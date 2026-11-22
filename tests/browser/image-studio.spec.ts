@@ -71,6 +71,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.getByLabel("Claim token").fill(server.token());
 			await enterOwnerDetails(page, password);
 			await page.getByRole("button", { name: "Claim studio" }).press("Enter");
+			await page.getByRole("link", { name: "Skip for now" }).click();
 			await expect(page).toHaveURL(origin.href);
 			await expect(page.getByRole("heading", { name: "Studio home" })).toBeVisible();
 		});
