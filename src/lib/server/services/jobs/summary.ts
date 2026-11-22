@@ -46,6 +46,7 @@ export type JobSummary = {
 };
 
 const rejections: Record<Rejection, string> = {
+	permission: "Poyo.ai refused this model for this key. The saved key is unchanged.",
 	authorization: "The provider rejected the API key or its permissions.",
 	validation: "The provider rejected the request parameters.",
 	quota: "The provider rejected the submission because of insufficient credits or quota.",
