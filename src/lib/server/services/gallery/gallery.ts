@@ -18,7 +18,8 @@ export function createGallery(
 			const bytes = await download(url);
 			return await storage.publish(id, bytes, await verifyImage(bytes));
 		} catch (error) {
-			if (error instanceof UnsupportedGalleryImage) await storage.markUnsupported(id);
+			if (error instanceof UnsupportedGalleryImage)
+				await storage.markUnsupported(id).catch(() => {});
 			return false;
 		}
 	}

@@ -2,7 +2,7 @@
 import type { Snippet } from "svelte";
 import type { SeedreamReference } from "#lib/shared/image-studio/references.ts";
 import type { SeedreamOperation } from "#lib/shared/image-studio/seedream.ts";
-import { releasedModels } from "#lib/shared/media-catalog/registry.ts";
+import { releasedModels, zImageModel } from "#lib/shared/media-catalog/registry.ts";
 import { css } from "#styled-system/css";
 import { studioPanel } from "#styled-system/recipes";
 import ImageReferencePreview from "./ImageReferencePreview.svelte";
@@ -129,7 +129,7 @@ export function focusPreview() {
 		<div class={css({ display: "grid", minWidth: 0, gap: "1rem" })}>
 			<ImageReferencePreview
 				bind:this={preview}
-				urlOnly={model.id === "z-image"}
+				urlOnly={model.id === zImageModel.id}
 				{operation}
 				index={previewIndex}
 				{reference}

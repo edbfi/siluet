@@ -4,9 +4,10 @@ import { parseReferenceUrl, publicReferenceUrlError } from "#lib/shared/image-st
 import {
 	createZImageDraft,
 	type ZImageDraft,
+	zImagePromptHint,
 	zImageSizes,
 } from "#lib/shared/image-studio/z-image.ts";
-import { releasedOperations } from "#lib/shared/media-catalog/registry.ts";
+import { releasedOperations, zImageModel } from "#lib/shared/media-catalog/registry.ts";
 import { css } from "#styled-system/css";
 import ImagePrompt from "./ImagePrompt.svelte";
 import {
@@ -34,7 +35,7 @@ let {
 	promptError?: string;
 } = $props();
 const id = $props.id();
-const operations = releasedOperations.filter((entry) => entry.modelId === "z-image");
+const operations = releasedOperations.filter((entry) => entry.modelId === zImageModel.id);
 let candidate = $state("");
 let urlError = $state("");
 let urlField = $state<HTMLInputElement>();
@@ -148,7 +149,7 @@ async function remove() {
 	bind:prompt={draft.prompt}
 	operation={draft.operation}
 	error={promptError}
-	hint="1–1,000 characters"
+	hint={zImagePromptHint}
 />
 <div class={[requestField, requestLabel]}>
 	<label for={`${id}-size`}>Aspect ratio</label>

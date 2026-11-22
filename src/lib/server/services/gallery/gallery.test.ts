@@ -119,6 +119,13 @@ test("a complete unsupported result survives restart until publication succeeds"
 	expect(await reason()).toEqual({ gallery_reason: null, state: "completed" });
 	expect(await gallery.list()).toEqual([]);
 	remote = referenceGif;
+	await installation.use((db) =>
+		db.run(sql`CREATE TRIGGER refuse_reason BEFORE UPDATE OF gallery_reason ON image_job
+			BEGIN SELECT RAISE(ABORT, 'fixture write refusal'); END`),
+	);
+	expect(await gallery.save(jobId)).toBe(false);
+	expect(await reason()).toEqual({ gallery_reason: null, state: "completed" });
+	await installation.use((db) => db.run(sql`DROP TRIGGER refuse_reason`));
 	expect(await gallery.save(jobId)).toBe(false);
 	await installation.close();
 	installation = await openInstallation(directory);

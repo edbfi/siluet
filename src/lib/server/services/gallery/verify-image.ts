@@ -89,7 +89,7 @@ export class UnsupportedGalleryImage extends Error {
 	readonly reason = "unsupported-image" as const;
 
 	constructor() {
-		super("Completed · unsupported image for Gallery");
+		super("unsupported-image");
 	}
 }
 

@@ -17,6 +17,7 @@ import { type ZImageDraft, zImageDisclosure } from "#lib/shared/image-studio/z-i
 import {
 	queueEvidenceProblem,
 	type ReleasedOperation,
+	zImageModel,
 } from "#lib/shared/media-catalog/registry.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
 import type { PricingFeeds, PricingProvider } from "#lib/shared/pricing/feeds.ts";
@@ -81,13 +82,13 @@ type ReviewTerms = {
 	disclosure?: readonly string[];
 };
 const unavailable = $derived.by(() => {
-	if (!connected && modelId === "z-image") return "Connect Poyo.ai in Settings to queue.";
+	if (!connected && modelId === zImageModel.id) return "Connect Poyo.ai in Settings to queue.";
 	const evidenceProblem = entry && queueEvidenceProblem(entry.evidence);
 	if (evidenceProblem) return evidenceProblem;
 	if (isEdit && duplicateWarning) return duplicateWarning;
 	if (count !== 1 || retryLimit !== 0)
 		return "Queue supports one request and zero additional attempts.";
-	if (modelId === "z-image" && isEdit && draft.references.length !== 1)
+	if (modelId === zImageModel.id && isEdit && draft.references.length !== 1)
 		return "Add one public image URL to review this edit.";
 	if (
 		isEdit &&
@@ -122,7 +123,7 @@ const expired = $derived(expiry !== undefined && (browserNow ?? nowMs) >= expiry
 const current = $derived(!expired ? terms : null);
 const quote = $derived(current?.quote ?? offlineQuote);
 const disclosure = $derived(
-	modelId === "z-image"
+	modelId === zImageModel.id
 		? (current?.disclosure ?? zImageDisclosure(operation))
 		: current?.editDisclosure,
 );
@@ -145,7 +146,7 @@ function post(path: string, body: object) {
 }
 
 function applyTerms(input: QueueInput, terms: ReviewTerms) {
-	const zImage = input.operationKey.model === "z-image";
+	const zImage = input.operationKey.model === zImageModel.id;
 	const disclosure = zImage ? terms.disclosure : terms.editDisclosure;
 	if (
 		(zImage || input.draft.operation === "edit") &&
@@ -330,7 +331,7 @@ $effect(() => {
 							<ol class={styles.mediaList} role="list">
 								{#each review.sources as source, index}
 									<li>
-										{#if modelId !== "z-image"}
+										{#if modelId !== zImageModel.id}
 											{index + 1}. Reference {referenceLabels[index]} ·
 										{/if}
 										{source.label}{source.kind === "url" ? " (URL reference)" : " (local file)"}
