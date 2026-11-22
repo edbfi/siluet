@@ -55,6 +55,10 @@ Review names the verified model on the same path and the schema date, and states
 
 Live billable calls are zero by default. A new family whose responses cannot be authored from documentation may use one cheapest call. That call needs express owner approval, and its redacted response becomes a fixture.
 
+### Poyo.ai video family
+
+Approved 2026-11-22 under the owner's delegation to council and orchestrator. One adapter serves Poyo.ai `POST /api/generate/submit` video: Bearer JSON `{model, input}`, the shared acknowledgement, the shared status route, one video file and D6 Save. Each model is a typed descriptor of its reviewed inputs, D4 field and v2 rate key, so the catalog engine can add rows as data. H3 Max text-to-video is the verified representative with partial coverage: 5–10 s, 480p or 768p and six fixed ratios. The other inputs stay pending. A Poyo video job has no correlation ID, so job code tells a video job (`video_terms` or a legacy `business_id`) from a ToAPIs correlation, and the ten-minute polling window runs from the durable acknowledgement. A 403 `permission_denied_error` is a permission refusal that keeps the saved key. Any uncertain Poyo job withholds later wallet comparisons. Rates come from the `h3-max` entry of the v2 feed, and without it the total is unknown and needs consent. [Spec](SPEC-poyo-first-video.md)
+
 ## D3 · Local persistence with embedded Turso and Drizzle
 
 Approved by the owner on 2026-11-21. The first approved feature that needs persistence will use embedded Turso through Drizzle ORM. An embedded database keeps setup local to the creator’s machine and requires no separate database service. Drizzle gives the TypeScript application typed queries. Each module’s spec will define the data it needs to retain.
