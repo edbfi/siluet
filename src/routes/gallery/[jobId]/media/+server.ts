@@ -10,7 +10,7 @@ export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 		(site !== null && !["same-origin", "none"].includes(site))
 	)
 		error(403, "Open the saved media from Gallery.");
-	const video = await locals.studio.gallery.openVideo(params.jobId);
+	const video = await locals.studio.gallery.openVideo(params.jobId, request.method === "HEAD");
 	if (video) return videoResponse(request, url, video);
 	const image = await locals.studio.gallery.read(params.jobId);
 	if (!image) error(404, "The saved file is unavailable.");

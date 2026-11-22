@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readdir, rename, rm } from "node:fs/promises";
+import { type FileHandle, lstat, open, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import type { Installation } from "../../db/installation";
@@ -28,6 +28,24 @@ const absent = (error: unknown) =>
 const identity = (s: { dev: bigint; ino: bigint; ctimeNs: bigint }) =>
 	[s.dev, s.ino, s.ctimeNs].join("/");
 
+async function matchesSavedBytes(handle: FileHandle, row: Row) {
+	const digest = createHash("sha256");
+	const buffer = Buffer.allocUnsafe(65536);
+	let offset = 0;
+	while (offset < row.size) {
+		const { bytesRead } = await handle.read(
+			buffer,
+			0,
+			Math.min(buffer.length, row.size - offset),
+			offset,
+		);
+		if (!bytesRead) return false;
+		digest.update(buffer.subarray(0, bytesRead));
+		offset += bytesRead;
+	}
+	return digest.digest("hex") === row.digest;
+}
+
 async function syncDirectory(path: string) {
 	// Windows does not support opening a directory for fsync via Node's fs API.
 	if (process.platform === "win32") return;
@@ -46,17 +64,54 @@ export function galleryStorage({ directory, use }: Installation) {
 
 	async function markUnavailable(db: Pick<Connection, "run">, row: Row) {
 		await db.run(sql`UPDATE gallery_image SET state='unavailable' WHERE job_id=${row.job_id}
-			AND state='saved' AND saved_at=${row.saved_at} AND digest=${row.digest}`);
+			AND state='saved' AND saved_at=${row.saved_at} AND digest=${row.digest} AND file_identity IS ${row.file_identity}`);
+	}
+	async function checkedVideo(db: Pick<Connection, "run">, row: Row, metadataOnly = false) {
+		try {
+			const handle = await open(
+				pathFor(row.job_id),
+				constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+			);
+			let valid = false;
+			try {
+				const stat = await handle.stat({ bigint: true });
+				if (stat.isFile() && stat.size === BigInt(row.size)) {
+					const signature = identity(stat);
+					valid = signature === row.file_identity;
+					if (!valid) {
+						// HEAD cannot read payload. GET or Gallery reconciliation can verify changed metadata.
+						if (metadataOnly) return null;
+						const matches = await matchesSavedBytes(handle, row);
+						if (identity(await handle.stat({ bigint: true })) !== signature) {
+							throw new Error("The saved video changed during verification.");
+						}
+						if (matches) {
+							await db.run(sql`UPDATE gallery_image SET file_identity=${signature} WHERE job_id=${row.job_id}
+								AND state='saved' AND saved_at=${row.saved_at} AND digest=${row.digest} AND file_identity=${row.file_identity}`);
+							valid = true;
+						}
+					}
+				}
+				if (valid) return { handle, size: row.size };
+			} finally {
+				if (!valid) await handle.close();
+			}
+		} catch (error) {
+			if (!absent(error)) throw error;
+		}
+		await markUnavailable(db, row);
+		return null;
 	}
 	async function entry(db: Pick<Connection, "run">, row: Row) {
 		let available = row.state === "saved";
-		if (available) {
+		if (available && row.mime === "video/mp4") {
+			const video = await checkedVideo(db, row);
+			available = Boolean(video);
+			await video?.handle.close();
+		} else if (available) {
 			try {
 				const stat = await lstat(pathFor(row.job_id), { bigint: true });
-				available =
-					stat.isFile() &&
-					stat.size === BigInt(row.size) &&
-					(row.mime !== "video/mp4" || identity(stat) === row.file_identity);
+				available = stat.isFile() && stat.size === BigInt(row.size);
 			} catch (error) {
 				if (!absent(error)) throw error;
 				available = false;
@@ -182,31 +237,12 @@ export function galleryStorage({ directory, use }: Installation) {
 				}
 			});
 		},
-		openVideo(id: string) {
+		openVideo(id: string, metadataOnly = false) {
 			return use(async (db) => {
 				const row = await db.get<Row>(rowQuery(id));
-				if (row?.state !== "saved" || row.mime !== "video/mp4") return null;
-				try {
-					const handle = await open(
-						pathFor(id),
-						constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-					);
-					let valid = false;
-					try {
-						const info = await handle.stat({ bigint: true });
-						valid =
-							info.isFile() &&
-							info.size === BigInt(row.size) &&
-							identity(info) === row.file_identity;
-						if (valid) return { handle, size: row.size };
-					} finally {
-						if (!valid) await handle.close();
-					}
-				} catch (error) {
-					if (!absent(error)) throw error;
-				}
-				await markUnavailable(db, row);
-				return null;
+				return row?.state === "saved" && row.mime === "video/mp4"
+					? checkedVideo(db, row, metadataOnly)
+					: null;
 			});
 		},
 		read(id: string) {
