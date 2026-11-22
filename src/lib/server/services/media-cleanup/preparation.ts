@@ -64,6 +64,14 @@ export function acquirePreparation(installation: RuntimeInstallation) {
 	};
 }
 
+// Stages need bytes that own their whole ArrayBuffer. Copy only a pooled or partial view.
+function exact(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+	const { buffer, byteOffset, byteLength } = bytes;
+	return buffer instanceof ArrayBuffer && byteOffset === 0 && byteLength === buffer.byteLength
+		? new Uint8Array(buffer)
+		: new Uint8Array(bytes);
+}
+
 function refusal(error: unknown) {
 	if (error instanceof JpegCleanupError && error.code !== "cancelled")
 		return new PreparationError("declined", [error.message, error.advice]);
@@ -140,7 +148,7 @@ export function createMediaPreparation(
 							transform: "none" as const,
 						};
 			check();
-			const bytes = new Uint8Array(cleaned.bytes);
+			const bytes = exact(cleaned.bytes);
 			if (mediaMime(bytes) !== mime) throw failure("failed");
 			const digest = createHash("sha256").update(bytes).digest("hex");
 			const media: PreparedMedia =

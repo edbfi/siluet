@@ -63,7 +63,8 @@ export async function cleanJpeg(
 	const { signal } = options;
 	assertActive(signal);
 	if (bytes.byteLength > jpegMaxBytes) refuseJpeg("limit");
-	const source = readJpeg(Buffer.from(bytes));
+	// A view: the cleaner only reads its input.
+	const source = readJpeg(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 	const metadata = inspectJpegMetadata(source);
 	if (source.trailer) refuseJpeg("trailer");
 	const upright = writeJpeg(source.image, renderMarkers(metadata));

@@ -37,7 +37,9 @@ export async function cleanPng(
 	try {
 		assertPngActive(signal);
 		if (bytes.byteLength > maxPngBytes) throw new PngCleanupError("png-limit");
-		const { chunks, header, paletteSize } = parsePng(Buffer.from(bytes));
+		// A view: the cleaner only reads its input.
+		const source = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+		const { chunks, header, paletteSize } = parsePng(source);
 		const retained: Buffer[] = [pngSignature];
 		const idat: Buffer[] = [];
 		let remainingMetadata = maxPngMetadataBytes;

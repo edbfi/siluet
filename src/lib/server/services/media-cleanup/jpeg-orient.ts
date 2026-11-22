@@ -76,34 +76,34 @@ async function decodeRaw(bytes: Buffer, signal?: AbortSignal): Promise<Raw> {
 	return { data, width: info.width, height: info.height, channels: info.channels };
 }
 
-// Output pixel (x, y) shows source pixel sourcePoint(...) for EXIF orientation o.
-function sourcePoint(o: number, x: number, y: number, width: number, height: number) {
+// Output pixel (x, y) shows this source pixel index for EXIF orientation o, where
+// the source is width × height.
+function sourceIndex(o: number, x: number, y: number, width: number, height: number) {
 	switch (o) {
 		case 2:
-			return [width - 1 - x, y];
+			return y * width + (width - 1 - x);
 		case 3:
-			return [width - 1 - x, height - 1 - y];
+			return (height - 1 - y) * width + (width - 1 - x);
 		case 4:
-			return [x, height - 1 - y];
+			return (height - 1 - y) * width + x;
 		case 5:
-			return [y, x];
+			return x * width + y;
 		case 6:
-			return [y, height - 1 - x];
+			return (height - 1 - x) * width + y;
 		case 7:
-			return [width - 1 - y, height - 1 - x];
+			return (height - 1 - x) * width + (width - 1 - y);
 		case 8:
-			return [width - 1 - y, x];
+			return x * width + (width - 1 - y);
 		default:
-			return [x, y];
+			return y * width + x;
 	}
 }
 
-function grid(width: number, height: number) {
+/** The sampling step for an output grid of at most `maxSamples` points. */
+function gridStep(width: number, height: number) {
 	let step = Math.max(1, Math.floor(Math.sqrt((width * height) / maxSamples)));
 	while (Math.ceil(width / step) * Math.ceil(height / step) > maxSamples) step++;
-	const points: [number, number][] = [];
-	for (let y = 0; y < height; y += step) for (let x = 0; x < width; x += step) points.push([x, y]);
-	return points;
+	return step;
 }
 
 function luma(samples: Uint8Array, index: number, channels: number) {
@@ -143,13 +143,25 @@ export function compareSamples(source: Uint8Array, output: Uint8Array, channels:
 	};
 }
 
-function sample(raw: Raw, points: readonly (readonly number[])[]) {
-	const { data, width, channels } = raw;
-	const samples = new Uint8Array(points.length * channels);
-	for (const [index, [x, y]] of points.entries()) {
-		const at = (y * width + x) * channels;
-		samples.set(data.subarray(at, at + channels), index * channels);
-	}
+/**
+ * Pack the pixels on an output-coordinate grid into one array, walking the grid by
+ * stride. `pixel` maps an output point to a pixel index in `raw`.
+ */
+function sample(
+	raw: Raw,
+	width: number,
+	height: number,
+	step: number,
+	pixel: (x: number, y: number) => number,
+) {
+	const { data, channels } = raw;
+	const samples = new Uint8Array(Math.ceil(width / step) * Math.ceil(height / step) * channels);
+	let at = 0;
+	for (let y = 0; y < height; y += step)
+		for (let x = 0; x < width; x += step) {
+			const from = pixel(x, y) * channels;
+			for (let channel = 0; channel < channels; channel++) samples[at++] = data[from + channel];
+		}
 	return samples;
 }
 
@@ -185,7 +197,7 @@ export async function orientJpeg(
 	const swap = orientation >= 5;
 	const width = swap ? frame.height : frame.width;
 	const height = swap ? frame.width : frame.height;
-	const points = grid(width, height);
+	const step = gridStep(width, height);
 	let reference: Uint8Array;
 	let channels: number;
 	try {
@@ -193,9 +205,8 @@ export async function orientJpeg(
 		const source = await decodeRaw(upright, signal);
 		if (source.width !== frame.width || source.height !== frame.height) refuseJpeg("invalid");
 		channels = source.channels;
-		reference = sample(
-			source,
-			points.map(([x, y]) => sourcePoint(orientation, x, y, frame.width, frame.height)),
+		reference = sample(source, width, height, step, (x, y) =>
+			sourceIndex(orientation, x, y, frame.width, frame.height),
 		);
 	} catch (error) {
 		if (error instanceof JpegCleanupError) throw error;
@@ -218,7 +229,8 @@ export async function orientJpeg(
 		const decoded = await decodeRaw(output, signal);
 		if (decoded.width !== width || decoded.height !== height || decoded.channels !== channels)
 			refuseJpeg("verification");
-		const score = compareSamples(reference, sample(decoded, points), channels);
+		const sampled = sample(decoded, width, height, step, (x, y) => y * width + x);
+		const score = compareSamples(reference, sampled, channels);
 		if (
 			score.lumaPsnr < orientationBounds.lumaPsnr ||
 			score.lumaP999 > orientationBounds.lumaP999 ||
