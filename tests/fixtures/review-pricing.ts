@@ -21,7 +21,7 @@ export async function writeReviewPricing(
 		provider: "poyo",
 		revision: (poyoBundle.revision[0] === "a" ? "b" : "a").repeat(40),
 		sourceDate: observedAt,
-		confirmedAt: observedAt,
+		confirmedAt,
 		rates: {
 			"z-image": zImageCredits
 				? { kind: "per-request", credits: zImageCredits }
