@@ -3,7 +3,7 @@
 	"provider": "poyo",
 	"revision": "747e5d75319585d66396a3c05bd1b97d9390ce74",
 	"sourceDate": "2026-11-19T13:42:30Z",
-	"confirmedAt": "2026-11-19T13:42:30Z",
+	"confirmedAt": "2026-11-22T16:58:25Z",
 	"rates": {
 		"z-image": {
 			"kind": "per-request",
