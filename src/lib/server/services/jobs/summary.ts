@@ -5,16 +5,30 @@ import type { ImageJob, JobState, StatusNote } from "../../db/image-job-store";
 import type { Rejection, TaskBilling } from "../../providers/image-job";
 
 type JobWallet =
-	| { status: "observed"; before: string; after: string; delta: string }
+	| {
+			status: "observed";
+			before: string;
+			after: string;
+			afterAt: number;
+			beforeAt: number;
+			delta: string;
+	  }
 	| { status: "unavailable"; reason: "missing" | "overlap" | "uncertain" };
 
 export type JobSummary = {
+	batchId: string | null;
+	slot: number | null;
+	attempt: number | null;
+	taskId: string | null;
+	throttled: boolean;
+	skipped: ImageJob["skipped"];
 	id: string;
 	provider: ProviderId;
 	model: string;
 	operation: ImageJob["operation"];
 	galleryReason: ImageJob["gallery_reason"];
-	state: JobState;
+
+	state: JobState | "unsent";
 	createdAt: number;
 	updatedAt: number;
 	pollDeadline: number;
@@ -58,7 +72,17 @@ export function isReadPaused(note: StatusNote | null) {
 }
 
 export function storedBilling(job: ImageJob): TaskBilling | null {
-	return job.billing ? (JSON.parse(job.billing) as TaskBilling) : null;
+	if (!job.billing) return null;
+	const billing = JSON.parse(job.billing) as TaskBilling;
+	if (billing.status === "settled" || billing.status === "refunded") {
+		if (billing.credits === null || billing.usd === null) return { status: "unknown" };
+		if (
+			billing.status === "refunded" &&
+			(/[1-9]/.test(billing.credits) || /[1-9]/.test(billing.usd))
+		)
+			return { status: "conflicting" };
+	}
+	return billing;
 }
 
 function walletSummary(job: ImageJob): JobWallet | null {
@@ -87,6 +111,8 @@ function walletSummary(job: ImageJob): JobWallet | null {
 		? {
 				status: "observed",
 				before: comparison.before.amount,
+				beforeAt: comparison.before.observedAt,
+				afterAt: comparison.after.observedAt,
 				after: comparison.after.amount,
 				delta: comparison.delta,
 			}
@@ -100,9 +126,23 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 	if (job.state === "unknown")
 		message =
 			"This attempt may still cost credits. Check provider history before authorizing another request.";
+	if (job.skipped === "retry-evidence")
+		message = "Not submitted. New task evidence ruled out this retry.";
+	else if (job.skipped)
+		message =
+			job.skipped === "cooldown" && job.retry_at
+				? `Not submitted. Provider cooldown until ${new Date(job.retry_at).toISOString()}. Review again before queuing.`
+				: "Not submitted. The dispatch window closed before sending.";
+	else if (job.throttle && job.batch_id) message = "Not admitted · throttled";
 	if (job.rejection) message = rejections[job.rejection];
 	if (job.state === "failed") {
-		if (job.failure_reason === "reference_media_unreadable") {
+		if (job.transient_failure) {
+			const reason =
+				job.transient_failure === "service_busy"
+					? "The provider reported that its service was busy."
+					: "The provider reported a task rate limit.";
+			message = message ? `${reason} ${message}` : reason;
+		} else if (job.failure_reason === "reference_media_unreadable") {
 			const failure = "The provider could not read one or more reference images.";
 			message = message ? `${failure} ${message}` : failure;
 		} else {
@@ -120,11 +160,18 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 			: "done";
 	return {
 		id: job.id,
+		batchId: job.batch_id,
+		slot: job.slot,
+		attempt: job.attempt,
+		taskId: job.task_id,
+		skipped: job.skipped,
+		throttled: !!job.throttle,
 		provider: job.provider,
 		model: job.model,
 		operation: job.operation,
 		galleryReason: job.gallery_reason,
-		state: job.state,
+
+		state: job.skipped ? "unsent" : job.state,
 		createdAt: job.created_at,
 		updatedAt: job.updated_at ?? job.created_at,
 		pollDeadline: job.poll_deadline,
@@ -135,7 +182,10 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		billing:
 			storedBilling(job) ??
 			(job.task_id && job.provider === "toapis" ? { status: "unknown" } : null),
-		wallet: walletSummary(job),
+		wallet:
+			job.skipped || (job.batch_id && (job.slot !== 1 || job.attempt !== 1))
+				? null
+				: walletSummary(job),
 		expiresAt: job.expires_at,
 		canRefresh,
 		canSave: canRefresh && job.state === "completed",

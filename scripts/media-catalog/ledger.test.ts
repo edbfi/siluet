@@ -2,6 +2,10 @@ import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import ledger from "../../docs/media-catalog.v1.json";
 import { maxSeedreamReferences } from "../../src/lib/shared/image-studio/references";
+import {
+	reviewBatchCounts,
+	reviewRetryLimits,
+} from "../../src/lib/shared/image-studio/review-price";
 import { releasedModels, releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import { catalogCoverage, documentedRoutes } from "./coverage";
 
@@ -20,6 +24,11 @@ test("the frozen discovery scope accounts for snapshot, regional and documentati
 	expect(ledger.supportProfiles["seedream-edit"].queue).toContain(
 		`1–${maxSeedreamReferences} ordered public HTTP(S) image URLs`,
 	);
+	for (const profile of ["seedream-generate", "seedream-edit"] as const) {
+		const queue = ledger.supportProfiles[profile].queue;
+		expect(queue).toContain(`1–${reviewBatchCounts.at(-1)} requests`);
+		expect(queue).toContain(`0–${reviewRetryLimits.at(-1)} authorized retries per request`);
+	}
 	expect(ledger.supportBaselineCommit).toBe("3a2432bd896c74cc6f76ff02bb2a16df5addc3b4");
 	const discovery = poyo.discovery;
 	expect(poyo.sources.catalog).toContain(discovery.snapshot.revision);

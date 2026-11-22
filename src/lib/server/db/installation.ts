@@ -81,3 +81,5 @@ export async function openInstallation(directory: string) {
 	}
 }
 export type Installation = Awaited<ReturnType<typeof openInstallation>>;
+type Connection = Parameters<Parameters<Installation["use"]>[0]>[0];
+export type InstallationTransaction = Parameters<Parameters<Connection["transaction"]>[0]>[0];

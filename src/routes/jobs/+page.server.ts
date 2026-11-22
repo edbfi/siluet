@@ -3,12 +3,12 @@ import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, depends }) => {
 	depends("studio:jobs");
-	const [jobs, entries] = await Promise.all([
-		locals.studio.jobs.list(),
+	const [history, entries] = await Promise.all([
+		locals.studio.jobs.history(),
 		locals.studio.gallery.list(),
 	]);
 	return {
-		jobs,
+		...history,
 		saved: entries.filter((entry) => entry.available).map((entry) => entry.jobId),
 		now: Date.now(),
 	};

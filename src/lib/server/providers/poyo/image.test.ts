@@ -126,3 +126,22 @@ test("Poyo pauses missing or unknown tasks and retries upstream status errors", 
 		retryAfter: "25",
 	});
 });
+
+// https://docs.poyo.ai/#10-rate-limits-concurrency
+test("only a consistent submit-limiter rejection authorizes a Poyo retry", async () => {
+	const error = { type: "rate_limit_error", message: "fixture limiter" };
+	const submit = (status: number, body: object) =>
+		createPoyoImage(async () =>
+			Response.json(body, { status, headers: { "retry-after": "12" } }),
+		).submit(key, request);
+	expect(await submit(429, { code: 429, error })).toEqual({ kind: "throttled", retryAfter: "12" });
+	for (const extra of [
+		{ success: true },
+		{ task_id: taskId },
+		{ data: { task_id: taskId } },
+		{ data: { status: "running" } },
+		{ error: { ...error, task_id: taskId } },
+	])
+		expect(await submit(429, { code: 429, error, ...extra })).toEqual({ kind: "unknown" });
+	expect(await submit(503, { code: 429, error })).toEqual({ kind: "unknown" });
+});

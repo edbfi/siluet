@@ -677,6 +677,8 @@ test.each(["generate", "edit"] as const)(
 		const live = parseQueueRequest(raw);
 		if (!live) throw new Error("Expected registered Z-Image request");
 		for (const change of [
+			{ count: 2 },
+			{ retryLimit: 1 },
 			{ operationKey: undefined },
 			{
 				operationKey: {

@@ -11,6 +11,7 @@ export type Rejection = "validation" | "authorization" | "quota" | "filtering";
 export type Submission =
 	| { kind: "accepted"; taskId: string }
 	| { kind: "rejected"; reason: Rejection }
+	| { kind: "throttled"; retryAfter: string | null }
 	| { kind: "unknown" };
 
 export type TaskState = "waiting" | "running" | "completed" | "failed";
@@ -19,13 +20,15 @@ export type StatusPause = "authorization" | "missing-task" | "unknown-status";
 export type TaskBilling =
 	| { status: "reported"; credits: string }
 	| { status: "settled" | "refunded"; credits: string | null; usd: string | null }
-	| { status: "unknown" };
+	| { status: "unknown" | "conflicting" };
 
-export type TaskObservation = { retryAfter: string | null } & (
+export type TaskObservation = { retryAfter: string | null; queryAfter?: number } & (
 	| {
 			kind: "observed";
 			state: TaskState;
 			failureReason: TaskFailureReason | null;
+			transientFailure?: "service_busy" | "request_rate_limited";
+			settlementPending?: boolean;
 			billing: TaskBilling | null;
 			resultUrl: string | null;
 			expiresAt: number | null;
@@ -71,18 +74,29 @@ export async function requestImageJson(
 		const response = await read(url, {
 			method: request?.method ?? "GET",
 			headers,
-			...(request && { body: JSON.stringify(request.body) }),
+			...(request && { keepalive: false, body: JSON.stringify(request.body) }),
 			redirect: "error",
 			signal: AbortSignal.timeout(request ? 30_000 : statusTimeoutMs),
 		});
 		return {
 			ok: response.ok,
 			status: response.status,
+			category: response.headers.get("X-RateLimit-Category"),
+			remaining: response.headers.get("X-RateLimit-Remaining"),
+			reset: response.headers.get("X-RateLimit-Reset"),
 			retryAfter: response.headers.get("Retry-After"),
 			body: await boundedJson(response).catch((): null => null),
 		};
 	} catch {
-		return { ok: false, status: 0, retryAfter: null, body: null };
+		return {
+			ok: false,
+			status: 0,
+			category: null,
+			remaining: null,
+			reset: null,
+			retryAfter: null,
+			body: null,
+		};
 	}
 }
 

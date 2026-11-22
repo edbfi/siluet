@@ -212,7 +212,7 @@ async function withEditStudio(
 				return response;
 			},
 			async restart(prepare) {
-				await studio?.stop();
+				await studio?.stop(outcome !== "crash-after-acceptance");
 				assertRedacted(studio?.diagnostics() ?? "");
 				studio = undefined;
 				const prepared = await prepare?.(dir);
@@ -302,8 +302,8 @@ for (const provider of ["poyo", "toapis"] as const) {
 					{ ...single, draft: edit(provider, [signedReference, "not a URL"]).draft },
 					{ ...single, draft: { ...single.draft, references: [file] } },
 					{ ...single, draft: { ...single.draft, references: [...single.draft.references, file] } },
-					{ ...two, count: 2 },
-					{ ...two, retryLimit: 1 },
+					{ ...two, count: 6 },
+					{ ...two, retryLimit: 4 },
 				];
 				for (const route of ["/image/review", "/image/queue"]) {
 					for (const input of invalid) {
@@ -819,6 +819,157 @@ for (const [provider, outcome, state, message] of [
 				await verifyJob();
 				expect(statusPaths()).toEqual(outcome === "failed" ? fixtures.statusPaths : []);
 				expect(fixtures.requests.filter(({ path }) => path === editedImagePath)).toEqual([]);
+			},
+		);
+	});
+}
+
+for (const provider of ["poyo", "toapis"] as const) {
+	test(`built ${provider} batch queues five ordered edits and saves a successful sibling`, async ({
+		page,
+	}) => {
+		test.setTimeout(110_000);
+		await withEditStudio(
+			page,
+			provider,
+			"mixed-batch",
+			async ({ origin, fixtures, restart, assertPrivate, rates }) => {
+				const initial = fixtures.requests.length;
+				await page.setViewportSize({ width: 320, height: 760 });
+				await page.clock.setFixedTime(new Date(rates.observedMs + 60_000));
+				await page.goto(`${origin}/image`);
+				await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(prompt);
+				await page.getByLabel("Operation", { exact: true }).selectOption("edit");
+				await chooseReference(page, 1, secondSignedReference);
+				await chooseReference(page, 2, signedReference);
+				const review = page.getByRole("region", { name: "Review request", exact: true });
+				await review.getByRole("tab", { name: "Batch", exact: true }).press("Enter");
+				await review.getByLabel("Batch count").selectOption("5");
+				await review.getByLabel("Additional attempts per request").selectOption("3");
+				await review.getByRole("button", { name: "Review request", exact: true }).press("Enter");
+				const queue = review.getByRole("button", { name: "Queue 5 requests" });
+				await expect(review).toContainText("3 extra attempts per request");
+				await expect(review).toContainText(
+					provider === "poyo" ? "204 Poyo.ai credits" : "112 ToAPIs credits",
+				);
+				if (provider === "toapis") {
+					await expect(queue).toBeDisabled();
+					await review.getByRole("checkbox", { name: /unknown costs/ }).press("Space");
+				}
+				await expect(queue).toBeEnabled();
+				expect(fixtures.requests.slice(initial)).toEqual([]);
+				await queue.press("Enter");
+				await expect(page).toHaveURL(/\/jobs#job-/);
+				const batch = page.getByRole("region", { name: "Image batch", exact: true });
+				await expect(batch).toContainText("4 successful · 1 failed", { timeout: 35_000 });
+				expect(fixtures.submissions).toEqual(
+					Array(5).fill(providerPayload(provider, [secondSignedReference, signedReference])),
+				);
+				const second = batch.getByRole("region", { name: "Request 2", exact: true });
+				const save = second.getByRole("button", { name: "Save to Gallery" });
+				await expect(save).toBeEnabled({ timeout: 20_000 });
+				await save.press("Enter");
+				await expect(second).toContainText("You can retry Save");
+				await expect(save).toBeEnabled({ timeout: 20_000 });
+				await save.press("Enter");
+				const open = second.getByRole("link", { name: "Open saved image" });
+				await expect(open).toBeVisible();
+				const path = await open.getAttribute("href");
+				await assertPrivate();
+				await restart();
+				const before = fixtures.requests.length;
+				await page.request.post(`${origin}/settings/providers?/remove`, {
+					headers: { origin, accept: "text/html" },
+					form: { provider, jobWarning: "seen" },
+				});
+				expect(await (await page.request.get(`${origin + path}/media`)).body()).toEqual(editedPng);
+				expect(fixtures.requests.length).toBe(before);
+				expect(fixtures.submissions).toHaveLength(5);
+			},
+		);
+	});
+}
+
+test("an interrupted built batch recovers only its acknowledged task and never resends the lost POST", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	await withEditStudio(
+		page,
+		"toapis",
+		"crash-after-acceptance",
+		async ({ origin, post, fixtures, restart, assertPrivate }) => {
+			const draft = {
+				...edit("toapis", [signedReference, secondSignedReference]),
+				count: 3,
+				retryLimit: 3,
+			};
+			const terms = await readReview(await post("/image/review", draft));
+			const click = { ...draft, token: terms.token, acceptUnknown: true };
+			const response = await post("/image/queue", click);
+			const claim = await response.json();
+			await expect.poll(() => fixtures.submissions.length).toBe(2);
+			await restart();
+			expect(await (await post("/image/queue", click)).json()).toEqual(claim);
+			await page.goto(`${origin}/jobs`);
+			const batch = page.getByRole("region", { name: "Image batch", exact: true });
+			await expect(batch).toContainText(
+				"1 successful · 0 failed · 0 rejected · 1 uncertain · 1 unsent",
+				{ timeout: 20_000 },
+			);
+			await expect(batch.getByRole("region", { name: "Request 2" })).toContainText(
+				"May have been submitted",
+			);
+			await expect(batch.getByRole("region", { name: "Request 3" })).toContainText(
+				"0 of 4 attempts used",
+			);
+			expect(fixtures.submissions).toHaveLength(2);
+			expect(
+				fixtures.requests
+					.filter((r) => r.path.includes("/status/"))
+					.every((r) => r.path === fixtures.statusPaths[0]),
+			).toBe(true);
+			await assertPrivate();
+		},
+	);
+});
+
+for (const provider of ["toapis", "poyo"] as const) {
+	test(`built ${provider} queues five text generations with zero extra attempts`, async ({
+		page,
+	}) => {
+		await withEditStudio(
+			page,
+			provider,
+			"completed",
+			async ({ post, fixtures, origin, assertPrivate }) => {
+				const draft = {
+					draft: { ...createSeedreamDraft(provider), prompt },
+					count: 5,
+					retryLimit: 0,
+					acceptUnknown: false,
+				};
+				const traffic = fixtures.requests.length;
+				const terms = await readReview(await post("/image/review", draft));
+				expect(fixtures.requests.length).toBe(traffic);
+				const click = { ...draft, token: terms.token, acceptUnknown: terms.requiresConsent };
+				for (const tamper of [{ count: 4 }, { retryLimit: 1 }])
+					expect((await post("/image/queue", { ...click, ...tamper })).status()).toBe(400);
+				const responses = await Promise.all([
+					post("/image/queue", click),
+					post("/image/queue", click),
+				]);
+				expect(await responses[0].json()).toEqual(await responses[1].json());
+				await page.goto(`${origin}/jobs`);
+				await expect(page.getByRole("region", { name: "Image batch" })).toContainText(
+					"5 successful",
+					{ timeout: 22_000 },
+				);
+				expect(fixtures.submissions).toHaveLength(5);
+				for (const payload of fixtures.submissions)
+					expect(payload).toMatchObject(provider === "poyo" ? { input: { prompt } } : { prompt });
+				expect(JSON.stringify(fixtures.submissions)).not.toContain("image_urls");
+				await assertPrivate();
 			},
 		);
 	});

@@ -338,16 +338,12 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await stageUrl(firstUrl);
 			await batchTab.press("Enter");
 			await review.getByLabel("Batch count").selectOption("2");
-			await expect(queue(2)).toHaveAccessibleDescription(
-				/one request and zero additional attempts/i,
-			);
-			await expect(inspect).toHaveCount(0);
+			await expect(queue(2)).toHaveAccessibleDescription(/2 potentially billable submissions/);
+			await expect(inspect).toBeEnabled();
 			await review.getByLabel("Batch count").selectOption("1");
 			await review.getByLabel("Additional attempts per request").selectOption("1");
-			await expect(queue(1)).toHaveAccessibleDescription(
-				/one request and zero additional attempts/i,
-			);
-			await expect(inspect).toHaveCount(0);
+			await expect(queue(1)).toHaveAccessibleDescription(/2 potentially billable submissions/);
+			await expect(inspect).toBeEnabled();
 			await review.getByLabel("Additional attempts per request").selectOption("0");
 			await outgoingTab.press("Enter");
 			await expect(outgoing).not.toContainText(/images\.example\.org|a%2Fb|sig=|fragment/);

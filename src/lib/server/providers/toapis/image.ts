@@ -68,7 +68,12 @@ function billing(value: unknown): TaskBilling {
 		return { status: "unknown" };
 	const credits = decimalText(value.credits);
 	const usd = decimalText(value.cost_usd);
-	return credits === null && usd === null && value.status === "settled"
+	if (
+		value.status === "refunded" &&
+		((credits !== null && /[1-9]/.test(credits)) || (usd !== null && /[1-9]/.test(usd)))
+	)
+		return { status: "conflicting" };
+	return credits === null || usd === null
 		? { status: "unknown" }
 		: { status: value.status, credits, usd };
 }
@@ -95,7 +100,12 @@ export function createToapisImage(read: CheckFetch = fetch) {
 		// https://docs.toapis.com/docs/en/api-reference/images/seedream-5.5/generation
 		async submit(key: string, request: ReviewedImageRequest): Promise<Submission> {
 			if (request.url !== endpoint) return { kind: "unknown" };
-			const { ok, status, body } = await requestImageJson(read, endpoint, key, request);
+			const { ok, status, body, retryAfter, category } = await requestImageJson(
+				read,
+				endpoint,
+				key,
+				request,
+			);
 			if (isRecord(body)) {
 				if (Object.hasOwn(body, "id")) {
 					return ok &&
@@ -112,17 +122,33 @@ export function createToapisImage(read: CheckFetch = fetch) {
 				)
 					return { kind: "unknown" };
 			}
+			if (
+				status === 429 &&
+				category === "async_submit" &&
+				isRecord(body) &&
+				isRecord(body.error) &&
+				body.error.code === "rate_limit_exceeded" &&
+				Object.keys(body.error).every((key) =>
+					["type", "message", "code", "param"].includes(key),
+				) &&
+				Object.keys(body).every((key) => ["error", "message", "success"].includes(key))
+			)
+				return { kind: "throttled", retryAfter };
 			const reason = rejection(status, body);
 			return reason ? { kind: "rejected", reason } : { kind: "unknown" };
 		},
 		// https://docs.toapis.com/docs/en/api-reference/tasks/image-status
 		async status(key: string, taskId: string): Promise<TaskObservation> {
 			if (!isTaskId(taskId)) return { kind: "paused", reason: "missing-task", retryAfter: null };
-			const { ok, status, body, retryAfter } = await requestImageJson(
+			const { ok, status, body, retryAfter, category, remaining, reset } = await requestImageJson(
 				read,
 				`${endpoint}/${taskId}`,
 				key,
 			);
+			// A depleted query bucket can advertise its reset as an epoch in seconds.
+			const resetMs = reset && /^\d{10}$/.test(reset) ? Number(reset) * 1000 : 0;
+			const quota =
+				category === "async_query" && remaining === "0" && resetMs ? { queryAfter: resetMs } : {};
 			const task = isRecord(body) ? body : null;
 			const state = task?.id === taskId ? states.get(task.status) : undefined;
 			const error = isRecord(task?.error) ? task.error : null;
@@ -135,7 +161,7 @@ export function createToapisImage(read: CheckFetch = fetch) {
 						error?.code === 403 ||
 						rejection(status, body) === "authorization"))
 			)
-				return { kind: "paused", reason: "authorization", retryAfter };
+				return { kind: "paused", reason: "authorization", retryAfter, ...quota };
 			if (
 				status === 404 ||
 				(ok &&
@@ -144,10 +170,13 @@ export function createToapisImage(read: CheckFetch = fetch) {
 						error?.code === "task_not_found" ||
 						error?.code === "task_not_exist"))
 			)
-				return { kind: "paused", reason: "missing-task", retryAfter };
-			if (!ok || !task) return { kind: "temporary", retryAfter };
-			if (error && state !== "failed") return { kind: "temporary", retryAfter };
-			if (!state) return { kind: "paused", reason: "unknown-status", retryAfter };
+				return { kind: "paused", reason: "missing-task", retryAfter, ...quota };
+			if (!ok || !task) return { kind: "temporary", retryAfter, ...quota };
+			if (error && state !== "failed") return { kind: "temporary", retryAfter, ...quota };
+			const hasOutputs =
+				isRecord(task.result) && Array.isArray(task.result.data) && task.result.data.length > 0;
+			if (!state || (state === "failed" && hasOutputs))
+				return { kind: "paused", reason: "unknown-status", retryAfter, ...quota };
 			return {
 				kind: "observed",
 				state,
@@ -155,10 +184,17 @@ export function createToapisImage(read: CheckFetch = fetch) {
 					state === "failed" && error?.reason === "reference_media_unreadable"
 						? "reference_media_unreadable"
 						: null,
+				...(state === "failed" &&
+					(error?.reason === "service_busy" || error?.reason === "request_rate_limited") && {
+						transientFailure: error.reason,
+						settlementPending:
+							task.billing == null || (isRecord(task.billing) && task.billing.status === "pending"),
+					}),
 				billing: billing(task.billing),
 				resultUrl: state === "completed" ? oneImage(task.result) : null,
 				expiresAt: state === "completed" ? expiry(task.expires_at) : null,
 				retryAfter,
+				...quota,
 			};
 		},
 	};
