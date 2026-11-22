@@ -38,6 +38,9 @@ export type PoyoPricingFeedV2 = Readonly<{
 }>;
 export type PoyoPricingFeed = PricingFeed | PoyoPricingFeedV2;
 
+// Builds keep rate kinds they do not know, but only in this shape: nested records whose leaves
+// are credit decimals. A later kind must keep its leaves in that form, or older builds will
+// reject the whole v2 feed and fall back to v1.
 function decodeFields(value: unknown, depth: number): UnfamiliarRateFields | undefined {
 	if (depth > maxDepth || !isPricingRecord(value)) return;
 	const fields: Record<string, UnfamiliarRateValue> = Object.create(null);

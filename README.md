@@ -56,7 +56,7 @@ bun run pricing:estimate --model seedream-5.5 --operation edit --resolution 2K -
 bun run pricing:estimate --provider toapis --model doubao-seedream-5-5 --size 2K
 ```
 
-Estimates use local public rates and work offline. To refresh from the published feeds, run `bun run pricing:refresh` for Poyo.ai or `bun run pricing:refresh --provider toapis` for ToAPIs. Each command updates that provider’s local cache. If a refresh fails, estimates can still use eligible cached or bundled rates. Unsupported or expired rates return an unknown total. Run `bun run pricing:refresh` before the expiry date that Review shows. A refresh moves it to 30 days after the newest published confirmation, which may be a day or more old. Builds receive fresher Poyo.ai confirmations only through refresh. Use `pricing:estimate --help` for options.
+Estimates use local public rates and work offline. To refresh from the published feeds, run `bun run pricing:refresh` for Poyo.ai or `bun run pricing:refresh --provider toapis` for ToAPIs. Each command updates that provider’s local cache. If a refresh fails, estimates can still use eligible cached or bundled rates. Unsupported or expired rates return an unknown total. Run `bun run pricing:refresh` before the expiry date that Review shows. Once confirmations are published, a refresh moves it to 30 days after the newest one, which may be a day or more old. Builds receive fresher Poyo.ai confirmations only through refresh. Use `pricing:estimate --help` for options.
 
 ## Development
 

@@ -52,10 +52,6 @@ export function isPricingClock(nowMs: number): boolean {
 	return Number.isSafeInteger(nowMs) && nowMs >= 0 && nowMs <= 8_640_000_000_000_000;
 }
 
-export function pricingFeedExpiryMs(feed: PricingFeed): number {
-	return parsePricingInstant(feed.sourceDate) + pricingMaxAgeMs;
-}
-
 export function isUnavailable(value: unknown): boolean {
 	return hasKeys(value, ["kind"]) && value.kind === "unavailable";
 }
