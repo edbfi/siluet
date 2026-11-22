@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { dirname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,21 +11,21 @@ import { test } from "@playwright/test";
 // open and reload file:// entries directly.
 export const reloadOrigin = "http://workspace.localhost";
 
-// Only the directories of entries passed to reloadUrl are served.
+// Only the directories of entries passed to reloadUrl during the current test
+// are served. Each is resolved once, so a spec's deleted temp folder cannot
+// affect a later spec in the same worker.
 const roots = new Set<string>();
 
 export const reloadUrl = (file: URL) => {
-	roots.add(dirname(fileURLToPath(file)));
+	roots.add(`${realpathSync(dirname(fileURLToPath(file)))}${sep}`);
 	return `${reloadOrigin}${file.pathname}`;
 };
 
 async function servedPath(url: string) {
 	try {
 		const path = await realpath(fileURLToPath(`file://${new URL(url).pathname}`));
-		for (const root of roots) {
-			if (!path.startsWith(`${await realpath(root)}${sep}`)) continue;
+		if ([...roots].some((root) => path.startsWith(root)))
 			return (await stat(path)).isFile() ? path : undefined;
-		}
 	} catch {
 		// Missing files and malformed paths are answered with 404.
 	}
@@ -47,6 +48,7 @@ export const reloadTest = test.extend({
 			});
 			await use(context);
 		} finally {
+			roots.clear();
 			await context.close();
 		}
 	},
