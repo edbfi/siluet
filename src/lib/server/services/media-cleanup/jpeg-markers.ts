@@ -1,4 +1,5 @@
 import { refuseJpeg } from "./jpeg-errors";
+import { defineHuffman, defineRestart, scanTables, walkScan } from "./jpeg-scan";
 
 export const jpegMaxBytes = 16 * 1024 * 1024;
 // ToAPIs' file limit bounds a re-encoded copy, which can exceed its source.
@@ -8,7 +9,6 @@ export const jpegMaxScans = 64;
 const jpegMaxEdge = 16_384;
 const jpegMaxMarkers = 4096;
 const frameMarkers = new Set([0xc0, 0xc1, 0xc2]);
-const codingMarkers = new Set([0xc4, 0xdb, 0xdd]);
 const soi = Buffer.from([0xff, 0xd8]);
 const eoi = Buffer.from([0xff, 0xd9]);
 
@@ -49,14 +49,17 @@ function scanEnd(bytes: Buffer, start: number) {
 }
 
 // Walk every scan, including metadata between progressive scans. Only Huffman
-// DCT coding markers and entropy enter the image data copied to the result.
+// DCT coding markers and the entropy-coded data each sequential scan decodes
+// enter the image data copied to the result.
 export function readJpeg(bytes: Buffer, { maxBytes = jpegMaxBytes } = {}) {
 	if (bytes.length > maxBytes) refuseJpeg("limit");
 	if (!bytes.subarray(0, 2).equals(soi)) refuseJpeg("invalid");
 	const image: Buffer[] = [];
 	const markers: Marker[] = [];
 	let frame: JpegFrame | undefined;
+	let sequential = false;
 	let scans = 0;
+	const tables = scanTables();
 	for (let offset = 2, count = 0; offset < bytes.length; ) {
 		if (++count > jpegMaxMarkers) refuseJpeg("limit");
 		const start = offset;
@@ -81,13 +84,23 @@ export function readJpeg(bytes: Buffer, { maxBytes = jpegMaxBytes } = {}) {
 		if (frameMarkers.has(code)) {
 			if (frame) refuseJpeg("secondary");
 			frame = readFrame(data);
-		} else if (code === 0xda) {
-			if (!frame) refuseJpeg("invalid");
-			if (++scans > jpegMaxScans) refuseJpeg("limit");
-		} else if (!codingMarkers.has(code)) {
+			sequential = code !== 0xc2;
+		} else if (code === 0xc4) {
+			defineHuffman(tables, data);
+		} else if (code === 0xdd) {
+			defineRestart(tables, data);
+		} else if (code !== 0xda && code !== 0xdb) {
 			refuseJpeg("unsupported");
 		}
-		offset = code === 0xda ? scanEnd(bytes, end) : end;
+		offset = end;
+		if (code === 0xda) {
+			if (!frame) refuseJpeg("invalid");
+			if (++scans > jpegMaxScans) refuseJpeg("limit");
+			offset = scanEnd(bytes, end);
+			// libjpeg stops after the last sequential scan line, so bytes the
+			// scan never codes would otherwise reach the upright copy unseen.
+			if (sequential) walkScan(bytes, data, end, offset, frame, tables);
+		}
 		image.push(bytes.subarray(start, offset));
 	}
 	return refuseJpeg("invalid");

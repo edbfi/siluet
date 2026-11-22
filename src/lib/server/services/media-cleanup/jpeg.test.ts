@@ -573,6 +573,30 @@ describe("cleanJpeg", () => {
 		);
 		await expect(clean(insert(jpeg, ...oversizedIcc))).rejects.toMatchObject({ code: "limit" });
 	});
+
+	test("declines bytes hidden between the last scan line and EOI of an upright JPEG", async () => {
+		const hidden = Buffer.from(`${secret} hidden after the final MCU of a scan!!`);
+		expect(hidden).toHaveLength(53);
+		const gray = await sharp(await photo(40, 24))
+			.toColourspace("b-w")
+			.jpeg()
+			.toBuffer();
+		const sources = [await photo(64, 40), await photo(37, 29, { subsampling: "4:4:4" }), gray];
+		for (const jpeg of sources) {
+			for (const source of [jpeg, insert(jpeg, exif([[0x112, 1]]))]) {
+				const hiding = Buffer.concat([source.subarray(0, -2), hidden, source.subarray(-2)]);
+				const result = cleanJpeg(hiding);
+				await expect(result).rejects.toMatchObject({ code: "trailer" });
+				await expect(result).rejects.not.toThrow(secret);
+				expect(await cleanJpeg(source)).toEqual({ bytes: jpeg, transform: "none" });
+			}
+		}
+		// The decoder reads every progressive scan up to EOI and warns instead.
+		const progressive = await picture(32, 48, true);
+		await expect(
+			cleanJpeg(Buffer.concat([progressive.subarray(0, -2), hidden, progressive.subarray(-2)])),
+		).rejects.toMatchObject({ code: "invalid" });
+	});
 });
 
 const coordinates = (o: number, x: number, y: number, w: number, h: number) =>
