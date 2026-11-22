@@ -35,7 +35,7 @@ The baseline includes the releases through [#37](https://github.com/edbfi/siluet
 
 ### Remaining deliverables and release checks
 
-Milestone numbers above identify the released foundation. The proposed order below applies within each area. Work can proceed in parallel wherever the stated dependencies allow it. Future module specs require council review and owner approval before implementation. The approved decisions already establish the security and coverage goals.
+Milestone numbers above identify the released foundation. The proposed order below applies within each area. Work can proceed in parallel wherever the stated dependencies allow it. Future module specs require council confirmation before implementation. The approved decisions already establish the security and coverage goals.
 
 | Area and order | Capability and dependency | What to verify in production |
 | --- | --- | --- |
