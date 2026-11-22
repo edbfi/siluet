@@ -76,7 +76,8 @@ export class LocalCopy {
 			const show = (event: PageTransitionEvent) => {
 				if (!event.persisted || !this.file || !this.#resume) return;
 				this.#resume = false;
-				void this.#prepare(false);
+				// An automatic recovery stays automatic, so its retry limit survives.
+				void this.#prepare(this.#recovered);
 			};
 			addEventListener("pagehide", hide);
 			addEventListener("pageshow", show);
