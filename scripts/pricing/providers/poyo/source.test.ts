@@ -110,6 +110,7 @@ function fixture() {
 function source(
 	catalog: string = JSON.stringify(fixture().catalog),
 	overrides: Record<string, () => Response> = {},
+	githubToken?: string,
 ) {
 	const seen: string[] = [];
 	return {
@@ -117,7 +118,10 @@ function source(
 		async fetch(url: string, init: RequestInit) {
 			expect(init.redirect).toBe("error");
 			expect(init.signal).toBeDefined();
-			expect(new Headers(init.headers).has("Authorization")).toBe(false);
+			const authorization = new Headers(init.headers).get("Authorization");
+			expect(authorization).toBe(
+				url === commitsUrl && githubToken ? `Bearer ${githubToken}` : null,
+			);
 			seen.push(url);
 			if (overrides[url]) return overrides[url]();
 			if (url === commitsUrl) {
@@ -156,6 +160,16 @@ test("collects the whole supported set with exact decimals and the path commit d
 		`${rawBase}LICENSE`,
 	]);
 	expect(await collectPoyoPricing(source().fetch, license, undefined, clock)).toEqual(feed);
+});
+
+test("authenticates only the history request when a GitHub token is set", async () => {
+	const token = "fixture-github-token";
+	const upstream = source(undefined, {}, token);
+	await collectPoyoPricing(upstream.fetch, license, undefined, clock, token);
+	expect(upstream.seen).toHaveLength(3);
+	const anonymous = source();
+	await collectPoyoPricing(anonymous.fetch, license, undefined, clock, "");
+	expect(anonymous.seen).toHaveLength(3);
 });
 
 test("rejects a catalog commit dated after the confirmation clock", async () => {

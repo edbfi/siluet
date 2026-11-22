@@ -46,7 +46,10 @@ jobs:
       - name: Collect the PoYo catalog revision
         id: upstream
         if: github.event_name != 'pull_request'
-        env: { PRICING_COLLECTOR: scripts/pricing/collect.ts }
+        env:
+          PRICING_COLLECTOR: scripts/pricing/collect.ts
+          # Authenticate the catalog history request; anonymous runners share a rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
         run: &collect_feed |
           feed=$(bun "$PRICING_COLLECTOR" | jq -ces '
             if length == 1 and (.[0] | type == "object") then .[0]
