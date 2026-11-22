@@ -53,14 +53,10 @@ export async function discardDraft(event: RequestEvent) {
 	return new Response(null, { status: 204 });
 }
 
-export async function stagedMedia(event: RequestEvent, discard: boolean) {
+export async function stagedPreview(event: RequestEvent) {
 	const scope = scopeFor(event, event.params.draft);
 	const handle = event.params.handle;
 	if (!scope || !opaqueId(handle)) return new Response(null, { status: 404 });
-	if (discard) {
-		await event.locals.studio.stages.discard(scope, handle);
-		return new Response(null, { status: 204 });
-	}
 	const lease = await event.locals.studio.stages.openPreview(scope, handle).catch(() => null);
 	if (!lease) return new Response(null, { status: 404 });
 	return privateMediaResponse(event.request, lease);

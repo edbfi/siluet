@@ -370,12 +370,6 @@ export function createStages(
 			};
 		},
 		claim,
-		discard(scope: StageScope, handle: string) {
-			return serialize(async () => {
-				const stage = stages.get(handle);
-				if (stage && same(stage.scope, scope)) await remove(stage);
-			});
-		},
 		/**
 		 * Remove every copy of this draft, including one a request the browser
 		 * abandoned has just written, and refuse later writes to the draft.

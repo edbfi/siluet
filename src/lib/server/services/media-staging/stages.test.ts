@@ -85,7 +85,7 @@ test("full pool refuses before writing; drafts survive; release lets staging suc
 	await expect(stages.put(first, png(8))).rejects.toThrow("Local scratch full");
 	expect((await files()).sort()).toEqual([kept.handle, second.handle].sort());
 	expect(await stages.preview(first, kept.handle)).toMatchObject({ mime: "image/png" });
-	await stages.discard(first, kept.handle);
+	await stages.discardDraft(first);
 	expect(pool.used).toBe(3);
 	await stages.put(third, png(7));
 	expect(pool.used).toBe(4);
@@ -104,7 +104,7 @@ test("unlink failure stays charged until a retry succeeds", async () => {
 	});
 	const owner = scope();
 	const staged = await stages.put(owner, png(1, 2, 3));
-	await stages.discard(owner, staged.handle);
+	await stages.discardDraft(owner);
 	expect(attempts).toHaveLength(4);
 	expect(await files()).toEqual([staged.handle]);
 	expect(pool.used).toBe(3);
@@ -238,9 +238,10 @@ test("a missing scratch file refuses a claim and its reservation can be reclaime
 		}),
 	).rejects.toThrow("Staged file changed.");
 	expect(claims).toBe(0);
-	await stages.discard(owner, descriptor.handle);
-	const replacement = await stages.put(owner, png(1));
-	const held = await stages.claim(owner, replacement, async () => true);
+	await stages.discardDraft(owner);
+	const next = scope();
+	const replacement = await stages.put(next, png(1));
+	const held = await stages.claim(next, replacement, async () => true);
 	expect(held?.bytes).toEqual(new Uint8Array([1]));
 	held?.release();
 });
