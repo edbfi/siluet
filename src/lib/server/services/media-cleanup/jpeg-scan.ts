@@ -153,7 +153,8 @@ function sequentialCoder(reader: EntropyReader, bits: CoefficientBits) {
 
 /**
  * Decode every Huffman symbol of a scan in `bytes[start, end)`, where `end` is
- * the marker that follows it. Refuse data the decoder would not read.
+ * the marker that follows it. Refuse data the decoder would not read, and
+ * return the entropy-coded data without fill bytes.
  */
 export function walkScan(
 	bytes: Buffer,
@@ -176,5 +177,5 @@ export function walkScan(
 		}
 		for (const component of blocks) coder.block(component, mcu);
 	}
-	reader.finish();
+	return reader.finish();
 }

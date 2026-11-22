@@ -300,3 +300,45 @@ describe("coefficient magnitude", () => {
 		refuses(sequential([0x10, 0x01], 0x00), "invalid");
 	});
 });
+
+describe("fill bytes before markers", () => {
+	// B.1.1.2: any number of 0xFF fill bytes may precede a marker.
+	const fillBefore = (source: Buffer, codes: number[], from = 0) => {
+		const parts: Buffer[] = [];
+		let copied = 0;
+		for (let at = from; at < source.length - 1; at++) {
+			if (source[at] !== 0xff || !codes.includes(source[at + 1])) continue;
+			parts.push(source.subarray(copied, at), Buffer.from([0xff, 0xff, 0xff]));
+			copied = at;
+		}
+		return Buffer.concat([...parts, source.subarray(copied)]);
+	};
+	const restartCodes = [0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7];
+	// The AC table is redefined, unchanged, after the first AC scan has used it.
+	const between = withScan(1, {
+		data: [...intervals(0x35, 0x35), ...acTable(0x01, 0x10, 0x00)],
+	});
+
+	test("drops fill before EOI, header and table markers and restart markers", async () => {
+		const sources = [restartJpeg([...restarts, 0x3f]), progressiveJpeg(), progressiveJpeg(between)];
+		for (const source of sources) {
+			expect(await cleanJpeg(source)).toEqual({ bytes: source, transform: "none" });
+			await sharp(source, { failOn: "warning" }).raw().toBuffer();
+			const filled = [
+				fillBefore(source, [0xd9]),
+				fillBefore(source, [0xdb]),
+				fillBefore(source, restartCodes),
+				fillBefore(source, [0xc4, 0xda], source.indexOf(Buffer.from([0xff, 0xda]))),
+			];
+			for (const input of filled) {
+				expect(input.length).toBeGreaterThan(source.length);
+				expect(await cleanJpeg(input)).toEqual({ bytes: source, transform: "none" });
+			}
+		}
+	});
+
+	test("still refuses a wrong restart marker after fill", () => {
+		const data = [0x3f, 0xff, 0xff, 0xd1, ...restarts.slice(3), 0x3f];
+		refuses(restartJpeg(data), "invalid");
+	});
+});

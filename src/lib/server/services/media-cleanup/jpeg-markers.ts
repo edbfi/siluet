@@ -50,7 +50,7 @@ function scanEnd(bytes: Buffer, start: number) {
 
 // Walk every scan, including metadata between progressive scans. Only Huffman
 // DCT coding markers and the entropy-coded data each scan decodes enter the
-// image data copied to the result.
+// image data copied to the result, without fill bytes.
 export function readJpeg(bytes: Buffer, { maxBytes = jpegMaxBytes } = {}) {
 	if (bytes.length > maxBytes) refuseJpeg("limit");
 	if (!bytes.subarray(0, 2).equals(soi)) refuseJpeg("invalid");
@@ -90,6 +90,9 @@ export function readJpeg(bytes: Buffer, { maxBytes = jpegMaxBytes } = {}) {
 		} else if (code !== 0xda && code !== 0xdb) {
 			refuseJpeg("unsupported");
 		}
+		// B.1.1.2: fill bytes before a marker are dropped, so each kept marker is
+		// written as 0xFF, its code and its segment.
+		image.push(Buffer.from([0xff, code]), bytes.subarray(offset, end));
 		offset = end;
 		if (code === 0xda) {
 			if (!frame) refuseJpeg("invalid");
@@ -98,9 +101,8 @@ export function readJpeg(bytes: Buffer, { maxBytes = jpegMaxBytes } = {}) {
 			// libjpeg stops after the last sequential scan line and skips a few
 			// bytes before a progressive EOI without a warning, so bytes the
 			// scan never codes would otherwise reach the upright copy unseen.
-			walkScan(bytes, data, end, offset, frame, scan);
+			image.push(...walkScan(bytes, data, end, offset, frame, scan));
 		}
-		image.push(bytes.subarray(start, offset));
 	}
 	return refuseJpeg("invalid");
 }
