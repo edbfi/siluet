@@ -25,6 +25,8 @@ import type { PricingFeeds, PricingProvider } from "#lib/shared/pricing/feeds.ts
 import { goto } from "$app/navigation";
 import ImageReferenceGuidance from "./ImageReferenceGuidance.svelte";
 import * as styles from "./image-review-styles.ts";
+import LocalCopyDetails from "./LocalCopyDetails.svelte";
+import type { LocalCopy } from "./local-copy.svelte.ts";
 
 let {
 	modelId,
@@ -39,6 +41,7 @@ let {
 	provider = undefined,
 	operation = "generate",
 	headingId = "studio-review-title",
+	localCopy = undefined,
 }: {
 	modelId: string;
 	connected: boolean;
@@ -52,6 +55,8 @@ let {
 	provider?: PricingProvider;
 	operation?: ReviewOperation;
 	headingId?: string;
+	/** The cleaned copy of an attached local file, shown here as information. */
+	localCopy?: LocalCopy;
 } = $props();
 
 const providerNames = { poyo: "Poyo.ai", toapis: "ToAPIs" };
@@ -422,6 +427,9 @@ $effect(() => {
 						? "Maximum spend including fallback is unknown."
 						: "The provider does not enforce the estimated spend as a cap."}
 				</p>
+			{/if}
+			{#if localCopy?.file}
+				<LocalCopyDetails copy={localCopy} {headingId} />
 			{/if}
 			{#if disclosure}
 				<h3 class={styles.disclosureHeading} id={`${headingId}-disclosure`}>Provider disclosure</h3>

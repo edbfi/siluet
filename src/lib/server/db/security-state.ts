@@ -4,6 +4,7 @@ import { AccessError, recoverMessage, staleProof } from "../services/owner/acces
 import { cleanUnusedFactorKeys, factorIdPattern, KeyViolation, readFactorKey } from "./factor-key";
 import type { Installation, OwnerTransaction } from "./installation";
 import { openSeed } from "./seed-envelope";
+import { ownerTransaction, requireOwnerRecovery } from "./session-retirement";
 
 export type Policy = {
 	revision: number;
@@ -32,9 +33,9 @@ export async function currentPolicy(tx: OwnerTransaction, expected: Policy) {
 	)
 		throw staleProof();
 }
-export function transact<T>(install: Installation, fn: (tx: OwnerTransaction) => Promise<T>) {
-	return install.use((db) => db.transaction(fn, { behavior: "immediate" }));
-}
+// Owner transactions report the sessions they remove, so staged copies retire on commit.
+export { ownerTransaction as transact } from "./session-retirement";
+
 const activeFactor = (tx: OwnerTransaction) =>
 	tx.get<Factor>(sql`SELECT * FROM owner_factor WHERE singleton=1`);
 
@@ -54,7 +55,7 @@ async function inspectState(tx: OwnerTransaction) {
 			codes.every((c) => c.set_id === factor.set_id && /^[0-9a-f]{64}$/.test(c.digest))
 		: !factor && !codes.length;
 	if (!consistent) {
-		await tx.run(sql`UPDATE owner_security SET recovery_required=1 WHERE singleton=1`);
+		await requireOwnerRecovery(tx);
 		return null;
 	}
 	return { state, factor };
@@ -101,7 +102,7 @@ function acquireSeed(
 	return seed;
 }
 export async function checkedSecurity(install: Installation, readKey = readFactorKey) {
-	const initial = await transact(install, inspectState);
+	const initial = await ownerTransaction(install, inspectState);
 	if (!initial) throw new AccessError(recoverMessage, 503);
 	const { state, factor } = initial;
 	if (!factor) return { state, factor: null, seed: null };
@@ -112,13 +113,13 @@ export async function checkedSecurity(install: Installation, readKey = readFacto
 			? error
 			: new AccessError("Authenticator storage is temporarily unavailable. Retry.", 503),
 	);
-	const verified = await transact(install, async (tx) => {
+	const verified = await ownerTransaction(install, async (tx) => {
 		await currentPolicy(tx, state);
 		const current = await activeFactor(tx);
 		if (current?.id !== factor.id || current.envelope !== factor.envelope) throw staleProof();
 		if (seed instanceof AccessError) throw seed;
 		if (seed instanceof KeyViolation) {
-			await tx.run(sql`UPDATE owner_security SET recovery_required=1 WHERE singleton=1`);
+			await requireOwnerRecovery(tx);
 			return null;
 		}
 		return { state, factor: current, seed };
@@ -141,7 +142,7 @@ export async function cleanUnusedKeys(install: Installation) {
 	// List first. A key already in this list cannot become active after the transaction:
 	// publication and activation belong to one transaction and key paths are never reused.
 	const names = await readdir(install.directory);
-	const current = await transact(install, async (tx) => {
+	const current = await ownerTransaction(install, async (tx) => {
 		const state = await policy(tx);
 		const active = await activeFactor(tx);
 		return Boolean(active) === Boolean(state.enabled) ? (active?.id ?? null) : undefined;

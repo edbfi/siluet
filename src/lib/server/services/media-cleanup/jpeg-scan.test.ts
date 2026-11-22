@@ -1,0 +1,422 @@
+import { describe, expect, test } from "bun:test";
+import sharp from "sharp";
+import { cleanJpeg } from "./jpeg";
+import { readJpeg } from "./jpeg-markers";
+
+function segment(code: number, ...fields: number[]) {
+	return [0xff, code, (fields.length + 2) >> 8, (fields.length + 2) & 255, ...fields];
+}
+
+// One-symbol tables: DC category 0 and AC end-of-block are both the code "0",
+// so every all-zero block costs two bits.
+const quantization = segment(0xdb, 0, ...Array(64).fill(1));
+const endOfBlock = segment(0xc4, 0x10, 1, ...Array(15).fill(0), 0x00);
+const zeroTables = [
+	...quantization,
+	...segment(0xc4, 0x00, 1, ...Array(15).fill(0), 0x00),
+	...endOfBlock,
+];
+
+// `band` is Ss, Se and Ah << 4 | Al.
+type Scan = { ids: number[]; data: number[]; band?: number[] };
+
+function jpeg(
+	width: number,
+	height: number,
+	sampling: number[],
+	scans: Scan[],
+	restart = 0,
+	tables = zeroTables,
+	marker = 0xc0,
+) {
+	const frame = sampling.flatMap((hv, index) => [index + 1, hv, 0]);
+	return Buffer.from([
+		0xff,
+		0xd8,
+		...tables,
+		...segment(
+			marker,
+			8,
+			height >> 8,
+			height & 255,
+			width >> 8,
+			width & 255,
+			sampling.length,
+			...frame,
+		),
+		...(restart ? segment(0xdd, restart >> 8, restart & 255) : []),
+		...scans.flatMap(({ ids, data, band = [0, 63, 0] }) => [
+			...segment(0xda, ids.length, ...ids.flatMap((id) => [id, 0x00]), ...band),
+			...data,
+		]),
+		0xff,
+		0xd9,
+	]);
+}
+
+// Two zero blocks per byte: 0b0000 then four padding 1-bits, or one block in 0x3f.
+const restartJpeg = (data: number[]) => jpeg(80, 8, [0x11], [{ ids: [1], data }], 1);
+const restarts = Array.from({ length: 9 }, (_, i) => [0x3f, 0xff, 0xd0 + (i & 7)]).flat();
+
+describe("walkScan", () => {
+	test("follows restart intervals through RST7 back to RST0", async () => {
+		const source = restartJpeg([...restarts, 0x3f]);
+		expect(await cleanJpeg(source)).toEqual({ bytes: source, transform: "none" });
+		const { data, info } = await sharp(source).raw().toBuffer({ resolveWithObject: true });
+		expect(info).toMatchObject({ width: 80, height: 8 });
+		expect(new Set(data)).toEqual(new Set([128]));
+	});
+
+	test("refuses bytes hidden in or after a restart interval", () => {
+		const hidden = [0x73, 0x65, 0x63];
+		const cases = [
+			[restartJpeg([0x3f, ...hidden, ...restarts.slice(1), 0x3f]), "invalid"],
+			[restartJpeg([...restarts, 0x3f, ...hidden]), "trailer"],
+			[restartJpeg([...restarts, 0x3f, 0xff, 0xd1]), "trailer"],
+		] as const;
+		for (const [source, code] of cases) {
+			expect(() => readJpeg(source)).toThrow(expect.objectContaining({ code }));
+		}
+	});
+
+	test("refuses a missing, misnumbered or early restart marker", () => {
+		const skipped = restarts.filter((_, i) => i < 3 || i > 5);
+		for (const data of [
+			[0x3f, 0x3f, ...restarts.slice(3), 0x3f],
+			[0x3f, 0xff, 0xd1, ...restarts.slice(3), 0x3f],
+			[...skipped, 0x3f],
+			[...restarts.slice(0, -3), 0x3f],
+		]) {
+			expect(() => readJpeg(restartJpeg(data))).toThrow(
+				expect.objectContaining({ code: "invalid" }),
+			);
+		}
+	});
+
+	test("counts a non-interleaved chroma scan in that component's own blocks", async () => {
+		// 24×8 at 4:2:0: luma has 3 blocks and each chroma plane is 12×4, so 2 blocks.
+		const scans = (chroma: number[]) => [
+			{ ids: [1], data: [0x03] },
+			{ ids: [2], data: chroma },
+			{ ids: [3], data: [0x0f] },
+		];
+		const source = jpeg(24, 8, [0x22, 0x11, 0x11], scans([0x0f]));
+		expect(await cleanJpeg(source)).toEqual({ bytes: source, transform: "none" });
+		expect(() => readJpeg(jpeg(24, 8, [0x22, 0x11, 0x11], scans([0x3f])))).toThrow(
+			expect.objectContaining({ code: "invalid" }),
+		);
+		for (const hidden of [[0x00], [0xff, 0x00]]) {
+			expect(() => readJpeg(jpeg(24, 8, [0x22, 0x11, 0x11], scans([0x0f, ...hidden])))).toThrow(
+				expect.objectContaining({ code: "trailer" }),
+			);
+		}
+	});
+
+	test("counts an interleaved MCU as every component's sampled blocks", () => {
+		// 24×8 at 4:2:0 is two MCUs of 4 + 1 + 1 blocks: 24 bits.
+		const interleaved = (data: number[]) =>
+			jpeg(24, 8, [0x22, 0x11, 0x11], [{ ids: [1, 2, 3], data }]);
+		expect(readJpeg(interleaved([0, 0, 0])).frame.width).toBe(24);
+		expect(() => readJpeg(interleaved([0, 0, 0x0f]))).toThrow(
+			expect.objectContaining({ code: "invalid" }),
+		);
+		expect(() => readJpeg(interleaved([0, 0, 0, 0xff, 0]))).toThrow(
+			expect.objectContaining({ code: "trailer" }),
+		);
+	});
+
+	test("refuses non-1 padding, undefined codes, missing data and overfull tables", () => {
+		const single = (data: number[], tables?: number[]) =>
+			jpeg(8, 8, [0x11], [{ ids: [1], data }], 0, tables);
+		expect(readJpeg(single([0x3f])).frame.width).toBe(8);
+		for (const data of [[0x3e], [0xbf], []]) {
+			expect(() => readJpeg(single(data))).toThrow(expect.objectContaining({ code: "invalid" }));
+		}
+		// Two one-bit codes would leave no prefix for longer codes: libjpeg refuses it.
+		const overfull = segment(0xc4, 0x00, 2, ...Array(15).fill(0), 0x00, 0x01);
+		expect(() => readJpeg(single([0x3f], [...quantization, ...overfull, ...endOfBlock]))).toThrow(
+			expect.objectContaining({ code: "invalid" }),
+		);
+	});
+});
+
+// A 32×8 gray SOF2 image of four blocks, two per restart interval. DC carries
+// weight 64, so a refinement bit of 1 lifts its block from 128 to 136. The AC
+// table codes 00 = one ±1 coefficient, 01 = EOB1 (a run of 2–3 blocks), 10 = EOB.
+const dcTables = [
+	...segment(0xdb, 0, ...Array(64).fill(64)),
+	...segment(0xc4, 0x00, 1, ...Array(15).fill(0), 0x00),
+];
+const acTable = (...symbols: number[]) =>
+	segment(0xc4, 0x10, 0, symbols.length, ...Array(14).fill(0), ...symbols);
+const progressiveTables = [...dcTables, ...acTable(0x01, 0x10, 0x00)];
+const intervals = (first: number, second: number) => [first, 0xff, 0xd0, second];
+const progression = (): Scan[] => [
+	// DC first, Al = 1: category 0 in every block.
+	{ ids: [1], band: [0, 0, 0x01], data: intervals(0x3f, 0x3f) },
+	// AC 1–5 first, Al = 1: blocks 0 and 2 get coefficient 1, then EOB; 1 and 3 EOB.
+	{ ids: [1], band: [1, 5, 0x01], data: intervals(0x35, 0x35) },
+	// AC 6–63 first: one EOB1 run of two blocks per interval.
+	{ ids: [1], band: [6, 63, 0x00], data: intervals(0x5f, 0x5f) },
+	// AC 1–5 refinement: block 0 corrects coefficient 1 and gains coefficient 2;
+	// blocks 2 and 3 form an EOB1 run that still corrects block 2's coefficient 1.
+	{ ids: [1], band: [1, 5, 0x10], data: intervals(0x2a, 0x5f) },
+	// DC refinement: one raw bit per block, 1 0 | 0 1.
+	{ ids: [1], band: [0, 0, 0x10], data: intervals(0xbf, 0x7f) },
+];
+const progressiveJpeg = (scans = progression(), restart = 2, sampling = [0x11]) =>
+	jpeg(32, 8, sampling, scans, restart, progressiveTables, 0xc2);
+const refuses = (source: Buffer, code: string) =>
+	expect(() => readJpeg(source)).toThrow(expect.objectContaining({ code }));
+const withScan = (index: number, scan: Partial<Scan>) =>
+	progression().map((original, i) => (i === index ? { ...original, ...scan } : original));
+
+describe("walkScan in progressive frames", () => {
+	test("decodes every progressive scan through restart intervals as libjpeg does", async () => {
+		const source = progressiveJpeg();
+		expect(await cleanJpeg(source)).toEqual({ bytes: source, transform: "none" });
+		const { data, info } = await sharp(source)
+			.extractChannel(0)
+			.raw()
+			.toBuffer({ resolveWithObject: true });
+		expect(info).toMatchObject({ width: 32, height: 8, channels: 1 });
+		const blocks = [0, 1, 2, 3].map((block) =>
+			Array.from({ length: 64 }, (_, i) => data[(i >> 3) * 32 + block * 8 + (i & 7)]),
+		);
+		const means = blocks.map((block) => block.reduce((sum, value) => sum + value) / 64);
+		for (const [index, mean] of [136, 128, 128, 136].entries()) {
+			expect(Math.abs(means[index] - mean)).toBeLessThanOrEqual(1);
+		}
+		expect(blocks.map((block) => new Set(block).size > 1)).toEqual([true, false, true, false]);
+		// A restart ends an EOB run early: an EOB1 run of three in the first
+		// interval leaves both blocks of the second to code their own EOB.
+		const cut = progressiveJpeg(withScan(2, { data: intervals(0x7f, 0xaf) }));
+		expect(await cleanJpeg(cut)).toEqual({ bytes: cut, transform: "none" });
+	});
+
+	test("refuses bytes hidden in, between or after progressive scans", () => {
+		const scans = progression();
+		const hide = (index: number, data: number[]) =>
+			progressiveJpeg(scans.map((scan, i) => (i === index ? { ...scan, data } : scan)));
+		refuses(hide(0, [0x3f, 0x41, 0xff, 0xd0, 0x3f]), "invalid");
+		refuses(hide(1, [0x35, 0xff, 0xd0, 0x35, 0x41]), "trailer");
+		refuses(hide(3, [0x2a, 0xff, 0xd0, 0x5f, 0xff, 0x00]), "trailer");
+		refuses(hide(4, [0xbf, 0xff, 0xd0, 0x7f, 0x41]), "trailer");
+		// A missing restart marker or one interval too few.
+		refuses(hide(2, [0x5f, 0x5f]), "invalid");
+		refuses(hide(4, [0xbf]), "invalid");
+		// A zero pad bit after the DC refinement bits.
+		refuses(hide(4, [0xbe, 0xff, 0xd0, 0x7f]), "invalid");
+	});
+
+	test("refuses invalid spectral selection and successive approximation", () => {
+		const invalid = [
+			withScan(1, { band: [0, 5, 0x01] }), // a DC scan with Se > 0
+			withScan(1, { band: [5, 1, 0x01] }), // Se < Ss
+			withScan(2, { band: [6, 64, 0x00] }), // Se beyond 63
+			withScan(0, { band: [0, 0, 0x0e] }), // Al above 13
+			withScan(3, { band: [1, 5, 0x21] }), // Ah not the previous Al
+			withScan(4, { band: [0, 0, 0x20] }), // Ah ≠ Al + 1
+			[progression()[1], ...progression().slice(2)], // AC before DC
+			[...progression().slice(0, 3), progression()[1], ...progression().slice(3)], // repeated first scan
+			progression().filter((_, i) => i !== 1), // refinement without a first scan
+		];
+		for (const scans of invalid) refuses(progressiveJpeg(scans), "invalid");
+		// AC scans code one component; a three-component frame may interleave only DC.
+		const color = (scans: Scan[]) => progressiveJpeg(scans, 0, [0x11, 0x11, 0x11]);
+		const dc = { ids: [1, 2, 3], band: [0, 0, 0x00], data: [0x00, 0x0f] };
+		expect(
+			readJpeg(jpeg(32, 8, [0x11, 0x11, 0x11], [dc], 0, dcTables, 0xc2)).frame.progressive,
+		).toBe(true);
+		refuses(color([dc, { ids: [1, 2], band: [1, 63, 0x00], data: [0x5f] }]), "invalid");
+	});
+
+	test("refuses a coefficient outside the band or a refinement of more than one bit", () => {
+		// AC 1–1 first: a coefficient after a run of one would land at k = 2.
+		// The AC table codes 00 = a run of one then ±1, 01 = EOB1, 10 = a size-2 coefficient.
+		const runTables = [...dcTables, ...acTable(0x11, 0x10, 0x02)];
+		const dc = { ids: [1], band: [0, 0, 0x00], data: [0x7f] };
+		const single = (band: number[], data: number[]) =>
+			jpeg(8, 8, [0x11], [dc, { ids: [1], band, data }], 0, runTables, 0xc2);
+		expect(readJpeg(single([1, 2, 0x00], [0x3f])).frame.progressive).toBe(true);
+		refuses(single([1, 1, 0x00], [0x3f]), "invalid");
+		// In a refinement scan a new coefficient is exactly ±1, so size 2 is malformed.
+		const refine = jpeg(
+			8,
+			8,
+			[0x11],
+			[
+				dc,
+				{ ids: [1], band: [1, 5, 0x01], data: [0x7f] },
+				// Size 2, sign 0, then EOB1: well formed but for the size.
+				{ ids: [1], band: [1, 5, 0x10], data: [0x8b] },
+			],
+			0,
+			runTables,
+			0xc2,
+		);
+		refuses(refine, "invalid");
+	});
+});
+
+describe("coefficient magnitude", () => {
+	// One 8×8 block. DC code "0" is the only DC symbol; AC 00 is `ac`, 01 is EOB.
+	const dcOnly = (symbol: number) => segment(0xc4, 0x00, 1, ...Array(15).fill(0), symbol);
+	const tables = (dc: number, ac: number) => [...quantization, ...dcOnly(dc), ...acTable(ac, 0x00)];
+	const firstDc = { ids: [1], band: [0, 0, 0x00], data: [0x7f] };
+	// A size-10 coefficient of 512, then EOB: 00 1000000000 01 and two padding bits.
+	const largeAc = [0x20, 0x07];
+	// A category-11 DC difference of 1024: 0 10000000000 and four padding bits.
+	const largeDc = [0x40, 0x0f];
+	// A DC-only progression defines no AC table, which no scan would use.
+	const progressive = (scans: Scan[], dc = 0x00) =>
+		jpeg(
+			8,
+			8,
+			[0x11],
+			scans,
+			0,
+			scans.length > 1 ? tables(dc, 0x0a) : [...quantization, ...dcOnly(dc)],
+			0xc2,
+		);
+
+	test("accepts the largest category an 8-bit frame allows after the point transform", () => {
+		expect(
+			readJpeg(progressive([firstDc, { ids: [1], band: [1, 63, 0x00], data: largeAc }])).frame
+				.progressive,
+		).toBe(true);
+		expect(
+			readJpeg(progressive([{ ids: [1], band: [0, 0, 0x00], data: largeDc }], 0x0b)).frame
+				.progressive,
+		).toBe(true);
+	});
+
+	test("refuses a progressive coefficient whose category plus Al exceeds the precision", () => {
+		// libjpeg stores s << Al in a 16-bit JCOEF: 512 << 7 truncates to 0, so a
+		// decoder would skip the correction bits this coefficient later carries.
+		for (const al of [1, 7]) {
+			refuses(progressive([firstDc, { ids: [1], band: [1, 63, al], data: largeAc }]), "invalid");
+			refuses(progressive([{ ids: [1], band: [0, 0, al], data: largeDc }], 0x0b), "invalid");
+		}
+	});
+
+	test("refuses a sequential category beyond an 8-bit frame's", () => {
+		// Both are otherwise complete: a DC difference of 2048 then EOB, or an
+		// all-zero DC then an AC coefficient of 1024 and EOB.
+		const sequential = (data: number[], dc: number) =>
+			jpeg(8, 8, [0x11], [{ ids: [1], data }], 0, tables(dc, 0x0b));
+		refuses(sequential([0x40, 0x07], 0x0c), "invalid");
+		refuses(sequential([0x10, 0x01], 0x00), "invalid");
+	});
+});
+
+describe("fill bytes before markers", () => {
+	// B.1.1.2: any number of 0xFF fill bytes may precede a marker.
+	const fillBefore = (source: Buffer, codes: number[], from = 0) => {
+		const parts: Buffer[] = [];
+		let copied = 0;
+		for (let at = from; at < source.length - 1; at++) {
+			if (source[at] !== 0xff || !codes.includes(source[at + 1])) continue;
+			parts.push(source.subarray(copied, at), Buffer.from([0xff, 0xff, 0xff]));
+			copied = at;
+		}
+		return Buffer.concat([...parts, source.subarray(copied)]);
+	};
+	const restartCodes = [0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7];
+	// The AC table is redefined, unchanged, after the first AC scan has used it.
+	const between = withScan(1, {
+		data: [...intervals(0x35, 0x35), ...acTable(0x01, 0x10, 0x00)],
+	});
+
+	test("drops fill before EOI, header and table markers and restart markers", async () => {
+		const sources = [restartJpeg([...restarts, 0x3f]), progressiveJpeg(), progressiveJpeg(between)];
+		for (const source of sources) {
+			expect(await cleanJpeg(source)).toEqual({ bytes: source, transform: "none" });
+			await sharp(source, { failOn: "warning" }).raw().toBuffer();
+			const filled = [
+				fillBefore(source, [0xd9]),
+				fillBefore(source, [0xdb]),
+				fillBefore(source, restartCodes),
+				fillBefore(source, [0xc4, 0xda], source.indexOf(Buffer.from([0xff, 0xda]))),
+			];
+			for (const input of filled) {
+				expect(input.length).toBeGreaterThan(source.length);
+				expect(await cleanJpeg(input)).toEqual({ bytes: source, transform: "none" });
+			}
+		}
+	});
+
+	test("keeps one compacted slice per scan however many restarts carry fill", () => {
+		for (const source of [restartJpeg([...restarts, 0x3f]), progressiveJpeg()]) {
+			const filled = fillBefore(source, restartCodes);
+			const { image } = readJpeg(filled);
+			expect(image.length).toBe(readJpeg(source).image.length);
+			expect(Buffer.concat(image)).toEqual(Buffer.concat(readJpeg(source).image));
+		}
+	});
+
+	test("still refuses a wrong restart marker after fill", () => {
+		const data = [0x3f, 0xff, 0xff, 0xd1, ...restarts.slice(3), 0x3f];
+		refuses(restartJpeg(data), "invalid");
+	});
+});
+
+describe("coding tables", () => {
+	const dht = (slot: number) => segment(0xc4, slot, 1, ...Array(15).fill(0), 0x00);
+	const dqt = (slot: number) => segment(0xdb, slot, ...Array(64).fill(1));
+	const single = (tables: number[], data = [0x3f], after: number[] = []) =>
+		jpeg(8, 8, [0x11], [{ ids: [1], data: [...data, ...after] }], 0, tables);
+	// 24×8 at 4:2:0, one scan per component.
+	const separate = (after: number[][]) =>
+		jpeg(
+			24,
+			8,
+			[0x22, 0x11, 0x11],
+			[0x03, 0x0f, 0x0f].map((data, i) => ({ ids: [i + 1], data: [data, ...(after[i] ?? [])] })),
+		);
+	const appendTo = (index: number, extra: number[]) =>
+		withScan(index, { data: [...progression()[index].data, ...extra] });
+
+	test("accepts tables each used by a later scan or first component scan", async () => {
+		// A quantization table redefined after luma has latched it serves chroma.
+		const source = separate([[], dqt(0)]);
+		expect(await cleanJpeg(source)).toEqual({ bytes: source, transform: "none" });
+		const restarted = single([...segment(0xdd, 0, 1), ...zeroTables]);
+		expect(await cleanJpeg(restarted)).toEqual({ bytes: restarted, transform: "none" });
+	});
+
+	test("refuses a Huffman table no scan uses", () => {
+		const unused = [
+			single([...zeroTables, ...dht(0x11)]), // never referenced
+			single([...dht(0x00), ...zeroTables]), // redefined before any scan
+			single(zeroTables, [0x3f], dht(0x10)), // defined after the last scan
+			// A DC table defined after the DC first scan: refinement reads no DC symbol.
+			progressiveJpeg(appendTo(0, dht(0x00))),
+			// An AC table redefined before any AC scan used the first one.
+			progressiveJpeg(appendTo(0, acTable(0x01, 0x10, 0x00))),
+		];
+		for (const source of unused) refuses(source, "unsupported");
+	});
+
+	test("refuses a quantization table no component uses", () => {
+		refuses(single([...zeroTables, ...dqt(1)]), "unsupported");
+		refuses(single([...dqt(0), ...zeroTables]), "unsupported");
+		refuses(separate([[], [], dqt(0)]), "unsupported");
+		refuses(single(zeroTables.slice(quantization.length)), "invalid");
+		refuses(
+			single([...segment(0xdb, 0, ...Array(63).fill(1)), ...zeroTables.slice(quantization.length)]),
+			"invalid",
+		);
+	});
+
+	test("refuses an empty table segment", () => {
+		refuses(single([...segment(0xdb), ...zeroTables]), "unsupported");
+		refuses(single([...segment(0xc4), ...zeroTables]), "unsupported");
+	});
+
+	test("refuses a restart interval no scan uses", () => {
+		const dri = segment(0xdd, 0, 1);
+		refuses(single([...dri, ...dri, ...zeroTables]), "unsupported");
+		refuses(single(zeroTables, [0x3f], dri), "unsupported");
+	});
+});

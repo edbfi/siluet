@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { cmykJpeg, localImageMarker, rotatedJpeg, uprightPng } from "../fixtures/local-image";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import {
 	providerFixtureKeys as keys,
@@ -336,6 +337,9 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 				await expect(firstFile).toBeFocused();
 			};
 			await expect(queue(1)).toHaveAccessibleDescription(/1–10 public image URLs/i);
+			await expect(
+				request.getByText(/stage files \(JPEG or PNG up to 16 MiB, or WebP up to 10 MB each\)/),
+			).toBeVisible();
 			await stageUrl(firstUrl);
 			await batchTab.press("Enter");
 			await review.getByLabel("Batch count").selectOption("2");
@@ -793,6 +797,12 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(reviewTab).toBeFocused();
 			await expect(review.locator('[role="tab"][tabindex="0"]')).toHaveCount(1);
 			await expect(review.getByRole("tabpanel")).toHaveCount(1);
+			// The local PNG cleans on attach and adds no control to the panel, so Tab
+			// focuses the panel itself.
+			await expect(facts.getByRole("region", { name: "Local copy" })).toContainText(
+				"Cleaned copy ready.",
+			);
+			await expect(facts.getByRole("button")).toHaveCount(0);
 			await page.keyboard.press("Tab");
 			await expect(facts).toBeFocused();
 			const menu = page.getByRole("button", { name: "Menu", exact: true });
@@ -853,8 +863,10 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(page.getByRole("status")).toHaveText("Key removed.");
 			await imageLink.press("Enter");
 			await expect(providers).toHaveCount(0);
-			await expect(firstFile).toHaveCount(0);
 			await expect(page.getByText("Reference images cleared.", { exact: true })).toBeVisible();
+			// The edit stays open for an offline local copy, with the earlier file cleared.
+			await expect(firstFile).toHaveAttribute("accept", "image/jpeg,.jpg,.jpeg,image/png,.png");
+			await expect(preview.getByRole("img", { name: "Reference image 1" })).toHaveCount(0);
 		});
 
 		expect(fixtures.requests).toHaveLength(providerChecks);
@@ -876,5 +888,467 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			rm(directory, { recursive: true, force: true }),
 			rm(cacheHome, { recursive: true, force: true }),
 		]);
+	}
+});
+
+test("built Image Studio cleans an attached local copy automatically while Queue stays URL-only", async ({
+	context,
+	page,
+}) => {
+	test.setTimeout(90_000);
+	page.setDefaultTimeout(10_000);
+	const { TOTP } = await import("otpauth");
+	const directory = await createOwnerDirectory();
+	const fixtures = startProviderFixtures();
+	let studio: Awaited<ReturnType<typeof startStudio>> | undefined;
+	try {
+		const server = await startStudio(directory, "0", false, fixtures.env);
+		studio = server;
+		const { origin } = server;
+		const password = randomUUID();
+		const outbound: string[] = [];
+		const pageErrors: Error[] = [];
+		page.on("pageerror", (error) => pageErrors.push(error));
+		await context.route("**/*", (route) => {
+			const url = new URL(route.request().url());
+			if (url.origin === origin.origin) return route.continue();
+			outbound.push(url.origin);
+			return route.abort();
+		});
+		// Requests the page itself sends to the private copy routes.
+		const sent: { method: string; draft: string }[] = [];
+		page.on("request", (request) => {
+			const [, draft, handle] =
+				/^\/image\/files\/([^/]+)(?:\/([^/]+))?$/.exec(new URL(request.url()).pathname) ?? [];
+			if (draft && !handle) sent.push({ method: request.method(), draft });
+		});
+		const sentWith = (method: string) => sent.filter((request) => request.method === method);
+		await expect.poll(server.token).not.toBe("");
+		await page.goto(new URL("/setup", origin).href);
+		await page.getByLabel("Claim token").fill(server.token());
+		await enterOwnerDetails(page, password);
+		await page.getByRole("button", { name: "Claim studio" }).press("Enter");
+		await page.getByRole("link", { name: "Skip for now" }).click();
+		await expect(page).toHaveURL(origin.href);
+
+		const files = (draft: string) => new URL(`/image/files/${draft}`, origin).href;
+		const draftOf = (src: string) => src.split("/")[3] ?? "";
+		const stage = (draft: string, data: Buffer, headers: Record<string, string> = {}) =>
+			page.request.post(files(draft), {
+				headers: {
+					origin: origin.origin,
+					"content-type": "application/octet-stream",
+					...headers,
+				},
+				data,
+			});
+		const gone = (src: string) =>
+			expect
+				.poll(async () => (await page.request.get(new URL(src, origin).href)).status())
+				.toBe(404);
+
+		const operation = page.getByLabel("Operation", { exact: true });
+		const firstFile = page.getByLabel("Reference image 1", { exact: true });
+		// The attach control describes the cleaning status from its polite live region.
+		const fileStatus = (text: string) =>
+			expect(firstFile).toHaveAccessibleDescription(
+				new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+			);
+		const tryAgain = page.getByRole("button", { name: "Try again", exact: true });
+		const review = page.getByRole("region", { name: "Review request", exact: true });
+		const facts = review.getByRole("tabpanel", { name: "Review", exact: true });
+		const localCopy = facts.getByRole("region", { name: "Local copy", exact: true });
+		const cleaned = localCopy.getByRole("img", { name: "Cleaned local copy" });
+		const queue = review.getByRole("button", { name: "Queue 1 request" });
+		const holdPosts = async () => {
+			const hold = Promise.withResolvers<void>();
+			const held: Promise<void>[] = [];
+			await page.route("**/image/files/*", (route) => {
+				if (route.request().method() !== "POST") return route.continue();
+				const continued = hold.promise.then(() => route.continue());
+				held.push(continued);
+				return continued;
+			});
+			return async () => {
+				hold.resolve();
+				await Promise.all(held);
+				await page.unroute("**/image/files/*");
+			};
+		};
+
+		await test.step("no provider connected: attaching a file cleans and serves a private copy without a click", async () => {
+			await page.goto(new URL("/image", origin).href);
+			await expect(page.getByRole("radio")).toHaveCount(0);
+			await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(promptText);
+			await operation.selectOption("edit");
+			await expect(page.getByText(/Queue needs a connected provider/)).toBeVisible();
+			await expect(firstFile).toHaveAttribute("accept", "image/jpeg,.jpg,.jpeg,image/png,.png");
+			const png = await uprightPng();
+			await firstFile.setInputFiles({ name: "offline.png", mimeType: "image/png", buffer: png });
+			await fileStatus("Cleaned copy ready.");
+			await expect(localCopy).toContainText(/PNG · /);
+			await expect(page.getByRole("button", { name: /prepar/i })).toHaveCount(0);
+			await expect(tryAgain).toHaveCount(0);
+			await expect(queue).toBeDisabled();
+			const src = (await cleaned.getAttribute("src")) ?? "";
+			const [, draft, handle] =
+				/^\/image\/files\/([0-9a-f-]{36})\/([0-9a-f-]{36})$/.exec(src) ?? [];
+			expect(handle).toBeTruthy();
+			await expect
+				.poll(() => cleaned.evaluate((image) => (image as HTMLImageElement).naturalWidth))
+				.toBe(30);
+			const media = await page.request.get(`${files(draft)}/${handle}`);
+			expect(media.status()).toBe(200);
+			expect(media.headers()).toMatchObject({
+				"content-type": "image/png",
+				"cache-control": "private, no-store",
+				"x-content-type-options": "nosniff",
+				"cross-origin-resource-policy": "same-origin",
+			});
+			expect(Buffer.from(await media.body()).equals(png)).toBe(true);
+			expect(
+				(
+					await page.request.get(`${files(draft)}/${handle}`, {
+						headers: { "sec-fetch-site": "cross-site" },
+					})
+				).status(),
+			).toBe(403);
+			expect((await stage(randomUUID(), png, { origin: "null" })).status()).toBe(403);
+			expect((await stage("not-a-draft", png)).status()).toBe(400);
+			expect(fixtures.requests).toEqual([]);
+			// Leaving the edit retires the copy.
+			await operation.selectOption("generate");
+			await expect(localCopy).toHaveCount(0);
+			await gone(src);
+		});
+
+		await page.goto(new URL("/settings/providers", origin).href);
+		await saveKey(page, keys.poyo);
+		const providerChecks = fixtures.requests.length;
+		await page.goto(new URL("/image", origin).href);
+		await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(promptText);
+		await operation.selectOption("edit");
+
+		let first = "";
+		await test.step("attach → progress, preview, cleaned size, survival notes, Queue disabled", async () => {
+			sent.length = 0;
+			const release = await holdPosts();
+			await firstFile.focus();
+			await firstFile.setInputFiles({
+				name: "sideways-photo.jpg",
+				mimeType: "image/jpeg",
+				buffer: await rotatedJpeg(),
+			});
+			await fileStatus("Cleaning and verifying the file…");
+			await expect(localCopy).toContainText("Cleaning and verifying the file…");
+			await expect(tryAgain).toHaveCount(0);
+			await expect(queue).toBeDisabled();
+			await expect(queue).toHaveAccessibleDescription(/1–10 public image URLs/i);
+			await release();
+			await fileStatus("Cleaned copy ready.");
+			await expect(firstFile).toBeFocused();
+			await expect(cleaned).toHaveAttribute(
+				"src",
+				/^\/image\/files\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/,
+			);
+			first = (await cleaned.getAttribute("src")) ?? "";
+			await expect
+				.poll(() =>
+					cleaned.evaluate((image) => [
+						(image as HTMLImageElement).naturalWidth,
+						(image as HTMLImageElement).naturalHeight,
+					]),
+				)
+				.toEqual([32, 48]);
+			await expect(localCopy).toContainText(/JPEG · [\d.]+ KB \([\d,]+ bytes\)/);
+			await expect(localCopy).toContainText("Re-encoded to apply rotation.");
+			// The disclosure keeps a visible edge when forced colors remove its surface.
+			await page.emulateMedia({ forcedColors: "active" });
+			const edge = await localCopy
+				.locator("p", { hasText: "Re-encoded to apply rotation." })
+				.evaluate((element) => {
+					const style = getComputedStyle(element);
+					return [style.borderTopStyle, style.borderTopWidth, style.borderTopColor];
+				});
+			await page.emulateMedia({ forcedColors: "none" });
+			expect(edge.slice(0, 2)).toEqual(["solid", "1px"]);
+			expect(edge[2]).not.toBe("rgba(0, 0, 0, 0)");
+			await expect(localCopy).toContainText("Watermarks in the picture itself survive.");
+			await expect(localCopy).toContainText("Its creator, copyright, creation date");
+			await expect(localCopy.getByRole("button")).toHaveCount(0);
+			await expect(queue).toBeDisabled();
+			await expect(queue).toHaveAccessibleDescription(/1–10 public image URLs/i);
+			const served = await page.request.get(new URL(first, origin).href);
+			expect(served.headers()["content-type"]).toBe("image/jpeg");
+			const bytes = Buffer.from(await served.body());
+			expect(bytes.includes(Buffer.from(localImageMarker))).toBe(false);
+			await expect(localCopy).toContainText(`(${bytes.length.toLocaleString("en-US")} bytes)`);
+			// The preview stays inside the Review panel.
+			const [imageBox, panelBox] = await Promise.all([cleaned.boundingBox(), facts.boundingBox()]);
+			expect(imageBox && panelBox && imageBox.width <= panelBox.width).toBe(true);
+			expect(sentWith("POST")).toHaveLength(1);
+		});
+
+		await test.step("replacing the file retires the old copy and cleans the new one", async () => {
+			// A preparation the server is still settling holds its one slot. The
+			// replacement waits for it.
+			let refused = false;
+			await page.route("**/image/files/*", (route) => {
+				if (route.request().method() !== "POST" || refused) return route.continue();
+				refused = true;
+				return route.fulfill({
+					status: 422,
+					json: { error: "Another file is being prepared.", code: "busy" },
+				});
+			});
+			const deleted = page.waitForRequest(
+				(request) =>
+					request.method() === "DELETE" &&
+					new URL(request.url()).pathname === `/image/files/${draftOf(first)}`,
+			);
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await deleted;
+			await fileStatus("Cleaned copy ready.");
+			await expect(localCopy).toContainText(/PNG · /);
+			await expect(localCopy).not.toContainText("Re-encoded to apply rotation");
+			await gone(first);
+			const replacement = (await cleaned.getAttribute("src")) ?? "";
+			expect(draftOf(replacement)).not.toBe(draftOf(first));
+			expect(refused).toBe(true);
+			expect(sentWith("POST")).toHaveLength(3);
+			await page.unroute("**/image/files/*");
+		});
+
+		await test.step("a failed preparation offers Try again, which cleans the file once more", async () => {
+			const previous = (await cleaned.getAttribute("src")) ?? "";
+			await page.route("**/image/files/*", (route) =>
+				route.request().method() === "POST" ? route.abort() : route.continue(),
+			);
+			await firstFile.focus();
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await fileStatus("Image preparation unavailable.");
+			await expect(localCopy).toContainText("Image preparation unavailable.");
+			await expect(cleaned).toHaveCount(0);
+			await gone(previous);
+			// The failure leaves focus on the attach control.
+			await expect(tryAgain).toBeVisible();
+			await expect(firstFile).toBeFocused();
+			await page.unroute("**/image/files/*");
+			const posts = sentWith("POST").length;
+			await tryAgain.press("Enter");
+			await fileStatus("Cleaned copy ready.");
+			await expect(tryAgain).toHaveCount(0);
+			await expect(firstFile).toBeFocused();
+			await expect(cleaned).toBeVisible();
+			expect(sentWith("POST")).toHaveLength(posts + 1);
+		});
+
+		await test.step("a copy that becomes unavailable is cleaned again once, then offers Try again", async () => {
+			await page.route("**/image/files/*/*", (route) =>
+				route.request().method() === "GET" ? route.fulfill({ status: 404 }) : route.continue(),
+			);
+			const posts = sentWith("POST").length;
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			// The first copy fails to load, so Siluet cleans the file once more on its own.
+			// The second copy fails too, which ends automatic recovery.
+			await fileStatus("The cleaned copy is no longer available.");
+			await expect(tryAgain).toBeVisible();
+			await expect(cleaned).toHaveCount(0);
+			expect(sentWith("POST")).toHaveLength(posts + 2);
+			await page.unroute("**/image/files/*/*");
+			await tryAgain.press("Enter");
+			await fileStatus("Cleaned copy ready.");
+			await expect(cleaned).toBeVisible();
+			expect(sentWith("POST")).toHaveLength(posts + 3);
+		});
+
+		await test.step("CMYK refusal, no preview", async () => {
+			await firstFile.setInputFiles({
+				name: "print.jpg",
+				mimeType: "image/jpeg",
+				buffer: await cmykJpeg(),
+			});
+			await fileStatus(
+				"The JPEG uses unsupported image coding. Export a single-frame SDR JPEG or PNG.",
+			);
+			await expect(tryAgain).toBeVisible();
+			await expect(cleaned).toHaveCount(0);
+			await expect(queue).toBeDisabled();
+		});
+
+		await test.step("a JPEG over the 16 MiB source limit is refused before upload", async () => {
+			const posts = sentWith("POST").length;
+			const large = Buffer.alloc(16 * 1024 * 1024 + 1);
+			large.set([0xff, 0xd8, 0xff]);
+			await firstFile.setInputFiles({ name: "large.jpg", mimeType: "image/jpeg", buffer: large });
+			await expect(
+				page.getByText(
+					"The image exceeds the 16 MiB local preparation limit. Choose a smaller SDR JPEG or PNG.",
+				),
+			).toBeVisible();
+			await expect(cleaned).toHaveCount(0);
+			expect(sentWith("POST")).toHaveLength(posts);
+		});
+
+		await test.step("other-tab security change clears it", async () => {
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await fileStatus("Cleaned copy ready.");
+			const src = (await cleaned.getAttribute("src")) ?? "";
+			const security = await context.newPage();
+			try {
+				await security.goto(new URL("/settings/security", origin).href);
+				await security.getByLabel("Current password").fill(password);
+				await security.getByRole("button", { name: "Set up authenticator" }).click();
+				const seed = await security.locator("section code").first().textContent();
+				if (!seed) throw new Error("Missing manual setup.");
+				await security
+					.getByLabel("New authenticator code")
+					.fill(new TOTP({ secret: seed }).generate());
+				await security.getByRole("button", { name: "Confirm authenticator" }).click();
+				await expect(security.locator("section li")).toHaveCount(10);
+			} finally {
+				await security.close();
+			}
+			await expect(cleaned).toHaveCount(0);
+			await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toHaveValue("");
+			expect((await page.request.get(new URL(src, origin).href)).status()).toBe(404);
+		});
+
+		await test.step("a copy that reaches its idle deadline is cleaned again once, then offers Try again", async () => {
+			await page.clock.install();
+			await page.goto(new URL("/image", origin).href);
+			await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(promptText);
+			await operation.selectOption("edit");
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await fileStatus("Cleaned copy ready.");
+			const expiring = (await cleaned.getAttribute("src")) ?? "";
+			await page.clock.fastForward("14:50");
+			await expect(cleaned).toBeVisible();
+			const release = await holdPosts();
+			await page.clock.fastForward("00:20");
+			await fileStatus("The cleaned copy expired. Cleaning and verifying it again…");
+			await expect(cleaned).toHaveCount(0);
+			await expect(tryAgain).toHaveCount(0);
+			await release();
+			await fileStatus("Cleaned copy ready.");
+			await expect(cleaned).toBeVisible();
+			const renewed = (await cleaned.getAttribute("src")) ?? "";
+			expect(renewed).not.toBe(expiring);
+			await gone(expiring);
+			// An idle tab does not keep cleaning the file: the second expiry retires it.
+			const posts = sentWith("POST").length;
+			await page.clock.fastForward("15:10");
+			await fileStatus("The cleaned copy expired.");
+			await expect(tryAgain).toBeVisible();
+			await expect(cleaned).toHaveCount(0);
+			await gone(renewed);
+			await page.clock.fastForward("15:10");
+			expect(sentWith("POST")).toHaveLength(posts);
+			await tryAgain.press("Enter");
+			await fileStatus("Cleaned copy ready.");
+			await expect(cleaned).toBeVisible();
+			expect(sentWith("POST")).toHaveLength(posts + 1);
+		});
+
+		await test.step("a back-forward restore resumes a ready copy and leaves a failed one", async () => {
+			// Chromium does not keep this page in the back-forward cache under test, so
+			// the page transition events are dispatched directly.
+			const transition = (type: "pagehide" | "pageshow") =>
+				page.evaluate(
+					(type) => dispatchEvent(new PageTransitionEvent(type, { persisted: true })),
+					type,
+				);
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await fileStatus("Cleaned copy ready.");
+			const src = (await cleaned.getAttribute("src")) ?? "";
+			let posts = sentWith("POST").length;
+			await transition("pagehide");
+			await gone(src);
+			await transition("pageshow");
+			await fileStatus("Cleaned copy ready.");
+			await expect(cleaned).not.toHaveAttribute("src", src);
+			expect(sentWith("POST")).toHaveLength(posts + 1);
+
+			await page.route("**/image/files/*", (route) =>
+				route.request().method() === "POST" ? route.abort() : route.continue(),
+			);
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await expect(tryAgain).toBeVisible();
+			posts = sentWith("POST").length;
+			await transition("pagehide");
+			await transition("pageshow");
+			await expect(tryAgain).toBeVisible();
+			expect(sentWith("POST")).toHaveLength(posts);
+			await page.unroute("**/image/files/*");
+			await tryAgain.press("Enter");
+			await fileStatus("Cleaned copy ready.");
+		});
+
+		await test.step("leaving the page retires the copy", async () => {
+			const src = (await cleaned.getAttribute("src")) ?? "";
+			await page
+				.getByRole("navigation", { name: "Studio navigation" })
+				.getByRole("link", { name: "Studio home", exact: true })
+				.click();
+			await expect(page).toHaveURL(origin.href);
+			await gone(src);
+		});
+
+		await test.step("reloading the page retires the copy", async () => {
+			await page.goto(new URL("/image", origin).href);
+			await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(promptText);
+			await operation.selectOption("edit");
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await fileStatus("Cleaned copy ready.");
+			const src = (await cleaned.getAttribute("src")) ?? "";
+			expect((await page.request.get(new URL(src, origin).href)).status()).toBe(200);
+			// The keepalive DELETE leaves with the old document; the server drops the copy
+			// long before its 15-minute idle deadline.
+			await page.reload();
+			await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toBeVisible();
+			await gone(src);
+		});
+
+		expect(fixtures.requests).toHaveLength(providerChecks);
+		expect(outbound).toEqual([]);
+		expect(pageErrors).toEqual([]);
+		for (const value of [localImageMarker, "sideways-photo.jpg", "upright.png", "print.jpg"])
+			expect(server.diagnostics()).not.toContain(value);
+	} finally {
+		await studio?.stop();
+		fixtures.stop();
+		await rm(directory, { recursive: true, force: true });
 	}
 });

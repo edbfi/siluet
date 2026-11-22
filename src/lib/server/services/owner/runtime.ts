@@ -1,11 +1,14 @@
 import type { EventEmitter } from "node:events";
-import { openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
+import { openRuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
 import { checkRequestSecurity, cleanUnusedKeys } from "../../db/security-state";
 import { checkPoyoConnection } from "../../providers/poyo/connection";
 import { checkToapisConnection } from "../../providers/toapis/connection";
 import { createGallery } from "../gallery/gallery";
 import { createJobTracking } from "../jobs/tracking";
+import { createMediaPreparation } from "../media-cleanup/preparation";
+import { createScratchPool } from "../media-staging/scratch";
+import { createStages } from "../media-staging/stages";
 import { createProviderConnections } from "../providers/connections";
 import { createVideoAccess } from "../providers/video-access";
 import { createSubmissionQueue } from "../queue/submission";
@@ -15,14 +18,52 @@ import { AccessError } from "./access-error";
 import { ownerDirectory } from "./data-directory";
 import { studioOrigin } from "./origin";
 
-export async function initializeOwner(dev: boolean) {
+// Vite re-runs the server init hook in the same process after a server-module
+// edit, sometimes before the previous run has finished. Module state is
+// re-evaluated, so the previous dev runtime and the queue of reloads are kept here.
+const devRuntime = Symbol.for("siluet.dev-runtime");
+type DevRuntime = { close?: () => Promise<void>; turn: Promise<unknown> };
+const host = process as typeof process & { [devRuntime]?: DevRuntime };
+
+/**
+ * Open the studio runtime. In dev, each call closes the runtime the previous
+ * call opened, and calls run one at a time.
+ */
+export function initializeOwner(dev: boolean) {
+	if (!dev) return openOwner(false);
+	host[devRuntime] ??= { turn: Promise.resolve() };
+	const state = host[devRuntime];
+	const opened = state.turn.then(async () => {
+		const previous = state.close;
+		state.close = undefined;
+		// Opening reports whether storage is still held.
+		await previous?.().catch(() => console.error("Unable to close the previous studio runtime."));
+		const runtime = await openOwner(true);
+		// Register only a runtime that started; a failed start is already closed.
+		state.close = runtime.close;
+		return runtime;
+	});
+	state.turn = opened.catch(() => {});
+	return opened;
+}
+
+async function openOwner(dev: boolean) {
 	const origin = studioOrigin(process.env, dev);
 	const lifecycle: EventEmitter = process;
 	if (!dev && !lifecycle.listenerCount("siluet:ready"))
 		throw new Error("Start Siluet with bun run start.");
-	const installation = await openInstallation(ownerDirectory(dev));
+	const installation = await openRuntimeInstallation(ownerDirectory(dev));
 	try {
-		const access = createOwnerAccess(installation, Date.now, origin.origin);
+		// Only this runtime holds the registry entry and Turso's lock, so leftovers
+		// from an interrupted process can be reclaimed before any staging.
+		const scratch = createScratchPool(installation);
+		await scratch.reclaim();
+		const stages = createStages(await scratch.scope("image"));
+		// Owner changes that remove sessions also retire their staged copies.
+		const ownerInstallation = { ...installation, retireSessions: stages.retireSessions };
+		const shutdown = new AbortController();
+		const prepareMedia = createMediaPreparation(installation, { shutdown: shutdown.signal });
+		const access = createOwnerAccess(ownerInstallation, Date.now, origin.origin);
 		await access.security.initialize();
 		const store = providerStore(installation);
 		const providers = createProviderConnections(store, {
@@ -36,9 +77,9 @@ export async function initializeOwner(dev: boolean) {
 		const queue = await createSubmissionQueue(installation, store.credential, jobs);
 		let workers: Promise<void> | undefined;
 		async function checkAccess() {
-			await checkRequestSecurity(installation);
+			await checkRequestSecurity(ownerInstallation);
 			workers ??= (async () => {
-				await cleanUnusedKeys(installation);
+				await cleanUnusedKeys(ownerInstallation);
 				await gallery.recover();
 				await jobs.resume();
 			})().catch((e) => {
@@ -65,16 +106,40 @@ export async function initializeOwner(dev: boolean) {
 		}
 		const ready = () =>
 			void announce().catch(() => console.error("Unable to verify studio storage."));
-		if (dev) await announce();
-		else {
+		let closing: Promise<void> | undefined;
+		// Stop admission, let the held preparation and its stage write settle, then
+		// remove staged copies before storage closes and the registry entry is released.
+		function close() {
+			closing ??= (async () => {
+				try {
+					clearTimeout(rotation);
+					shutdown.abort();
+					jobs.close();
+					await runtimeEntry(installation).preparation?.settled;
+					await stages.close();
+					await installation.close();
+				} finally {
+					// A later dev reload need not wait on this close again.
+					const state = host[devRuntime];
+					if (state?.close === close) state.close = undefined;
+				}
+			})();
+			return closing;
+		}
+		if (dev) {
+			await announce();
+		} else {
+			// The launcher emits siluet:stopping before the adapter drains requests.
+			lifecycle.once("siluet:stopping", () => shutdown.abort());
 			lifecycle.once("sveltekit:shutdown", () => {
-				clearTimeout(rotation);
-				jobs.close();
-				void installation.close().catch(() => console.error("Unable to close studio storage."));
+				void close().catch(() => console.error("Unable to close studio storage."));
 			});
 			lifecycle.emit("siluet:ready", ready);
 		}
 		return {
+			close,
+			stages,
+			prepareMedia,
 			origin,
 			checkAccess,
 			videoAccess,
@@ -92,4 +157,4 @@ export async function initializeOwner(dev: boolean) {
 		throw e;
 	}
 }
-export type StudioRuntime = Awaited<ReturnType<typeof initializeOwner>>;
+export type StudioRuntime = Awaited<ReturnType<typeof openOwner>>;

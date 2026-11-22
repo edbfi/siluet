@@ -1,3 +1,8 @@
+import {
+	localImageLimit,
+	localImageLimitRefusal,
+	maxLocalImageBytes,
+} from "../media-staging/limits";
 import { hasCompleteGifStream } from "./gif";
 import { isPublicIpv6 } from "./ipv6";
 import type { SeedreamProvider } from "./seedream";
@@ -9,6 +14,20 @@ export type SeedreamReference = LocalReference | RemoteReference;
 export const maxSeedreamReferences = 10;
 export const publicReferenceUrlError =
 	"Enter a public HTTP or HTTPS URL without a username or password.";
+
+/**
+ * The one local JPEG or PNG that Siluet cleans for an edit. Queue stays URL-only
+ * until file Review terms exist.
+ */
+export function cleanableReferenceFile(references: readonly SeedreamReference[]): File | null {
+	const [reference] = references;
+	if (references.length !== 1 || reference?.kind !== "file") return null;
+	const { type, name } = reference.file;
+	const generic = !type || type === "application/octet-stream";
+	return /^image\/(jpeg|png)$/i.test(type) || (generic && /\.(jpe?g|png)$/i.test(name))
+		? reference.file
+		: null;
+}
 
 export function duplicateReferenceSlots(
 	references: readonly SeedreamReference[],
@@ -26,43 +45,54 @@ export function duplicateReferenceSlots(
 }
 
 const fileTypes = {
-	jpeg: { mime: "image/jpeg", extensions: [".jpg", ".jpeg"] },
-	png: { mime: "image/png", extensions: [".png"] },
-	webp: { mime: "image/webp", extensions: [".webp"] },
-	gif: { mime: "image/gif", extensions: [".gif"] },
+	jpeg: { name: "JPEG", mime: "image/jpeg", extensions: [".jpg", ".jpeg"] },
+	png: { name: "PNG", mime: "image/png", extensions: [".png"] },
+	webp: { name: "WebP", mime: "image/webp", extensions: [".webp"] },
+	gif: { name: "GIF", mime: "image/gif", extensions: [".gif"] },
 };
 
 const stillFormats = ["jpeg", "png", "webp"] as const;
+// Before a provider is connected, only a local copy can be prepared for offline Review.
+const localLimits = {
+	formats: ["jpeg", "png"],
+	maxBytes: maxLocalImageBytes,
+	description: localImageLimit,
+} as const;
+// A JPEG or PNG is always prepared locally first, under the shared source limit.
+// `maxBytes` applies to the WebP or GIF a provider accepts as it is.
 const referenceLimits = {
 	poyo: {
 		formats: stillFormats,
 		maxBytes: 10_000_000,
-		description: "JPEG, PNG or WebP up to 10 MB",
+		description: `${localImageLimit}, or WebP up to 10 MB`,
 	},
 	toapis: {
 		formats: [...stillFormats, "gif"],
 		maxBytes: 30_000_000,
-		description: "JPEG, PNG, WebP or GIF up to 30 MB",
+		description: `${localImageLimit}, or WebP or GIF up to 30 MB`,
 	},
 } as const;
 
-export function referenceFileAccept(provider: SeedreamProvider): string {
-	return referenceLimits[provider].formats
-		.flatMap((format) => {
+const limitsFor = (provider: SeedreamProvider | null) =>
+	provider ? referenceLimits[provider] : localLimits;
+
+export function referenceFileAccept(provider: SeedreamProvider | null): string {
+	return limitsFor(provider)
+		.formats.flatMap((format) => {
 			const { mime, extensions } = fileTypes[format];
 			return [mime, ...extensions];
 		})
 		.join(",");
 }
 
-export function referenceFileHelp(provider: SeedreamProvider): string {
-	return referenceLimits[provider].description;
+export function referenceFileHelp(provider: SeedreamProvider | null): string {
+	return limitsFor(provider).description;
 }
 
-function fileFormat(provider: SeedreamProvider, file: Pick<File, "name" | "type">) {
+function fileFormat(provider: SeedreamProvider | null, file: Pick<File, "name" | "type">) {
 	const type = file.type.toLowerCase();
 	const name = file.name.toLowerCase();
-	return referenceLimits[provider].formats.find((format) => {
+	return limitsFor(provider).formats.find((format: keyof typeof fileTypes) => {
 		const { mime, extensions } = fileTypes[format];
 		return type && type !== "application/octet-stream"
 			? type === mime
@@ -71,17 +101,23 @@ function fileFormat(provider: SeedreamProvider, file: Pick<File, "name" | "type"
 }
 
 export function referenceFileError(
-	provider: SeedreamProvider,
+	provider: SeedreamProvider | null,
 	file: Pick<File, "name" | "size" | "type">,
 ): string | null {
-	const { maxBytes, description } = referenceLimits[provider];
-	return fileFormat(provider, file) && file.size > 0 && file.size <= maxBytes
-		? null
-		: `Choose a non-empty image. Supported files are ${description}.`;
+	const { maxBytes, description } = limitsFor(provider);
+	const format = fileFormat(provider, file);
+	if (!format || file.size < 1)
+		return `Choose a non-empty image. Supported files are ${description}.`;
+	// A JPEG or PNG is prepared locally first. Its cleaned size is checked again later.
+	if (format === "jpeg" || format === "png")
+		return file.size > maxLocalImageBytes ? localImageLimitRefusal.join(" ") : null;
+	return file.size > maxBytes
+		? `Choose a non-empty image. Supported files are ${description}.`
+		: null;
 }
 
 export async function checkReferenceFile(
-	provider: SeedreamProvider,
+	provider: SeedreamProvider | null,
 	file: File,
 ): Promise<string | null> {
 	const error = referenceFileError(provider, file);
@@ -95,7 +131,10 @@ export async function checkReferenceFile(
 	} catch {
 		return "Could not read this file. Choose it again.";
 	}
-	if (imageFormat(bytes) !== format) return `Choose a valid ${referenceFileHelp(provider)}.`;
+	if (imageFormat(bytes) !== format) {
+		const names = limitsFor(provider).formats.map((name) => fileTypes[name].name);
+		return `Choose a valid ${names.slice(0, -1).join(", ")} or ${names.at(-1)} image.`;
+	}
 	if (format === "gif" && !hasCompleteGifStream(bytes)) return "Choose a complete GIF file.";
 	return null;
 }

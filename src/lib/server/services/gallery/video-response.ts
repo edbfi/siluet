@@ -1,5 +1,5 @@
 import type { FileHandle } from "node:fs/promises";
-import { byteRange } from "./range";
+import { byteRange } from "../media/range";
 export async function videoResponse(
 	request: Request,
 	url: URL,

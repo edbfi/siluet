@@ -99,11 +99,21 @@ export async function openInstallation(
 	} catch (error) {
 		await client?.close().catch(() => {});
 		lock?.close();
+		// Turso holds an exclusive process lock on studio.db while a runtime has it open.
+		// https://github.com/tursodatabase/turso/blob/v0.8.3/core/io/unix.rs
+		if (
+			error instanceof Error &&
+			/Locking error: Failed locking file|locked by another process/i.test(error.message)
+		)
+			throw new DirectoryPolicyError("Studio installation is in use.");
 		if (error instanceof DirectoryPolicyError) throw error;
 		throw storageError();
 	}
 }
-export type Installation = Awaited<ReturnType<typeof openInstallation>>;
+export type Installation = Awaited<ReturnType<typeof openInstallation>> & {
+	/** Committed owner changes report the session digests they removed. */
+	retireSessions?: (digests: ReadonlySet<string>) => void;
+};
 export type StudioDatabase = Parameters<Parameters<Installation["use"]>[0]>[0];
 export type InstallationTransaction = Parameters<Parameters<StudioDatabase["transaction"]>[0]>[0];
 export type OwnerTransaction = InstallationTransaction;

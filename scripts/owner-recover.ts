@@ -1,5 +1,5 @@
-import { openInstallation } from "../src/lib/server/db/installation";
 import { recoverOwner } from "../src/lib/server/db/recover-owner";
+import { openRuntimeInstallation } from "../src/lib/server/db/runtime-installation";
 import { hashPassword } from "../src/lib/server/services/owner/credentials";
 import { ownerDirectory } from "../src/lib/server/services/owner/data-directory";
 import { consoleMode } from "./windows-console-mode";
@@ -8,7 +8,7 @@ async function main() {
 	const input = process.stdin,
 		output = process.stderr;
 	if (!input.isTTY || !output.isTTY) throw new Error("Run recovery from an interactive terminal.");
-	const installation = await openInstallation(ownerDirectory(), "recovery");
+	const installation = await openRuntimeInstallation(ownerDirectory(), process.env, "recovery");
 	const raw = !!input.isRaw;
 	const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 	let cancelled = false;

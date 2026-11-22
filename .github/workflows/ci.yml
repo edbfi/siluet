@@ -97,9 +97,30 @@ jobs:
       - run: bun run --bun build
       - run: bunx --bun --no-install playwright install --with-deps chromium
       - run: bun run --bun smoke tests/browser/first-saved-video.spec.ts --workers=1
+  media-cleanup:
+    name: Media cleanup (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix: { runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15] }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions: { contents: read }
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with: { bun-version-file: package.json }
+      - run: bun ci
+      - name: Provision the pinned ExifTool for independent inspection
+        run: bun scripts/media-cleanup/exiftool.ts >> "$GITHUB_ENV"
+      - run: bun test --timeout 60000 ./src/lib/server/services/media-cleanup ./src/lib/server/services/media-staging ./src/lib/server/db/runtime-installation.test.ts ./src/lib/server/db/recovery-lock.test.ts
+      - run: bun run --bun build
+      - name: Drive staging, shutdown and restart on the built server
+        run: bun test --timeout 60000 ./tests/media-cleanup
   ci-ok:
     if: always()
-    needs: [checks, smoke, native-owner, native-video]
+    needs: [checks, smoke, native-owner, native-video, media-cleanup]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}

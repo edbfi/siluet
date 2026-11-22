@@ -10,6 +10,7 @@ import {
 import type { SeedreamProvider } from "#lib/shared/image-studio/seedream.ts";
 import { css } from "#styled-system/css";
 import { type ReferenceSlotDraft, referenceLabel } from "./draft-context.ts";
+import type { LocalCopy } from "./local-copy.svelte.ts";
 import { referenceAction, requestControl, requestField, requestLabel } from "./request-styles.ts";
 
 const slot = css({ display: "grid", gap: "0.3rem", minWidth: 0, paddingBlock: "0.75rem" });
@@ -27,6 +28,7 @@ let {
 	index,
 	slot: slotDraft,
 	reference,
+	localCopy,
 	fileId,
 	helpId,
 	canMoveDown,
@@ -37,10 +39,13 @@ let {
 	onRemove,
 	onPreview,
 }: {
-	provider: SeedreamProvider;
+	/** Null before a provider is connected: only a local JPEG or PNG can be prepared. */
+	provider: SeedreamProvider | null;
 	index: number;
 	slot: ReferenceSlotDraft;
 	reference: SeedreamReference | undefined;
+	/** Cleans the attached local file. It reports here when it holds this slot's file. */
+	localCopy: LocalCopy;
 	fileId: string;
 	helpId: string;
 	canMoveDown: boolean;
@@ -69,6 +74,16 @@ let selection = 0;
 const label = $derived(`Reference image ${index + 1}`);
 const identity = $derived(referenceLabel(slotDraft.identity));
 const candidateLabel = $derived(referenceLabel(replacementIdentity ?? slotDraft.identity));
+const cleaning = $derived(
+	reference?.kind === "file" && localCopy.file === reference.file ? localCopy : null,
+);
+const failed = $derived(!!error || !!(!pending && cleaning?.failed));
+
+function tryAgain() {
+	// The button leaves as cleaning starts. Keep focus on the attach control.
+	fileInput.focus({ preventScroll: true });
+	cleaning?.retry();
+}
 
 onDestroy(() => {
 	selection++;
@@ -299,11 +314,21 @@ function clearUrlFields() {
 	<p
 		class={[
 			css({ fontSize: "0.82rem", _empty: { position: "absolute" } }),
-			error ? css({ color: "danger" }) : css({ color: "muted" }),
+			failed ? css({ color: "danger" }) : css({ color: "muted" }),
 		]}
 		role="status"
 		id={`${id}-status`}
 	>
-		{error || (pending ? "Checking file…" : "")}
+		{error || (pending ? "Checking file…" : (cleaning?.status ?? ""))}
 	</p>
+	{#if cleaning?.failed && !error && !pending}
+		<button
+			class={referenceAction}
+			type="button"
+			onclick={tryAgain}
+			aria-describedby={`${id}-status`}
+		>
+			Try again
+		</button>
+	{/if}
 </div>

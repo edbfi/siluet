@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { referenceGif, truncatedReferenceGif } from "../../../../tests/fixtures/reference-image";
-import { checkReferenceFile } from "./references";
+import {
+	checkReferenceFile,
+	referenceFileAccept,
+	referenceFileError,
+	referenceFileHelp,
+} from "./references";
 
 const pngHeader = [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82];
 
@@ -32,4 +37,34 @@ test.each([
 	// https://www.w3.org/Graphics/GIF/spec-gif89a.txt Appendix B
 	const file = new File([bytes], "ref.gif", { type: "image/gif" });
 	expect(await checkReferenceFile("toapis", file)).toBe("Choose a complete GIF file.");
+});
+
+test("JPEG and PNG source size is checked separately from cleaned upload size", () => {
+	const sample = { name: "photo.jpeg", type: "image/jpeg", size: 10_000_001 };
+	expect(referenceFileError("poyo", sample)).toBeNull();
+	expect(
+		referenceFileError("poyo", { ...sample, type: "image/webp", name: "a.webp" }),
+	).not.toBeNull();
+	// The browser refuses a source above the server's 16 MiB preparation limit before upload.
+	const limit = 16 * 1024 * 1024;
+	expect(referenceFileError("toapis", { ...sample, type: "image/png", size: limit })).toBeNull();
+	for (const provider of ["poyo", "toapis", null] as const)
+		expect(referenceFileError(provider, { ...sample, size: limit + 1 })).toBe(
+			"The image exceeds the 16 MiB local preparation limit. Choose a smaller SDR JPEG or PNG.",
+		);
+});
+
+test("the picker states the local JPEG and PNG limit apart from each provider's WebP and GIF limit", () => {
+	expect(referenceFileHelp(null)).toBe("JPEG or PNG up to 16 MiB");
+	expect(referenceFileHelp("poyo")).toBe("JPEG or PNG up to 16 MiB, or WebP up to 10 MB");
+	expect(referenceFileHelp("toapis")).toBe("JPEG or PNG up to 16 MiB, or WebP or GIF up to 30 MB");
+});
+
+test("with no provider connected, only a local JPEG or PNG is offered", async () => {
+	const png = new File([new Uint8Array([...pngHeader, 0, 0])], "ref.png", { type: "image/png" });
+	expect(await checkReferenceFile(null, png)).toBeNull();
+	expect(referenceFileError(null, { name: "a.webp", type: "image/webp", size: 10 })).toBe(
+		"Choose a non-empty image. Supported files are JPEG or PNG up to 16 MiB.",
+	);
+	expect(referenceFileAccept(null)).toBe("image/jpeg,.jpg,.jpeg,image/png,.png");
 });

@@ -66,6 +66,9 @@ export async function launchStudio(
 		}
 		const code = await start({
 			...settings,
+			// Local image staging accepts up to 32,000,000 bytes. The server hook keeps
+			// every other route at 512 KiB.
+			SILUET_SERVER_BODY_SIZE_LIMIT: "32000000",
 			SILUET_SERVER_HOST: host,
 			SILUET_SERVER_PORT: String(port),
 			SILUET_SERVER_ORIGIN: origin,
@@ -84,8 +87,17 @@ if (import.meta.main) {
 			lifecycle.once("siluet:ready", (callback: () => void) => {
 				announce = callback;
 			});
+			// The adapter emits sveltekit:shutdown only after awaiting active requests.
+			// Register first so a pending preparation is cancelled before that drain.
+			let serving = false;
+			const stopping = () => {
+				lifecycle.emit("siluet:stopping");
+				if (!serving) process.exit(0);
+			};
+			process.on("SIGTERM", stopping);
+			process.on("SIGINT", stopping);
 			const stop = () => {
-				if (!lifecycle.emit("SIGTERM", "SIGTERM")) process.exit(0);
+				lifecycle.emit("SIGTERM", "SIGTERM");
 			};
 			process.on("message", (message) => {
 				if (message === "stop") stop();
@@ -96,6 +108,7 @@ if (import.meta.main) {
 				if (process.connected) process.disconnect?.();
 			});
 			await import(new URL("../build/index.js", import.meta.url).href);
+			serving = true;
 			announce?.();
 		} catch (error) {
 			if (!(error instanceof Error) || !("code" in error) || error.code !== "EADDRINUSE")

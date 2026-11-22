@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Installation } from "./installation";
+import { deleteOwnerSessions, ownerTransaction } from "./session-retirement";
 
 export const idleMs = 7 * 86400000;
 export const lifetimeMs = 30 * 86400000;
@@ -53,9 +54,10 @@ export function accessStore(installation: Installation) {
 			);
 		},
 		checkSession(digest: string, now: number) {
-			return use(async (db) => {
-				await db.run(
-					sql`DELETE FROM session WHERE last_activity <= ${now - idleMs} OR created_at <= ${now - lifetimeMs}`,
+			return ownerTransaction(installation, async (db) => {
+				await deleteOwnerSessions(
+					db,
+					sql`last_activity <= ${now - idleMs} OR created_at <= ${now - lifetimeMs}`,
 				);
 				const row = await db.get<{ username: string }>(sql`UPDATE session SET last_activity=${now}
 					WHERE digest=${digest} AND owner_id=1 AND EXISTS (SELECT 1 FROM owner_security WHERE singleton=1 AND recovery_required=0) AND created_at<=${now} AND last_activity<=${now}
@@ -64,7 +66,7 @@ export function accessStore(installation: Installation) {
 			});
 		},
 		revoke(digest: string) {
-			return use((db) => db.get(sql`DELETE FROM session WHERE digest=${digest} RETURNING digest`));
+			return ownerTransaction(installation, (tx) => deleteOwnerSessions(tx, sql`digest=${digest}`));
 		},
 	};
 }
