@@ -20,7 +20,7 @@ const maxSamples = 1_000_000;
 const seconds = 5;
 
 /** Re-encode the upright copy with the EXIF transform applied. Sharp writes no metadata. */
-export function encodeOriented(upright: Buffer, frame: JpegFrame, orientation: number) {
+export async function encodeOriented(upright: Buffer, frame: JpegFrame, orientation: number) {
 	// EXIF orientation 2–8 as libvips operations. Flips run before the rotation.
 	// https://sharp.pixelplumbing.com/api-operation/
 	const operations: Record<number, (image: Sharp) => Sharp> = {
@@ -40,11 +40,19 @@ export function encodeOriented(upright: Buffer, frame: JpegFrame, orientation: n
 		luma.h === 2 &&
 		luma.v === 2 &&
 		chroma.every(({ h, v }) => h === 1 && v === 1);
-	let image = operation(
-		sharp(upright, { limitInputPixels: jpegMaxPixels, failOn: "warning", ignoreIcc: true }),
-	);
+	const decoder = sharp(upright, {
+		limitInputPixels: jpegMaxPixels,
+		failOn: "warning",
+		ignoreIcc: true,
+	});
+	// failOn covers the load. Any later libvips warning also refuses the copy.
+	let warned = false;
+	decoder.on("warning", () => {
+		warned = true;
+	});
+	let image = operation(decoder);
 	if (frame.components.length === 1) image = image.toColourspace("b-w");
-	return image
+	const encoded = await image
 		.jpeg({
 			quality: 95,
 			chromaSubsampling: subsampled ? "4:2:0" : "4:4:4",
@@ -53,6 +61,8 @@ export function encodeOriented(upright: Buffer, frame: JpegFrame, orientation: n
 		})
 		.timeout({ seconds })
 		.toBuffer();
+	if (warned) throw new Error("Encoder warning.");
+	return encoded;
 }
 
 async function decodeRaw(bytes: Buffer, signal?: AbortSignal): Promise<Raw> {
