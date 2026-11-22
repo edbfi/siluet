@@ -225,7 +225,9 @@ describe("walkScan in progressive frames", () => {
 		// AC scans code one component; a three-component frame may interleave only DC.
 		const color = (scans: Scan[]) => progressiveJpeg(scans, 0, [0x11, 0x11, 0x11]);
 		const dc = { ids: [1, 2, 3], band: [0, 0, 0x00], data: [0x00, 0x0f] };
-		expect(readJpeg(color([dc])).frame.progressive).toBe(true);
+		expect(
+			readJpeg(jpeg(32, 8, [0x11, 0x11, 0x11], [dc], 0, dcTables, 0xc2)).frame.progressive,
+		).toBe(true);
 		refuses(color([dc, { ids: [1, 2], band: [1, 63, 0x00], data: [0x5f] }]), "invalid");
 	});
 
@@ -258,7 +260,7 @@ describe("walkScan in progressive frames", () => {
 });
 
 describe("coefficient magnitude", () => {
-	// One 8×8 block. DC code "0" is the only DC symbol; AC 00 is `acSymbol`, 01 is EOB.
+	// One 8×8 block. DC code "0" is the only DC symbol; AC 00 is `ac`, 01 is EOB.
 	const dcOnly = (symbol: number) => segment(0xc4, 0x00, 1, ...Array(15).fill(0), symbol);
 	const tables = (dc: number, ac: number) => [...quantization, ...dcOnly(dc), ...acTable(ac, 0x00)];
 	const firstDc = { ids: [1], band: [0, 0, 0x00], data: [0x7f] };
@@ -266,10 +268,19 @@ describe("coefficient magnitude", () => {
 	const largeAc = [0x20, 0x07];
 	// A category-11 DC difference of 1024: 0 10000000000 and four padding bits.
 	const largeDc = [0x40, 0x0f];
+	// A DC-only progression defines no AC table, which no scan would use.
+	const progressive = (scans: Scan[], dc = 0x00) =>
+		jpeg(
+			8,
+			8,
+			[0x11],
+			scans,
+			0,
+			scans.length > 1 ? tables(dc, 0x0a) : [...quantization, ...dcOnly(dc)],
+			0xc2,
+		);
 
 	test("accepts the largest category an 8-bit frame allows after the point transform", () => {
-		const progressive = (scans: Scan[], dc = 0x00) =>
-			jpeg(8, 8, [0x11], scans, 0, tables(dc, 0x0a), 0xc2);
 		expect(
 			readJpeg(progressive([firstDc, { ids: [1], band: [1, 63, 0x00], data: largeAc }])).frame
 				.progressive,
@@ -283,8 +294,6 @@ describe("coefficient magnitude", () => {
 	test("refuses a progressive coefficient whose category plus Al exceeds the precision", () => {
 		// libjpeg stores s << Al in a 16-bit JCOEF: 512 << 7 truncates to 0, so a
 		// decoder would skip the correction bits this coefficient later carries.
-		const progressive = (scans: Scan[], dc = 0x00) =>
-			jpeg(8, 8, [0x11], scans, 0, tables(dc, 0x0a), 0xc2);
 		for (const al of [1, 7]) {
 			refuses(progressive([firstDc, { ids: [1], band: [1, 63, al], data: largeAc }]), "invalid");
 			refuses(progressive([{ ids: [1], band: [0, 0, al], data: largeDc }], 0x0b), "invalid");
@@ -340,5 +349,60 @@ describe("fill bytes before markers", () => {
 	test("still refuses a wrong restart marker after fill", () => {
 		const data = [0x3f, 0xff, 0xff, 0xd1, ...restarts.slice(3), 0x3f];
 		refuses(restartJpeg(data), "invalid");
+	});
+});
+
+describe("coding tables", () => {
+	const dht = (slot: number) => segment(0xc4, slot, 1, ...Array(15).fill(0), 0x00);
+	const dqt = (slot: number) => segment(0xdb, slot, ...Array(64).fill(1));
+	const single = (tables: number[], data = [0x3f], after: number[] = []) =>
+		jpeg(8, 8, [0x11], [{ ids: [1], data: [...data, ...after] }], 0, tables);
+	// 24×8 at 4:2:0, one scan per component.
+	const separate = (after: number[][]) =>
+		jpeg(
+			24,
+			8,
+			[0x22, 0x11, 0x11],
+			[0x03, 0x0f, 0x0f].map((data, i) => ({ ids: [i + 1], data: [data, ...(after[i] ?? [])] })),
+		);
+	const appendTo = (index: number, extra: number[]) =>
+		withScan(index, { data: [...progression()[index].data, ...extra] });
+
+	test("accepts tables each used by a later scan or first component scan", async () => {
+		// A quantization table redefined after luma has latched it serves chroma.
+		const source = separate([[], dqt(0)]);
+		expect(await cleanJpeg(source)).toEqual({ bytes: source, transform: "none" });
+		const restarted = single([...segment(0xdd, 0, 1), ...zeroTables]);
+		expect(await cleanJpeg(restarted)).toEqual({ bytes: restarted, transform: "none" });
+	});
+
+	test("refuses a Huffman table no scan uses", () => {
+		const unused = [
+			single([...zeroTables, ...dht(0x11)]), // never referenced
+			single([...dht(0x00), ...zeroTables]), // redefined before any scan
+			single(zeroTables, [0x3f], dht(0x10)), // defined after the last scan
+			// A DC table defined after the DC first scan: refinement reads no DC symbol.
+			progressiveJpeg(appendTo(0, dht(0x00))),
+			// An AC table redefined before any AC scan used the first one.
+			progressiveJpeg(appendTo(0, acTable(0x01, 0x10, 0x00))),
+		];
+		for (const source of unused) refuses(source, "unsupported");
+	});
+
+	test("refuses a quantization table no component uses", () => {
+		refuses(single([...zeroTables, ...dqt(1)]), "unsupported");
+		refuses(single([...dqt(0), ...zeroTables]), "unsupported");
+		refuses(separate([[], [], dqt(0)]), "unsupported");
+		refuses(single(zeroTables.slice(quantization.length)), "invalid");
+		refuses(
+			single([...segment(0xdb, 0, ...Array(63).fill(1)), ...zeroTables.slice(quantization.length)]),
+			"invalid",
+		);
+	});
+
+	test("refuses a restart interval no scan uses", () => {
+		const dri = segment(0xdd, 0, 1);
+		refuses(single([...dri, ...dri, ...zeroTables]), "unsupported");
+		refuses(single(zeroTables, [0x3f], dri), "unsupported");
 	});
 });

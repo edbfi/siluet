@@ -9,12 +9,47 @@ import { type Progression, progressiveCoder } from "./jpeg-progressive";
 
 export type ScanState = {
 	huffman: (Huffman | undefined)[];
+	quantization: Set<number>;
 	restart: number;
 	progression: Progression;
+	/** Frame components whose first scan has fixed their quantization table. */
+	latched: Set<number>;
+	/** Huffman (`h`), quantization (`q`) and restart (`r`) definitions no scan has used yet. */
+	unused: Set<string>;
 };
 
 export function scanState(): ScanState {
-	return { huffman: [], restart: 0, progression: { coded: [], nonzero: [] } };
+	return {
+		huffman: [],
+		quantization: new Set(),
+		restart: 0,
+		progression: { coded: [], nonzero: [] },
+		latched: new Set(),
+		unused: new Set(),
+	};
+}
+
+// A definition the decoder never reads could carry arbitrary bytes into the
+// copy, so each must serve a later scan before it is replaced or the image ends.
+function define(state: ScanState, key: string) {
+	if (state.unused.has(key)) refuseJpeg("unsupported");
+	state.unused.add(key);
+}
+
+/** The image ends: refuse a table or restart interval no scan used. */
+export function finishTables(state: ScanState) {
+	if (state.unused.size) refuseJpeg("unsupported");
+}
+
+// B.2.4.1: Pq and Tq, then 64 elements of 8 or 16 bits.
+export function defineQuantization(state: ScanState, data: Buffer) {
+	for (let i = 0; i < data.length; ) {
+		const size = 1 + 64 * ((data[i] >> 4) + 1);
+		if (data[i] >> 4 > 1 || (data[i] & 15) > 3 || i + size > data.length) refuseJpeg("invalid");
+		define(state, `q${data[i] & 15}`);
+		state.quantization.add(data[i] & 15);
+		i += size;
+	}
 }
 
 // B.2.4.2 and C: canonical codes, refusing tables libjpeg refuses.
@@ -40,6 +75,7 @@ export function defineHuffman(state: ScanState, data: Buffer) {
 			index += count;
 			if (count) maxCode[length] = code - 1;
 		}
+		define(state, `h${data[i] & 0x1f}`);
 		state.huffman[(data[i] >> 4) * 4 + (data[i] & 15)] = { maxCode, offset, symbols, lookup };
 		i += 17 + total;
 	}
@@ -47,6 +83,7 @@ export function defineHuffman(state: ScanState, data: Buffer) {
 
 export function defineRestart(state: ScanState, data: Buffer) {
 	if (data.length !== 2) refuseJpeg("invalid");
+	define(state, "r");
 	state.restart = data.readUInt16BE(0);
 }
 
@@ -65,14 +102,22 @@ function coefficientBits({ precision }: JpegFrame, al: number): CoefficientBits 
 }
 
 // Stands in for a table the scan never decodes with; any symbol is refused.
-const unused: Huffman = {
+const unusedTable: Huffman = {
 	maxCode: new Int32Array(17).fill(-1),
 	offset: new Int32Array(17),
 	symbols: Buffer.alloc(0),
 	lookup: new Uint16Array(256),
 };
 
-function readScan(sos: Buffer, frame: JpegFrame, { huffman }: ScanState) {
+// A Huffman table serves a scan that decodes with it: DC tables in sequential
+// and first DC scans, AC tables in sequential and AC scans. libjpeg's
+// jdinput.c latches a component's quantization table at its first scan.
+function readScan(sos: Buffer, frame: JpegFrame, state: ScanState) {
+	const { huffman, unused } = state;
+	const table = (slot: number) => {
+		unused.delete(`h${(slot >> 2) * 16 + (slot & 3)}`);
+		return huffman[slot] ?? refuseJpeg("invalid");
+	};
 	const count = sos[0];
 	if (!count || count > frame.components.length || sos.length !== 4 + 2 * count) {
 		refuseJpeg("invalid");
@@ -99,8 +144,14 @@ function readScan(sos: Buffer, frame: JpegFrame, { huffman }: ScanState) {
 		if (index <= previous) refuseJpeg("invalid");
 		previous = index;
 		if (sos[i + 1] >> 4 > 3 || (sos[i + 1] & 15) > 3) refuseJpeg("invalid");
-		const dc = usesDc ? (huffman[sos[i + 1] >> 4] ?? refuseJpeg("invalid")) : unused;
-		const ac = usesAc ? (huffman[4 + (sos[i + 1] & 15)] ?? refuseJpeg("invalid")) : unused;
+		const dc = usesDc ? table(sos[i + 1] >> 4) : unusedTable;
+		const ac = usesAc ? table(4 + (sos[i + 1] & 15)) : unusedTable;
+		if (!state.latched.has(index)) {
+			const { table: slot } = frame.components[index];
+			if (!state.quantization.has(slot)) refuseJpeg("invalid");
+			state.latched.add(index);
+			unused.delete(`q${slot}`);
+		}
 		components.push({ ...frame.components[index], index, dc, ac });
 	}
 	return { ss, se, ah, al, components, bits: coefficientBits(frame, al) };
@@ -165,6 +216,7 @@ export function walkScan(
 	state: ScanState,
 ) {
 	const scan = readScan(sos, frame, state);
+	state.unused.delete("r");
 	const { mcus, blocks } = layout(frame, scan.components);
 	const reader = entropyReader(bytes, start, end);
 	const coder = frame.progressive

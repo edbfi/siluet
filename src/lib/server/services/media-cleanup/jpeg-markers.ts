@@ -1,5 +1,12 @@
 import { refuseJpeg } from "./jpeg-errors";
-import { defineHuffman, defineRestart, scanState, walkScan } from "./jpeg-scan";
+import {
+	defineHuffman,
+	defineQuantization,
+	defineRestart,
+	finishTables,
+	scanState,
+	walkScan,
+} from "./jpeg-scan";
 
 export const jpegMaxBytes = 16 * 1024 * 1024;
 // ToAPIs' file limit bounds a re-encoded copy, which can exceed its source.
@@ -67,6 +74,7 @@ export function readJpeg(bytes: Buffer, { maxBytes = jpegMaxBytes } = {}) {
 		const code = bytes[offset++];
 		if (code === 0xd9) {
 			if (!frame || !scans) refuseJpeg("invalid");
+			finishTables(scan);
 			return { image, markers, frame, trailer: offset !== bytes.length };
 		}
 		if (code === 0xd8) refuseJpeg("secondary");
@@ -85,9 +93,11 @@ export function readJpeg(bytes: Buffer, { maxBytes = jpegMaxBytes } = {}) {
 			frame = readFrame(code, data);
 		} else if (code === 0xc4) {
 			defineHuffman(scan, data);
+		} else if (code === 0xdb) {
+			defineQuantization(scan, data);
 		} else if (code === 0xdd) {
 			defineRestart(scan, data);
-		} else if (code !== 0xda && code !== 0xdb) {
+		} else if (code !== 0xda) {
 			refuseJpeg("unsupported");
 		}
 		// B.1.1.2: fill bytes before a marker are dropped, so each kept marker is
