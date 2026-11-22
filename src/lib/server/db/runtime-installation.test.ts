@@ -84,6 +84,27 @@ test("only an open runtime installation carries the runtime brand", async () => 
 	}
 });
 
+test("a handle from before a reopen stays invalid for the new runtime", async () => {
+	const directory = await createOwnerDirectory();
+	try {
+		const old = await openRuntimeInstallation(directory);
+		await old.close();
+		const current = await openRuntimeInstallation(directory);
+		try {
+			expect(isRuntimeInstallation(current)).toBeTrue();
+			expect(isRuntimeInstallation(old)).toBeFalse();
+			expect(isRuntimeInstallation({ ...old })).toBeFalse();
+			expect(() => runtimeEntry(old)).toThrow("closed");
+			const { createScratchPool } = await import("../services/media-staging/scratch");
+			await expect(createScratchPool(old).reclaim()).rejects.toThrow("runtime installation lock");
+		} finally {
+			await current.close();
+		}
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("closing waits for a held slot before releasing storage", async () => {
 	const directory = await createOwnerDirectory();
 	try {

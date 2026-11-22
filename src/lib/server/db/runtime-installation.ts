@@ -5,7 +5,7 @@ import { providerKeyFilename } from "./provider-key";
 
 /** Work that must settle before its installation closes, such as one preparation. */
 export type RuntimeSlot = { readonly settled: Promise<void> };
-type Entry = { preparation?: RuntimeSlot };
+type Entry = { readonly identity: string; preparation?: RuntimeSlot };
 
 // The registry and brand survive module reloads, so a re-imported module sees the
 // same claimed installation and the same held preparation slot.
@@ -15,18 +15,30 @@ const host = process as typeof process & { [registry]?: Map<string, Entry> };
 host[registry] ??= new Map<string, Entry>();
 const active = host[registry];
 
-/** An installation holding both the process registry entry and Turso's file lock. */
-export type RuntimeInstallation = Installation & { readonly [brand]: string };
+/**
+ * An installation holding both the process registry entry and Turso's file lock.
+ * The brand is that exact entry, so a handle from before a reopen stays invalid.
+ */
+export type RuntimeInstallation = Installation & { readonly [brand]: Entry };
+
+function live(entry: unknown): entry is Entry {
+	return (
+		typeof entry === "object" &&
+		entry !== null &&
+		"identity" in entry &&
+		typeof entry.identity === "string" &&
+		active.get(entry.identity) === entry
+	);
+}
 
 export function isRuntimeInstallation(value: Installation): value is RuntimeInstallation {
-	const identity = Reflect.get(value, brand);
-	return typeof identity === "string" && active.has(identity);
+	return live(Reflect.get(value, brand));
 }
 
 /** The live registry entry for this installation. Throws once storage has closed. */
 export function runtimeEntry(installation: RuntimeInstallation) {
-	const entry = active.get(installation[brand]);
-	if (!entry) throw new Error("Studio installation is closed.");
+	const entry = installation[brand];
+	if (!live(entry)) throw new Error("Studio installation is closed.");
 	return entry;
 }
 
@@ -46,14 +58,14 @@ export async function openRuntimeInstallation(
 			? path.toLowerCase()
 			: path;
 	if (active.has(identity)) throw new Error("Studio installation is in use.");
-	const entry: Entry = {};
+	const entry: Entry = { identity };
 	active.set(identity, entry);
 	try {
 		const installation = await openInstallation(path, mode);
 		let closing: Promise<void> | undefined;
 		return {
 			...installation,
-			[brand]: identity,
+			[brand]: entry,
 			close() {
 				closing ??= (async () => {
 					try {
