@@ -1280,6 +1280,25 @@ test("built Image Studio cleans an attached local copy automatically while Queue
 			await gone(src);
 		});
 
+		await test.step("reloading the page retires the copy", async () => {
+			await page.goto(new URL("/image", origin).href);
+			await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(promptText);
+			await operation.selectOption("edit");
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await fileStatus("Cleaned copy ready.");
+			const src = (await cleaned.getAttribute("src")) ?? "";
+			expect((await page.request.get(new URL(src, origin).href)).status()).toBe(200);
+			// The keepalive DELETE leaves with the old document; the server drops the copy
+			// long before its 15-minute idle deadline.
+			await page.reload();
+			await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toBeVisible();
+			await gone(src);
+		});
+
 		expect(fixtures.requests).toHaveLength(providerChecks);
 		expect(outbound).toEqual([]);
 		expect(pageErrors).toEqual([]);

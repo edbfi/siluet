@@ -29,7 +29,8 @@ function pause(ms: number, signal: AbortSignal) {
 /**
  * Cleans the attached file as soon as it is attached, with no confirmation, and
  * keeps one private copy for it. Construct it while a component initializes:
- * replacing or removing the file, or unmounting, retires the copy.
+ * replacing or removing the file, unmounting, or leaving the document retires
+ * the copy.
  */
 export class LocalCopy {
 	file = $state.raw<File | null>(null);
@@ -65,6 +66,20 @@ export class LocalCopy {
 			untrack(() => this.#attach(file));
 		});
 		$effect(() => () => this.#detach());
+		// A reload or closed tab never unmounts the component. A page restored from
+		// the back-forward cache cleans its file again.
+		$effect(() => {
+			const hide = () => this.#suspend();
+			const show = (event: PageTransitionEvent) => {
+				if (event.persisted && this.file) this.#restart();
+			};
+			addEventListener("pagehide", hide);
+			addEventListener("pageshow", show);
+			return () => {
+				removeEventListener("pagehide", hide);
+				removeEventListener("pageshow", show);
+			};
+		});
 	}
 
 	/** Clean the attached file again after a failure. */
@@ -97,6 +112,15 @@ export class LocalCopy {
 	#restart() {
 		this.#renewed = false;
 		void this.#prepare(false);
+	}
+
+	// Retire the copy but keep the file, which a restored page cleans again.
+	#suspend() {
+		this.#preparing?.abort();
+		this.#preparing = null;
+		this.#retire();
+		this.stage = null;
+		this.pending = false;
 	}
 
 	#detach() {
