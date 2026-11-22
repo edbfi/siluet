@@ -108,13 +108,18 @@ export function createStages(
 			await unlink(stage.path, stage.reservation);
 		}
 	}
-	function timer(handle: string) {
-		return setTimeout(() => {
+	function timer(handle: string, delay = stageIdleMs): ReturnType<typeof setTimeout> {
+		const expiry = setTimeout(() => {
 			void serialize(async () => {
 				const s = stages.get(handle);
-				if (s && s.descriptor.deadline <= now()) await remove(s);
+				if (!s || s.expiry !== expiry) return;
+				const remaining = s.descriptor.deadline - now();
+				if (remaining <= 0) await remove(s);
+				// The wall clock stepped back: wait out the rest, at most one idle period at a time.
+				else s.expiry = timer(handle, Math.min(remaining, stageIdleMs));
 			}).catch(() => {});
-		}, stageIdleMs).unref();
+		}, delay).unref();
+		return expiry;
 	}
 	function live(stage: Stage) {
 		return (

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,7 +6,7 @@ import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-direct
 import type { MediaDescriptor } from "../../../shared/media-staging/descriptor";
 import { openRuntimeInstallation } from "../../db/runtime-installation";
 import { createScratchPool } from "./scratch";
-import { createStages, type StageOptions } from "./stages";
+import { createStages, type StageOptions, stageIdleMs } from "./stages";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -202,6 +202,26 @@ test("a later Review extends idle staging but never the first Review deadline", 
 	now = fresh.deadline;
 	expect(await stages.claim(owner, fresh, async () => true)).toBeNull();
 	expect(await stages.preview(owner, descriptor.handle)).toBeNull();
+});
+
+test("an idle copy still expires when its timer fires early after the clock steps back", async () => {
+	let now = 1_000_000;
+	const { stages, files } = await setup(16, { now: () => now });
+	jest.useFakeTimers();
+	try {
+		const descriptor = await stages.put(scope(), png(1));
+		// The idle period passes, but the wall clock stepped back by a minute meanwhile.
+		now = descriptor.deadline - 60_000;
+		jest.advanceTimersByTime(stageIdleMs);
+		for (let i = 0; i < 10; i++) await Promise.resolve();
+		expect(await files()).toHaveLength(1);
+		now = descriptor.deadline;
+		jest.advanceTimersByTime(60_000);
+		for (let i = 0; i < 50 && (await files()).length; i++);
+		expect(await files()).toHaveLength(0);
+	} finally {
+		jest.useRealTimers();
+	}
 });
 
 test("a full scratch pool still supplies dispatch buffers", async () => {
