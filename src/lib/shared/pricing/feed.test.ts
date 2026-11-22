@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { poyoV2Feed } from "../../../../tests/fixtures/poyo-v2-feed";
 import { toapisRates } from "../../../../tests/fixtures/toapis-feed";
 import { decodePricingFeed, type PricingFeed } from "./feed";
 import { decodePricingFeeds } from "./feeds";
@@ -99,4 +100,9 @@ test("loads a single Studio feed or a pair without dropping the valid sibling", 
 		toapis,
 	});
 	expect(decodePricingFeeds(null)).toEqual({});
+	expect(decodePricingFeeds(poyoV2Feed)).toEqual({ poyo: poyoV2Feed });
+	expect(decodePricingFeeds({ poyo: poyoV2Feed, toapis: toapisRates })).toEqual({
+		poyo: poyoV2Feed,
+		toapis,
+	});
 });

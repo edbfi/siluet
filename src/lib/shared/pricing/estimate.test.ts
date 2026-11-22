@@ -191,3 +191,100 @@ test("PoYo image models require image inputs when their kinds are supplied", () 
 		estimatePrice(feed, seedreamEdit, now),
 	);
 });
+
+describe("confirmed PoYo v2 rates", () => {
+	const day = 24 * 60 * 60 * 1000;
+	const v2 = {
+		...feed,
+		version: 2,
+		revision: "747e5d75319585d66396a3c05bd1b97d9390ce74",
+		sourceDate: "2026-11-19T13:42:30Z",
+		confirmedAt: "2026-12-19T05:30:00Z",
+	} as const;
+
+	test("stays known after the source ages when a later confirmation exists", () => {
+		const at = Date.parse("2026-12-20T12:00:00Z");
+		const { confirmedAt: _, ...unconfirmed } = v2;
+		expect(estimatePrice({ ...unconfirmed, version: 1 }, zImage, at)).toMatchObject({
+			status: "unknown",
+			reason: "expired-feed",
+		});
+		expect(estimatePrice(v2, zImage, at)).toEqual({
+			status: "known",
+			unit: "poyo_credit",
+			perRequest: "2.75",
+			batch: "2.75",
+			maxAttempts: 1,
+			sourceDate: v2.sourceDate,
+			revision: v2.revision,
+			expiresAt: "2027-01-18T05:30:00.000Z",
+		});
+	});
+
+	test("expires 30 days after the confirmation", () => {
+		const expiresAt = Date.parse(v2.confirmedAt) + 30 * day;
+		expect(estimatePrice(v2, zImage, expiresAt - 1)).toMatchObject({ status: "known" });
+		expect(estimatePrice(v2, zImage, expiresAt)).toMatchObject({ reason: "expired-feed" });
+	});
+
+	test("ignores a confirmation dated after the clock and keeps a fixed expiry", () => {
+		for (const at of [Date.parse("2026-12-01T00:00:00Z"), Date.parse("2026-12-10T00:00:00Z")]) {
+			expect(estimatePrice(v2, zImage, at)).toMatchObject({
+				status: "known",
+				sourceDate: v2.sourceDate,
+				expiresAt: "2026-12-19T13:42:30.000Z",
+			});
+		}
+	});
+
+	test("reports an invalid clock when a later confirmation cannot count and the source has aged", () => {
+		const future = { ...v2, confirmedAt: "2027-01-10T00:00:00Z" };
+		const at = Date.parse("2026-12-25T00:00:00Z");
+		expect(estimatePrice(future, zImage, at)).toMatchObject({ reason: "invalid-clock" });
+		expect(estimatePrice(v2, zImage, at)).toMatchObject({ status: "known" });
+	});
+
+	test("reports an invalid clock only before the source date", () => {
+		const source = Date.parse(v2.sourceDate);
+		expect(estimatePrice(v2, zImage, source - 1)).toMatchObject({ reason: "invalid-clock" });
+		expect(estimatePrice(v2, zImage, source)).toMatchObject({ status: "known" });
+	});
+
+	test("quotes an unfamiliar or mismatched kind as unavailable", () => {
+		const unfamiliar = { kind: "per-second-by-resolution", resolutions: { "480p": "10" } };
+		const at = Date.parse("2026-12-01T00:00:00Z");
+		for (const rates of [
+			{ ...v2.rates, "z-image": unfamiliar },
+			{ ...v2.rates, "z-image": v2.rates["seedream-5.5"] },
+		]) {
+			expect(estimatePrice({ ...v2, rates }, zImage, at)).toEqual({
+				status: "unknown",
+				reason: "rate-unavailable",
+				maxAttempts: 1,
+			});
+		}
+		expect(
+			estimatePrice(
+				{ ...v2, rates: { ...v2.rates, "seedream-5.5": v2.rates["z-image"] } },
+				seedreamEdit,
+				at,
+			),
+		).toMatchObject({ reason: "rate-unavailable" });
+		expect(
+			estimatePrice(
+				{ ...v2, rates: { ...v2.rates, "seedream-5.5": unfamiliar } },
+				seedreamEdit,
+				at,
+			),
+		).toMatchObject({ reason: "rate-unavailable" });
+		expect(
+			estimatePrice({ ...v2, rates: { ...v2.rates, "h3-max": unfamiliar } }, seedreamEdit, at),
+		).toMatchObject({ status: "known", batch: "51" });
+	});
+
+	test("leaves v1 ageing from the source date", () => {
+		expect(estimatePrice(feed, zImage, Date.parse("2026-12-19T13:27:00Z"))).toMatchObject({
+			reason: "expired-feed",
+		});
+	});
+});

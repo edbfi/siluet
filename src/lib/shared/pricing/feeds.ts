@@ -1,10 +1,11 @@
-import { decodePricingFeed, isPricingRecord, type PricingFeed } from "./feed";
+import { isPricingRecord } from "./feed";
+import { decodePoyoPricingFeed, type PoyoPricingFeed } from "./poyo-feed";
 import { decodeToapisPricingFeed, type ToapisPricingFeed } from "./toapis-feed";
 
 export const pricingProviders = ["poyo", "toapis"] as const;
 export type PricingProvider = (typeof pricingProviders)[number];
-export type ProviderPricingFeed = PricingFeed | ToapisPricingFeed;
-export type PricingFeeds = { poyo?: PricingFeed; toapis?: ToapisPricingFeed };
+export type ProviderPricingFeed = PoyoPricingFeed | ToapisPricingFeed;
+export type PricingFeeds = { poyo?: PoyoPricingFeed; toapis?: ToapisPricingFeed };
 
 export function isPricingProvider(value: string): value is PricingProvider {
 	return pricingProviders.some((provider) => provider === value);
@@ -16,7 +17,10 @@ export function pricingSourceDate(feed: ProviderPricingFeed): string {
 
 export function decodePricingFeeds(value: unknown): PricingFeeds {
 	if (!isPricingRecord(value)) return {};
-	if (value.provider === "poyo") return { poyo: decodePricingFeed(value) };
+	if (value.provider === "poyo") return { poyo: decodePoyoPricingFeed(value) };
 	if (value.provider === "toapis") return { toapis: decodeToapisPricingFeed(value) };
-	return { poyo: decodePricingFeed(value.poyo), toapis: decodeToapisPricingFeed(value.toapis) };
+	return {
+		poyo: decodePoyoPricingFeed(value.poyo),
+		toapis: decodeToapisPricingFeed(value.toapis),
+	};
 }

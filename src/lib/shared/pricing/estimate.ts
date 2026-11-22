@@ -1,11 +1,13 @@
 import { creditUnits, formatCredits } from "./decimal";
+import { isPricingClock, isPricingRecord, parsePricingInstant } from "./feed";
 import {
-	decodePricingFeed,
-	isPricingClock,
-	isPricingRecord,
-	parsePricingInstant,
-	pricingFeedExpiryMs,
-} from "./feed";
+	decodePoyoPricingFeed,
+	isFixedRate,
+	isReferenceRate,
+	type PoyoRate,
+	poyoConfirmationMs,
+	poyoFeedExpiryMs,
+} from "./poyo-feed";
 
 import { estimateToapis } from "./toapis-estimate";
 import { decodeToapisPricingFeed, type ToapisRateSource } from "./toapis-feed";
@@ -180,7 +182,7 @@ export function estimatePrice(feed: unknown, input: PriceInput, nowMs: number): 
 		return estimateToapis(decodeToapisPricingFeed(feed), input, nowMs, maxAttempts);
 	}
 	if (provider !== "poyo") return unknown("unsupported-provider");
-	const poyoFeed = decodePricingFeed(feed);
+	const poyoFeed = decodePoyoPricingFeed(feed);
 	if (model !== "z-image" && model !== "seedream-5.5") return unknown("unsupported-model");
 	if (input.sourceKinds?.some((kind) => kind !== "image")) return unknown("unsupported-input");
 	const tier = model === "seedream-5.5" ? seedreamTier(input) : undefined;
@@ -192,18 +194,23 @@ export function estimatePrice(feed: unknown, input: PriceInput, nowMs: number): 
 	if (nowMs < parsePricingInstant(poyoFeed.sourceDate)) {
 		return unknown("invalid-clock");
 	}
-	const expiresAt = pricingFeedExpiryMs(poyoFeed);
-	if (nowMs >= expiresAt) return unknown("expired-feed");
+	// A confirmation dated after the clock is ignored, so the rates age from the source date.
+	const expiresAt = poyoFeedExpiryMs(poyoFeed, nowMs);
+	if (nowMs >= expiresAt) {
+		// Refresh cannot help while the clock is behind the confirmation it already holds.
+		return unknown(nowMs < poyoConfirmationMs(poyoFeed) ? "invalid-clock" : "expired-feed");
+	}
 
-	const rate = poyoFeed.rates[model];
-	if (rate.kind === "unavailable") return unknown("rate-unavailable");
+	// Quote only the kind each model is known to use. Anything else is unavailable here.
+	const rate: PoyoRate | undefined = poyoFeed.rates[model];
 	let perRequest: bigint;
-	if (rate.kind === "per-request") {
+	if (model === "z-image" && rate && isFixedRate(rate)) {
 		perRequest = creditUnits(rate.credits);
-	} else {
-		if (tier === undefined) return unknown("unsupported-input");
+	} else if (model === "seedream-5.5" && rate && isReferenceRate(rate) && tier !== undefined) {
 		perRequest =
 			creditUnits(rate.resolutions[tier]) + BigInt(sourceCount) * creditUnits(rate.perReference);
+	} else {
+		return unknown("rate-unavailable");
 	}
 	return {
 		status: "known",

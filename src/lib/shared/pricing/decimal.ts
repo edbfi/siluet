@@ -2,8 +2,13 @@
 const scale = 1_000_000n;
 const decimal = /^(0|[1-9][0-9]{0,11})(\.[0-9]{1,6})?$/;
 
+/** Any bounded credit decimal, including zero. Known kinds decide whether zero is allowed. */
+export function isCreditDecimal(value: unknown): value is string {
+	return typeof value === "string" && decimal.test(value);
+}
+
 export function isCreditRate(value: unknown): value is string {
-	return typeof value === "string" && decimal.test(value) && /[1-9]/.test(value);
+	return isCreditDecimal(value) && /[1-9]/.test(value);
 }
 
 export function creditUnits(rate: string): bigint {

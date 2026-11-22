@@ -9,11 +9,12 @@ import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
 import { zImageDisclosure } from "../../../shared/image-studio/z-image";
 import { pricingMaxAgeMs } from "../../../shared/pricing/feed";
 import { pricingSourceDate } from "../../../shared/pricing/feeds";
+import { poyoConfirmationMs, poyoFeedExpiryMs } from "../../../shared/pricing/poyo-feed";
 import { decodeToapisPricingFeed } from "../../../shared/pricing/toapis-feed";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerKeyFilename } from "../../db/provider-key";
 import { providerStore } from "../../db/provider-store";
-import { loadBundledPricing } from "../pricing/local-feed";
+import { loadBundledPricing } from "../pricing/studio-feeds";
 import { createProviderConnections } from "../providers/connections";
 import { parseQueueRequest } from "./request";
 import { createSubmissionQueue } from "./submission";
@@ -402,7 +403,7 @@ test.each(["poyo", "toapis"] as const)(
 			providerStore(db).credential,
 			async () => {},
 			async () => (feed.provider === "poyo" ? { poyo: feed } : { toapis: feed }),
-			() => Date.parse(sourceDate) + 100,
+			() => (feed.provider === "poyo" ? poyoConfirmationMs(feed) : Date.parse(sourceDate)) + 100,
 		);
 		for (const [count, poyoTotal] of [
 			[1, "8.6"],
@@ -692,7 +693,7 @@ test.each(["generate", "edit"] as const)(
 			expect(parseQueueRequest({ ...raw, ...change })).toBeNull();
 		const bundled = await loadBundledPricing("poyo");
 		if (bundled?.provider !== "poyo") throw new Error("Expected bundled Poyo rates");
-		let now = Date.parse(bundled.sourceDate);
+		let now = poyoConfirmationMs(bundled);
 		let disclosure = zImageDisclosure(operation);
 		const api = await createSubmissionQueue(
 			db,
@@ -723,7 +724,7 @@ test.each(["generate", "edit"] as const)(
 			error: "stale",
 		});
 		disclosure = zImageDisclosure(operation);
-		now += pricingMaxAgeMs;
+		now = poyoFeedExpiryMs(bundled);
 		expect(await api.submit("owner", { ...live, token: original.token })).toMatchObject({
 			error: "stale",
 			review: { quote: { reason: "expired-feed" }, requiresConsent: true },

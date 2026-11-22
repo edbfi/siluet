@@ -1,4 +1,4 @@
-import { loadStudioPricingFeeds } from "#lib/server/services/pricing/local-feed.ts";
+import { loadStudioPricingFeeds } from "#lib/server/services/pricing/studio-feeds.ts";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {

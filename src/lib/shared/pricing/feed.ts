@@ -2,9 +2,9 @@ import { isCreditRate } from "./decimal";
 
 export const pricingMaxAgeMs = 30 * 24 * 60 * 60 * 1_000;
 
-type Unavailable = Readonly<{ kind: "unavailable" }>;
-type FixedRate = Readonly<{ kind: "per-request"; credits: string }>;
-type ReferenceRate = Readonly<{
+export type Unavailable = Readonly<{ kind: "unavailable" }>;
+export type FixedRate = Readonly<{ kind: "per-request"; credits: string }>;
+export type ReferenceRate = Readonly<{
 	kind: "per-image-with-references";
 	resolutions: Readonly<Record<"1K" | "1.5K" | "2K", string>>;
 	perReference: string;
@@ -52,22 +52,18 @@ export function isPricingClock(nowMs: number): boolean {
 	return Number.isSafeInteger(nowMs) && nowMs >= 0 && nowMs <= 8_640_000_000_000_000;
 }
 
-export function pricingFeedExpiryMs(feed: PricingFeed): number {
-	return parsePricingInstant(feed.sourceDate) + pricingMaxAgeMs;
-}
-
-function isUnavailable(value: unknown): boolean {
+export function isUnavailable(value: unknown): boolean {
 	return hasKeys(value, ["kind"]) && value.kind === "unavailable";
 }
 
-function decodeFixedRate(value: unknown): FixedRate | Unavailable | undefined {
+export function decodeFixedRate(value: unknown): FixedRate | Unavailable | undefined {
 	if (isUnavailable(value)) return { kind: "unavailable" };
 	if (!hasKeys(value, ["kind", "credits"]) || value.kind !== "per-request") return;
 	if (!isCreditRate(value.credits)) return;
 	return { kind: value.kind, credits: value.credits };
 }
 
-function decodeReferenceRate(value: unknown): ReferenceRate | Unavailable | undefined {
+export function decodeReferenceRate(value: unknown): ReferenceRate | Unavailable | undefined {
 	if (isUnavailable(value)) return { kind: "unavailable" };
 	if (!hasKeys(value, ["kind", "resolutions", "perReference"])) return;
 	const { kind, resolutions, perReference } = value;
