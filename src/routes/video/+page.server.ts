@@ -1,5 +1,5 @@
 import { seedreamProviderNames } from "#lib/shared/image-studio/seedream.ts";
-import { releasedVideoOperations } from "#lib/shared/media-catalog/registry.ts";
+import { releasedVideoOperations, seedanceOperation } from "#lib/shared/media-catalog/registry.ts";
 import ledger from "../../../docs/media-catalog.v1.json";
 import type { PageServerLoad } from "./$types";
 
@@ -42,6 +42,6 @@ export const load: PageServerLoad = ({ url }) => {
 		routes,
 		initialModel:
 			releasedVideoOperations.find((entry) => entry.key.model === requested)?.key.model ??
-			"seedance-2-5",
+			seedanceOperation.key.model,
 	};
 };

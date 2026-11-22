@@ -1005,7 +1005,7 @@ test.each(["image", "video"] as const)(
 	},
 );
 
-test("a key replaced after the claim leaves the H3 job unsent with no POST", async () => {
+test("P-02: a key replaced after the claim leaves the H3 job unsent with no POST", async () => {
 	let posts = 0;
 	const jobs = makeTracking(async (url, request) => {
 		if (url.endsWith("/user/balance")) {

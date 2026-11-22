@@ -114,6 +114,8 @@ test("replay after restart sends one POST", async () => {
 	jobs?.close();
 	await db.close();
 	db = await openInstallation(directory);
+	// After restart and feed expiry, the claimed Review still replays.
+	now += 31 * 86_400_000;
 	const restarted = await studio(poyo(seen, accepted));
 	await restarted.jobs.resume();
 	expect(await restarted.queue.submit("owner", click)).toEqual(result);
@@ -331,7 +333,7 @@ test("Poyo H3 videoResult returns a delivery, resultUrl none", async () => {
 	);
 });
 
-test("observed Poyo status 429 honours Retry-After and Retry Save reads the same task after cooldown", async () => {
+test("P-04: observed Poyo status 429 honours Retry-After and Retry Save reads the same task after cooldown", async () => {
 	const seen = calls();
 	let limited = false;
 	const {
@@ -371,7 +373,7 @@ test("observed Poyo status 429 honours Retry-After and Retry Save reads the same
 	expect(seen.posts).toBe(1);
 });
 
-test("three H3 jobs share Poyo's two reads per second", async () => {
+test("P-03: three H3 jobs share Poyo's two reads per second", async () => {
 	const seen = calls();
 	let posts = 0;
 	const {
@@ -468,5 +470,21 @@ test("without an h3-max rate the server issues unknown terms that queue once onl
 	const result = await queue.submit("owner", click);
 	expect(await queue.submit("owner", click)).toEqual(result);
 	expect((await imageJobStore(db).list())[0]).toMatchObject({ accepted_unknown: 1 });
+	expect(seen.posts).toBe(1);
+});
+
+test("P-01: racing claims of one Review return one job and send one POST", async () => {
+	const seen = calls();
+	const { store, queue } = await studio(poyo(seen, accepted));
+	await store.save("poyo", "balance-only", now, false, 0);
+	const { click } = await reviewAndClick(queue);
+	const results = await Promise.all([1, 2, 3].map(() => queue.submit("owner", click)));
+	expect(new Set(results.map((result) => JSON.stringify(result))).size).toBe(1);
+	expect(results[0]).toHaveProperty("jobId");
+	expect(seen.posts).toBe(1);
+	// A changed draft cannot reuse the claimed token.
+	expect(
+		await queue.submit("owner", { ...request(6), token: click.token, acceptTerms: true }),
+	).toEqual({ error: "invalid" });
 	expect(seen.posts).toBe(1);
 });
