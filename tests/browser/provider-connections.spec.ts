@@ -229,6 +229,10 @@ test("an open Settings page warns before changing a key needed by a new job", as
 
 		const studio = await page.context().newPage();
 		await studio.goto(new URL("/image", server.origin).href);
+		// "Use example" works only after hydration. The shell enables Menu once its children mount.
+		await expect(
+			studio.getByRole("button", { name: "Menu", exact: true, includeHidden: true }),
+		).toBeEnabled();
 		await studio.getByRole("button", { name: "Use example" }).press("Enter");
 		await studio.getByRole("button", { name: "Review request", exact: true }).press("Enter");
 		await studio.getByRole("checkbox", { name: /unknown cost/i }).check();
