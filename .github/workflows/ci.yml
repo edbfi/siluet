@@ -125,19 +125,15 @@ jobs:
         with: { persist-credentials: false }
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with: { bun-version-file: package.json }
+      # Stage each feed on its own, so one absent branch or file cannot hide the others.
       - name: Read the published feeds
-        run: |
-          git fetch --no-tags --depth=1 origin \
-            '+refs/heads/pricing-data:refs/remotes/origin/pricing-data' \
-            '+refs/heads/pricing-data-toapis:refs/remotes/origin/pricing-data-toapis'
-          feeds="$RUNNER_TEMP/pricing-feeds"
-          mkdir -p "$feeds"
-          if git cat-file -e origin/pricing-data:pricing/v2/poyo.json 2>/dev/null; then
-            git show origin/pricing-data:pricing/v2/poyo.json > "$feeds/poyo-v2.json"
-          fi
-          git show origin/pricing-data:pricing/v1/feed.json > "$feeds/poyo-v1.json"
-          git show origin/pricing-data-toapis:pricing/v1/toapis.json > "$feeds/toapis.json"
+        run: >-
+          bash scripts/pricing/stage-feeds.sh "$RUNNER_TEMP/pricing-feeds"
+          pricing-data:pricing/v2/poyo.json:poyo-v2.json
+          pricing-data:pricing/v1/feed.json:poyo-v1.json
+          pricing-data-toapis:pricing/v1/toapis.json:toapis.json
       - name: Check the published rates
+        if: ${{ !cancelled() }}
         run: >-
           bun scripts/pricing/freshness.ts --fail-within-days 14
           --poyo-v2 "$RUNNER_TEMP/pricing-feeds/poyo-v2.json"

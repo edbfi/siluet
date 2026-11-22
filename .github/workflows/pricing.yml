@@ -42,7 +42,7 @@ jobs:
       - name: Test the PoYo pricing contract offline
         run: >-
           bun test ./scripts/pricing/providers/poyo ./scripts/pricing/publish.test.ts
-          ./scripts/pricing/freshness.test.ts
+          ./scripts/pricing/freshness.test.ts ./scripts/pricing/stage-feeds.test.ts
       - name: Collect the PoYo catalog revision
         id: upstream
         if: github.event_name != 'pull_request'
@@ -129,6 +129,7 @@ jobs:
           fi
           # Hand the feed to the publisher as a file, never as an argument.
           feed_file=$(mktemp)
+          trap 'rm -f -- "$feed_file"' EXIT
           printf '%s' "$PRICING_FEED" > "$feed_file"
           bash -- "$script_dir/publish.sh" "${args[@]}" < "$feed_file"
 
@@ -164,22 +165,17 @@ jobs:
     steps:
       - *checkout
       - *setup_bun
+      # Stage each feed on its own, so one absent branch or file cannot hide the others. A read
+      # failure fails this step, and the check below still reports every staged feed.
       - name: Read the published and bundled feeds
-        run: |
-          git fetch --no-tags --depth=1 origin \
-            '+refs/heads/main:refs/remotes/origin/main' \
-            '+refs/heads/pricing-data:refs/remotes/origin/pricing-data' \
-            '+refs/heads/pricing-data-toapis:refs/remotes/origin/pricing-data-toapis'
-          feeds="$RUNNER_TEMP/pricing-feeds"
-          mkdir -p "$feeds"
-          # freshness.ts checks v1 only while v2 is absent. Published v1 ages on purpose afterwards.
-          if git cat-file -e origin/pricing-data:pricing/v2/poyo.json 2>/dev/null; then
-            git show origin/pricing-data:pricing/v2/poyo.json > "$feeds/poyo-v2.json"
-          fi
-          git show origin/pricing-data:pricing/v1/feed.json > "$feeds/poyo-v1.json"
-          git show origin/pricing-data-toapis:pricing/v1/toapis.json > "$feeds/toapis.json"
-          git show origin/main:pricing/v2/poyo.json > "$feeds/bundled-poyo.json"
+        run: >-
+          bash scripts/pricing/stage-feeds.sh "$RUNNER_TEMP/pricing-feeds"
+          pricing-data:pricing/v2/poyo.json:poyo-v2.json
+          pricing-data:pricing/v1/feed.json:poyo-v1.json
+          pricing-data-toapis:pricing/v1/toapis.json:toapis.json
+          main:pricing/v2/poyo.json:bundled-poyo.json
       - name: Check the published and bundled rates
+        if: ${{ !cancelled() }}
         run: >-
           bun scripts/pricing/freshness.ts --fail-within-days 7
           --poyo-v2 "$RUNNER_TEMP/pricing-feeds/poyo-v2.json"
