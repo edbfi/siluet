@@ -19,16 +19,39 @@ import { ownerDirectory } from "./data-directory";
 import { studioOrigin } from "./origin";
 
 // Vite re-runs the server init hook in the same process after a server-module
-// edit. Module state is re-evaluated, so the previous dev runtime is kept here.
+// edit, sometimes before the previous run has finished. Module state is
+// re-evaluated, so the previous dev runtime and the queue of reloads are kept here.
 const devRuntime = Symbol.for("siluet.dev-runtime");
-const host = process as typeof process & { [devRuntime]?: () => Promise<void> };
+type DevRuntime = { close?: () => Promise<void>; turn: Promise<unknown> };
+const host = process as typeof process & { [devRuntime]?: DevRuntime };
 
-export async function initializeOwner(dev: boolean) {
+/**
+ * Open the studio runtime. In dev, each call closes the runtime the previous
+ * call opened, and calls run one at a time.
+ */
+export function initializeOwner(dev: boolean) {
+	if (!dev) return openOwner(false);
+	host[devRuntime] ??= { turn: Promise.resolve() };
+	const state = host[devRuntime];
+	const opened = state.turn.then(async () => {
+		const previous = state.close;
+		state.close = undefined;
+		// Opening reports whether storage is still held.
+		await previous?.().catch(() => console.error("Unable to close the previous studio runtime."));
+		const runtime = await openOwner(true);
+		// Register only a runtime that started; a failed start is already closed.
+		state.close = runtime.close;
+		return runtime;
+	});
+	state.turn = opened.catch(() => {});
+	return opened;
+}
+
+async function openOwner(dev: boolean) {
 	const origin = studioOrigin(process.env, dev);
 	const lifecycle: EventEmitter = process;
 	if (!dev && !lifecycle.listenerCount("siluet:ready"))
 		throw new Error("Start Siluet with bun run start.");
-	if (dev) await host[devRuntime]?.();
 	const installation = await openRuntimeInstallation(ownerDirectory(dev));
 	try {
 		// Only this runtime holds the registry entry and Turso's lock, so leftovers
@@ -88,19 +111,23 @@ export async function initializeOwner(dev: boolean) {
 		// remove staged copies before storage closes and the registry entry is released.
 		function close() {
 			closing ??= (async () => {
-				clearTimeout(rotation);
-				shutdown.abort();
-				jobs.close();
-				await runtimeEntry(installation).preparation?.settled;
-				await stages.close();
-				await installation.close();
+				try {
+					clearTimeout(rotation);
+					shutdown.abort();
+					jobs.close();
+					await runtimeEntry(installation).preparation?.settled;
+					await stages.close();
+					await installation.close();
+				} finally {
+					// A later dev reload need not wait on this close again.
+					const state = host[devRuntime];
+					if (state?.close === close) state.close = undefined;
+				}
 			})();
 			return closing;
 		}
 		if (dev) {
-			// Register only a runtime that started; a failed start is closed below.
 			await announce();
-			host[devRuntime] = close;
 		} else {
 			// The launcher emits siluet:stopping before the adapter drains requests.
 			lifecycle.once("siluet:stopping", () => shutdown.abort());
@@ -130,4 +157,4 @@ export async function initializeOwner(dev: boolean) {
 		throw e;
 	}
 }
-export type StudioRuntime = Awaited<ReturnType<typeof initializeOwner>>;
+export type StudioRuntime = Awaited<ReturnType<typeof openOwner>>;
