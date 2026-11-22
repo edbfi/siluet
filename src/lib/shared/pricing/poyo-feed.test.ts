@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import bundledV1 from "../../../../pricing/v1/feed.json";
 import bundledV2 from "../../../../pricing/v2/poyo.json";
 import h3Fixture from "../../../../tests/fixtures/h3-rate.v2.json";
-import { poyoV2Feed } from "../../../../tests/fixtures/poyo-v2-feed";
+import { poyoV1Feed, poyoV2Feed } from "../../../../tests/fixtures/poyo-v2-feed";
+import { estimatePrice, type PriceInput } from "./estimate";
 import { decodePricingFeed } from "./feed";
 import { decodePoyoPricingFeed, decodePoyoV2Feed, poyoFeedExpiryMs } from "./poyo-feed";
 
@@ -16,12 +16,43 @@ function nested(depth: number): unknown {
 	return depth === 0 ? "1" : { level: nested(depth - 1) };
 }
 
-test("the bundled v2 feed confirms the bundled v1 rates", () => {
+test("the bundled v2 feed is a valid v2 feed", () => {
 	expect<unknown>(decodePoyoV2Feed(bundledV2)).toEqual(bundledV2);
-	const { confirmedAt, version, ...rest } = bundledV2;
-	expect(version).toBe(2);
-	expect({ ...rest, version: 1 }).toEqual(bundledV1);
-	expect(Date.parse(confirmedAt)).toBeGreaterThanOrEqual(Date.parse(bundledV2.sourceDate));
+	expect(bundledV2.version).toBe(2);
+	expect(Date.parse(bundledV2.confirmedAt)).toBeGreaterThanOrEqual(
+		Date.parse(bundledV2.sourceDate),
+	);
+});
+
+test("a v2 feed quotes the same rates as the v1 feed it confirms", () => {
+	const v1 = decodePricingFeed(poyoV1Feed);
+	const v2 = decodePoyoV2Feed(poyoV2Feed);
+	expect<unknown>(v1).toEqual(poyoV1Feed);
+	expect<unknown>(v2).toEqual(poyoV2Feed);
+	const { confirmedAt: _, ...rest } = poyoV2Feed;
+	expect({ ...rest, version: 1 }).toEqual(poyoV1Feed);
+	const now = Date.parse(poyoV2Feed.confirmedAt) + day;
+	const zImage: PriceInput = {
+		provider: "poyo",
+		model: "z-image",
+		operation: "generate",
+		options: { size: "1:1" },
+		sourceCount: 0,
+		count: 2,
+		retryLimit: 1,
+	};
+	const seedream = { ...zImage, model: "seedream-5.5", options: { resolution: "2K" } };
+	for (const input of [zImage, { ...seedream, operation: "edit", sourceCount: 2 }]) {
+		const v2Quote = estimatePrice(v2, input, now);
+		expect(v2Quote).toMatchObject({
+			status: "known",
+			expiresAt: new Date(Date.parse(poyoV2Feed.confirmedAt) + 30 * day).toISOString(),
+		});
+		expect<unknown>(estimatePrice(v1, input, now)).toEqual({
+			...v2Quote,
+			expiresAt: new Date(Date.parse(poyoV1Feed.sourceDate) + 30 * day).toISOString(),
+		});
+	}
 });
 
 describe("PoYo pricing v2 feed", () => {

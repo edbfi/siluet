@@ -14,6 +14,15 @@ export const poyoV2Feed = {
 	},
 } as const;
 
+/** The v1 feed with the same revision and rates, as older installations read it. */
+export const poyoV1Feed = {
+	version: 1,
+	provider: "poyo",
+	revision: poyoV2Feed.revision,
+	sourceDate: poyoV2Feed.sourceDate,
+	rates: poyoV2Feed.rates,
+} as const;
+
 const maxDecimal = "999999999999.999999";
 
 function deepRate(depth: number): Record<string, unknown> {
