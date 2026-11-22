@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import bundle from "../../../../../pricing/v1/feed.json";
+import bundle from "../../../../../pricing/v2/poyo.json";
 import { editDisclosure } from "../../../shared/image-studio/edit-disclosure";
 import { createImageReview } from "../../../shared/image-studio/review";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
@@ -11,6 +11,7 @@ import {
 	zImageEligible,
 } from "../../../shared/image-studio/z-image";
 import { decodePricingFeeds } from "../../../shared/pricing/feeds";
+import { decodePoyoV2Feed, poyoFeedExpiryMs } from "../../../shared/pricing/poyo-feed";
 import { checkPoyoConnection } from "./connection";
 import { createPoyoImage } from "./image";
 
@@ -39,7 +40,9 @@ test("both Z-Image operations project the exact REST fields and dated Poyo quote
 	});
 	const batch = { count: 1, retryLimit: 0 };
 	const fresh = Date.parse(bundle.sourceDate);
-	const expires = fresh + 30 * 24 * 60 * 60 * 1000;
+	const decoded = decodePoyoV2Feed(bundle);
+	if (!decoded) throw new Error("Invalid bundled v2 feed");
+	const expires = poyoFeedExpiryMs(decoded);
 	for (const draft of [create, edit]) {
 		const isEdit = draft.operation === "edit";
 		for (const size of isEdit ? [...ratios, undefined] : ratios) {

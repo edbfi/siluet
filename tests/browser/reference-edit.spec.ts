@@ -2,13 +2,14 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type APIResponse, expect, type Page, test } from "@playwright/test";
-import poyoBundle from "../../pricing/v1/feed.json";
 import toapisBundle from "../../pricing/v1/toapis.json";
+import poyoBundle from "../../pricing/v2/poyo.json";
 import { pricingCachePath } from "../../src/lib/server/services/pricing/local-feed";
 import {
 	createSeedreamDraft,
 	type SeedreamProvider,
 } from "../../src/lib/shared/image-studio/seedream";
+import { decodePoyoV2Feed, poyoFeedExpiryMs } from "../../src/lib/shared/pricing/poyo-feed";
 import { seedLegacyToapisReviews } from "../fixtures/legacy-reference-review";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys } from "../fixtures/provider-connections";
@@ -34,6 +35,14 @@ const updatedSignature = "private-updated-signature";
 const changedReference = signedReference.replace(referenceQueryMarker, updatedSignature);
 const privateNames = ["fixture-handbag-private-name", "fixture-table-private-name"];
 const bundledObservation = { poyo: poyoBundle.sourceDate, toapis: toapisBundle.observedAt };
+// Bundled rates are current from their latest confirmation, which may follow the source date.
+const bundledCurrent = { poyo: poyoBundle.confirmedAt, toapis: toapisBundle.observedAt };
+const bundledPoyo = decodePoyoV2Feed(poyoBundle);
+if (!bundledPoyo) throw new Error("Invalid bundled Poyo.ai rates");
+const bundledExpiry = {
+	poyo: poyoFeedExpiryMs(bundledPoyo),
+	toapis: Date.parse(toapisBundle.observedAt) + 30 * 86_400_000,
+};
 
 function edit(provider: SeedreamProvider, urls: readonly string[] = [signedReference]) {
 	return {
@@ -129,7 +138,7 @@ async function withEditStudio(
 		const rates =
 			fixtureTime === undefined
 				? await writeReviewPricing(cacheHome, 0)
-				: { observedAt, observedMs: Date.parse(observedAt) };
+				: { observedAt, observedMs: Date.parse(bundledCurrent[provider]) };
 		studio = await startStudio(dir, "0", false, env);
 		const origin = studio.origin.origin;
 		const port = studio.origin.port;
@@ -342,7 +351,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 				await expect(page.getByRole("article")).toHaveCount(clicks.length);
 				await assertPrivate();
 			},
-			Date.parse(bundledObservation[provider]),
+			Date.parse(bundledCurrent[provider]),
 		);
 	});
 
@@ -371,7 +380,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 					providerPayload(provider, [signedReference, secondSignedReference]),
 				]);
 			},
-			Date.parse(bundledObservation[provider]) + 30 * 86_400_000,
+			bundledExpiry[provider],
 		);
 	});
 

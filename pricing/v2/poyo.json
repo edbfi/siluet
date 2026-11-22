@@ -1,0 +1,22 @@
+{
+	"version": 2,
+	"provider": "poyo",
+	"revision": "747e5d75319585d66396a3c05bd1b97d9390ce74",
+	"sourceDate": "2026-11-19T13:42:30Z",
+	"confirmedAt": "2026-11-19T13:42:30Z",
+	"rates": {
+		"z-image": {
+			"kind": "per-request",
+			"credits": "2"
+		},
+		"seedream-5.5": {
+			"kind": "per-image-with-references",
+			"resolutions": {
+				"1K": "4",
+				"1.5K": "4",
+				"2K": "7"
+			},
+			"perReference": "1.6"
+		}
+	}
+}

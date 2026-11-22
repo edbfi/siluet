@@ -150,6 +150,7 @@ test("the release bundles estimate both providers offline with an empty cache", 
 			const feed = await loadLocalPricing(now, {
 				provider,
 				cachePath: pricingCachePath(directory, provider),
+				v2CachePath: pricingCachePath(directory, "poyo-v2"),
 			});
 			const input = readEstimateArgs(["--provider", provider, ...args]);
 			expect(estimatePrice(feed, input, now)).toMatchObject({

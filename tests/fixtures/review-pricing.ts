@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import poyoBundle from "../../pricing/v1/feed.json";
 import toapisBundle from "../../pricing/v1/toapis.json";
+import poyoBundle from "../../pricing/v2/poyo.json";
 import { pricingCachePath } from "../../src/lib/server/services/pricing/local-feed";
 import { toapisRates } from "./toapis-feed";
 
@@ -14,11 +14,14 @@ export async function writeReviewPricing(
 	// Keep cached conversion evidence at least as recent as the bundle.
 	const observedMs = Math.floor(Math.max(latest + cachedSeconds * 1000, Date.now()) / 1000) * 1000;
 	const observedAt = new Date(observedMs).toISOString().replace(".000Z", "Z");
+	// A cache replaces the bundle only with a confirmation at least as recent as the bundle's.
+	const confirmedAt = [observedAt, poyoBundle.confirmedAt].sort().at(-1) ?? observedAt;
 	const poyo = {
-		version: 1,
+		version: 2,
 		provider: "poyo",
 		revision: (poyoBundle.revision[0] === "a" ? "b" : "a").repeat(40),
 		sourceDate: observedAt,
+		confirmedAt: observedAt,
 		rates: {
 			"z-image": zImageCredits
 				? { kind: "per-request", credits: zImageCredits }
@@ -31,14 +34,14 @@ export async function writeReviewPricing(
 		},
 	};
 	const toapis = { ...toapisRates, observedAt, conversionCacheAgeSeconds: cachedSeconds };
-	const poyoPath = pricingCachePath(cacheHome, "poyo");
-	await mkdir(dirname(poyoPath), { recursive: true });
+	const poyoPath = pricingCachePath(cacheHome, "poyo-v2");
+	const toapisPath = pricingCachePath(cacheHome, "toapis");
+	await Promise.all(
+		[poyoPath, toapisPath].map((path) => mkdir(dirname(path), { recursive: true })),
+	);
 	await Promise.all([
-		Bun.write(poyoPath, JSON.stringify({ checkedAt: observedAt, feed: poyo })),
-		Bun.write(
-			pricingCachePath(cacheHome, "toapis"),
-			JSON.stringify({ checkedAt: observedAt, feed: toapis }),
-		),
+		Bun.write(poyoPath, JSON.stringify({ checkedAt: confirmedAt, feed: poyo })),
+		Bun.write(toapisPath, JSON.stringify({ checkedAt: observedAt, feed: toapis })),
 	]);
 	return {
 		observedMs,

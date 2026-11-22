@@ -2,22 +2,20 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, realpath, rename, rm, rmdir } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import {
-	isPricingClock,
-	parsePricingInstant,
-	pricingFeedExpiryMs,
-} from "../../src/lib/shared/pricing/feed";
+import { isPricingClock, parsePricingInstant } from "../../src/lib/shared/pricing/feed";
 import {
 	isPricingProvider,
-	type PricingProvider,
 	type ProviderPricingFeed,
 	pricingSourceDate,
 } from "../../src/lib/shared/pricing/feeds";
+import { poyoConfirmationMs, poyoFeedExpiryMs } from "../../src/lib/shared/pricing/poyo-feed";
 import { toapisFeedExpiryMs } from "../../src/lib/shared/pricing/toapis-feed";
 import {
 	type CachedPricingFeed,
-	decodeProviderFeed,
+	decodePricingFile,
+	type PricingFile,
 	type PricingPaths,
+	poyoV2FileByteLimit,
 	pricingBundledPath,
 	pricingCachePath,
 	pricingFeedByteLimit,
@@ -27,9 +25,27 @@ import {
 
 export const pricingFeedUrl =
 	"https://raw.githubusercontent.com/edbfi/siluet/pricing-data/pricing/v1/feed.json";
+export const poyoV2PricingFeedUrl =
+	"https://raw.githubusercontent.com/edbfi/siluet/pricing-data/pricing/v2/poyo.json";
 export const toapisPricingFeedUrl =
 	"https://raw.githubusercontent.com/edbfi/siluet/pricing-data-toapis/pricing/v1/toapis.json";
 const refreshTimeoutMs = 5_000;
+/** The published v2 feed, including its trailing LF, fits in 64 KiB. */
+export const poyoV2WireByteLimit = 64 * 1024;
+
+const refreshFiles = {
+	poyo: { url: pricingFeedUrl, wireLimit: pricingFeedByteLimit, cacheLimit: pricingFeedByteLimit },
+	"poyo-v2": {
+		url: poyoV2PricingFeedUrl,
+		wireLimit: poyoV2WireByteLimit,
+		cacheLimit: poyoV2FileByteLimit,
+	},
+	toapis: {
+		url: toapisPricingFeedUrl,
+		wireLimit: pricingFeedByteLimit,
+		cacheLimit: pricingFeedByteLimit,
+	},
+} as const satisfies Record<PricingFile, unknown>;
 
 type RefreshOptions = PricingPaths & {
 	fetchFeed?: (url: string, init: RequestInit) => Promise<Response>;
@@ -40,7 +56,7 @@ type RefreshOptions = PricingPaths & {
 type RefreshResult = CachedPricingFeed & { status: "updated" | "unchanged"; cachePath: string };
 
 async function readFeed(
-	provider: PricingProvider,
+	file: PricingFile,
 	response: Response,
 	signal: AbortSignal,
 ): Promise<ProviderPricingFeed> {
@@ -48,7 +64,8 @@ async function readFeed(
 		void response.body?.cancel().catch(() => {});
 		throw new Error(`Pricing feed request failed (HTTP ${response.status}).`);
 	}
-	if (Number(response.headers.get("content-length")) > pricingFeedByteLimit) {
+	const byteLimit = refreshFiles[file].wireLimit;
+	if (Number(response.headers.get("content-length")) > byteLimit) {
 		void response.body.cancel().catch(() => {});
 		throw new Error("Pricing feed exceeds the size limit.");
 	}
@@ -58,7 +75,7 @@ async function readFeed(
 		void reader.cancel().catch(() => {});
 	};
 	signal.addEventListener("abort", cancel, { once: true });
-	const bytes = new Uint8Array(pricingFeedByteLimit);
+	const bytes = new Uint8Array(byteLimit);
 	let length = 0;
 	try {
 		signal.throwIfAborted();
@@ -81,7 +98,7 @@ async function readFeed(
 	let feed: ProviderPricingFeed | undefined;
 	try {
 		const json = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, length));
-		feed = decodeProviderFeed(provider, JSON.parse(json));
+		feed = decodePricingFile(file, JSON.parse(json));
 	} catch {
 		throw new Error("Pricing feed is not valid UTF-8 JSON.");
 	}
@@ -89,12 +106,23 @@ async function readFeed(
 	return feed;
 }
 
-async function replaceCache(path: string, entry: CachedPricingFeed): Promise<void> {
+/** Serialise a cache entry, refusing one the reader would reject for its size. */
+export function encodeCacheEntry(file: PricingFile, entry: CachedPricingFeed): string {
+	// The v2 cache stays compact so a 64 KiB feed always fits.
+	const json = file === "poyo-v2" ? JSON.stringify(entry) : JSON.stringify(entry, null, "\t");
+	const text = `${json}\n`;
+	if (new TextEncoder().encode(text).byteLength > refreshFiles[file].cacheLimit) {
+		throw new Error("Pricing cache entry exceeds the size limit.");
+	}
+	return text;
+}
+
+async function replaceCache(path: string, text: string): Promise<void> {
 	const temporary = join(dirname(path), `.feed-${randomUUID()}.tmp`);
 	const file = await open(temporary, "wx", 0o600);
 	try {
 		try {
-			await file.writeFile(`${JSON.stringify(entry, null, "\t")}\n`);
+			await file.writeFile(text);
 			await file.sync();
 		} finally {
 			await file.close();
@@ -105,7 +133,14 @@ async function replaceCache(path: string, entry: CachedPricingFeed): Promise<voi
 	}
 }
 
+function evidenceMs(feed: ProviderPricingFeed): number {
+	return feed.provider === "poyo"
+		? poyoConfirmationMs(feed)
+		: parsePricingInstant(pricingSourceDate(feed));
+}
+
 async function saveFeed(
+	file: PricingFile,
 	cachePath: string,
 	bundledPath: string,
 	feed: ProviderPricingFeed,
@@ -135,11 +170,12 @@ async function saveFeed(
 		throw error;
 	}
 	try {
-		const { bundled, cache } = await readLocalPricing(bundledPath, cachePath, feed.provider);
+		const { bundled, cache } = await readLocalPricing(bundledPath, cachePath, file);
 		if (!bundled && cache === null) {
 			throw new Error("Pricing cache is invalid and the bundled snapshot is unavailable.");
 		}
-		if (cache && parsePricingInstant(pricingSourceDate(cache.feed)) > nowMs) {
+		// A v2 confirmation is never earlier than its source, so this covers both dates.
+		if (cache && evidenceMs(cache.feed) > nowMs) {
 			throw new Error(
 				`Pricing cache source is dated in the future at ${cachePath}. Check the device date and retry.`,
 			);
@@ -152,39 +188,72 @@ async function saveFeed(
 		const previous = cache?.feed ?? bundled;
 		const status = JSON.stringify(feed) === JSON.stringify(previous) ? "unchanged" : "updated";
 		const checkedAt = new Date(nowMs).toISOString();
-		await replaceCache(cachePath, { checkedAt, feed });
+		await replaceCache(cachePath, encodeCacheEntry(file, { checkedAt, feed }));
 		return { status, checkedAt, feed, cachePath };
 	} finally {
 		await rmdir(lock);
 	}
 }
 
-export async function refreshPricingFeed({
-	provider = "poyo",
-	bundledPath = pricingBundledPath(provider),
-	cachePath = pricingCachePath(undefined, provider),
-	fetchFeed = fetch,
-	now = Date.now,
-	timeoutMs = refreshTimeoutMs,
-}: RefreshOptions = {}): Promise<RefreshResult> {
-	if (resolve(cachePath) === resolve(bundledPath)) {
-		throw new Error("Pricing cache and bundled snapshot must use separate paths.");
-	}
-	const signal = AbortSignal.timeout(timeoutMs);
-	const response = await fetchFeed(provider === "poyo" ? pricingFeedUrl : toapisPricingFeedUrl, {
+function requestFeed(
+	file: PricingFile,
+	fetchFeed: NonNullable<RefreshOptions["fetchFeed"]>,
+	signal: AbortSignal,
+) {
+	return fetchFeed(refreshFiles[file].url, {
 		method: "GET",
 		redirect: "error",
 		credentials: "omit",
 		signal,
 	});
-	const feed = await readFeed(provider, response, signal);
+}
+
+export async function refreshPricingFeed({
+	provider = "poyo",
+	bundledPath = pricingBundledPath(provider),
+	cachePath = pricingCachePath(undefined, provider),
+	v2BundledPath = pricingBundledPath("poyo-v2"),
+	v2CachePath = pricingCachePath(undefined, "poyo-v2"),
+	fetchFeed = fetch,
+	now = Date.now,
+	timeoutMs = refreshTimeoutMs,
+}: RefreshOptions = {}): Promise<RefreshResult> {
+	const paths = {
+		poyo: { bundledPath, cachePath },
+		"poyo-v2": { bundledPath: v2BundledPath, cachePath: v2CachePath },
+		toapis: { bundledPath, cachePath },
+	} satisfies Record<PricingFile, unknown>;
+	for (const file of provider === "poyo" ? (["poyo", "poyo-v2"] as const) : [provider]) {
+		if (resolve(paths[file].cachePath) === resolve(paths[file].bundledPath)) {
+			throw new Error("Pricing cache and bundled snapshot must use separate paths.");
+		}
+	}
+	const signal = AbortSignal.timeout(timeoutMs);
+	let file: PricingFile = provider === "poyo" ? "poyo-v2" : provider;
+	let response = await requestFeed(file, fetchFeed, signal);
+	if (file === "poyo-v2" && response.status === 404) {
+		// Publication of the confirmed feed has not started yet. Refresh the v1 feed instead.
+		void response.body?.cancel().catch(() => {});
+		file = "poyo";
+		response = await requestFeed(file, fetchFeed, signal);
+	}
+	const feed = await readFeed(file, response, signal);
 	const nowMs = now();
 	if (!isPricingClock(nowMs)) throw new Error("Local pricing clock is invalid.");
-	if (parsePricingInstant(pricingSourceDate(feed)) > nowMs)
-		throw new Error("Pricing feed is dated in the future.");
-	const expiresAt = feed.provider === "poyo" ? pricingFeedExpiryMs(feed) : toapisFeedExpiryMs(feed);
+	if (evidenceMs(feed) > nowMs) throw new Error("Pricing feed is dated in the future.");
+	const expiresAt = feed.provider === "poyo" ? poyoFeedExpiryMs(feed) : toapisFeedExpiryMs(feed);
 	if (nowMs >= expiresAt) throw new Error("Pricing feed has expired.");
-	return saveFeed(cachePath, bundledPath, feed, nowMs);
+	return saveFeed(file, paths[file].cachePath, paths[file].bundledPath, feed, nowMs);
+}
+
+/** Describe a refresh with the dates Review uses. */
+export function describeRefresh({ status, checkedAt, feed }: RefreshResult): string {
+	const checked = `Pricing ${status} at ${checkedAt}.`;
+	if (feed.provider === "toapis") return `${checked} Public rates observed ${feed.observedAt}.`;
+	const source = `Source ${feed.sourceDate} (${feed.revision}).`;
+	const confirmed = feed.version === 2 ? ` Confirmed ${feed.confirmedAt}.` : "";
+	const expires = new Date(poyoFeedExpiryMs(feed, Date.parse(checkedAt))).toISOString();
+	return `${checked} ${source}${confirmed} Rates expire ${expires}.`;
 }
 
 if (import.meta.main) {
@@ -195,15 +264,9 @@ if (import.meta.main) {
 			strict: true,
 		});
 		if (!isPricingProvider(values.provider)) throw new Error("Choose --provider poyo or toapis.");
-		const { status, checkedAt, feed, cachePath } = await refreshPricingFeed({
-			provider: values.provider,
-		});
-		const source =
-			feed.provider === "poyo"
-				? `Source ${feed.sourceDate} (${feed.revision})`
-				: `Public rates observed ${feed.observedAt}`;
-		console.log(`Pricing ${status} at ${checkedAt}. ${source}.`);
-		console.log(cachePath);
+		const result = await refreshPricingFeed({ provider: values.provider });
+		console.log(describeRefresh(result));
+		console.log(result.cachePath);
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : "Pricing refresh failed.");
 		process.exitCode = 1;
