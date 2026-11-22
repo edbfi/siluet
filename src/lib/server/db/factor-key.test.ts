@@ -160,7 +160,7 @@ test.each(["success", "permanent", "temporary"] as const)(
 	"a stalled %s key check shares acquisition without holding storage or deciding a new revision",
 	async (outcome) => {
 		const { openInstallation } = await import("./installation");
-		const { checkedSecurity } = await import("./security-state");
+		const { checkedSecurity, checkRequestSecurity } = await import("./security-state");
 		const { createOwnerAccess } = await import("../services/owner/access");
 		const { TOTP } = await import("otpauth");
 		const directory = await createOwnerDirectory();
@@ -192,6 +192,7 @@ test.each(["success", "permanent", "temporary"] as const)(
 			const pending = Promise.allSettled(
 				Array.from({ length: 6 }, () => checkedSecurity(install, stalled)),
 			);
+			const request = Promise.allSettled([checkRequestSecurity(install, stalled)]);
 			await entered.promise;
 			const progress = await Promise.race([install.hasOwner(), Bun.sleep(600).then(() => false)]);
 			expect(progress).toBe(true);
@@ -199,6 +200,7 @@ test.each(["success", "permanent", "temporary"] as const)(
 			await access.security.authorize("disable", enabled.session, password, enabled.codes[0]);
 			expect((await checkedSecurity(install)).factor).toBeNull();
 			release.resolve();
+			expect(await request).toMatchObject([{ status: "fulfilled" }]);
 			expect(reads).toBe(1);
 			for (const result of await pending) {
 				expect(result.status).toBe("rejected");

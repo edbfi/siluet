@@ -1,7 +1,7 @@
 import type { EventEmitter } from "node:events";
 import { openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
-import { cleanUnusedKeys } from "../../db/security-state";
+import { checkRequestSecurity, cleanUnusedKeys } from "../../db/security-state";
 import { checkPoyoConnection } from "../../providers/poyo/connection";
 import { checkToapisConnection } from "../../providers/toapis/connection";
 import { createGallery } from "../gallery/gallery";
@@ -36,7 +36,7 @@ export async function initializeOwner(dev: boolean) {
 		const queue = await createSubmissionQueue(installation, store.credential, jobs);
 		let workers: Promise<void> | undefined;
 		async function checkAccess() {
-			await access.security.snapshot();
+			await checkRequestSecurity(installation);
 			workers ??= (async () => {
 				await cleanUnusedKeys(installation);
 				await gallery.recover();

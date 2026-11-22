@@ -127,6 +127,16 @@ export async function checkedSecurity(install: Installation, readKey = readFacto
 	return verified;
 }
 
+export async function checkRequestSecurity(install: Installation, readKey = readFactorKey) {
+	try {
+		await checkedSecurity(install, readKey);
+	} catch (error) {
+		if (!(error instanceof AccessError && error.status === 403)) throw error;
+		// The request can use the new policy. An action's proof remains bound to its original revision.
+		await checkedSecurity(install, readKey);
+	}
+}
+
 export async function cleanUnusedKeys(install: Installation) {
 	// List first. A key already in this list cannot become active after the transaction:
 	// publication and activation belong to one transaction and key paths are never reused.

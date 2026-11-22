@@ -36,10 +36,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 			if (cookies.get(studio.cookieName))
 				headers["set-cookie"] = cookies.serialize(...securityNotice(studio.origin));
 			const retry = route.id === "/settings/security" ? "/settings/security?resume" : "/";
+			const detail =
+				e.status === 403
+					? "Security settings changed."
+					: "Authenticator storage is temporarily unavailable.";
 			const message =
-				e.message === recoverMessage
-					? recoverMessage
-					: `Authenticator storage is temporarily unavailable. <a href="${retry}">Retry</a>`;
+				e.message === recoverMessage ? recoverMessage : `${detail} <a href="${retry}">Retry</a>`;
 			return new Response(
 				`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Studio access · Siluet</title><main><h1>Studio access</h1><p>${message}</p></main></html>`,
 				{ status: e.status, headers: { ...headers, "content-type": "text/html; charset=utf-8" } },

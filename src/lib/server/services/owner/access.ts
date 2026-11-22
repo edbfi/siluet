@@ -6,8 +6,6 @@ import { AccessError } from "./access-error";
 import { createAuthenticator } from "./authenticator";
 import { hashPassword, sessionDigest, token } from "./credentials";
 
-export { AccessError } from "./access-error";
-
 const invalidClaim = () => new AccessError("Check the claim token in your terminal.", 403);
 const invalidLogin = () => new AccessError("Check your username and password.", 403);
 const digest = (value: string) => createHash("sha256").update(value).digest();
