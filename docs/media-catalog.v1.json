@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"observedOn": "2026-11-22",
-	"supportBaselineCommit": "cf9a5683f879f5fe4d52a56189b9f24003161a73",
+	"supportBaselineCommit": "3a2432bd896c74cc6f76ff02bb2a16df5addc3b4",
 	"defaults": {
 		"keyAccess": "unknown",
 		"optionContract": "unknown-until-reviewed",
@@ -16,7 +16,7 @@
 		},
 		"seedream-edit": {
 			"review": "ordinary options, up to ten ordered staged files or URLs, batch and retry estimate",
-			"queue": "one public HTTP(S) image URL, one reviewed request, zero retries",
+			"queue": "1–10 ordered public HTTP(S) image URLs, one reviewed request, zero retries",
 			"optionCoverage": "partial"
 		}
 	},

@@ -1,6 +1,6 @@
 # Media catalog
 
-**V1 · Proposed for council and owner review.** Defines the coverage ledger for [D2](decisions.md#d2--full-image-and-video-model-coverage). The creator can find the image and video operations Siluet supports, see which connected route can run a request, and understand why another route is unavailable. Contributors can reconcile Siluet support against a finite, dated set of public provider evidence.
+**V1 · Approved by council under the owner’s delegation on 2026-11-22.** Defines the coverage ledger for [D2](decisions.md#d2--full-image-and-video-model-coverage). The creator can find the image and video operations Siluet supports, see which connected route can run a request, and understand why another route is unavailable. Contributors can reconcile Siluet support against a finite, dated set of public provider evidence.
 
 ## Inventory and identity
 
@@ -23,7 +23,7 @@ For a released operation, the composer and server share the same operation key a
 
 ## Production baseline
 
-At the audited baseline `cf9a568`, [Image Studio](SPEC-image-studio.md) can Review Seedream 5.5 generation and reference editing on both providers. The baseline live paths cover one ordinary output, with one public reference URL for edits. The ordered-reference module extends that same ordinary edit to 1–10 ordered public URLs when its release lands. The extension adds no operation key. Local-file edits, retries and layer decomposition have separate release prerequisites. Poyo’s production connection currently sets the Seedream flag after a successful balance read. ToAPIs sets it only when the scoped model list includes `doubao-seedream-5-5`. The [workspace design model list](../design/workspace/models.js) demonstrates family grouping and a small set of image and video choices. Its fixture connections, inferred inputs and price estimates do not count as production support.
+At the ordered-reference release `3a2432b`, [Image Studio](SPEC-image-studio.md) supports one ordinary Seedream 5.5 output per request on both providers. The [ordered edit](SPEC-seedream-multi-reference-edit.md) accepts 1–10 ordered public HTTP(S) image URLs under one reference-edit operation key per provider. Local-file edits, retries and layer decomposition have separate release prerequisites. Poyo’s production connection currently sets the Seedream flag after a successful balance read. ToAPIs sets it only when the scoped model list includes `doubao-seedream-5-5`. The [workspace design model list](../design/workspace/models.js) demonstrates family grouping and a small set of image and video choices. Its fixture connections, inferred inputs and price estimates do not count as production support.
 
 ## Release and acceptance
 
