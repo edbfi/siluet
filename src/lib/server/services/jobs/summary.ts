@@ -101,7 +101,7 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 	if (job.rejection) message = rejections[job.rejection];
 	if (job.state === "failed") {
 		if (job.failure_reason === "reference_media_unreadable") {
-			const failure = "The provider could not read the reference image.";
+			const failure = "The provider could not read one or more reference images.";
 			message = message ? `${failure} ${message}` : failure;
 		} else {
 			message ??= "The provider reported that the job failed.";

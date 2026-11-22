@@ -10,6 +10,21 @@ export const maxSeedreamReferences = 10;
 export const publicReferenceUrlError =
 	"Enter a public HTTP or HTTPS URL without a username or password.";
 
+export function duplicateReferenceSlots(
+	references: readonly SeedreamReference[],
+): [first: number, duplicate: number] | null {
+	const seen = new Map<string, number>();
+	for (const [index, reference] of references.entries()) {
+		if (reference.kind !== "url") continue;
+		const url = reference.url.trim();
+		const slot = index + 1;
+		const first = seen.get(url);
+		if (first !== undefined) return [first, slot];
+		seen.set(url, slot);
+	}
+	return null;
+}
+
 const fileTypes = {
 	jpeg: { mime: "image/jpeg", extensions: [".jpg", ".jpeg"] },
 	png: { mime: "image/png", extensions: [".png"] },

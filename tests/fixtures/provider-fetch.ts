@@ -7,6 +7,13 @@ const endpoints = new Map([
 
 if (!fixtureOrigin) throw new Error("Missing provider fixture origin.");
 
+const fixtureTime = process.env.SILUET_TEST_PROVIDER_TIME;
+if (fixtureTime !== undefined) {
+	const systemTime = Date.now.bind(Date);
+	const offset = Number(fixtureTime) - systemTime();
+	Date.now = () => systemTime() + offset;
+}
+
 globalThis.fetch = new Proxy(globalThis.fetch, {
 	async apply(read: typeof fetch, _receiver, [input, init]: Parameters<typeof fetch>) {
 		const url = new URL(input instanceof Request ? input.url : input);

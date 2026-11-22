@@ -2,11 +2,14 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type APIResponse, expect, type Page, test } from "@playwright/test";
+import poyoBundle from "../../pricing/v1/feed.json";
+import toapisBundle from "../../pricing/v1/toapis.json";
 import { pricingCachePath } from "../../src/lib/server/services/pricing/local-feed";
 import {
 	createSeedreamDraft,
 	type SeedreamProvider,
 } from "../../src/lib/shared/image-studio/seedream";
+import { seedLegacyToapisReviews } from "../fixtures/legacy-reference-review";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys } from "../fixtures/provider-connections";
 import {
@@ -14,11 +17,12 @@ import {
 	editedImageSignature,
 	editedPng,
 	referenceEditFixtures,
-	referenceFragmentMarker,
 	referenceHost,
-	referencePathMarker,
+	referenceMarkers,
 	referenceQueryMarker,
+	secondSignedReference,
 	signedReference,
+	tenSignedReferences,
 } from "../fixtures/reference-edit";
 import { writeReviewPricing } from "../fixtures/review-pricing";
 import { startStudio } from "./built-studio";
@@ -28,13 +32,15 @@ const promptUrlMarker = "private-prompt-url";
 const prompt = `Move the sculpture beside ${promptMarker}. See <https://prompt.example.test/?sig=${promptUrlMarker}>.`;
 const updatedSignature = "private-updated-signature";
 const changedReference = signedReference.replace(referenceQueryMarker, updatedSignature);
+const privateNames = ["fixture-handbag-private-name", "fixture-table-private-name"];
+const bundledObservation = { poyo: poyoBundle.sourceDate, toapis: toapisBundle.observedAt };
 
-function edit(provider: SeedreamProvider, url = signedReference) {
+function edit(provider: SeedreamProvider, urls: readonly string[] = [signedReference]) {
 	return {
 		draft: {
 			...createSeedreamDraft(provider, "edit"),
 			prompt,
-			references: [{ kind: "url", url: `  ${url}  ` }],
+			references: urls.map((url) => ({ kind: "url", url: `  ${url}  ` })),
 		},
 		count: 1,
 		retryLimit: 0,
@@ -42,7 +48,7 @@ function edit(provider: SeedreamProvider, url = signedReference) {
 	};
 }
 
-function providerPayload(provider: SeedreamProvider, reference = signedReference, text = prompt) {
+function providerPayload(provider: SeedreamProvider, urls = [signedReference], text = prompt) {
 	const output = { background: "auto", output_format: "png" };
 	return provider === "poyo"
 		? {
@@ -53,7 +59,7 @@ function providerPayload(provider: SeedreamProvider, reference = signedReference
 					resolution: "2K",
 					...output,
 					enable_safety_checker: false,
-					image_urls: [reference],
+					image_urls: urls,
 				},
 			}
 		: {
@@ -62,13 +68,17 @@ function providerPayload(provider: SeedreamProvider, reference = signedReference
 				size: "2K",
 				disable_nsfw: false,
 				metadata: { ...output, watermark: false },
-				image_urls: [reference],
+				image_urls: urls,
 			};
 }
 
 async function readReview(response: APIResponse) {
 	expect(response.status()).toBe(200);
-	const review = (await response.json()) as { token: string; requiresConsent: boolean };
+	const review = (await response.json()) as {
+		token: string;
+		requiresConsent: boolean;
+		quote: unknown;
+	};
 	expect(review).toMatchObject({
 		token: expect.any(String),
 		requiresConsent: expect.any(Boolean),
@@ -86,21 +96,31 @@ async function withEditStudio(
 	run: (context: {
 		origin: string;
 		cacheHome: string;
-		rates: Awaited<ReturnType<typeof writeReviewPricing>>;
+		rates: { observedAt: string; observedMs: number };
 		fixtures: ReturnType<typeof referenceEditFixtures>;
 		post: (path: string, data: unknown, from?: string) => ReturnType<Page["request"]["post"]>;
-		restart: () => Promise<void>;
+		restart: <T>(prepare?: (directory: string) => Promise<T>) => Promise<T | undefined>;
+		assertRedacted: (value: string) => void;
 		assertPrivate: (includePage?: boolean) => Promise<void>;
 		assertOneSubmission: () => void;
 	}) => Promise<void>,
+	fixtureTime?: number,
 ) {
 	const dir = await createOwnerDirectory();
-	const fixtures = referenceEditFixtures(provider, outcome);
+	const fixtures = referenceEditFixtures(provider, outcome, prompt);
 	const cacheHome = await mkdtemp(join(tmpdir(), "siluet-reference-pricing-"));
-	const env = { ...fixtures.env, XDG_CACHE_HOME: cacheHome };
+	const env = {
+		...fixtures.env,
+		XDG_CACHE_HOME: cacheHome,
+		...(fixtureTime === undefined ? {} : { SILUET_TEST_PROVIDER_TIME: String(fixtureTime) }),
+	};
 	let studio: Studio | undefined;
 	try {
-		const rates = await writeReviewPricing(cacheHome, 0);
+		const observedAt = bundledObservation[provider];
+		const rates =
+			fixtureTime === undefined
+				? await writeReviewPricing(cacheHome, 0)
+				: { observedAt, observedMs: Date.parse(observedAt) };
 		studio = await startStudio(dir, "0", false, env);
 		const origin = studio.origin.origin;
 		const port = studio.origin.port;
@@ -129,10 +149,8 @@ async function withEditStudio(
 
 		function assertRedacted(value: string) {
 			for (const marker of [
-				referenceHost,
-				referencePathMarker,
-				referenceQueryMarker,
-				referenceFragmentMarker,
+				...referenceMarkers,
+				...privateNames,
 				updatedSignature,
 				promptMarker,
 				promptUrlMarker,
@@ -176,12 +194,19 @@ async function withEditStudio(
 			cacheHome,
 			rates,
 			fixtures,
-			post: (path, data, from = origin) =>
-				page.request.post(origin + path, { data, headers: { origin: from } }),
-			async restart() {
+			async post(path, data, from = origin) {
+				const response = await page.request.post(origin + path, {
+					data,
+					headers: { origin: from },
+				});
+				assertRedacted(await response.text());
+				return response;
+			},
+			async restart(prepare) {
 				await studio?.stop();
 				assertRedacted(studio?.diagnostics() ?? "");
 				studio = undefined;
+				const prepared = await prepare?.(dir);
 				const paths = await readdir(dir, { recursive: true });
 				expect(paths).toContain("studio.db");
 				assertRedacted(paths.join("\n"));
@@ -189,7 +214,9 @@ async function withEditStudio(
 					assertRedacted((await readFile(join(dir, file))).toString("latin1"));
 				}
 				studio = await startStudio(dir, port, false, env);
+				return prepared;
 			},
+			assertRedacted,
 			assertPrivate,
 			assertOneSubmission() {
 				expect(fixtures.requests.filter(({ path }) => path.endsWith("/submit"))).toEqual([
@@ -205,56 +232,248 @@ async function withEditStudio(
 	}
 }
 
-async function chooseReference(page: Page, url: string) {
-	await page.getByText("Use a URL", { exact: true }).first().press("Enter");
-	const field = page.getByRole("textbox", { name: "HTTP or HTTPS URL for reference image 1" });
+async function chooseReference(page: Page, slot: number, url: string) {
+	await page
+		.getByText("Use a URL", { exact: true })
+		.nth(slot - 1)
+		.press("Enter");
+	const field = page.getByRole("textbox", {
+		name: `HTTP or HTTPS URL for reference image ${slot}`,
+	});
 	await field.fill(`  ${url}  `);
+	const name = privateNames[slot - 1];
+	if (name) {
+		await page
+			.getByRole("textbox", {
+				name: `Private name for reference ${slot === 1 ? "A" : "B"}`,
+			})
+			.fill(name);
+	}
 	await field.press("Enter");
 }
 
 for (const provider of ["poyo", "toapis"] as const) {
-	test(`${provider} reviews, queues once and saves distinct output for offline reopening`, async ({
+	test(`${provider} validates direct edit limits and authorizes the exact ordered payload`, async ({
+		page,
+	}) => {
+		await withEditStudio(
+			page,
+			provider,
+			"completed",
+			async ({ origin, rates, fixtures, post, assertPrivate }) => {
+				const before = fixtures.requests.length;
+				const pair = [secondSignedReference, signedReference];
+				const selections = [[signedReference], pair, tenSignedReferences];
+				const quotes = ["8.6", "10.2", "23"];
+				const clicks = await Promise.all(
+					selections.map(async (urls, index) => {
+						const input = edit(provider, urls);
+						const review = await readReview(await post("/image/review", input));
+						const perRequest = provider === "poyo" ? quotes[index] : "5.6";
+						expect(review).toMatchObject({
+							requiresConsent: provider === "toapis",
+							quote: {
+								status: "known",
+								sourceDate: rates.observedAt,
+								perRequest,
+								batch: perRequest,
+								maxAttempts: 1,
+								...(provider === "toapis" && { usd: { perRequest: "0.028", batch: "0.028" } }),
+							},
+						});
+						return { ...input, token: review.token, acceptUnknown: review.requiresConsent };
+					}),
+				);
+				const [single, two, ten] = clicks;
+				const file = { kind: "file", file: { name: "fixture-local-only.png" } };
+				const invalid = [
+					{ ...single, draft: edit(provider, []).draft },
+					{ ...ten, draft: edit(provider, [...tenSignedReferences, changedReference]).draft },
+					{ ...single, draft: edit(provider, [signedReference, ` ${signedReference}\t`]).draft },
+					{ ...single, draft: edit(provider, [signedReference, "not a URL"]).draft },
+					{ ...single, draft: { ...single.draft, references: [file] } },
+					{ ...single, draft: { ...single.draft, references: [...single.draft.references, file] } },
+					{ ...two, count: 2 },
+					{ ...two, retryLimit: 1 },
+				];
+				for (const route of ["/image/review", "/image/queue"]) {
+					for (const input of invalid) {
+						const response = await post(route, input);
+						expect(response.status()).toBe(400);
+						expect(await response.json()).toEqual({ error: "invalid" });
+					}
+				}
+				for (const changed of [
+					[signedReference, secondSignedReference],
+					[secondSignedReference, changedReference],
+				]) {
+					const response = await post("/image/queue", {
+						...two,
+						draft: edit(provider, changed).draft,
+					});
+					expect(response.status()).toBe(400);
+				}
+				await page.goto(`${origin}/jobs`);
+				await expect(page.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
+				expect(fixtures.requests.slice(before)).toEqual([]);
+
+				const jobIds = new Set<string>();
+				for (const click of clicks) {
+					const queued = await post("/image/queue", click);
+					expect(queued.status()).toBe(200);
+					const result = (await queued.json()) as { jobId: string };
+					expect(result.jobId).toEqual(expect.any(String));
+					jobIds.add(result.jobId);
+				}
+				expect(jobIds.size).toBe(clicks.length);
+				expect(fixtures.submissions).toEqual(
+					selections.map((urls) => providerPayload(provider, urls)),
+				);
+				await page.reload();
+				await expect(page.getByRole("article")).toHaveCount(clicks.length);
+				await assertPrivate();
+			},
+			Date.parse(bundledObservation[provider]),
+		);
+	});
+
+	test(`${provider} requires fresh consent when bundled edit rates have expired`, async ({
+		page,
+	}) => {
+		await withEditStudio(
+			page,
+			provider,
+			"completed",
+			async ({ origin, fixtures, post }) => {
+				const before = fixtures.requests.length;
+				const input = edit(provider, [signedReference, secondSignedReference]);
+				const review = await readReview(await post("/image/review", input));
+				expect(review).toMatchObject({
+					requiresConsent: true,
+					quote: { status: "unknown", reason: "expired-feed" },
+				});
+				const click = { ...input, token: review.token };
+				expect((await post("/image/queue", click)).status()).toBe(400);
+				await page.goto(`${origin}/jobs`);
+				await expect(page.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
+				expect(fixtures.requests.slice(before)).toEqual([]);
+				expect((await post("/image/queue", { ...click, acceptUnknown: true })).status()).toBe(200);
+				expect(fixtures.submissions).toEqual([
+					providerPayload(provider, [signedReference, secondSignedReference]),
+				]);
+			},
+			Date.parse(bundledObservation[provider]) + 30 * 86_400_000,
+		);
+	});
+
+	test(`${provider} reviews reordered slots, queues once and saves distinct output for offline reopening`, async ({
 		page,
 	}) => {
 		test.setTimeout(75_000);
 		await withEditStudio(
 			page,
 			provider,
-			provider === "toapis" ? "download-fails-once" : "completed",
-			async ({ origin, rates, fixtures, restart, assertPrivate, assertOneSubmission }) => {
+			"download-fails-once",
+			async ({
+				origin,
+				rates,
+				fixtures,
+				restart,
+				assertPrivate,
+				assertRedacted,
+				assertOneSubmission,
+			}) => {
 				const beforeReview = fixtures.requests.length;
+				const reviewPosts: unknown[] = [];
+				const queuePosts: unknown[] = [];
+				page.on("request", (request) => {
+					if (request.method() !== "POST") return;
+					if (request.url() === `${origin}/image/review`) reviewPosts.push(request.postDataJSON());
+					if (request.url() === `${origin}/image/queue`) queuePosts.push(request.postDataJSON());
+				});
 				await page.clock.setFixedTime(new Date(rates.observedMs + 60_000));
 				await page.setViewportSize({ width: 320, height: 760 });
 				await page.goto(`${origin}/image`);
 				await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(prompt);
 				await page.getByLabel("Operation", { exact: true }).selectOption("edit");
-				await chooseReference(page, provider === "poyo" ? signedReference : changedReference);
+				await chooseReference(page, 1, signedReference);
+				await chooseReference(page, 2, secondSignedReference);
 				const review = page.getByRole("region", { name: "Review request", exact: true });
 				const facts = review.getByRole("tabpanel", { name: "Review", exact: true });
 				const inspect = review.getByRole("button", { name: "Review request", exact: true });
 				const queue = review.getByRole("button", { name: "Queue 1 request", exact: true });
 				const consent = review.getByRole("checkbox", { name: /unknown/i });
-				await inspect.press("Enter");
-				await expect(inspect).toHaveCount(0);
+				const inspectDraft = async () => {
+					const [response] = await Promise.all([
+						page.waitForResponse(`${origin}/image/review`),
+						inspect.press("Enter"),
+					]);
+					expect(response.status()).toBe(200);
+					assertRedacted(await response.text());
+					await expect(inspect).toHaveCount(0);
+					return ((await response.json()) as { token: string }).token;
+				};
+				await inspectDraft();
 				if (provider === "toapis") {
 					await expect(consent).toHaveAccessibleName(/fallback/i);
 					await expect(queue).toBeDisabled();
 					await consent.press("Space");
 					await expect(consent).toBeChecked();
-					await chooseReference(page, signedReference);
-					await expect(inspect).toBeEnabled();
-					await expect(queue).toBeDisabled();
-					await inspect.press("Enter");
+				}
+				const request = page.getByRole("region", { name: "Request", exact: true });
+				for (const area of [request, facts]) {
+					if (provider === "poyo") {
+						await expect(area).toContainText(/“image 1” and “image 2”/);
+						await expect(area).toContainText(/Poyo.ai determines framing/);
+					} else {
+						await expect(area).toContainText(/Numbered prompt references are unspecified/);
+					}
+				}
+				await request.getByRole("button", { name: "Move up reference image 2" }).press("Enter");
+				await expect(
+					request.getByRole("button", { name: "Move down reference image 1" }),
+				).toBeFocused();
+				await expect(
+					request.getByRole("status").filter({ hasText: "Reference B moved to position 1 of 2." }),
+				).toBeVisible();
+				await expect(inspect).toBeEnabled();
+				await expect(queue).toBeDisabled();
+				await chooseReference(page, 3, tenSignedReferences[2]);
+				await page.getByRole("button", { name: "Remove reference image 3" }).press("Enter");
+				const menu = page.getByRole("button", { name: "Menu", exact: true });
+				const navigation = page.getByRole("dialog");
+				await menu.press("Enter");
+				await navigation.getByRole("link", { name: "Settings", exact: true }).press("Enter");
+				await expect(page).toHaveURL(/\/settings\/providers/);
+				await menu.press("Enter");
+				await navigation.getByRole("link", { name: "Image Studio", exact: true }).press("Enter");
+				await expect(page).toHaveURL(`${origin}/image`);
+				for (const [index, label] of ["A", "B"].entries()) {
+					await expect(
+						page.getByRole("textbox", { name: `Private name for reference ${label}`, exact: true }),
+					).toHaveValue(privateNames[index]);
+				}
+				await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toHaveValue(
+					prompt,
+				);
+				const token = await inspectDraft();
+				if (provider === "toapis") {
 					await expect(consent).not.toBeChecked();
 					await expect(queue).toBeDisabled();
 					await consent.press("Space");
 				}
-				await expect(facts).toContainText(referenceHost);
+				await expect(
+					facts.getByRole("list").filter({ hasText: referenceHost }).getByRole("listitem"),
+				).toHaveText([
+					`1. Reference B · ${referenceHost} (URL reference)`,
+					`2. Reference A · ${referenceHost} (URL reference)`,
+				]);
+				for (const name of privateNames) await expect(facts).not.toContainText(name);
 				const disclosure = facts.getByRole("list", { name: "Provider disclosure" });
 				for (const text of [
-					/full reference URL/i,
+					/every full (reference )?URL/i,
 					/path/i,
-					/query with any signature/i,
+					/quer(?:y|ies) with any signature/i,
 					/fragment/i,
 					/upstream model services/i,
 					/copy.*after the link expires/i,
@@ -268,8 +487,10 @@ for (const provider of ["poyo", "toapis"] as const) {
 				);
 				if (provider === "toapis") await expect(disclosure).toContainText(/through a fallback/i);
 				await expect(facts.locator("[data-studio-price]")).toContainText(
-					provider === "poyo" ? "8.6 Poyo.ai credits" : "5.6 ToAPIs credits",
+					provider === "poyo" ? "10.2 Poyo.ai credits" : "5.6 ToAPIs credits",
 				);
+				if (provider === "toapis")
+					await expect(facts.locator("[data-studio-price]")).toContainText("$0.028 USD");
 				await expect(facts.locator("[data-studio-price]")).toContainText(
 					rates.observedAt.slice(0, 10),
 				);
@@ -279,7 +500,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 				expect(JSON.parse((await outgoing.locator("pre code").textContent()) ?? "")).toEqual(
 					providerPayload(
 						provider,
-						"[remote URL hidden]",
+						["[remote URL hidden]", "[remote URL hidden]"],
 						prompt.replace(/<.*>/, "<[URL hidden]>"),
 					),
 				);
@@ -290,29 +511,52 @@ for (const provider of ["poyo", "toapis"] as const) {
 				expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
 					320,
 				);
-				await queue.press("Enter");
+				const [queued] = await Promise.all([
+					page.waitForResponse(`${origin}/image/queue`),
+					queue.press("Enter"),
+				]);
+				expect(queued.status()).toBe(200);
+				assertRedacted(await queued.text());
+				const original = [signedReference, secondSignedReference];
+				const reordered = [secondSignedReference, signedReference];
+				const browserDraft = (urls: string[]) => ({
+					...edit(provider, urls),
+					draft: {
+						...createSeedreamDraft(provider, "edit"),
+						prompt,
+						references: urls.map((url) => ({ kind: "url", url, hostname: referenceHost })),
+					},
+				});
+				expect(reviewPosts).toEqual([browserDraft(original), browserDraft(reordered)]);
+				expect(queuePosts).toEqual([
+					{ ...browserDraft(reordered), token, acceptUnknown: provider === "toapis" },
+				]);
 				await expect(page).toHaveURL(/\/jobs/);
 				const job = page.getByRole("article");
+				await expect(job).toHaveCount(1);
 				await expect(job.getByText("Completed", { exact: true })).toBeVisible({ timeout: 20_000 });
-				expect(fixtures.submissions).toEqual([providerPayload(provider)]);
+				expect(fixtures.submissions).toEqual([providerPayload(provider, reordered)]);
 				assertOneSubmission();
 				await assertPrivate();
 				expect(fixtures.requests.filter(({ path }) => path === editedImagePath)).toEqual([]);
 				const save = job.getByRole("button", { name: "Save to Gallery" });
 				await expect(save).toBeEnabled({ timeout: 20_000 });
-				await save.press("Enter");
+				const [failedSave] = await Promise.all([
+					page.waitForResponse(`${origin}/jobs?/save`),
+					save.press("Enter"),
+				]);
+				assertRedacted(await failedSave.text());
 				const open = job.getByRole("link", { name: "Open saved image" });
-				if (provider === "toapis") {
-					await expect(job.getByText(/retry Save on this job/)).toBeVisible();
-					await expect(job.getByText("Completed", { exact: true })).toBeVisible();
-					await expect(open).toHaveCount(0);
-					await expect(save).toBeEnabled({ timeout: 20_000 });
-					await save.press("Enter");
-				}
+				await expect(job.getByText(/retry Save on this job/)).toBeVisible();
+				await expect(job.getByText("Completed", { exact: true })).toBeVisible();
+				await expect(open).toHaveCount(0);
+				await assertPrivate();
+				await expect(save).toBeEnabled({ timeout: 20_000 });
+				await save.press("Enter");
 				await expect(open).toBeVisible();
 				const path = await open.getAttribute("href");
 				if (!path) throw new Error("Missing Gallery link.");
-				const downloads = provider === "toapis" ? 2 : 1;
+				const downloads = 2;
 				expect(fixtures.requests.filter(({ path }) => path === editedImagePath)).toEqual(
 					Array.from({ length: downloads }, () => ({
 						path: editedImagePath,
@@ -322,7 +566,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 				);
 				const statusRequests = fixtures.requests.filter(({ path }) => path.includes("/status/"));
 				expect(statusRequests.map(({ path }) => path)).toEqual(
-					Array.from({ length: downloads + 1 }, () => fixtures.statusPath),
+					Array.from({ length: downloads + 1 }, () => fixtures.statusPaths[0]),
 				);
 				await assertPrivate();
 				assertOneSubmission();
@@ -364,7 +608,8 @@ test("direct edit guards reject invalid scope and stale authorization before any
 		"completed",
 		async ({ origin, fixtures, post, cacheHome }) => {
 			const before = fixtures.requests.length;
-			const input = edit("toapis");
+			const pair = [secondSignedReference, signedReference];
+			const input = edit("toapis", pair);
 			const other = await browser.newContext();
 			try {
 				for (const route of ["/image/review", "/image/queue"]) {
@@ -384,30 +629,15 @@ test("direct edit guards reject invalid scope and stale authorization before any
 			});
 			const click = { ...input, token: review.token, acceptUnknown: true };
 			const invalidScopes = [
-				{ ...click, count: 2 },
-				{ ...click, retryLimit: 1 },
 				{ ...click, layer_decomposition: true },
-				{ ...click, draft: { ...input.draft, references: [] } },
-				{
-					...click,
-					draft: {
-						...input.draft,
-						references: [...input.draft.references, ...input.draft.references],
-					},
-				},
-				{
-					...click,
-					draft: { ...input.draft, references: [{ kind: "file", file: { name: "private.png" } }] },
-				},
 				...[
-					"not a URL",
 					"https://images.example.test/reference.png",
 					"https://ipv4only.arpa/reference.png",
 					"https://resolver.arpa/reference.png",
 					"https://printer.service.arpa/reference.png",
 					"https://localhost/reference.png",
 					"https://user@example.test/reference.png",
-				].map((url) => ({ ...edit("toapis", url), token: review.token, acceptUnknown: true })),
+				].map((url) => ({ ...click, draft: edit("toapis", [secondSignedReference, url]).draft })),
 			];
 			for (const route of ["/image/review", "/image/queue"]) {
 				expect((await post(route, click, "https://elsewhere.example.test")).status()).toBe(403);
@@ -416,11 +646,6 @@ test("direct edit guards reject invalid scope and stale authorization before any
 				}
 			}
 			expect((await post("/image/queue", { ...click, acceptUnknown: false })).status()).toBe(400);
-			expect(
-				(
-					await post("/image/queue", { ...click, draft: edit("toapis", changedReference).draft })
-				).status(),
-			).toBe(400);
 
 			// Change the active price evidence while keeping the same draft and credential.
 			const cachePath = pricingCachePath(cacheHome, "toapis");
@@ -451,10 +676,71 @@ test("direct edit guards reject invalid scope and stale authorization before any
 	);
 });
 
+test("the built app replays a legacy single-reference claim and refreshes unused legacy terms", async ({
+	page,
+}) => {
+	await withEditStudio(
+		page,
+		"toapis",
+		"rejected",
+		async ({ origin, cacheHome, fixtures, post, restart, assertPrivate, assertOneSubmission }) => {
+			const before = fixtures.requests.length;
+			const input = edit("toapis");
+			const review = await readReview(await post("/image/review", input));
+			const legacy = await restart((directory) =>
+				seedLegacyToapisReviews(directory, cacheHome, review.quote, providerPayload("toapis")),
+			);
+			if (!legacy) throw new Error("Missing legacy Review fixtures.");
+			const accepted = { ...input, token: legacy.acceptedToken, acceptUnknown: true };
+			const replay = await post("/image/queue", accepted);
+			expect(replay.status()).toBe(200);
+			expect(await replay.json()).toEqual({ jobId: legacy.acceptedId });
+			expect((await post("/image/queue", { ...accepted, acceptUnknown: false })).status()).toBe(
+				400,
+			);
+			const stale = await post("/image/queue", { ...accepted, token: legacy.unusedToken });
+			expect(stale.status()).toBe(409);
+			const updated = ((await stale.json()) as { review: { token: string } }).review;
+			expect(updated).toMatchObject({
+				quote: review.quote,
+				acceptUnknown: false,
+				editDisclosure: expect.arrayContaining([
+					expect.stringMatching(/every full reference URL/i),
+				]),
+			});
+			const refreshed = { ...input, token: updated.token };
+			expect((await post("/image/queue", refreshed)).status()).toBe(400);
+			await page.goto(`${origin}/jobs`);
+			await expect(page.getByRole("article")).toHaveCount(1);
+			await expect(
+				page.getByText("The provider could not read one or more reference images."),
+			).toBeVisible();
+			expect(fixtures.requests.slice(before)).toEqual([]);
+			const click = { ...refreshed, acceptUnknown: true };
+			const queued = await post("/image/queue", click);
+			expect(queued.status()).toBe(200);
+			const result = await queued.json();
+			expect(result).not.toEqual({ jobId: legacy.acceptedId });
+			expect(fixtures.submissions).toEqual([providerPayload("toapis")]);
+			await restart();
+			expect(await (await post("/image/queue", accepted)).json()).toEqual({
+				jobId: legacy.acceptedId,
+			});
+			expect(await (await post("/image/queue", click)).json()).toEqual(result);
+			await page.reload();
+			await expect(page.getByRole("article")).toHaveCount(2);
+			await assertPrivate();
+			assertOneSubmission();
+		},
+	);
+});
+
 for (const [provider, outcome, state, message] of [
 	["poyo", "rejected", "Submission rejected", /rejected the request parameters/],
 	["toapis", "rejected", "Submission rejected", /rejected the request parameters/],
-	["toapis", "failed", "Job failed", /provider could not read the reference/i],
+	["poyo", "failed", "Job failed", /provider reported that the job failed/i],
+	["toapis", "failed", "Job failed", /provider could not read one or more reference images/i],
+	["poyo", "timeout", "May have been submitted", /Check provider history/],
 	["toapis", "timeout", "May have been submitted", /Check provider history/],
 ] as const) {
 	test(`${provider} ${outcome} keeps one edit attempt and safe details across restart`, async ({
@@ -466,7 +752,8 @@ for (const [provider, outcome, state, message] of [
 			provider,
 			outcome,
 			async ({ origin, fixtures, post, restart, assertPrivate, assertOneSubmission }) => {
-				const input = edit(provider);
+				const urls = [secondSignedReference, signedReference];
+				const input = edit(provider, urls);
 				const review = await readReview(await post("/image/review", input));
 				const click = { ...input, token: review.token, acceptUnknown: review.requiresConsent };
 				const [first, second] = await Promise.all([
@@ -478,22 +765,38 @@ for (const [provider, outcome, state, message] of [
 				const accepted = await first.json();
 				expect(accepted).toHaveProperty("jobId");
 				expect(await second.json()).toEqual(accepted);
-				expect(fixtures.submissions).toEqual([providerPayload(provider)]);
+				expect(fixtures.submissions).toEqual([providerPayload(provider, urls)]);
 				const verifyJob = async () => {
 					await page.goto(`${origin}/jobs`);
 					const article = page.getByRole("article");
 					await expect(article).toHaveCount(1);
 					await expect(article.getByText(state, { exact: true })).toBeVisible({ timeout: 20_000 });
 					await expect(article.getByText(message)).toBeVisible();
+					await expect(article.getByRole("button", { name: "Save to Gallery" })).toHaveCount(0);
 					await assertPrivate();
 					assertOneSubmission();
 				};
 				await verifyJob();
+				const statusPaths = () =>
+					fixtures.requests.filter(({ path }) => path.includes("/status/")).map(({ path }) => path);
+				expect(statusPaths()).toEqual(outcome === "failed" ? fixtures.statusPaths : []);
+				await page.goto(`${origin}/gallery`);
+				await expect(page.getByText(/No saved images yet/)).toBeVisible();
+				await assertPrivate();
 				await restart();
 				const replay = await post("/image/queue", click);
 				expect(replay.status()).toBe(200);
 				expect(await replay.json()).toEqual(accepted);
+				for (const changed of [
+					{ ...click, acceptUnknown: !click.acceptUnknown },
+					{ ...click, draft: edit(provider, [...urls].reverse()).draft },
+					{ ...click, draft: edit(provider, [secondSignedReference, changedReference]).draft },
+				]) {
+					expect((await post("/image/queue", changed)).status()).toBe(400);
+				}
 				await verifyJob();
+				expect(statusPaths()).toEqual(outcome === "failed" ? fixtures.statusPaths : []);
+				expect(fixtures.requests.filter(({ path }) => path === editedImagePath)).toEqual([]);
 			},
 		);
 	});

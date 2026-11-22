@@ -324,7 +324,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 				await source.press("Enter");
 				await expect(firstFile).toBeFocused();
 			};
-			await expect(queue(1)).toHaveAccessibleDescription(/exactly one public image URL/i);
+			await expect(queue(1)).toHaveAccessibleDescription(/1–10 public image URLs/i);
 			await stageUrl(firstUrl);
 			await batchTab.press("Enter");
 			await review.getByLabel("Batch count").selectOption("2");
@@ -393,6 +393,148 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.setViewportSize({ width: 1200, height: 850 });
 		});
 
+		await test.step("keep same-host URL identities private while reviewing, moving and replacing slots", async () => {
+			await page.setViewportSize({ width: 320, height: 720 });
+			await operation.selectOption("edit");
+			const firstUrl = "https://images.example.org/a%2Fb.png?sig=handbag-fixture&sig=2#detail";
+			const secondUrl = firstUrl.replace("handbag-fixture", "table-fixture");
+			const thirdUrl = "https://stock.example.net/room.png?sig=room-fixture";
+			const privateName = (label: string) =>
+				request.getByRole("textbox", { name: `Private name for reference ${label}`, exact: true });
+			const stage = async (slot: number, url: string, label?: string, name?: string) => {
+				await request
+					.getByText("Use a URL", { exact: true })
+					.nth(slot - 1)
+					.press("Enter");
+				const input = request.getByRole("textbox", {
+					name: `HTTP or HTTPS URL for reference image ${slot}`,
+				});
+				await input.fill(url);
+				if (label && name) {
+					await privateName(label).fill(name);
+					await privateName(label).press("Enter");
+				} else {
+					if (label) await expect(privateName(label)).toHaveValue("");
+					await input.press("Enter");
+				}
+				await expect(request.getByLabel(`Reference image ${slot}`, { exact: true })).toBeFocused();
+			};
+			const move = (direction: "up" | "down", slot: number) =>
+				request.getByRole("button", { name: `Move ${direction} reference image ${slot}` });
+			const inspect = review.getByRole("button", { name: "Review request", exact: true });
+			const consent = review.getByRole("checkbox", { name: /unknown cost/i });
+			const slots = facts.getByRole("listitem");
+			const reviews: { draft: { references: object[] }; acceptUnknown: boolean }[] = [];
+			const queues: unknown[] = [];
+			await page.route("**/image/review", (route) => {
+				reviews.push(route.request().postDataJSON());
+				return route.fulfill({
+					json: {
+						token: "multi-reference-review",
+						quote: { status: "unknown", reason: "missing-feed", maxAttempts: 1 },
+						requiresConsent: true,
+						editDisclosure: ["Queue sends every full URL to Poyo.ai."],
+					},
+				});
+			});
+			await page.route("**/image/queue", (route) => {
+				queues.push(route.request().postDataJSON());
+				return route.fulfill({ status: 409, json: { error: "stale" } });
+			});
+
+			await stage(1, firstUrl, "A", "handbag-private");
+			await stage(2, secondUrl, "B", "table-private");
+			await stage(3, thirdUrl, "C", "room-private");
+			await expect(move("up", 1)).toBeDisabled();
+			await expect(move("down", 3)).toBeDisabled();
+			await move("up", 2).press("Enter");
+			await expect(move("down", 1)).toBeFocused();
+			await expect(move("down", 1)).toHaveCSS("min-height", "44px");
+			expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+				320,
+			);
+			await expect(
+				request.getByRole("status").filter({ hasText: "Reference B moved to position 1 of 3." }),
+			).toBeVisible();
+			await request.getByRole("button", { name: "Remove reference image 3" }).press("Enter");
+			await expect(privateName("C")).toHaveCount(0);
+			await expect(prompt).toHaveValue(promptText);
+			const movedReference = "1. Reference B · images.example.org (URL reference)";
+			const reordered = [movedReference, "2. Reference A · images.example.org (URL reference)"];
+			await expect(slots).toHaveText(reordered);
+			for (const area of [request, facts]) {
+				await expect(area).toContainText(/“image 1” and “image 2”/);
+				await expect(area).toContainText(/fixed aspect ratio/);
+			}
+			await request.getByRole("button", { name: "1:1", exact: true }).press("Enter");
+			for (const area of [request, facts])
+				await expect(area).not.toContainText(/fixed aspect ratio/);
+			await request.getByRole("button", { name: "Follow references", exact: true }).press("Enter");
+			await expect(price).toContainText("Estimated 10.2 Poyo.ai credits per request");
+			await outgoingTab.press("Enter");
+			expect(JSON.parse((await outgoingBody().textContent()) ?? "").input.image_urls).toEqual([
+				"[remote URL hidden]",
+				"[remote URL hidden]",
+			]);
+			await expect(outgoing).not.toContainText(/images\.example\.org|sig=|private|Reference [AB]/);
+			await inspect.press("Enter");
+			await consent.press("Space");
+			await privateName("B").fill("table-renamed-private");
+			await expect(queue(1)).toBeEnabled();
+			await expect(consent).toBeChecked();
+			await expect(facts).not.toContainText("table-renamed-private");
+			await queue(1).press("Enter");
+			await expect(queue(1)).toBeDisabled();
+			expect(reviews).toHaveLength(1);
+			expect(reviews[0]?.draft.references).toEqual([
+				{ kind: "url", url: secondUrl, hostname: "images.example.org" },
+				{ kind: "url", url: firstUrl, hostname: "images.example.org" },
+			]);
+			expect(queues).toEqual([
+				{ ...reviews[0], token: "multi-reference-review", acceptUnknown: true },
+			]);
+			expect(JSON.stringify(reviews)).not.toMatch(/private|Reference [AB]/);
+			await inspect.press("Enter");
+			await consent.press("Space");
+			await move("down", 1).press("Enter");
+			await expect(move("up", 2)).toBeFocused();
+			await expect(queue(1)).toBeDisabled();
+			await expect(consent).toHaveCount(0);
+			await move("up", 2).press("Enter");
+			await expect(slots).toHaveText(reordered);
+
+			await page.setViewportSize({ width: 1200, height: 850 });
+			await settingsLink.press("Enter");
+			await expect(settingsLink).toHaveAttribute("aria-current", "page");
+			await imageLink.press("Enter");
+			await expect(slots).toHaveText(reordered);
+			await expect(privateName("A")).toHaveValue("handbag-private");
+			await expect(privateName("B")).toHaveValue("table-renamed-private");
+			await stage(2, `  ${secondUrl}  `, "E");
+			await expect(privateName("A")).toHaveCount(0);
+			await expect(privateName("E")).toHaveValue("");
+			await expect(slots).toHaveText([
+				movedReference,
+				"2. Reference E · images.example.org (URL reference)",
+			]);
+			for (const area of [request, review]) {
+				await expect(area).toContainText("Reference images 1 and 2 use the same URL.");
+				await expect(area).not.toContainText("table-fixture");
+			}
+			await expect(inspect).toHaveCount(0);
+			await expect(queue(1)).toBeDisabled();
+			await stage(3, thirdUrl);
+			await move("up", 3).press("Enter");
+			for (const area of [request, review]) {
+				await expect(area).toContainText("Reference images 1 and 3 use the same URL.");
+			}
+			await expect(inspect).toHaveCount(0);
+			await expect(queue(1)).toBeDisabled();
+			await page.unroute("**/image/queue");
+			await page.unroute("**/image/review");
+			await operation.selectOption("generate");
+		});
+
 		await test.step("stage mixed references and retain the draft across Settings navigation", async () => {
 			await operation.selectOption("edit");
 			await expect(page.getByRole("button", { name: "Follow references" })).toHaveAttribute(
@@ -405,7 +547,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect
 				.poll(() => localPreview.evaluate((image) => (image as HTMLImageElement).naturalWidth))
 				.toBe(1);
-			await expect(queue(1)).toHaveAccessibleDescription(/exactly one public image URL/i);
+			await expect(queue(1)).toHaveAccessibleDescription(/1–10 public image URLs/i);
 			await expect(review.getByRole("button", { name: "Review request", exact: true })).toHaveCount(
 				0,
 			);
@@ -419,7 +561,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(preview.getByText("Reference image 2")).toBeVisible();
 			await expect(preview.getByText("Previews are available for local files.")).toBeVisible();
 			await expect(preview.getByRole("img")).toHaveCount(0);
-			await expect(queue(1)).toHaveAccessibleDescription(/exactly one public image URL/i);
+			await expect(queue(1)).toHaveAccessibleDescription(/1–10 public image URLs/i);
 
 			await settingsLink.press("Enter");
 			await expect(settingsLink).toHaveAttribute("aria-current", "page");
@@ -438,8 +580,8 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			const promptWithUrl = `${promptText} See <${signedPromptUrl}>.`;
 			await prompt.fill(promptWithUrl);
 			await expect(facts.getByRole("listitem")).toHaveText([
-				`${referenceImage.name} (local file)`,
-				"images.example.org (URL reference)",
+				`1. Reference A · ${referenceImage.name} (local file)`,
+				"2. Reference B · images.example.org (URL reference)",
 			]);
 			await expect(price).toContainText("Estimated 10.2 Poyo.ai credits per request");
 			await batchTab.click();
@@ -473,8 +615,8 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await prompt.fill(promptText);
 			await reviewTab.click();
 			await expect(facts.getByRole("listitem")).toHaveText([
-				`${referenceImage.name} (local file)`,
-				"images.example.org (URL reference)",
+				`1. Reference A · ${referenceImage.name} (local file)`,
+				"2. Reference B · images.example.org (URL reference)",
 			]);
 		});
 

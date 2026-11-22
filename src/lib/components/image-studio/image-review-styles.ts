@@ -55,7 +55,8 @@ export const term = css({ color: "muted" });
 export const detail = css({ margin: 0, overflowWrap: "anywhere" });
 export const mediaList = css({
 	margin: 0,
-	paddingInlineStart: "1.15rem",
+	padding: 0,
+	listStyleType: "none",
 	"& > li + li": { marginBlockStart: "0.25rem" },
 });
 export const disclosureHeading = css({ marginBlock: "0.85rem 0.35rem", fontWeight: 650 });

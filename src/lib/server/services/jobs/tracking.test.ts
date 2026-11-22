@@ -149,7 +149,11 @@ test("durable acknowledgement resumes automatic reads without resubmitting", asy
 });
 
 test.each([
-	["failed", "reference_media_unreadable", "The provider could not read the reference image."],
+	[
+		"failed",
+		"reference_media_unreadable",
+		"The provider could not read one or more reference images.",
+	],
 	["failed", "private-unknown-reason", "The provider reported that the job failed."],
 	["completed", null, null],
 ] as const)(

@@ -46,7 +46,7 @@ let title = $derived(
 	operation === "generate"
 		? "Tide study"
 		: reference?.kind === "url"
-			? reference.hostname
+			? "Public URL"
 			: (file?.name ?? "No source selected"),
 );
 

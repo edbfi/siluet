@@ -9,7 +9,8 @@ import {
 } from "#lib/shared/image-studio/references.ts";
 import type { SeedreamProvider } from "#lib/shared/image-studio/seedream.ts";
 import { css } from "#styled-system/css";
-import { requestLabel } from "./request-styles.ts";
+import { type ReferenceSlotDraft, referenceLabel } from "./draft-context.ts";
+import { requestControl, requestField, requestLabel } from "./request-styles.ts";
 
 const slot = css({ display: "grid", gap: "0.3rem", minWidth: 0, paddingBlock: "0.75rem" });
 const fileName = css({ minWidth: 0, overflowWrap: "anywhere" });
@@ -32,24 +33,39 @@ const referenceAction = css({
 	paddingInline: 0,
 	textDecoration: "underline",
 	textUnderlineOffset: "0.16em",
+	_disabled: { color: "muted", cursor: "default", textDecoration: "none" },
 });
 
 let {
 	provider,
 	index,
+	slot: slotDraft,
 	reference,
 	fileId,
 	helpId,
+	canMoveDown,
+	reserveIdentity,
 	onSelect,
+	onRename,
+	onMove,
 	onRemove,
 	onPreview,
 }: {
 	provider: SeedreamProvider;
 	index: number;
+	slot: ReferenceSlotDraft;
 	reference: SeedreamReference | undefined;
 	fileId: string;
 	helpId: string;
-	onSelect: (reference: SeedreamReference) => void;
+	canMoveDown: boolean;
+	reserveIdentity: () => number;
+	onSelect: (
+		reference: SeedreamReference,
+		privateName?: string,
+		replacementIdentity?: number,
+	) => void;
+	onRename: (name: string) => void;
+	onMove: (offset: -1 | 1) => void;
 	onRemove: () => void;
 	onPreview: () => void;
 } = $props();
@@ -59,10 +75,14 @@ let fileInput: HTMLInputElement;
 let urlField: HTMLInputElement;
 let urlDisclosure: HTMLDetailsElement;
 let url = $state("");
+let candidateName = $state("");
+let replacementIdentity = $state<number>();
 let error = $state("");
 let pending = $state(false);
 let selection = 0;
 const label = $derived(`Reference image ${index + 1}`);
+const identity = $derived(referenceLabel(slotDraft.identity));
+const candidateLabel = $derived(referenceLabel(replacementIdentity ?? slotDraft.identity));
 
 onDestroy(() => {
 	selection++;
@@ -93,8 +113,7 @@ async function chooseFile(event: Event & { currentTarget: HTMLInputElement }) {
 		return;
 	}
 	onSelect({ kind: "file", file });
-	url = "";
-	urlDisclosure.open = false;
+	clearUrlFields();
 }
 
 async function chooseUrl() {
@@ -108,13 +127,34 @@ async function chooseUrl() {
 	selection++;
 	pending = false;
 	error = "";
-	onSelect(reference);
-	url = "";
-	urlDisclosure.open = false;
+	onSelect(reference, candidateName, replacementIdentity);
+	clearUrlFields();
 	await tick();
 	fileInput?.focus({ preventScroll: true });
 }
+
+function clearUrlFields() {
+	url = "";
+	candidateName = "";
+	replacementIdentity = undefined;
+	urlDisclosure.open = false;
+}
 </script>
+
+{#snippet nameField(identity: string, value: string, onInput: (name: string) => void)}
+	<label class={[requestField, requestLabel]}>
+		Private name (optional)
+		<input
+			class={requestControl}
+			type="text"
+			aria-label={`Private name for reference ${identity}`}
+			{value}
+			oninput={(event) => onInput(event.currentTarget.value)}
+			autocomplete="off"
+			spellcheck="false"
+		>
+	</label>
+{/snippet}
 
 <div class={[slot, index > 0 && css({ borderTop: "1px solid {colors.line}" })]}>
 	<label class={requestLabel} for={fileId}>{label}</label>
@@ -173,10 +213,15 @@ async function chooseUrl() {
 		>
 	</div>
 	{#if reference}
+		{#if reference.kind === "url"}
+			<p class={[fileName, referenceDetail]}>
+				<strong class={css({ color: "ink" })}>Reference {identity}</strong> ·
+				<span>{reference.hostname} (URL hidden)</span>
+			</p>
+			{@render nameField(identity, slotDraft.privateName, onRename)}
+		{/if}
 		<div class={[actionRow, referenceDetail]}>
-			{#if reference.kind === "url"}
-				<span class={fileName}>{reference.hostname} (URL hidden)</span>
-			{:else}
+			{#if reference.kind === "file"}
 				<button
 					class={referenceAction}
 					type="button"
@@ -189,6 +234,26 @@ async function chooseUrl() {
 			<button
 				class={referenceAction}
 				type="button"
+				id={`${fileId}-up`}
+				disabled={index === 0}
+				onclick={() => onMove(-1)}
+				aria-label={`Move up ${label.toLowerCase()}`}
+			>
+				Move up
+			</button>
+			<button
+				class={referenceAction}
+				type="button"
+				id={`${fileId}-down`}
+				disabled={!canMoveDown}
+				onclick={() => onMove(1)}
+				aria-label={`Move down ${label.toLowerCase()}`}
+			>
+				Move down
+			</button>
+			<button
+				class={referenceAction}
+				type="button"
 				onclick={onRemove}
 				aria-label={`Remove ${label.toLowerCase()}`}
 			>
@@ -197,7 +262,13 @@ async function chooseUrl() {
 		</div>
 	{/if}
 
-	<details class={referenceDetail} bind:this={urlDisclosure}>
+	<details
+		class={referenceDetail}
+		bind:this={urlDisclosure}
+		ontoggle={(event) => {
+			if (reference && event.currentTarget.open) replacementIdentity ??= reserveIdentity();
+		}}
+	>
 		<summary
 			class={css({
 				minHeight: "44px",
@@ -211,12 +282,19 @@ async function chooseUrl() {
 		>
 			Use a URL
 		</summary>
-		<label class={requestLabel} for={`${id}-url`}
-			>HTTP or HTTPS URL for {label.toLowerCase()}</label
+		<form
+			class={requestField}
+			onsubmit={(event) => {
+				event.preventDefault();
+				void chooseUrl();
+			}}
 		>
-		<div class={[actionRow, css({ marginTop: "0.25rem" })]}>
+			<p class={requestLabel}>Reference {candidateLabel}</p>
+			<label class={requestLabel} for={`${id}-url`}
+				>HTTP or HTTPS URL for {label.toLowerCase()}</label
+			>
 			<input
-				class={css({ flex: "1 1 11rem", width: "100%", minWidth: 0, minHeight: "44px" })}
+				class={requestControl}
 				bind:this={urlField}
 				bind:value={url}
 				id={`${id}-url`}
@@ -226,15 +304,10 @@ async function chooseUrl() {
 				autocapitalize="none"
 				spellcheck="false"
 				aria-describedby={`${id}-status`}
-				onkeydown={(event) => {
-					if (event.key === "Enter") {
-						event.preventDefault();
-						void chooseUrl();
-					}
-				}}
 			>
-			<button class={referenceAction} type="button" onclick={chooseUrl}>Use URL</button>
-		</div>
+			{@render nameField(candidateLabel, candidateName, (name) => (candidateName = name))}
+			<button class={referenceAction} type="submit">Use URL</button>
+		</form>
 	</details>
 
 	<p

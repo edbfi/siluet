@@ -96,6 +96,7 @@ export async function createSubmissionQueue(
 			const existing = sql`SELECT binding FROM image_job WHERE id=${id}`;
 			const replay = (row: { binding: string }) =>
 				row.binding === binding ? { jobId: id } : invalid;
+			// An accepted Review keeps its original binding when disclosures or credentials change.
 			const prior = await installation.use((db) => db.get<{ binding: string }>(existing));
 			if (prior) return replay(prior);
 
