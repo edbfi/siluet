@@ -13,6 +13,7 @@ import {
 	watchReviewExpiry,
 } from "#lib/shared/image-studio/review-price.ts";
 import type { SeedreamDraft } from "#lib/shared/image-studio/seedream.ts";
+import { type ZImageDraft, zImageDisclosure } from "#lib/shared/image-studio/z-image.ts";
 import {
 	queueEvidenceProblem,
 	type ReleasedOperation,
@@ -24,6 +25,8 @@ import ImageReferenceGuidance from "./ImageReferenceGuidance.svelte";
 import * as styles from "./image-review-styles.ts";
 
 let {
+	modelId,
+	connected,
 	entry,
 	review,
 	draft,
@@ -35,9 +38,11 @@ let {
 	operation = "generate",
 	headingId = "studio-review-title",
 }: {
+	modelId: string;
+	connected: boolean;
 	entry: ReleasedOperation | null;
 	review: ImageReviewData | null;
-	draft: SeedreamDraft;
+	draft: SeedreamDraft | ZImageDraft;
 	referenceLabels: readonly string[];
 	duplicateWarning: string | null;
 	feeds: PricingFeeds;
@@ -64,7 +69,7 @@ const providerName = $derived(selectedProvider && providerNames[selectedProvider
 const isEdit = $derived((review?.pricing.operation ?? operation) === "edit");
 type QueueInput = {
 	operationKey: ReleasedOperation["key"];
-	draft: SeedreamDraft;
+	draft: SeedreamDraft | ZImageDraft;
 	count: number;
 	retryLimit: number;
 };
@@ -73,13 +78,17 @@ type ReviewTerms = {
 	quote: PriceEstimate;
 	requiresConsent: boolean;
 	editDisclosure?: readonly string[];
+	disclosure?: readonly string[];
 };
 const unavailable = $derived.by(() => {
+	if (!connected && modelId === "z-image") return "Connect Poyo.ai in Settings to queue.";
 	const evidenceProblem = entry && queueEvidenceProblem(entry.evidence);
 	if (evidenceProblem) return evidenceProblem;
 	if (isEdit && duplicateWarning) return duplicateWarning;
 	if (count !== 1 || retryLimit !== 0)
 		return "Queue supports one request and zero additional attempts.";
+	if (modelId === "z-image" && isEdit && draft.references.length !== 1)
+		return "Add one public image URL to review this edit.";
 	if (
 		isEdit &&
 		(draft.references.length < 1 ||
@@ -112,7 +121,11 @@ const expiry = $derived(reviewPriceExpiry(terms?.quote ?? offlineQuote ?? undefi
 const expired = $derived(expiry !== undefined && (browserNow ?? nowMs) >= expiry);
 const current = $derived(!expired ? terms : null);
 const quote = $derived(current?.quote ?? offlineQuote);
-const disclosure = $derived(isEdit ? current?.editDisclosure : undefined);
+const disclosure = $derived(
+	modelId === "z-image"
+		? (current?.disclosure ?? zImageDisclosure(operation))
+		: current?.editDisclosure,
+);
 const canQueue = $derived(current && (!current.requiresConsent || acceptedToken === current.token));
 
 $effect(() => {
@@ -132,9 +145,10 @@ function post(path: string, body: object) {
 }
 
 function applyTerms(input: QueueInput, terms: ReviewTerms) {
-	const disclosure = terms.editDisclosure;
+	const zImage = input.operationKey.model === "z-image";
+	const disclosure = zImage ? terms.disclosure : terms.editDisclosure;
 	if (
-		input.draft.operation === "edit" &&
+		(zImage || input.draft.operation === "edit") &&
 		(!Array.isArray(disclosure) ||
 			disclosure.length === 0 ||
 			!disclosure.every((line) => typeof line === "string" && line.trim()))
@@ -287,7 +301,7 @@ $effect(() => {
 					<dt class={styles.term}>API provider</dt>
 					<dd class={styles.detail}>{providerName ?? "None connected"}</dd>
 				</div>
-				{#if entry}
+				{#if entry && connected}
 					<div class={styles.fact}>
 						<dt class={styles.term}>Route evidence</dt>
 						<dd class={styles.detail}>
@@ -316,7 +330,9 @@ $effect(() => {
 							<ol class={styles.mediaList} role="list">
 								{#each review.sources as source, index}
 									<li>
-										{index + 1}. Reference {referenceLabels[index]} ·
+										{#if modelId !== "z-image"}
+											{index + 1}. Reference {referenceLabels[index]} ·
+										{/if}
 										{source.label}{source.kind === "url" ? " (URL reference)" : " (local file)"}
 									</li>
 								{/each}
@@ -326,7 +342,7 @@ $effect(() => {
 						{:else}
 							None
 						{/if}
-						{#if isEdit && selectedProvider}
+						{#if isEdit && selectedProvider && "aspectRatio" in draft.options}
 							<ImageReferenceGuidance
 								provider={selectedProvider}
 								autoFraming={draft.references.length > 1 && draft.options.aspectRatio === "auto"}

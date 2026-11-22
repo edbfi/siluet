@@ -22,10 +22,12 @@ const previewMessage = css({
 });
 
 let {
+	urlOnly = false,
 	operation,
 	reference,
 	index,
 }: {
+	urlOnly?: boolean;
 	operation: SeedreamOperation;
 	reference: SeedreamReference | undefined;
 	index: number;
@@ -39,7 +41,9 @@ let label = $derived(
 	operation === "generate"
 		? "Sample preview"
 		: reference
-			? `Reference image ${index + 1}`
+			? urlOnly
+				? "Reference image"
+				: `Reference image ${index + 1}`
 			: "Source preview",
 );
 let title = $derived(
@@ -98,9 +102,13 @@ export function focus() {
 		{:else if failed && file}
 			<p class={previewMessage}>Preview unavailable for this file.</p>
 		{:else if reference?.kind === "url"}
-			<p class={previewMessage}>Previews are available for local files.</p>
+			<p class={previewMessage}>
+				{urlOnly ? "Reference URL hidden in preview." : "Previews are available for local files."}
+			</p>
 		{:else}
-			<p class={previewMessage}>Choose an image to preview it here.</p>
+			<p class={previewMessage}>
+				{urlOnly ? "Add a public image URL." : "Choose an image to preview it here."}
+			</p>
 		{/if}
 	</div>
 	<figcaption

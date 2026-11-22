@@ -9,6 +9,7 @@ import {
 	type TaskFailureReason,
 	type TaskState,
 } from "../providers/image-job";
+import { credentialPermitsImage } from "./image-credential-access";
 import { imageJobPollingWindowMs } from "./image-job-schema";
 import type { Installation } from "./installation";
 
@@ -22,6 +23,8 @@ export type ImageJob = {
 	quote: string;
 	state: JobState;
 	model: string;
+	operation: string | null;
+	gallery_reason: "unsupported-image" | null;
 	created_at: number;
 	poll_deadline: number;
 	updated_at: number | null;
@@ -57,7 +60,7 @@ const walletFinishWindowMs = 2 * statusTimeoutMs;
 
 const currentCredential = sql`EXISTS (
 		SELECT 1 FROM provider_credential c WHERE c.provider=image_job.provider
-			AND c.revision=image_job.revision AND c.ciphertext IS NOT NULL AND c.seedream=1
+			AND c.revision=image_job.revision AND c.ciphertext IS NOT NULL AND ${credentialPermitsImage(sql`image_job.model`)}
 	)`;
 
 export const jobsNeedCredential = (provider: ProviderId) => sql`EXISTS (

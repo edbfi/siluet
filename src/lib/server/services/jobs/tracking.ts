@@ -1,4 +1,5 @@
 import type { ProviderId } from "../../../shared/providers/connections";
+import { imageCredentialAccess } from "../../db/image-credential-access";
 import { type ImageJob, imageJobStore, type StatusNote } from "../../db/image-job-store";
 import type { Installation } from "../../db/installation";
 import type { providerStore } from "../../db/provider-store";
@@ -16,7 +17,7 @@ import { isActive, isReadPaused, storedBilling, summarizeJob } from "./summary";
 
 export type { JobSummary } from "./summary";
 
-type JobCredentials = Pick<ReturnType<typeof providerStore>, "credential" | "readableRevisions">;
+type JobCredentials = Pick<ReturnType<typeof providerStore>, "credential" | "jobReadability">;
 type TrackingDependencies = { fetch?: CheckFetch; now?: () => number; random?: () => number };
 
 const initialWait = { poyo: 2_000, toapis: 5_000 };
@@ -123,9 +124,19 @@ export function createJobTracking(
 		timers.set(job.id, timer.unref());
 	}
 
+	async function originalKey(job: ImageJob) {
+		return (
+			await credentials.credential(
+				job.provider,
+				job.revision,
+				imageCredentialAccess(job.provider, job.model),
+			)
+		)?.key;
+	}
+
 	async function afterBalance(job: ImageJob) {
 		if (!job.wallet_open || job.provider !== "poyo") return;
-		const key = (await credentials.credential(job.provider, job.revision))?.key;
+		const key = await originalKey(job);
 		const balance =
 			key && job.wallet_finish_by !== null && now() < job.wallet_finish_by
 				? await poyo.balance(key)
@@ -143,7 +154,7 @@ export function createJobTracking(
 		)
 			return null;
 
-		const key = (await credentials.credential(job.provider, job.revision))?.key;
+		const key = await originalKey(job);
 		if (closed) return null;
 		if (!key) {
 			await store.recordMissingCredential(id);
@@ -220,12 +231,10 @@ export function createJobTracking(
 
 		async list() {
 			const rows = await store.list();
-			const revisions = rows.some((job) => job.task_id)
-				? await credentials.readableRevisions()
-				: null;
-			return rows.map((job) =>
-				summarizeJob(job, revisions?.get(job.provider) === job.revision, now()),
-			);
+			const readable = rows.some((job) => job.task_id)
+				? await credentials.jobReadability()
+				: () => false;
+			return rows.map((job) => summarizeJob(job, readable(job), now()));
 		},
 
 		async refresh(id: string) {
@@ -237,9 +246,7 @@ export function createJobTracking(
 			if (job?.state !== "completed") return null;
 			const url = await readStatus(id, false);
 			// A Settings change during the read also stops delivery of an unsaved result.
-			return url && (await credentials.readableRevisions()).get(job.provider) === job.revision
-				? url
-				: null;
+			return url && (await credentials.jobReadability())(job) ? url : null;
 		},
 
 		needsCredential: store.needsCredential,

@@ -9,6 +9,18 @@
 		"support": "inventory"
 	},
 	"supportProfiles": {
+		"z-image-generate": {
+			"addedSinceBaseline": true,
+			"review": "prompt, five aspect ratios, batch and retry estimate",
+			"queue": "one reviewed image request, zero retries",
+			"optionCoverage": "partial"
+		},
+		"z-image-edit": {
+			"addedSinceBaseline": true,
+			"review": "one public URL, optional size, batch and retry estimate",
+			"queue": "one reviewed single-URL edit, zero retries",
+			"optionCoverage": "partial"
+		},
 		"seedream-generate": {
 			"review": "ordinary options, including batch and retry estimate",
 			"queue": "one reviewed ordinary image request, zero retries",
@@ -21,6 +33,11 @@
 		}
 	},
 	"families": [
+		{
+			"id": "z-image",
+			"label": "Alibaba / Z-Image",
+			"models": [{ "id": "z-image", "label": "Z-Image", "poyo": ["z-image"], "toapis": [] }]
+		},
 		{
 			"id": "seedream",
 			"label": "ByteDance / Seedream",
@@ -989,6 +1006,10 @@
 					"operations": ["text-to-image", "reference-image-edit"],
 					"contract": "documented",
 					"sources": ["z-image"],
+					"support": {
+						"text-to-image": "z-image-generate",
+						"reference-image-edit": "z-image-edit"
+					},
 					"catalogCategory": "text2img",
 					"d4": "declared"
 				},

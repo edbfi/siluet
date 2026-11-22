@@ -3,9 +3,11 @@ import { sql } from "drizzle-orm";
 import { editDisclosure } from "../../../shared/image-studio/edit-disclosure";
 import { createImageReview } from "../../../shared/image-studio/review";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
+import { zImageDisclosure } from "../../../shared/image-studio/z-image";
 import { queueEvidenceProblem } from "../../../shared/media-catalog/registry";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
 import type { ProviderId } from "../../../shared/providers/connections";
+import { credentialPermitsImage, imageCredentialAccess } from "../../db/image-credential-access";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import type { Installation } from "../../db/installation";
 import type { providerStore } from "../../db/provider-store";
@@ -28,6 +30,7 @@ export async function createSubmissionQueue(
 	loadFeeds: (now: number) => Promise<PricingFeeds> = loadStudioPricingFeeds,
 	now = Date.now,
 	discloseEdit = editDisclosure,
+	discloseZImage = zImageDisclosure,
 ) {
 	const stored = await installation.use((db) =>
 		db.get<{ secret: string }>(sql`SELECT secret FROM image_review_key WHERE singleton=1`),
@@ -39,6 +42,8 @@ export async function createSubmissionQueue(
 		return createHmac("sha256", key).update(JSON.stringify(fields)).digest("hex");
 	}
 	function signature(id: string, terms: string, owner: string, live: LiveRequest) {
+		if (live.entry.modelId === "z-image")
+			return digest("z-image-review-v1", id, terms, owner, live.entry.key, live.request, 1, 0);
 		if (live.input.operation === "edit") {
 			const { method, url, body } = live.request;
 			return digest(
@@ -62,6 +67,15 @@ export async function createSubmissionQueue(
 		const quote = estimateReviewPrice(feeds, pricing, { count: 1, retryLimit: 0 }, time);
 		const requiresConsent = quote.status === "unknown" || provider === "toapis";
 		const priceTerms = [revision, quote, requiresConsent, feeds[provider] ?? null];
+		if (live.entry.modelId === "z-image") {
+			const disclosure = discloseZImage(live.input.operation);
+			return {
+				quote,
+				requiresConsent,
+				disclosure,
+				terms: digest("z-image-terms-v1", ...priceTerms, disclosure),
+			};
+		}
 		if (live.input.operation === "edit") {
 			const disclosure = discloseEdit(provider);
 			return {
@@ -76,7 +90,10 @@ export async function createSubmissionQueue(
 	async function review(owner: string, live: LiveRequest) {
 		if (live.replayOnly || queueEvidenceProblem(live.entry.evidence)) return invalid;
 		const provider = live.input.provider;
-		const [saved, feeds] = await Promise.all([credential(provider), loadFeeds(now())]);
+		const [saved, feeds] = await Promise.all([
+			credential(provider, undefined, imageCredentialAccess(provider, live.input.model)),
+			loadFeeds(now()),
+		]);
 		if (!saved) return stale;
 		const { terms, ...display } = reviewTerms(live, feeds, saved.revision, now());
 		const id = crypto.randomUUID();
@@ -104,7 +121,10 @@ export async function createSubmissionQueue(
 			if (live.replayOnly || queueEvidenceProblem(live.entry.evidence)) return invalid;
 
 			const provider = live.input.provider;
-			const [saved, feeds] = await Promise.all([credential(provider), loadFeeds(now())]);
+			const [saved, feeds] = await Promise.all([
+				credential(provider, undefined, imageCredentialAccess(provider, live.input.model)),
+				loadFeeds(now()),
+			]);
 			const claimed = await installation.use((db) =>
 				db.transaction(
 					async (tx) => {
@@ -113,15 +133,15 @@ export async function createSubmissionQueue(
 						if (!saved) return stale;
 						const current = await tx.get<{
 							revision: number;
-						}>(sql`SELECT revision FROM provider_credential
-					WHERE provider=${provider} AND ciphertext IS NOT NULL AND seedream=1`);
+						}>(sql`SELECT c.revision FROM provider_credential c
+					WHERE c.provider=${provider} AND c.ciphertext IS NOT NULL AND ${credentialPermitsImage(live.input.model)}`);
 						if (current?.revision !== saved.revision) return stale;
 						const time = now();
 						const reviewed = reviewTerms(live, feeds, saved.revision, time);
 						if (reviewed.terms !== terms) return stale;
 						if (reviewed.requiresConsent && !live.acceptUnknown) return invalid;
-						await tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,accepted_unknown,state,created_at,model,poll_deadline)
-					VALUES(${id},${binding},${provider},${saved.revision},${JSON.stringify(reviewed.quote)},${Number(live.acceptUnknown)},'submitting',${time},${live.input.model},${time + imageJobPollingWindowMs})`);
+						await tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,accepted_unknown,state,created_at,model,operation,poll_deadline)
+					VALUES(${id},${binding},${provider},${saved.revision},${JSON.stringify(reviewed.quote)},${Number(live.acceptUnknown)},'submitting',${time},${live.input.model},${live.entry.key.operation},${time + imageJobPollingWindowMs})`);
 						return { key: saved.key };
 					},
 					{ behavior: "immediate" },

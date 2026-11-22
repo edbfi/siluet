@@ -104,6 +104,14 @@ export function galleryStorage({ directory, use }: Installation) {
 				return row && row.state !== "deleting" ? entry(db, row) : null;
 			});
 		},
+		markUnsupported(id: string) {
+			return use((db) =>
+				db.run(sql`UPDATE image_job SET gallery_reason='unsupported-image'
+				WHERE id=${id} AND state='completed' AND NOT EXISTS (
+					SELECT 1 FROM gallery_image WHERE job_id=${id} AND state='saved'
+				)`),
+			);
+		},
 		publish(id: string, bytes: Buffer, info: ImageInfo) {
 			return locked(async (tx) => {
 				const row = await tx.get<Row>(rowQuery(id));
@@ -125,6 +133,7 @@ export function galleryStorage({ directory, use }: Installation) {
 					await tx.run(sql`INSERT OR REPLACE INTO gallery_image
 						(job_id,state,mime,width,height,size,digest,saved_at) VALUES
 						(${id},'saved',${info.mime},${info.width},${info.height},${bytes.length},${hash(bytes)},${Date.now()})`);
+					await tx.run(sql`UPDATE image_job SET gallery_reason=NULL WHERE id=${id}`);
 					return true;
 				} catch (error) {
 					await rm(path, { force: true });

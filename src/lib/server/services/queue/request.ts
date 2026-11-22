@@ -12,6 +12,7 @@ import {
 	seedreamResolutions,
 	validateSeedreamDraft,
 } from "../../../shared/image-studio/seedream";
+import { buildZImageRequest, validateZImageDraft } from "../../../shared/image-studio/z-image";
 import { releasedProviders, resolveOperationKey } from "../../../shared/media-catalog/registry";
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -38,7 +39,19 @@ const optionFields = [
 	"watermark",
 ];
 
-export function parseQueueRequest(value: unknown, action: "review" | "submit" = "review") {
+export type LiveRequest = {
+	replayOnly: boolean;
+	entry: NonNullable<ReturnType<typeof resolveOperationKey>>;
+	input: Parameters<typeof buildSeedreamRequest>[0] | Parameters<typeof buildZImageRequest>[0];
+	request: ReturnType<typeof buildSeedreamRequest | typeof buildZImageRequest>;
+	acceptUnknown: boolean;
+	token: unknown;
+};
+
+export function parseQueueRequest(
+	value: unknown,
+	action: "review" | "submit" = "review",
+): LiveRequest | null {
 	if (
 		!record(value) ||
 		value.count !== 1 ||
@@ -51,6 +64,19 @@ export function parseQueueRequest(value: unknown, action: "review" | "submit" = 
 	)
 		return null;
 	const draft = value.draft;
+	const selected = resolveOperationKey(value.operationKey);
+	if (selected?.modelId === "z-image") {
+		const result = validateZImageDraft(draft);
+		if (!result.ok || result.input.operation !== selected.mode) return null;
+		return {
+			replayOnly: false,
+			entry: selected,
+			input: result.input,
+			request: buildZImageRequest(result.input),
+			acceptUnknown: value.acceptUnknown,
+			token: value.token,
+		};
+	}
 	if (
 		!record(draft) ||
 		(draft.operation !== "generate" && draft.operation !== "edit") ||
@@ -125,7 +151,7 @@ export function parseQueueRequest(value: unknown, action: "review" | "submit" = 
 	if (!validation.ok) return null;
 	const { entry, input } = validation;
 	// Older Reviews carry only the Seedream provider and draft mode.
-	if ("operationKey" in value && resolveOperationKey(value.operationKey) !== entry) return null;
+	if ("operationKey" in value && selected !== entry) return null;
 	return {
 		replayOnly,
 		entry,
@@ -138,4 +164,3 @@ export function parseQueueRequest(value: unknown, action: "review" | "submit" = 
 		token: value.token,
 	};
 }
-export type LiveRequest = NonNullable<ReturnType<typeof parseQueueRequest>>;

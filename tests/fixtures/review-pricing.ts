@@ -5,7 +5,11 @@ import toapisBundle from "../../pricing/v1/toapis.json";
 import { pricingCachePath } from "../../src/lib/server/services/pricing/local-feed";
 import { toapisRates } from "./toapis-feed";
 
-export async function writeReviewPricing(cacheHome: string, cachedSeconds = 2 * 24 * 60 * 60) {
+export async function writeReviewPricing(
+	cacheHome: string,
+	cachedSeconds = 2 * 24 * 60 * 60,
+	zImageCredits?: string,
+) {
 	const latest = Math.max(Date.parse(poyoBundle.sourceDate), Date.parse(toapisBundle.observedAt));
 	// Keep cached conversion evidence at least as recent as the bundle.
 	const observedMs = Math.floor(Math.max(latest + cachedSeconds * 1000, Date.now()) / 1000) * 1000;
@@ -16,7 +20,9 @@ export async function writeReviewPricing(cacheHome: string, cachedSeconds = 2 * 
 		revision: (poyoBundle.revision[0] === "a" ? "b" : "a").repeat(40),
 		sourceDate: observedAt,
 		rates: {
-			"z-image": { kind: "unavailable" },
+			"z-image": zImageCredits
+				? { kind: "per-request", credits: zImageCredits }
+				: { kind: "unavailable" },
 			"seedream-5.5": {
 				kind: "per-image-with-references",
 				resolutions: { "1K": "4", "1.5K": "4", "2K": "7" },

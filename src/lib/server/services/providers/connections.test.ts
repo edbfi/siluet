@@ -60,19 +60,25 @@ test("eligibility excludes disconnected, unreadable, and connected keys lacking 
 		outcome: "accepted",
 		seedream: key === "fixture-toapis-eligible",
 	}));
-	expect((await service.seedreamAvailability()).eligibleProviders).toEqual([]);
+	expect((await service.imageAvailability()).eligibleProviders).toEqual([]);
 	await service.connect("poyo", "fixture-poyo");
 	await service.connect("toapis", "fixture-toapis-restricted");
-	expect((await service.seedreamAvailability()).eligibleProviders).toEqual(["poyo"]);
+	expect((await service.imageAvailability()).eligibleProviders).toEqual(["poyo"]);
 	await service.connect("toapis", "fixture-toapis-eligible");
-	expect((await service.seedreamAvailability()).eligibleProviders).toEqual(["poyo", "toapis"]);
+	expect((await service.imageAvailability()).eligibleProviders).toEqual(["poyo", "toapis"]);
+	connections.set("poyo", { id: "poyo", state: "connected", verifiedAt: 123, seedream: false });
+	expect(await service.imageAvailability()).toMatchObject({
+		eligibleProviders: ["toapis"],
+		zImageConnected: true,
+	});
 	connections.set("poyo", { id: "poyo", state: "reconnect" });
-	expect((await service.seedreamAvailability()).eligibleProviders).toEqual(["toapis"]);
+	expect((await service.imageAvailability()).zImageConnected).toBe(false);
+	expect((await service.imageAvailability()).eligibleProviders).toEqual(["toapis"]);
 	connections.set("poyo", { id: "poyo", state: "repair", hasCredential: true });
-	expect((await service.seedreamAvailability()).eligibleProviders).toEqual(["toapis"]);
+	expect((await service.imageAvailability()).eligibleProviders).toEqual(["toapis"]);
 	expect(await service.remove("poyo")).toBe("removed");
 	expect(await service.remove("toapis")).toBe("removed");
-	expect((await service.seedreamAvailability()).eligibleProviders).toEqual([]);
+	expect((await service.imageAvailability()).eligibleProviders).toEqual([]);
 });
 
 test("each provider allows three checks per minute, counting failures and ignoring invalid input", async () => {
@@ -114,7 +120,7 @@ test("a removal supersedes a pending check while the other provider remains avai
 	expect(await service.connect("toapis", "fixture-toapis")).toBe("connected");
 	pending.resolve({ outcome: "accepted", seedream: true });
 	expect(await verification).toBe("superseded");
-	expect((await service.seedreamAvailability()).eligibleProviders).toEqual(["toapis"]);
+	expect((await service.imageAvailability()).eligibleProviders).toEqual(["toapis"]);
 });
 
 test("a storage error releases the provider for retry and exposes no exception text", async () => {
