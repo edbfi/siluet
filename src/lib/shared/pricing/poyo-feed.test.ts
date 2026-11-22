@@ -4,7 +4,12 @@ import h3Fixture from "../../../../tests/fixtures/h3-rate.v2.json";
 import { poyoV1Feed, poyoV2Feed } from "../../../../tests/fixtures/poyo-v2-feed";
 import { estimatePrice, type PriceInput } from "./estimate";
 import { decodePricingFeed } from "./feed";
-import { decodePoyoPricingFeed, decodePoyoV2Feed, poyoFeedExpiryMs } from "./poyo-feed";
+import {
+	decodePoyoPricingFeed,
+	decodePoyoV2Feed,
+	isPerSecondRate,
+	poyoFeedExpiryMs,
+} from "./poyo-feed";
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -76,10 +81,46 @@ describe("PoYo pricing v2 feed", () => {
 	});
 
 	test("preserves an unfamiliar rate and serialises it unchanged", () => {
+		const fixture = {
+			...h3Fixture,
+			rates: { ...h3Fixture.rates, "kling-3": { kind: "tiered-by-mode", modes: { pro: "9" } } },
+		};
+		const decoded = decodePoyoV2Feed(JSON.parse(JSON.stringify(fixture)));
+		expect<unknown>(decoded).toEqual(fixture);
+		expect(JSON.parse(JSON.stringify(decoded))).toEqual(fixture);
+		expect(Object.getPrototypeOf(decoded?.rates["kling-3"])).toBeNull();
+	});
+
+	test("decodes the H3 per-second rate as a known kind", () => {
 		const decoded = decodePoyoV2Feed(JSON.parse(JSON.stringify(h3Fixture)));
 		expect<unknown>(decoded).toEqual(h3Fixture);
-		expect(JSON.parse(JSON.stringify(decoded))).toEqual(h3Fixture);
-		expect(Object.getPrototypeOf(decoded?.rates["h3-max"])).toBeNull();
+		const rate = decoded?.rates["h3-max"];
+		expect(rate && isPerSecondRate(rate)).toBe(true);
+		if (!rate || !isPerSecondRate(rate)) throw new Error("Expected a per-second rate.");
+		expect(Object.getPrototypeOf(rate.resolutions)).toBeNull();
+		expect(
+			decodePoyoV2Feed(withRates({ "h3-max": { ...rate, resolutions: { "1080p": "32" } } })),
+		).toBeDefined();
+	});
+
+	test.each([
+		{ kind: "per-second-by-resolution", resolutions: {} },
+		{ kind: "per-second-by-resolution", resolutions: { "480p": "0" } },
+		{ kind: "per-second-by-resolution", resolutions: { "480p": "-1" } },
+		{ kind: "per-second-by-resolution", resolutions: { "480p": 10 } },
+		{ kind: "per-second-by-resolution", resolutions: { "4K": "10" } },
+		{ kind: "per-second-by-resolution", resolutions: { "48p": "10" } },
+		{ kind: "per-second-by-resolution", resolutions: { "480p": { a: "1" } } },
+		{ kind: "per-second-by-resolution", resolutions: { "480p": "10" }, extra: "1" },
+		{ kind: "per-second-by-resolution", rates: { "480p": "10" } },
+		{
+			kind: "per-second-by-resolution",
+			resolutions: Object.fromEntries(
+				Array.from({ length: 9 }, (_, index) => [`${100 + index}p`, "1"]),
+			),
+		},
+	])("a malformed h3-max rejects the feed %#", (rate) => {
+		expect(decodePoyoV2Feed(withRates({ "h3-max": rate }))).toBeUndefined();
 	});
 
 	test("accepts unfamiliar rates up to four objects deep with shared decimal bounds", () => {

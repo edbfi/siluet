@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
+import h3Feed from "../../../../../tests/fixtures/h3-rate.v2.json";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { h3MaxOperation } from "../../../shared/media-catalog/registry";
-import type { PricingFeeds } from "../../../shared/pricing/feeds";
+import { decodePricingFeeds, type PricingFeeds } from "../../../shared/pricing/feeds";
 import { parseVideo } from "../../../shared/video-studio/request";
 import { imageJobStore } from "../../db/image-job-store";
 import { type Installation, openInstallation } from "../../db/installation";
@@ -397,4 +398,75 @@ test("three H3 jobs share Poyo's two reads per second", async () => {
 	await Promise.all(ids.map((id) => tracker.refresh(id)));
 	expect(seen.reads).toBe(2);
 	expect((await tracker.list()).filter((job) => job.nextReadAt === now + 1_000)).toHaveLength(1);
+});
+
+const knownFeeds =
+	(rates: Record<string, unknown> = h3Feed.rates) =>
+	async () =>
+		decodePricingFeeds({ ...h3Feed, rates });
+
+test("server Review and Queue for 5 s/768p carry one 80-credit quote", async () => {
+	const seen = calls();
+	const {
+		store,
+		queue,
+		jobs: tracker,
+	} = await studio(poyo(seen, accepted), {
+		feeds: knownFeeds(),
+	});
+	await store.save("poyo", "balance-only", now, false, 0);
+	const { review, click } = await reviewAndClick(queue);
+	expect(review.quote).toMatchObject({
+		status: "known",
+		unit: "poyo_credit",
+		perRequest: "80",
+		revision: h3Feed.revision,
+	});
+	expect((await queue.review("owner", request())).token.split(".")[1]).toBe(
+		review.token.split(".")[1],
+	);
+	expect(await queue.submit("owner", click)).toHaveProperty("jobId");
+	expect(await tracker.list()).toMatchObject([{ quote: review.quote }]);
+	expect((await imageJobStore(db).list())[0]).toMatchObject({ accepted_unknown: 0 });
+	expect(seen.posts).toBe(1);
+});
+
+test.each([
+	["withdrawn", { kind: "unavailable" }],
+	["changed", { kind: "per-second-by-resolution", resolutions: { "480p": "10", "768p": "17" } }],
+])("a rate %s between Review and Queue makes the Review stale with 0 POST", async (_, rate) => {
+	const seen = calls();
+	let rates: Record<string, unknown> = h3Feed.rates;
+	const { store, queue } = await studio(poyo(seen, accepted), {
+		feeds: async () => decodePricingFeeds({ ...h3Feed, rates }),
+	});
+	await store.save("poyo", "balance-only", now, false, 0);
+	const { review, click } = await reviewAndClick(queue);
+	expect(review.quote).toMatchObject({ status: "known", perRequest: "80" });
+	rates = { ...h3Feed.rates, "h3-max": rate };
+	expect(await queue.submit("owner", click)).toEqual({ error: "stale" });
+	expect(seen.posts + seen.balances).toBe(0);
+	const fresh = await reviewAndClick(queue);
+	expect(fresh.review.quote.status === "known" ? fresh.review.quote.perRequest : "unknown").toBe(
+		rate.kind === "unavailable" ? "unknown" : "85",
+	);
+	expect(await queue.submit("owner", fresh.click)).toHaveProperty("jobId");
+	expect(seen.posts).toBe(1);
+});
+
+test("without an h3-max rate the server issues unknown terms that queue once only with consent", async () => {
+	const seen = calls();
+	const { "h3-max": _, ...withoutH3 } = h3Feed.rates;
+	const { store, queue } = await studio(poyo(seen, accepted), { feeds: knownFeeds(withoutH3) });
+	await store.save("poyo", "balance-only", now, false, 0);
+	const { review, click } = await reviewAndClick(queue);
+	expect(review.quote).toEqual({ status: "unknown", reason: "rate-unavailable", maxAttempts: 1 });
+	expect(await queue.submit("owner", { ...click, acceptTerms: false })).toEqual({
+		error: "invalid",
+	});
+	expect(seen.posts + seen.balances).toBe(0);
+	const result = await queue.submit("owner", click);
+	expect(await queue.submit("owner", click)).toEqual(result);
+	expect((await imageJobStore(db).list())[0]).toMatchObject({ accepted_unknown: 1 });
+	expect(seen.posts).toBe(1);
 });

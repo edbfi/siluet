@@ -28,7 +28,8 @@ const maxDecimal = "999999999999.999999";
 function deepRate(depth: number): Record<string, unknown> {
 	let value: Record<string, unknown> = { a: maxDecimal };
 	for (let level = 1; level < depth; level++) value = { n: value };
-	return { kind: "per-second-by-resolution", ...value };
+	// An unfamiliar kind of the same length as the H3 kind, which builds now decode strictly.
+	return { kind: "per-minute-by-resolution", ...value };
 }
 
 /**

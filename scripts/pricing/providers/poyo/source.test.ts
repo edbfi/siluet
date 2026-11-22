@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import h3Contract from "./h3-max-contract.json";
 import { collectPoyoPricing } from "./source.ts";
 
 const revision = "1234567890abcdef1234567890abcdef12345678";
@@ -84,6 +85,19 @@ function fixture() {
 			input_image_credits: 1.125,
 		},
 	};
+	const video = {
+		model_id: "h3-max",
+		category: "video",
+		service_type: "generate",
+		execution_mode: "async",
+		status: "stable",
+		output_schema: { type: "object" },
+		input_schema: structuredClone(h3Contract.input_schema),
+		billing: {
+			...structuredClone(h3Contract.billingRule),
+			resolution_credits_per_second: { "480p": 10, "768p": 16, "1080p": 32 },
+		},
+	};
 	const catalog: {
 		schema_version: string;
 		has_more: boolean;
@@ -100,11 +114,12 @@ function fixture() {
 				output_schema: { type: "object" },
 				billing: { type: "unsupported" },
 			})),
+			video,
 			seedream,
 			zImage,
 		],
 	};
-	return { catalog, seedream, zImage };
+	return { catalog, seedream, zImage, video };
 }
 
 function source(
@@ -151,6 +166,10 @@ test("collects the whole supported set with exact decimals and the path commit d
 				kind: "per-image-with-references",
 				resolutions: { "1K": "4.75", "1.5K": "5", "2K": "8" },
 				perReference: "1.125",
+			},
+			"h3-max": {
+				kind: "per-second-by-resolution",
+				resolutions: { "480p": "10", "768p": "16" },
 			},
 		},
 	});
@@ -438,3 +457,51 @@ test("rejects failed downloads, oversized bodies, malformed JSON, and changes to
 		);
 	}
 });
+
+test.each([
+	[
+		"a reference-mode formula change",
+		(video: H3Row) => {
+			video.billing.parameters.reference_tokens = "computed for all requests";
+		},
+	],
+	[
+		"a missing resolution",
+		(video: H3Row) => {
+			delete (video.billing.resolution_credits_per_second as Record<string, number>)["768p"];
+		},
+	],
+	[
+		"a widened duration",
+		(video: H3Row) => {
+			video.input_schema.properties.duration.maximum = 20;
+		},
+	],
+	[
+		"a new input",
+		(video: H3Row) => {
+			(video.input_schema.properties as Record<string, unknown>).seed = { type: "integer" };
+		},
+	],
+	[
+		"a fractional rate",
+		(video: H3Row) => {
+			video.billing.resolution_credits_per_second["480p"] = 10.0000001;
+		},
+	],
+] as const)("%s withholds only the H3 rate", async (_name, change) => {
+	const { catalog, video } = fixture();
+	change(video);
+	const gaps: string[] = [];
+	const feed = await collectPoyoPricing(
+		source(JSON.stringify(catalog)).fetch,
+		license,
+		(model) => gaps.push(model),
+		clock,
+	);
+	expect(feed.rates["h3-max"]).toEqual({ kind: "unavailable" });
+	expect(feed.rates["z-image"]).toEqual({ kind: "per-request", credits: "3.25" });
+	expect(gaps).toEqual(["h3-max"]);
+});
+
+type H3Row = ReturnType<typeof fixture>["video"];

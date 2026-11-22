@@ -5,14 +5,17 @@ import {
 	type PriceInput,
 } from "../../src/lib/shared/pricing/estimate";
 import { isPricingProvider } from "../../src/lib/shared/pricing/feeds";
+import { poyoVideoDescriptor } from "../../src/lib/shared/video-studio/poyo-models";
 import { loadLocalPricing } from "./local-feed";
 
 const usage = `Estimate published media rates offline.
 bun run pricing:estimate --model <id> [--provider poyo|toapis] [--operation generate|edit|animate|interpolate]
-  [--size 1:1|2K] [--resolution 2K] [--references 2] [--source-kind image|video|audio|unknown ...] [--batch 5] [--retries 3]
+  [--size 1:1|2K] [--resolution 2K|480p|768p] [--duration 5] [--references 2]
+  [--source-kind image|video|audio|unknown ...] [--batch 5] [--retries 3]
 
 Use --size 1K, 1.5K or 2K for ToAPIs Seedream 5.5 (doubao-seedream-5-5).
 For Seedance 2.5 with inputs, repeat --source-kind for each reference.
+A Poyo.ai video model such as h3-max starts from its reviewed Video Studio defaults.
 The result gives the initial estimate and maximum number of submissions. It never submits a job.`;
 
 function integerOption(value: string, flag: string) {
@@ -33,6 +36,7 @@ export function readEstimateArgs(args: string[]): PriceInput {
 			operation: { type: "string", default: "generate" },
 			size: { type: "string" },
 			resolution: { type: "string" },
+			duration: { type: "string" },
 			references: { type: "string" },
 			"source-kind": { type: "string", multiple: true },
 			batch: { type: "string", default: "1" },
@@ -52,7 +56,11 @@ export function readEstimateArgs(args: string[]): PriceInput {
 	if (sourceKinds && sourceKinds.length !== sourceCount) {
 		throw new Error("--references must match the number of --source-kind arguments.");
 	}
-	const options: Record<string, string> = {};
+	const video = values.provider === "poyo" ? poyoVideoDescriptor(values.model) : undefined;
+	const options: Record<string, string | number | boolean> = video
+		? { ...video.defaults, [video.d4Field]: false }
+		: {};
+	if (values.duration !== undefined) options.duration = integerOption(values.duration, "duration");
 	if (values.size !== undefined) options.size = values.size;
 	if (values.resolution !== undefined) options.resolution = values.resolution;
 	return {

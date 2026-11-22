@@ -34,6 +34,7 @@ test("the CLI starts from a checkout without the bundled v2 feed", async () => {
 		for (const path of [
 			"scripts/pricing",
 			"src/lib/shared/pricing",
+			"src/lib/shared/video-studio",
 			"src/lib/server/services/pricing",
 			"pricing/v1",
 		]) {

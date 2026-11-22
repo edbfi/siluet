@@ -310,6 +310,31 @@ describe("PoYo v2 publication", () => {
 		expect(decodePricingFeed(v1)).toEqual(v1);
 	});
 
+	test("the collector's h3-max entry reaches v2 at the same revision and leaves v1 bytes unchanged", () => {
+		const shippedBytes = readFileSync(resolve(import.meta.dir, "../..", v1Path));
+		seedV2({ ...v2, confirmedAt: yesterday });
+		const v1Blob = blob(v1Path);
+		const withH3 = { ...v2, rates: { ...v2.rates, "h3-max": h3Fixture.rates["h3-max"] } };
+		const result = publish(withH3);
+		if (!result.success) throw new Error(result.err);
+		expect(JSON.parse(show(v2Path))).toEqual(withH3);
+		expect(JSON.parse(show(v2Path)).revision).toBe(v2.revision);
+		expect(blob(v1Path)).toBe(v1Blob);
+		expect(readFileSync(resolve(import.meta.dir, "../..", v1Path))).toEqual(shippedBytes);
+	});
+
+	test.each([
+		{ kind: "per-second-by-resolution", resolutions: { "480p": "0" } },
+		{ kind: "per-second-by-resolution", resolutions: {} },
+		{ kind: "per-second-by-resolution", resolutions: { "4K": "10" } },
+		{ kind: "per-second-by-resolution", resolutions: { "480p": "10" }, extra: "1" },
+		{ kind: "per-second-by-resolution", resolutions: { "480p": { a: "1" } } },
+	])("rejects a malformed per-second rate %#", (rate) => {
+		const result = publish({ ...v2, rates: { ...v2.rates, "h3-max": rate } });
+		expect(result.err).toContain("Invalid PoYo v2 pricing feed handoff");
+		expect(git(remote, "for-each-ref")).toBe("");
+	});
+
 	test("rejects a branch with unexpected contents", () => {
 		seed({ [v1Path]: `${JSON.stringify(bundledV1)}\n`, [v1LicensePath]: licenseText, extra: "x" });
 		expect(publish(v2).err).toContain("Unexpected contents");

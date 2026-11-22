@@ -1,13 +1,18 @@
 import { isCreditRate } from "../../../../src/lib/shared/pricing/decimal.ts";
 import { isPricingRecord, type PricingFeed } from "../../../../src/lib/shared/pricing/feed.ts";
+import type { PerSecondRate } from "../../../../src/lib/shared/pricing/poyo-feed.ts";
+import h3Contract from "./h3-max-contract.json";
 
 const numberToken = Symbol("JSON number token");
 const resolutions = ["1K", "1.5K", "2K"] as const;
-const models = ["z-image", "seedream-5.5"] as const;
+const models = ["z-image", "seedream-5.5", "h3-max"] as const;
+// Siluet offers these H3 resolutions. 1080p stays pending qualification.
+const h3Resolutions = ["480p", "768p"] as const;
 
 type Model = (typeof models)[number];
-type Rates = PricingFeed["rates"];
-type ModelRate<T extends Model> = Extract<Rates[T], { credits: string } | { perReference: string }>;
+type Unavailable = { kind: "unavailable" };
+type Rates = PricingFeed["rates"] & { "h3-max": PerSecondRate | Unavailable };
+type ModelRate<T extends Model> = Exclude<Rates[T], Unavailable>;
 export type ReportGap = (model: Model, reason: string) => void;
 
 function hasKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
@@ -100,12 +105,26 @@ const inputSchemas = {
 	},
 };
 
-type SchemaValue = string | number | boolean | readonly string[] | { [key: string]: SchemaValue };
+type SchemaValue =
+	| string
+	| number
+	| boolean
+	| null
+	| readonly SchemaValue[]
+	| { readonly [key: string]: SchemaValue | undefined };
 
 function matchesInputSchema(value: unknown, expected: SchemaValue, propertyNames = false): boolean {
 	if (typeof expected === "number") return numberSource(value) === String(expected);
-	if (Array.isArray(expected)) return hasValues(value, expected);
-	if (typeof expected !== "object") return value === expected;
+	if (Array.isArray(expected)) {
+		// String lists are unordered sets. Schema lists such as allOf keep their order.
+		if (expected.every((item) => typeof item === "string")) return hasValues(value, expected);
+		return (
+			Array.isArray(value) &&
+			value.length === expected.length &&
+			expected.every((item, index) => matchesInputSchema(value[index], item))
+		);
+	}
+	if (expected === null || typeof expected !== "object") return value === expected;
 	if (!isPricingRecord(value)) return false;
 
 	// Annotations can change without affecting the request constraints. The
@@ -119,6 +138,7 @@ function matchesInputSchema(value: unknown, expected: SchemaValue, propertyNames
 		expectedEntries.every(
 			([key, schema]) =>
 				Object.hasOwn(value, key) &&
+				schema !== undefined &&
 				matchesInputSchema(value[key], schema, !propertyNames && key === "properties"),
 		)
 	);
@@ -127,7 +147,7 @@ function matchesInputSchema(value: unknown, expected: SchemaValue, propertyNames
 function reviewedInputs(row: Record<string, unknown>, model: Model) {
 	if (
 		!Object.keys(row).every((key) => modelFields.includes(key)) ||
-		row.category !== (model === "z-image" ? "text2img" : "image") ||
+		row.category !== { "z-image": "text2img", "seedream-5.5": "image", "h3-max": "video" }[model] ||
 		row.service_type !== "generate" ||
 		row.status !== "stable" ||
 		row.execution_mode !== "async"
@@ -135,6 +155,11 @@ function reviewedInputs(row: Record<string, unknown>, model: Model) {
 		throw new ModelDrift("The catalog model fields, route, or availability changed.");
 	}
 	const schema = row.input_schema;
+	if (model === "h3-max") {
+		if (!matchesInputSchema(schema, h3Contract.input_schema))
+			throw new ModelDrift("The H3 Max request options changed.");
+		return;
+	}
 	if (
 		!isPricingRecord(schema) ||
 		schema.description !== inputDescriptions[model] ||
@@ -195,6 +220,22 @@ function seedreamRate(row: Record<string, unknown>): ModelRate<"seedream-5.5"> {
 		},
 		perReference: credits(billing.input_image_credits),
 	};
+}
+
+// Reviewed text-mode rule at the pinned revision: duration × per-second rate, with zero
+// reference tokens outside reference mode. Siluet publishes only the resolutions it offers.
+function h3MaxRate(row: Record<string, unknown>): ModelRate<"h3-max"> {
+	const billing = row.billing;
+	if (!isPricingRecord(billing)) throw new ModelDrift("The catalog H3 Max billing is missing.");
+	const { resolution_credits_per_second: rates, ...rule } = billing;
+	if (
+		!matchesInputSchema(rule, h3Contract.billingRule) ||
+		!hasKeys(rates, [...h3Resolutions, "1080p"])
+	)
+		throw new ModelDrift("The catalog H3 Max per-second billing rule changed.");
+	const resolutions: Record<string, string> = {};
+	for (const resolution of h3Resolutions) resolutions[resolution] = credits(rates[resolution]);
+	return { kind: "per-second-by-resolution", resolutions };
 }
 
 function catalogRows(text: string): Map<string, Record<string, unknown>> {
@@ -264,5 +305,6 @@ export function normalizeRates(text: string, reportGap?: ReportGap): Rates {
 	return {
 		"z-image": rateFor("z-image", zImageRate),
 		"seedream-5.5": rateFor("seedream-5.5", seedreamRate),
+		"h3-max": rateFor("h3-max", h3MaxRate),
 	};
 }

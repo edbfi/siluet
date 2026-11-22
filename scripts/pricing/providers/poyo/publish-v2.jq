@@ -12,10 +12,17 @@ def unfamiliar_fields($depth):
   and all(to_entries[]; (.key | rate_key)
     and (.value | credit_decimal or unfamiliar_fields($depth + 1)));
 
+# Credits per requested second at each offered resolution, e.g. {"480p": "10"}.
+def per_second_rate:
+  type == "object" and keys == ["kind", "resolutions"] and .kind == "per-second-by-resolution"
+  and (.resolutions | type == "object" and length >= 1 and length <= 8
+    and all(to_entries[]; (.key | test("\\A[0-9]{3,4}p\\z")) and (.value | positive_decimal)));
+
 def poyo_rate:
   type == "object" and (.kind | type == "string") and
   if .kind == "unavailable" or .kind == "per-request" or .kind == "per-image-with-references"
   then fixed_rate or image_rate
+  elif .kind == "per-second-by-resolution" then per_second_rate
   else (.kind | test("\\A[a-z][a-z0-9-]{0,63}\\z")) and (del(.kind) | unfamiliar_fields(1))
   end;
 
