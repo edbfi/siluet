@@ -272,19 +272,26 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 	</div>
 </div>
 
-{#if draft.provider && draft.operation === "edit"}
+{#if draft.operation === "edit"}
 	{@const provider = draft.provider}
 	{#key provider}
 		<fieldset class={requestFieldset} aria-describedby={`${id}-reference-help`}>
 			<legend class={requestLegend}>Reference images</legend>
 			<p class={requestHelp} id={`${id}-reference-help`}>
-				Queue supports 1–{maxSeedreamReferences} public image URLs. For offline Review, you can also
-				stage files ({referenceFileHelp(provider)} each).
+				{#if provider}
+					Queue supports 1–{maxSeedreamReferences} public image URLs. For offline Review, you can
+					also stage files ({referenceFileHelp(provider)} each).
+				{:else}
+					Queue needs a connected provider. For offline Review, you can prepare a local
+					{referenceFileHelp(provider)} copy now.
+				{/if}
 			</p>
-			<ImageReferenceGuidance
-				{provider}
-				autoFraming={draft.references.length > 1 && draft.options.aspectRatio === "auto"}
-			/>
+			{#if provider}
+				<ImageReferenceGuidance
+					{provider}
+					autoFraming={draft.references.length > 1 && draft.options.aspectRatio === "auto"}
+				/>
+			{/if}
 			{#if duplicateWarning}
 				<p class={requestError} role="status">{duplicateWarning}</p>
 			{/if}

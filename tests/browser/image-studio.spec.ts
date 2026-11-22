@@ -855,8 +855,10 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(page.getByRole("status")).toHaveText("Key removed.");
 			await imageLink.press("Enter");
 			await expect(providers).toHaveCount(0);
-			await expect(firstFile).toHaveCount(0);
 			await expect(page.getByText("Reference images cleared.", { exact: true })).toBeVisible();
+			// The edit stays open for an offline local copy, with the earlier file cleared.
+			await expect(firstFile).toHaveAttribute("accept", "image/jpeg,.jpg,.jpeg,image/png,.png");
+			await expect(preview.getByRole("img", { name: "Reference image 1" })).toHaveCount(0);
 		});
 
 		expect(fixtures.requests).toHaveLength(providerChecks);
@@ -924,23 +926,37 @@ test("built Review prepares and previews one cleaned local copy while Queue stay
 				data,
 			});
 
-		await test.step("no provider connected: the route stages and serves a private copy", async () => {
+		const operation = page.getByLabel("Operation", { exact: true });
+		const firstFile = page.getByLabel("Reference image 1", { exact: true });
+		const review = page.getByRole("region", { name: "Review request", exact: true });
+		const facts = review.getByRole("tabpanel", { name: "Review", exact: true });
+		const localCopy = facts.getByRole("region", { name: "Local copy", exact: true });
+		const prepare = localCopy.getByRole("button", { name: /^Prepar/ });
+		const status = localCopy.getByRole("status");
+		const cleaned = localCopy.getByRole("img", { name: "Cleaned local copy" });
+		const queue = review.getByRole("button", { name: "Queue 1 request" });
+
+		await test.step("no provider connected: Review prepares and serves a private copy", async () => {
+			await page.goto(new URL("/image", origin).href);
+			await expect(page.getByRole("radio")).toHaveCount(0);
+			await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(promptText);
+			await operation.selectOption("edit");
+			await expect(page.getByText(/Queue needs a connected provider/)).toBeVisible();
+			await expect(firstFile).toHaveAttribute("accept", "image/jpeg,.jpg,.jpeg,image/png,.png");
 			const png = await uprightPng();
-			const draft = randomUUID();
-			const staged = await stage(draft, png);
-			expect(staged.status()).toBe(200);
-			const descriptor = await staged.json();
-			expect(Object.keys(descriptor).sort()).toEqual([
-				"deadline",
-				"digest",
-				"draft",
-				"handle",
-				"mime",
-				"size",
-				"transform",
-			]);
-			expect(descriptor).toMatchObject({ mime: "image/png", transform: "none", draft });
-			const media = await page.request.get(`${files(draft)}/${descriptor.handle}`);
+			await firstFile.setInputFiles({ name: "offline.png", mimeType: "image/png", buffer: png });
+			await prepare.press("Enter");
+			await expect(status).toHaveText("Cleaned copy ready.");
+			await expect(localCopy).toContainText(/PNG · /);
+			await expect(queue).toBeDisabled();
+			const src = (await cleaned.getAttribute("src")) ?? "";
+			const [, draft, handle] =
+				/^\/image\/files\/([0-9a-f-]{36})\/([0-9a-f-]{36})$/.exec(src) ?? [];
+			expect(handle).toBeTruthy();
+			await expect
+				.poll(() => cleaned.evaluate((image) => (image as HTMLImageElement).naturalWidth))
+				.toBe(30);
+			const media = await page.request.get(`${files(draft)}/${handle}`);
 			expect(media.status()).toBe(200);
 			expect(media.headers()).toMatchObject({
 				"content-type": "image/png",
@@ -951,7 +967,7 @@ test("built Review prepares and previews one cleaned local copy while Queue stay
 			expect(Buffer.from(await media.body()).equals(png)).toBe(true);
 			expect(
 				(
-					await page.request.get(`${files(draft)}/${descriptor.handle}`, {
+					await page.request.get(`${files(draft)}/${handle}`, {
 						headers: { "sec-fetch-site": "cross-site" },
 					})
 				).status(),
@@ -959,25 +975,18 @@ test("built Review prepares and previews one cleaned local copy while Queue stay
 			expect((await stage(randomUUID(), png, { origin: "null" })).status()).toBe(403);
 			expect((await stage("not-a-draft", png)).status()).toBe(400);
 			expect(fixtures.requests).toEqual([]);
-			await page.request.post(`${files(draft)}/${descriptor.handle}`, {
-				headers: { origin: origin.origin },
-			});
-			expect((await page.request.get(`${files(draft)}/${descriptor.handle}`)).status()).toBe(404);
+			// Leaving the edit retires the copy.
+			await operation.selectOption("generate");
+			await expect(localCopy).toHaveCount(0);
+			await expect
+				.poll(async () => (await page.request.get(`${files(draft)}/${handle}`)).status())
+				.toBe(404);
 		});
 
 		await page.goto(new URL("/settings/providers", origin).href);
 		await saveKey(page, keys.poyo);
 		const providerChecks = fixtures.requests.length;
 		await page.goto(new URL("/image", origin).href);
-		const operation = page.getByLabel("Operation", { exact: true });
-		const firstFile = page.getByLabel("Reference image 1", { exact: true });
-		const review = page.getByRole("region", { name: "Review request", exact: true });
-		const facts = review.getByRole("tabpanel", { name: "Review", exact: true });
-		const localCopy = facts.getByRole("region", { name: "Local copy", exact: true });
-		const prepare = localCopy.getByRole("button", { name: /^Prepar/ });
-		const status = localCopy.getByRole("status");
-		const cleaned = localCopy.getByRole("img", { name: "Cleaned local copy" });
-		const queue = review.getByRole("button", { name: "Queue 1 request" });
 		await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(promptText);
 		await operation.selectOption("edit");
 

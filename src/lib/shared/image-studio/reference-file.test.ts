@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { referenceGif, truncatedReferenceGif } from "../../../../tests/fixtures/reference-image";
-import { checkReferenceFile, referenceFileError } from "./references";
+import { checkReferenceFile, referenceFileAccept, referenceFileError } from "./references";
 
 const pngHeader = [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82];
 
@@ -43,4 +43,13 @@ test("JPEG and PNG source size is checked separately from cleaned upload size", 
 	expect(
 		referenceFileError("toapis", { ...sample, type: "image/png", size: 32_000_001 }),
 	).not.toBeNull();
+});
+
+test("with no provider connected, only a local JPEG or PNG is offered", async () => {
+	const png = new File([new Uint8Array([...pngHeader, 0, 0])], "ref.png", { type: "image/png" });
+	expect(await checkReferenceFile(null, png)).toBeNull();
+	expect(referenceFileError(null, { name: "a.webp", type: "image/webp", size: 10 })).toBe(
+		"Choose a non-empty image. Supported files are JPEG or PNG.",
+	);
+	expect(referenceFileAccept(null)).toBe("image/jpeg,.jpg,.jpeg,image/png,.png");
 });

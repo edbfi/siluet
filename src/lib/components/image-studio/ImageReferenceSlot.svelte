@@ -37,7 +37,8 @@ let {
 	onRemove,
 	onPreview,
 }: {
-	provider: SeedreamProvider;
+	/** Null before a provider is connected: only a local JPEG or PNG can be prepared. */
+	provider: SeedreamProvider | null;
 	index: number;
 	slot: ReferenceSlotDraft;
 	reference: SeedreamReference | undefined;

@@ -33,6 +33,12 @@ const fileTypes = {
 };
 
 const stillFormats = ["jpeg", "png", "webp"] as const;
+// Before a provider is connected, only a local copy can be prepared for offline Review.
+const localLimits = {
+	formats: ["jpeg", "png"],
+	maxBytes: 32_000_000,
+	description: "JPEG or PNG",
+} as const;
 const referenceLimits = {
 	poyo: {
 		formats: stillFormats,
@@ -46,23 +52,26 @@ const referenceLimits = {
 	},
 } as const;
 
-export function referenceFileAccept(provider: SeedreamProvider): string {
-	return referenceLimits[provider].formats
-		.flatMap((format) => {
+const limitsFor = (provider: SeedreamProvider | null) =>
+	provider ? referenceLimits[provider] : localLimits;
+
+export function referenceFileAccept(provider: SeedreamProvider | null): string {
+	return limitsFor(provider)
+		.formats.flatMap((format) => {
 			const { mime, extensions } = fileTypes[format];
 			return [mime, ...extensions];
 		})
 		.join(",");
 }
 
-export function referenceFileHelp(provider: SeedreamProvider): string {
-	return referenceLimits[provider].description;
+export function referenceFileHelp(provider: SeedreamProvider | null): string {
+	return limitsFor(provider).description;
 }
 
-function fileFormat(provider: SeedreamProvider, file: Pick<File, "name" | "type">) {
+function fileFormat(provider: SeedreamProvider | null, file: Pick<File, "name" | "type">) {
 	const type = file.type.toLowerCase();
 	const name = file.name.toLowerCase();
-	return referenceLimits[provider].formats.find((format) => {
+	return limitsFor(provider).formats.find((format: keyof typeof fileTypes) => {
 		const { mime, extensions } = fileTypes[format];
 		return type && type !== "application/octet-stream"
 			? type === mime
@@ -71,10 +80,10 @@ function fileFormat(provider: SeedreamProvider, file: Pick<File, "name" | "type"
 }
 
 export function referenceFileError(
-	provider: SeedreamProvider,
+	provider: SeedreamProvider | null,
 	file: Pick<File, "name" | "size" | "type">,
 ): string | null {
-	const { maxBytes, description } = referenceLimits[provider];
+	const { maxBytes, description } = limitsFor(provider);
 	// A JPEG or PNG is checked again after local cleanup, which can change its size.
 	const format = fileFormat(provider, file);
 	const sourceLimit = format === "jpeg" || format === "png" ? 32_000_000 : maxBytes;
@@ -84,7 +93,7 @@ export function referenceFileError(
 }
 
 export async function checkReferenceFile(
-	provider: SeedreamProvider,
+	provider: SeedreamProvider | null,
 	file: File,
 ): Promise<string | null> {
 	const error = referenceFileError(provider, file);
