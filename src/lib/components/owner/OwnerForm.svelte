@@ -36,10 +36,13 @@ const input = css({ width: "100%", minHeight: "44px", fontWeight: "400" });
 
 let {
 	claim = false,
+	pending = false,
 	message,
 	username = "",
-}: { claim?: boolean; message?: string; username?: string } = $props();
-const title = $derived(claim ? "Claim your studio" : "Welcome back");
+}: { claim?: boolean; pending?: boolean; message?: string; username?: string } = $props();
+const title = $derived(
+	claim ? "Claim your studio" : pending ? "Verify your sign-in" : "Welcome back",
+);
 </script>
 
 <svelte:head><title>{title} · Siluet</title></svelte:head>
@@ -49,11 +52,20 @@ const title = $derived(claim ? "Claim your studio" : "Welcome back");
 	</div>
 	<div class={content}>
 		<form method="POST" class={credentials}>
-			<h1>{title}</h1>
+			<h1
+				tabindex="-1"
+				{@attach (node) => {
+					if (pending && !message) node.focus();
+				}}
+			>
+				{title}
+			</h1>
 			<p class={css({ color: "muted", marginBottom: "0.5rem" })}>
 				{claim
 					? "Enter the token from your Siluet terminal, then choose a username and password."
-					: "Sign in to your local studio."}
+					: pending
+						? "Enter an authenticator or unused recovery code. Using your last recovery code leaves only the authenticator for sign-in."
+						: "Sign in to your local studio."}
 			</p>
 			{#if claim}
 				<label class={field}
@@ -67,31 +79,43 @@ const title = $derived(claim ? "Claim your studio" : "Welcome back");
 					></label
 				>
 			{/if}
-			<label class={field}
-				>Username<input
-					class={input}
-					name="username"
-					value={username}
-					required
-					autocomplete="username"
-					autocapitalize="none"
-					spellcheck="false"
-				></label
-			>
-			<label class={field}
-				>Password<input
-					class={input}
-					type="password"
-					name="password"
-					required
-					autocomplete={claim ? "new-password" : "current-password"}
-					aria-describedby={claim ? "password-hint" : undefined}
-				></label
-			>
-			{#if claim}
-				<small id="password-hint" class={css({ color: "muted", marginTop: "-0.7rem" })}>
-					Use at least 15 characters.
-				</small>
+			{#if pending}
+				<label class={field}
+					>Authenticator or recovery code<input
+						class={input}
+						name="code"
+						autocomplete="one-time-code"
+						required
+						spellcheck="false"
+					></label
+				>
+			{:else}
+				<label class={field}
+					>Username<input
+						class={input}
+						name="username"
+						defaultValue={username}
+						required
+						autocomplete="username"
+						autocapitalize="none"
+						spellcheck="false"
+					></label
+				>
+				<label class={field}
+					>Password<input
+						class={input}
+						type="password"
+						name="password"
+						required
+						autocomplete={claim ? "new-password" : "current-password"}
+						aria-describedby={claim ? "password-hint" : undefined}
+					></label
+				>
+				{#if claim}
+					<small id="password-hint" class={css({ color: "muted", marginTop: "-0.7rem" })}>
+						Use at least 15 characters.
+					</small>
+				{/if}
 			{/if}
 			{#if message}
 				<p
@@ -103,9 +127,17 @@ const title = $derived(claim ? "Claim your studio" : "Welcome back");
 					{message}
 				</p>
 			{/if}
-			<button class={css({ width: "100%" })} type="submit">
-				{claim ? "Claim studio" : "Sign in"}
+			<button
+				class={css({ width: "100%" })}
+				type="submit"
+				name="action"
+				value={pending ? "factor" : "primary"}
+			>
+				{claim ? "Claim studio" : pending ? "Verify code" : "Sign in"}
 			</button>
+			{#if pending}
+				<button type="submit" name="action" value="cancel" formnovalidate>Cancel</button>
+			{/if}
 		</form>
 	</div>
 </main>

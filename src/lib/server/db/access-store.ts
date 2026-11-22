@@ -4,7 +4,7 @@ import type { Installation } from "./installation";
 export const idleMs = 7 * 86400000;
 export const lifetimeMs = 30 * 86400000;
 
-function insertSession(digest: string, now: number) {
+export function insertSession(digest: string, now: number) {
 	return sql`INSERT INTO session (digest, owner_id, created_at, last_activity) VALUES (${digest}, 1, ${now}, ${now})`;
 }
 
@@ -52,22 +52,19 @@ export function accessStore(installation: Installation) {
 				),
 			);
 		},
-		newSession(digest: string, now: number) {
-			return use((db) => db.run(insertSession(digest, now)));
-		},
 		checkSession(digest: string, now: number) {
 			return use(async (db) => {
 				await db.run(
 					sql`DELETE FROM session WHERE last_activity <= ${now - idleMs} OR created_at <= ${now - lifetimeMs}`,
 				);
 				const row = await db.get<{ username: string }>(sql`UPDATE session SET last_activity=${now}
-					WHERE digest=${digest} AND owner_id=1 AND created_at<=${now} AND last_activity<=${now}
+					WHERE digest=${digest} AND owner_id=1 AND EXISTS (SELECT 1 FROM owner_security WHERE singleton=1 AND recovery_required=0) AND created_at<=${now} AND last_activity<=${now}
 					RETURNING (SELECT username FROM owner WHERE id=1) AS username`);
 				return row?.username ?? null;
 			});
 		},
 		revoke(digest: string) {
-			return use((db) => db.run(sql`DELETE FROM session WHERE digest=${digest}`));
+			return use((db) => db.get(sql`DELETE FROM session WHERE digest=${digest} RETURNING digest`));
 		},
 	};
 }

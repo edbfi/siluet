@@ -31,7 +31,7 @@ test("claim is single-use and sessions are revocable and time bounded", async ()
 	await expect(auth.signIn("owner", "wrong")).rejects.toThrow();
 	const next = await auth.signIn("owner", password);
 	time += 7 * 86400000;
-	expect(await auth.session(next)).toBeNull();
+	expect(await auth.session(next.token)).toBeNull();
 });
 test("an expired token is rejected; a form error leaves the next token usable", async () => {
 	const old = auth.rotate();
@@ -89,7 +89,7 @@ test("an active session expires after 30 days and sign-in throttling is temporar
 		await expect(auth.signIn("unknown", password)).rejects.toThrow("Check your username");
 	await expect(auth.signIn("owner", password)).rejects.toThrow("Try again");
 	time += 300000;
-	expect(await auth.session(await auth.signIn("owner", password))).toBe("owner");
+	expect(await auth.session((await auth.signIn("owner", password)).token)).toBe("owner");
 });
 
 test("an active session is still usable after closing and reopening storage", async () => {

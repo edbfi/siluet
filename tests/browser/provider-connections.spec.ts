@@ -22,6 +22,7 @@ async function claimStudio(page: Page, studio: Studio) {
 	await page.getByLabel("Username", { exact: true }).fill("provider-owner");
 	await page.getByLabel("Password", { exact: true }).fill(randomUUID());
 	await page.getByRole("button", { name: "Claim studio" }).press("Enter");
+	await page.getByRole("link", { name: "Skip for now" }).click();
 	await expect(page).toHaveURL(studio.origin.href);
 }
 

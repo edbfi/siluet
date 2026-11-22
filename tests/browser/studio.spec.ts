@@ -45,6 +45,7 @@ test("one owner can claim the studio and sign in after a process restart", async
 		await page.getByLabel("Username", { exact: true }).fill("studio-owner");
 		await page.getByLabel("Password", { exact: true }).fill(password);
 		await page.getByRole("button", { name: "Claim studio" }).press("Enter");
+		await page.getByRole("link", { name: "Skip for now" }).click();
 		await expect(page).toHaveURL(origin.href);
 		await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 		const serverRendered = await browser.newPage({

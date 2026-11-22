@@ -24,7 +24,11 @@ onMount(() => {
 		page.url.pathname === "/gallery" ||
 		page.url.pathname.startsWith("/gallery/") ||
 		page.url.pathname.startsWith("/settings/"))}
-	<StudioShell pathname={page.url.pathname} signOutGeneration={data.signOutGeneration}>
+	<StudioShell
+		pathname={page.url.pathname}
+		signOutGeneration={data.signOutGeneration}
+		securityGeneration={data.securityGeneration}
+	>
 		{@render children()}
 	</StudioShell>
 {:else}

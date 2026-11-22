@@ -6,16 +6,17 @@
 	"type": "module",
 	"packageManager": "bun@1.4.5",
 	"scripts": {
-		"prepare": "bun --bun svelte-kit sync && bun --bun panda codegen",
+		"prepare": "bun scripts/build-factor-helper.ts && bun --bun svelte-kit sync && bun --bun panda codegen",
 		"dev": "bun --bun vite dev",
-		"build": "bun --bun vite build",
+		"build": "bun --bun vite build && bun scripts/build-factor-helper.ts",
 		"start": "bun scripts/start.ts",
 		"check": "bun run prepare && bun --bun svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
 		"lint": "bun --bun biome ci",
 		"test": "bun test ./src ./scripts ./design/workspace/tests",
 		"smoke": "bun --bun playwright test",
 		"pricing:estimate": "bun scripts/pricing/estimate.ts",
-		"pricing:refresh": "bun scripts/pricing/refresh.ts"
+		"pricing:refresh": "bun scripts/pricing/refresh.ts",
+		"owner:recover": "bun scripts/owner-recover.ts"
 	},
 	"imports": {
 		"#studio-manifest": "./package.json",
@@ -41,6 +42,8 @@
 	"dependencies": {
 		"@tursodatabase/database": "0.8.3",
 		"drizzle-orm": "1.0.0-rc.5",
+		"otpauth": "9.6.0",
+		"qr": "0.7.2",
 		"sharp": "0.35.5"
 	}
 }

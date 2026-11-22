@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/tursodatabase/wasm-migrator";
+import { authenticatorSchema } from "./authenticator-schema";
 import { gallerySchema } from "./gallery-schema";
 import { imageBatchSchema } from "./image-batch-schema";
 import { imageJobOperationMigration } from "./image-job-operation-migration";
@@ -51,6 +52,7 @@ export const installationMigrations = {
 	"20261122030400_image_job_operation": imageJobOperationMigration,
 	"20261122120000_live_image_batches": imageBatchSchema,
 	"20261122121000_first_saved_video": videoMigration,
+	"20261122122000_owner_authenticator": authenticatorSchema,
 };
 
 export async function migrateInstallation(

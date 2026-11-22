@@ -2,15 +2,25 @@ export function signOutNoticeName({ port, protocol }: Pick<URL, "port" | "protoc
 	return `siluet_signout_${port || (protocol === "https:" ? "443" : "80")}`;
 }
 
-export function watchSignOut(generation: string | null, discardDraft: () => void): () => void {
-	const name = signOutNoticeName(location);
+export const securityNoticeName = (url: Pick<URL, "port" | "protocol">) =>
+	signOutNoticeName(url).replace("signout", "security");
+
+export function watchNotice(
+	name: string,
+	generation: string | null,
+	discardDraft: () => void,
+): () => void {
 	const prefix = `${name}=`;
 	const checkCookie = () => {
 		const notice = document.cookie
 			.split(";")
 			.map((cookie) => cookie.trim())
 			.find((cookie) => cookie.startsWith(prefix));
-		if ((notice?.slice(prefix.length) ?? null) !== generation) discardDraft();
+		const next = notice?.slice(prefix.length) ?? null;
+		if (next !== generation) {
+			generation = next;
+			discardDraft();
+		}
 	};
 
 	const listeners = new AbortController();

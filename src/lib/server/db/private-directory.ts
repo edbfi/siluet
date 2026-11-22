@@ -22,12 +22,13 @@ async function verifyWindowsAcl(
 		try {
 			$entries = @($root)
 			if ($env:SILUET_ACL_SCOPE -eq 'installation') {
-				$entries += @($root.GetFileSystemInfos() | Where-Object { $_.Name -ne $env:SILUET_ACL_FILE })
+				$entries += @($root.GetFileSystemInfos() | Where-Object { $_.Name -ne $env:SILUET_ACL_FILE -and $_.Name -notmatch '^factor-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}[.]key([.]tmp)?$' })
 			} elseif ($env:SILUET_ACL_FILE) {
 				$entries += [System.IO.FileInfo]::new([System.IO.Path]::Combine($root.FullName, $env:SILUET_ACL_FILE))
 			}
 		} catch { exit 20 }
 		foreach ($entry in $entries) {
+			if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { exit 10 }
 			try { $acl = $entry.GetAccessControl() } catch { exit 21 }
 			if ($acl.GetOwner($sidType).Value -notin $trusted) { exit 10 }
 			$rules = $acl.GetAccessRules($true, $true, $sidType)
@@ -105,14 +106,18 @@ async function prospectivePath(directory: string): Promise<string> {
 	}
 }
 
-export async function preparePrivateDirectory(directory: string, deferredFile?: string) {
+export async function preparePrivateDirectory(
+	directory: string,
+	deferredFile?: string,
+	existing = false,
+) {
 	if (!isAbsolute(directory))
 		throw new DirectoryPolicyError("An absolute data directory is required.");
 	const checkout = dirname(createRequire(import.meta.url).resolve("#studio-manifest"));
 	requireOutsideCheckout(checkout, directory);
 	const realCheckout = await realpath(checkout);
 	requireOutsideCheckout(realCheckout, await prospectivePath(directory));
-	await mkdir(directory, { recursive: true, mode: 0o700 });
+	if (!existing) await mkdir(directory, { recursive: true, mode: 0o700 });
 	const info = await lstat(directory);
 	if (!info.isDirectory()) throw new DirectoryPolicyError("Expected a private directory.");
 	requireOutsideCheckout(realCheckout, await realpath(directory));
