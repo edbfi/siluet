@@ -1,5 +1,5 @@
 import { refuseJpeg } from "./jpeg-errors";
-import { defineHuffman, defineRestart, scanTables, walkScan } from "./jpeg-scan";
+import { defineHuffman, defineRestart, scanState, walkScan } from "./jpeg-scan";
 
 export const jpegMaxBytes = 16 * 1024 * 1024;
 // ToAPIs' file limit bounds a re-encoded copy, which can exceed its source.
@@ -15,7 +15,7 @@ const eoi = Buffer.from([0xff, 0xd9]);
 export type JpegFrame = ReturnType<typeof readFrame>;
 type Marker = { code: number; data: Buffer; offset: number; end: number; afterScan: boolean };
 
-function readFrame(data: Buffer) {
+function readFrame(code: number, data: Buffer) {
 	if (data.length < 6 || data[0] !== 8 || ![1, 3].includes(data[5])) refuseJpeg("unsupported");
 	const height = data.readUInt16BE(1);
 	const width = data.readUInt16BE(3);
@@ -33,7 +33,7 @@ function readFrame(data: Buffer) {
 	if (components.length === 1 && (components[0].h !== 1 || components[0].v !== 1)) {
 		refuseJpeg("unsupported");
 	}
-	return { width, height, components };
+	return { width, height, components, progressive: code === 0xc2 };
 }
 
 function scanEnd(bytes: Buffer, start: number) {
@@ -49,17 +49,16 @@ function scanEnd(bytes: Buffer, start: number) {
 }
 
 // Walk every scan, including metadata between progressive scans. Only Huffman
-// DCT coding markers and the entropy-coded data each sequential scan decodes
-// enter the image data copied to the result.
+// DCT coding markers and the entropy-coded data each scan decodes enter the
+// image data copied to the result.
 export function readJpeg(bytes: Buffer, { maxBytes = jpegMaxBytes } = {}) {
 	if (bytes.length > maxBytes) refuseJpeg("limit");
 	if (!bytes.subarray(0, 2).equals(soi)) refuseJpeg("invalid");
 	const image: Buffer[] = [];
 	const markers: Marker[] = [];
 	let frame: JpegFrame | undefined;
-	let sequential = false;
 	let scans = 0;
-	const tables = scanTables();
+	const scan = scanState();
 	for (let offset = 2, count = 0; offset < bytes.length; ) {
 		if (++count > jpegMaxMarkers) refuseJpeg("limit");
 		const start = offset;
@@ -83,12 +82,11 @@ export function readJpeg(bytes: Buffer, { maxBytes = jpegMaxBytes } = {}) {
 		}
 		if (frameMarkers.has(code)) {
 			if (frame) refuseJpeg("secondary");
-			frame = readFrame(data);
-			sequential = code !== 0xc2;
+			frame = readFrame(code, data);
 		} else if (code === 0xc4) {
-			defineHuffman(tables, data);
+			defineHuffman(scan, data);
 		} else if (code === 0xdd) {
-			defineRestart(tables, data);
+			defineRestart(scan, data);
 		} else if (code !== 0xda && code !== 0xdb) {
 			refuseJpeg("unsupported");
 		}
@@ -97,9 +95,10 @@ export function readJpeg(bytes: Buffer, { maxBytes = jpegMaxBytes } = {}) {
 			if (!frame) refuseJpeg("invalid");
 			if (++scans > jpegMaxScans) refuseJpeg("limit");
 			offset = scanEnd(bytes, end);
-			// libjpeg stops after the last sequential scan line, so bytes the
+			// libjpeg stops after the last sequential scan line and skips a few
+			// bytes before a progressive EOI without a warning, so bytes the
 			// scan never codes would otherwise reach the upright copy unseen.
-			if (sequential) walkScan(bytes, data, end, offset, frame, tables);
+			walkScan(bytes, data, end, offset, frame, scan);
 		}
 		image.push(bytes.subarray(start, offset));
 	}

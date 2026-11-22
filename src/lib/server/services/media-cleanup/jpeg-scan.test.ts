@@ -17,7 +17,8 @@ const zeroTables = [
 	...endOfBlock,
 ];
 
-type Scan = { ids: number[]; data: number[] };
+// `band` is Ss, Se and Ah << 4 | Al.
+type Scan = { ids: number[]; data: number[]; band?: number[] };
 
 function jpeg(
 	width: number,
@@ -26,6 +27,7 @@ function jpeg(
 	scans: Scan[],
 	restart = 0,
 	tables = zeroTables,
+	marker = 0xc0,
 ) {
 	const frame = sampling.flatMap((hv, index) => [index + 1, hv, 0]);
 	return Buffer.from([
@@ -33,7 +35,7 @@ function jpeg(
 		0xd8,
 		...tables,
 		...segment(
-			0xc0,
+			marker,
 			8,
 			height >> 8,
 			height & 255,
@@ -43,8 +45,8 @@ function jpeg(
 			...frame,
 		),
 		...(restart ? segment(0xdd, restart >> 8, restart & 255) : []),
-		...scans.flatMap(({ ids, data }) => [
-			...segment(0xda, ids.length, ...ids.flatMap((id) => [id, 0x00]), 0, 63, 0),
+		...scans.flatMap(({ ids, data, band = [0, 63, 0] }) => [
+			...segment(0xda, ids.length, ...ids.flatMap((id) => [id, 0x00]), ...band),
 			...data,
 		]),
 		0xff,
@@ -135,5 +137,122 @@ describe("walkScan", () => {
 		expect(() => readJpeg(single([0x3f], [...quantization, ...overfull, ...endOfBlock]))).toThrow(
 			expect.objectContaining({ code: "invalid" }),
 		);
+	});
+});
+
+// A 32×8 gray SOF2 image of four blocks, two per restart interval. DC carries
+// weight 64, so a refinement bit of 1 lifts its block from 128 to 136. The AC
+// table codes 00 = one ±1 coefficient, 01 = EOB1 (a run of 2–3 blocks), 10 = EOB.
+const dcTables = [
+	...segment(0xdb, 0, ...Array(64).fill(64)),
+	...segment(0xc4, 0x00, 1, ...Array(15).fill(0), 0x00),
+];
+const acTable = (...symbols: number[]) =>
+	segment(0xc4, 0x10, 0, symbols.length, ...Array(14).fill(0), ...symbols);
+const progressiveTables = [...dcTables, ...acTable(0x01, 0x10, 0x00)];
+const intervals = (first: number, second: number) => [first, 0xff, 0xd0, second];
+const progression = (): Scan[] => [
+	// DC first, Al = 1: category 0 in every block.
+	{ ids: [1], band: [0, 0, 0x01], data: intervals(0x3f, 0x3f) },
+	// AC 1–5 first, Al = 1: blocks 0 and 2 get coefficient 1, then EOB; 1 and 3 EOB.
+	{ ids: [1], band: [1, 5, 0x01], data: intervals(0x35, 0x35) },
+	// AC 6–63 first: one EOB1 run of two blocks per interval.
+	{ ids: [1], band: [6, 63, 0x00], data: intervals(0x5f, 0x5f) },
+	// AC 1–5 refinement: block 0 corrects coefficient 1 and gains coefficient 2;
+	// blocks 2 and 3 form an EOB1 run that still corrects block 2's coefficient 1.
+	{ ids: [1], band: [1, 5, 0x10], data: intervals(0x2a, 0x5f) },
+	// DC refinement: one raw bit per block, 1 0 | 0 1.
+	{ ids: [1], band: [0, 0, 0x10], data: intervals(0xbf, 0x7f) },
+];
+const progressiveJpeg = (scans = progression(), restart = 2, sampling = [0x11]) =>
+	jpeg(32, 8, sampling, scans, restart, progressiveTables, 0xc2);
+const refuses = (source: Buffer, code: string) =>
+	expect(() => readJpeg(source)).toThrow(expect.objectContaining({ code }));
+const withScan = (index: number, scan: Partial<Scan>) =>
+	progression().map((original, i) => (i === index ? { ...original, ...scan } : original));
+
+describe("walkScan in progressive frames", () => {
+	test("decodes every progressive scan through restart intervals as libjpeg does", async () => {
+		const source = progressiveJpeg();
+		expect(await cleanJpeg(source)).toEqual({ bytes: source, transform: "none" });
+		const { data, info } = await sharp(source)
+			.extractChannel(0)
+			.raw()
+			.toBuffer({ resolveWithObject: true });
+		expect(info).toMatchObject({ width: 32, height: 8, channels: 1 });
+		const blocks = [0, 1, 2, 3].map((block) =>
+			Array.from({ length: 64 }, (_, i) => data[(i >> 3) * 32 + block * 8 + (i & 7)]),
+		);
+		const means = blocks.map((block) => block.reduce((sum, value) => sum + value) / 64);
+		for (const [index, mean] of [136, 128, 128, 136].entries()) {
+			expect(Math.abs(means[index] - mean)).toBeLessThanOrEqual(1);
+		}
+		expect(blocks.map((block) => new Set(block).size > 1)).toEqual([true, false, true, false]);
+		// A restart ends an EOB run early: an EOB1 run of three in the first
+		// interval leaves both blocks of the second to code their own EOB.
+		const cut = progressiveJpeg(withScan(2, { data: intervals(0x7f, 0xaf) }));
+		expect(await cleanJpeg(cut)).toEqual({ bytes: cut, transform: "none" });
+	});
+
+	test("refuses bytes hidden in, between or after progressive scans", () => {
+		const scans = progression();
+		const hide = (index: number, data: number[]) =>
+			progressiveJpeg(scans.map((scan, i) => (i === index ? { ...scan, data } : scan)));
+		refuses(hide(0, [0x3f, 0x41, 0xff, 0xd0, 0x3f]), "invalid");
+		refuses(hide(1, [0x35, 0xff, 0xd0, 0x35, 0x41]), "trailer");
+		refuses(hide(3, [0x2a, 0xff, 0xd0, 0x5f, 0xff, 0x00]), "trailer");
+		refuses(hide(4, [0xbf, 0xff, 0xd0, 0x7f, 0x41]), "trailer");
+		// A missing restart marker or one interval too few.
+		refuses(hide(2, [0x5f, 0x5f]), "invalid");
+		refuses(hide(4, [0xbf]), "invalid");
+		// A zero pad bit after the DC refinement bits.
+		refuses(hide(4, [0xbe, 0xff, 0xd0, 0x7f]), "invalid");
+	});
+
+	test("refuses invalid spectral selection and successive approximation", () => {
+		const invalid = [
+			withScan(1, { band: [0, 5, 0x01] }), // a DC scan with Se > 0
+			withScan(1, { band: [5, 1, 0x01] }), // Se < Ss
+			withScan(2, { band: [6, 64, 0x00] }), // Se beyond 63
+			withScan(0, { band: [0, 0, 0x0e] }), // Al above 13
+			withScan(3, { band: [1, 5, 0x21] }), // Ah not the previous Al
+			withScan(4, { band: [0, 0, 0x20] }), // Ah ≠ Al + 1
+			[progression()[1], ...progression().slice(2)], // AC before DC
+			[...progression().slice(0, 3), progression()[1], ...progression().slice(3)], // repeated first scan
+			progression().filter((_, i) => i !== 1), // refinement without a first scan
+		];
+		for (const scans of invalid) refuses(progressiveJpeg(scans), "invalid");
+		// AC scans code one component; a three-component frame may interleave only DC.
+		const color = (scans: Scan[]) => progressiveJpeg(scans, 0, [0x11, 0x11, 0x11]);
+		const dc = { ids: [1, 2, 3], band: [0, 0, 0x00], data: [0x00, 0x0f] };
+		expect(readJpeg(color([dc])).frame.progressive).toBe(true);
+		refuses(color([dc, { ids: [1, 2], band: [1, 63, 0x00], data: [0x5f] }]), "invalid");
+	});
+
+	test("refuses a coefficient outside the band or a refinement of more than one bit", () => {
+		// AC 1–1 first: a coefficient after a run of one would land at k = 2.
+		// The AC table codes 00 = a run of one then ±1, 01 = EOB1, 10 = a size-2 coefficient.
+		const runTables = [...dcTables, ...acTable(0x11, 0x10, 0x02)];
+		const dc = { ids: [1], band: [0, 0, 0x00], data: [0x7f] };
+		const single = (band: number[], data: number[]) =>
+			jpeg(8, 8, [0x11], [dc, { ids: [1], band, data }], 0, runTables, 0xc2);
+		expect(readJpeg(single([1, 2, 0x00], [0x3f])).frame.progressive).toBe(true);
+		refuses(single([1, 1, 0x00], [0x3f]), "invalid");
+		// In a refinement scan a new coefficient is exactly ±1, so size 2 is malformed.
+		const refine = jpeg(
+			8,
+			8,
+			[0x11],
+			[
+				dc,
+				{ ids: [1], band: [1, 5, 0x01], data: [0x7f] },
+				// Size 2, sign 0, then EOB1: well formed but for the size.
+				{ ids: [1], band: [1, 5, 0x10], data: [0x8b] },
+			],
+			0,
+			runTables,
+			0xc2,
+		);
+		refuses(refine, "invalid");
 	});
 });

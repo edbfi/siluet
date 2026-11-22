@@ -591,11 +591,41 @@ describe("cleanJpeg", () => {
 				expect(await cleanJpeg(source)).toEqual({ bytes: jpeg, transform: "none" });
 			}
 		}
-		// The decoder reads every progressive scan up to EOI and warns instead.
-		const progressive = await picture(32, 48, true);
-		await expect(
-			cleanJpeg(Buffer.concat([progressive.subarray(0, -2), hidden, progressive.subarray(-2)])),
-		).rejects.toMatchObject({ code: "invalid" });
+	});
+
+	test("declines bytes hidden after or between progressive scans", async () => {
+		// libjpeg skips a few bytes before EOI without a warning, so the walker must refuse them.
+		const samples = async (width: number, height: number, channels: 1 | 3) => {
+			const data = Buffer.alloc(width * height * channels);
+			for (let i = 0; i < data.length; i++) data[i] = ((i * 7) ^ (i >> 3) ^ (i >> 7)) & 255;
+			return sharp(data, { raw: { width, height, channels } })
+				.jpeg({ progressive: true, quality: 80 })
+				.toBuffer();
+		};
+		const junk = (length: number) =>
+			Buffer.from(Array.from({ length }, (_, i) => 0x41 + ((i * 5) % 26)));
+		// The entropy-coded data of the first scan ends at the next marker.
+		const firstScanEnd = (jpeg: Buffer) => {
+			const sos = jpeg.indexOf(Buffer.from([0xff, 0xda]));
+			for (let offset = sos + 2 + jpeg.readUInt16BE(sos + 2); ; offset++) {
+				if (jpeg[offset] === 0xff && jpeg[offset + 1] !== 0) return offset;
+			}
+		};
+		for (const jpeg of [
+			await samples(64, 40, 1),
+			await samples(37, 29, 3),
+			await samples(200, 150, 1),
+		]) {
+			expect(readJpeg(jpeg).frame.progressive).toBe(true);
+			expect(await cleanJpeg(jpeg)).toEqual({ bytes: jpeg, transform: "none" });
+			const between = firstScanEnd(jpeg);
+			for (let length = 1; length <= 4; length++) {
+				for (const at of [jpeg.length - 2, between]) {
+					const hiding = Buffer.concat([jpeg.subarray(0, at), junk(length), jpeg.subarray(at)]);
+					await expect(cleanJpeg(hiding)).rejects.toMatchObject({ code: "trailer" });
+				}
+			}
+		}
 	});
 });
 
@@ -749,6 +779,16 @@ describe("orientation re-encode", () => {
 		},
 		180_000,
 	);
+
+	// The walker reads every progressive scan; the whole cleanup fits the 30 s preparation deadline.
+	test("keeps a 16 MP progressive photo byte-identical within the preparation deadline", async () => {
+		const [width, height] = [4000, 4000];
+		const jpeg = await sharp(scene(width, height, 20), { raw: { width, height, channels: 3 } })
+			.jpeg({ quality: 90, progressive: true })
+			.toBuffer();
+		expect(jpeg.length).toBeLessThanOrEqual(jpegMaxBytes);
+		expect(await cleanJpeg(jpeg)).toEqual({ bytes: jpeg, transform: "none" });
+	}, 30_000);
 
 	test("4:4:4 saturated edge re-encodes 4:4:4 and passes", async () => {
 		const width = 64;
