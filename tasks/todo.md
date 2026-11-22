@@ -33,3 +33,11 @@
 - [x] Rotate the owner session after a Security change. Clear reviewed drafts in sibling Image Studio and Video Studio tabs while the Security tab displays the new recovery codes.
 - [x] Exercise stopped-service recovery through a terminal. Verify exclusive access, hidden password entry and reopening after interruption.
 - [x] Upgrade an existing video installation and recover the owner. Reopen the saved PNG and MP4 and verify that provider model access survived.
+
+## Local image preparation (R1a)
+
+- [x] Clean JPEG and PNG in process. Keep upright JPEG entropy data byte-identical and verify re-encoded rotations against mapped source samples.
+- [x] Hold one preparation slot per installation from admission through the stage write. Reserve staged copies in the shared 128 MiB scratch pool.
+- [x] Retire staged copies with their sessions, and reclaim scratch only under the installation lock.
+- [x] Prepare and preview one local copy in Review while Queue stays URL-only.
+- [ ] Pass the hosted media-cleanup matrix on Linux x64 and ARM64, macOS and Windows.

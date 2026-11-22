@@ -207,6 +207,19 @@ test("one decode in flight under 4 requests", async () => {
 	expect(peak).toBe(1);
 });
 
+test("a body whose cancelled read never settles does not hold the slot", async () => {
+	const controller = new AbortController();
+	const body = new ReadableStream<Uint8Array>({
+		pull: () => new Promise(() => {}),
+		cancel: () => new Promise(() => {}),
+	});
+	const pending = prepare(body, controller.signal);
+	controller.abort();
+	await expect(pending).rejects.toMatchObject({ code: "cancelled" });
+	await held()?.settled;
+	expect(held()).toBeUndefined();
+});
+
 test("shutdown cancels preparation while its request body is stalled", async () => {
 	const shutdown = new AbortController();
 	const stopping = createMediaPreparation(installation, { shutdown: shutdown.signal });

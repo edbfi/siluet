@@ -794,8 +794,9 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(reviewTab).toBeFocused();
 			await expect(review.locator('[role="tab"][tabindex="0"]')).toHaveCount(1);
 			await expect(review.getByRole("tabpanel")).toHaveCount(1);
+			// A local PNG gives the panel its first control, so Tab enters the panel there.
 			await page.keyboard.press("Tab");
-			await expect(facts).toBeFocused();
+			await expect(facts.getByRole("button", { name: "Prepare local copy" })).toBeFocused();
 			const menu = page.getByRole("button", { name: "Menu", exact: true });
 			const openMenu = async () => {
 				await menu.press("Enter");

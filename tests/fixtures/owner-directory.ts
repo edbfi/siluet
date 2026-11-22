@@ -3,8 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export async function createOwnerDirectory() {
-	const directory = await mkdtemp(join(tmpdir(), "siluet-owner-"));
+export async function createOwnerDirectory(prefix = "siluet-owner-") {
+	const directory = await mkdtemp(join(tmpdir(), prefix));
 	if (process.platform === "win32") {
 		// Make this fixture private regardless of permissions inherited from the temp directory.
 		try {

@@ -12,8 +12,9 @@ import { inspectJpegMetadata, rotatedMarkers } from "./jpeg-metadata";
 type Metadata = ReturnType<typeof inspectJpegMetadata>;
 type Raw = { data: Buffer; width: number; height: number; channels: number };
 
-// Qualified by the rotation fixtures in jpeg.test.ts. A wrong turn, mirror or
-// colour interpretation lands far below these bounds on every fixture.
+// Qualified by the rotation fixtures in jpeg.test.ts. Correct transforms measured
+// luma PSNR 42.5–57.9 dB, 99.9th-percentile luma error 2–6 and RGB PSNR 37.1–54.2 dB.
+// A wrong turn or mirror measured at most 16.2 dB, at least 89 and at most 9.5 dB.
 export const orientationBounds = { lumaPsnr: 40, lumaP999: 48, rgbPsnr: 32 } as const;
 const maxSamples = 1_000_000;
 const seconds = 5;

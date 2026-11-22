@@ -120,7 +120,12 @@ export function createMediaPreparation(
 			const input =
 				source instanceof Uint8Array
 					? source
-					: await race(readBounded(source, maxPreparationBytes, check, stopped));
+					: // A cancelled request body may never settle its pending read. It holds no
+						// native work, so the slot does not wait for it.
+						await Promise.race([
+							readBounded(source, maxPreparationBytes, check, stopped),
+							interrupted,
+						]);
 			check();
 			if (input.byteLength > maxPreparationBytes) throw failure("limit");
 			const mime = mediaMime(input);
