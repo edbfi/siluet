@@ -204,22 +204,29 @@ async function queue() {
 	if (!input || !current || !canQueue || pending || tabValue !== "review") return;
 	pending = "queue";
 	feedback = null;
+	const token = current.token;
 	try {
 		const response = await post("/image/queue", {
 			...input,
-			token: current.token,
-			acceptUnknown: acceptedToken === current.token,
+			token,
+			acceptUnknown: acceptedToken === token,
 		});
 		if (response.status === 429) {
 			const result: { until?: unknown } | null = await response.json().catch(() => null);
-			const until = result?.until;
-			if (typeof until !== "number" || !Number.isFinite(until)) throw new Error();
-			if (!mounted || input !== request) return;
+			// Expiry may have cleared this Review while the request was in flight.
+			if (!mounted || input !== request || current?.token !== token) return;
 			// No job was claimed, so the same Review token and consent queue it later.
-			const deadline = new Date(Math.ceil(until / 1000) * 1000).toISOString().slice(0, 19);
+			const until = result?.until;
+			const deadline =
+				typeof until === "number" && Number.isFinite(until)
+					? ` after ${new Date(Math.ceil(until / 1000) * 1000)
+							.toISOString()
+							.replace(/\.\d{3}Z$/, "")
+							.replace("T", " ")} UTC`
+					: " shortly";
 			feedback = {
 				request: input,
-				message: `The provider is cooling down. Click Queue again after ${deadline.replace("T", " ")} UTC.`,
+				message: `The provider is cooling down. Nothing was sent. Click Queue again${deadline}.`,
 			};
 			return;
 		}

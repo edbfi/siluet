@@ -258,6 +258,19 @@ test("a headerless batch throttle closes a racing single's wallet before send an
 	expect(await restarted.submit("owner", unused)).toMatchObject({ error: "cooldown" });
 	expect(await restarted.submit("owner", single)).toEqual(result);
 	expect(posts).toBe(1);
+
+	// The refused Review claimed nothing, so the same token queues once after the cooldown.
+	time += 2000;
+	read = async (url) => {
+		if (url.endsWith("/balance")) return balance();
+		posts++;
+		return Response.json({ code: 200, data: { task_id: "after-cooldown" } });
+	};
+	const queued = await restarted.submit("owner", unused);
+	expect(queued).toEqual({ jobId: expect.any(String) });
+	await Promise.all(dispatched);
+	expect(await restarted.submit("owner", unused)).toEqual(queued);
+	expect(posts).toBe(2);
 });
 
 test.each(["deadline", "credential", "disclosure", "unknown", "rejection"] as const)(
