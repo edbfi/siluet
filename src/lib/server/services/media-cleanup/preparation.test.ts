@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { readdir, rm, writeFile } from "node:fs/promises";
 import sharp from "sharp";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { openRuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
+import { createScratchPool } from "../media-staging/scratch";
+import { createStages } from "../media-staging/stages";
 import { type Cleaners, createMediaPreparation, type PreparedMedia } from "./preparation";
 
 const directory = await createOwnerDirectory();
@@ -156,6 +158,36 @@ test("a second request is refused while the first stages.put() write stalls", as
 	expect(await pending).toBeGreaterThan(0);
 	await held()?.settled;
 	expect((await prepare(jpeg)).mime).toBe("image/jpeg");
+});
+
+test("a stage write that crosses the deadline publishes nothing and holds the slot until it settles", async () => {
+	const scratch = createScratchPool(installation);
+	await scratch.reclaim();
+	const scope = await scratch.scope("image");
+	const write = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	const stages = createStages(scope, {
+		writeFile: async (path, bytes) => {
+			entered.resolve();
+			await write.promise;
+			await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
+		},
+	});
+	const quick = createMediaPreparation(installation, { deadlineMs: 100 });
+	const draft = { owner: "owner", session: "session", draft: crypto.randomUUID() };
+	const pending = quick(png, signal, (media, stop) => stages.put(draft, media, { signal: stop }));
+	pending.catch(() => {});
+	await entered.promise;
+	await Bun.sleep(200);
+	// The deadline has passed, but the write still holds the slot.
+	await expect(prepare(jpeg)).rejects.toMatchObject({ code: "busy" });
+	write.resolve();
+	await expect(pending).rejects.toMatchObject({ code: "timeout" });
+	await held()?.settled;
+	expect(held()).toBeUndefined();
+	expect(scratch.used).toBe(0);
+	expect(await readdir(scope.directory)).toEqual([]);
+	await stages.close();
 });
 
 test("30 s → timeout, counted from admission through a trickled body", async () => {

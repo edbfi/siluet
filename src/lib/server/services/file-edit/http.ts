@@ -27,13 +27,11 @@ export async function stageFile(event: RequestEvent) {
 		return new Response(null, { status: 413 });
 	const token = event.cookies.get(locals.studio.cookieName);
 	try {
-		const stage = await locals.studio.prepareMedia(request.body, request.signal, (media) =>
-			locals.studio.stages.put(
-				scope,
-				media,
-				async () =>
-					!request.signal.aborted && (await locals.studio.access.session(token)) === scope.owner,
-			),
+		const stage = await locals.studio.prepareMedia(request.body, request.signal, (media, signal) =>
+			locals.studio.stages.put(scope, media, {
+				signal,
+				valid: async () => (await locals.studio.access.session(token)) === scope.owner,
+			}),
 		);
 		return json(stage);
 	} catch (error) {

@@ -82,12 +82,14 @@ export function createMediaPreparation(
 ) {
 	/**
 	 * Read, clean and verify one file, then hand it to `commit` (the stage write)
-	 * while still holding the slot. The deadline starts at admission.
+	 * while still holding the slot. The deadline starts at admission. `commit`
+	 * receives the deadline, request and shutdown as one signal and must not
+	 * publish once it aborts. The slot waits for the write and any rollback.
 	 */
 	return async function prepareMedia<T>(
 		source: Uint8Array | ReadableStream<Uint8Array>,
 		signal: AbortSignal,
-		commit: (media: PreparedMedia) => Promise<T>,
+		commit: (media: PreparedMedia, signal: AbortSignal) => Promise<T>,
 	): Promise<T> {
 		const timeout = new AbortController();
 		const stopped = AbortSignal.any(
@@ -146,11 +148,11 @@ export function createMediaPreparation(
 					? { bytes, digest, mime, size: bytes.length, transform: cleaned.transform }
 					: { bytes, digest, mime, size: bytes.length, transform: "none" };
 			committing = true;
-			return await slot.track(commit(media));
+			return await slot.track(commit(media, stopped));
 		} catch (error) {
 			cancelSource();
-			if (committing) throw error;
 			check();
+			if (committing) throw error;
 			throw refusal(error);
 		} finally {
 			clearTimeout(timer);

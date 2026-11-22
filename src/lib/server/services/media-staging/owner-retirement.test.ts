@@ -141,7 +141,7 @@ test("sign-out and idle expiry retire only affected sessions, including while a 
 		),
 	);
 	await expect(
-		stages.put(expired.scope, media, async () => !!(await access.session(third.token))),
+		stages.put(expired.scope, media, { valid: async () => !!(await access.session(third.token)) }),
 	).rejects.toThrow();
 	expect(expired.preview.signal.aborted).toBeTrue();
 	expect(active.preview.signal.aborted).toBeFalse();

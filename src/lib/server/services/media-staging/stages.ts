@@ -37,6 +37,8 @@ export type StageOptions = {
 	buffers?: number;
 	retryDelays?: readonly number[];
 	removeFile?: (path: string) => Promise<void>;
+	/** Test seam for the exclusive private write of a new stage file. */
+	writeFile?: (path: string, bytes: Uint8Array) => Promise<void>;
 	/** Test seam awaited between chunks of a dispatch read. */
 	pace?: () => Promise<void>;
 };
@@ -48,6 +50,7 @@ export function createStages(
 		buffers: bufferLimit = 32_000_000,
 		retryDelays = [50, 250, 1000],
 		removeFile = (path) => rm(path, { force: true }),
+		writeFile: writeStage = (path, bytes) => writeFile(path, bytes, { flag: "wx", mode: 0o600 }),
 		pace,
 	}: StageOptions = {},
 ) {
@@ -234,20 +237,26 @@ export function createStages(
 			finished.resolve();
 		}
 	}
+	type PutOptions = {
+		valid?: () => Promise<boolean>;
+		/** The preparation's deadline, request and shutdown. Nothing publishes once it aborts. */
+		signal?: AbortSignal;
+	};
 	function put<P extends StageProfile>(
 		scope: StageScope,
 		media: PreparedStageMedia<P>,
-		valid?: () => Promise<boolean>,
+		options?: PutOptions,
 	): Promise<MediaDescriptor<P>>;
 	function put(
 		scope: StageScope,
 		media: PreparedStageMedia,
-		valid: () => Promise<boolean> = async () => true,
+		{ valid = async () => true, signal }: PutOptions = {},
 	) {
 		const write = { session: scope.session, retired: false };
+		const stopped = () => closed || write.retired || !!signal?.aborted;
 		writes.add(write);
 		return serialize(async () => {
-			if (closed || write.retired || !(await valid())) throw new StageError("Stage unavailable.");
+			if (stopped() || !(await valid())) throw new StageError("Stage unavailable.");
 			await sweep();
 			for (const s of stages.values()) if (!live(s)) await remove(s);
 			const { bytes, digest, size } = media;
@@ -275,12 +284,13 @@ export function createStages(
 				deadline: now() + stageIdleMs,
 			} satisfies MediaDescriptor;
 			try {
-				await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
+				await writeStage(path, bytes);
 				reservation.commit(size);
 				const info = await stat(path, { bigint: true });
-				if (closed || !(await valid())) throw new StageError("Stage unavailable.");
+				if (stopped() || !(await valid())) throw new StageError("Stage unavailable.");
 				for (const s of stages.values()) if (same(s.scope, scope)) await remove(s);
-				if (write.retired || closed) throw new StageError("Stage unavailable.");
+				// Checked again with no await before publishing.
+				if (stopped()) throw new StageError("Stage unavailable.");
 				stages.set(handle, {
 					scope: { ...scope },
 					descriptor,
