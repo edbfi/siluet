@@ -4,7 +4,7 @@
 
 ## Scope of a Queue click
 
-Enable live editing for **exactly one URL, one ordinary output image, one request and zero retries**. One reference lets the creator authorize disclosure of a single asset and exercise the complete edit flow. Files, mixed or multiple references, batches and retries keep the existing [offline Review](SPEC-image-studio.md) with the reason Queue is unavailable. Layer decomposition is deferred. Text-to-image keeps its existing path.
+Enable live editing for **exactly one URL, one ordinary output image, one request and zero retries**. One reference lets the creator authorize disclosure of a single asset and exercise the complete edit flow. The [next slice](SPEC-seedream-multi-reference-edit.md) extends the one-URL limit to ten ordered URLs. Files, mixed media, batches and retries keep the existing [offline Review](SPEC-image-studio.md) with the reason Queue is unavailable. Layer decomposition is deferred. Text-to-image keeps its existing path.
 
 The browser and server apply the same public HTTP(S) URL rules. The server derives the hostname from the submitted URL. Reject userinfo, local names, non-public address literals and non-URL inputs. Validate syntax locally. During composition, Review and Queue, neither browser nor server resolves, previews, downloads, proxies or uploads the reference. The image must be accessible to the provider without the creator’s cookies or extra headers. A signed query can grant that access. The provider determines reachability, file format and byte size when it retrieves the image. Keep the link reachable through processing. Fetch timing, redirect handling and minimum remaining lifetime are unverified.
 

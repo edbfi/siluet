@@ -1,6 +1,7 @@
 <script lang="ts">
 import { Tabs } from "@ark-ui/svelte/tabs";
 import { onDestroy, tick } from "svelte";
+import { maxSeedreamReferences } from "#lib/shared/image-studio/references.ts";
 import type { ImageReviewData, ReviewOperation } from "#lib/shared/image-studio/review.ts";
 import {
 	estimateReviewPrice,
@@ -15,11 +16,14 @@ import type { SeedreamDraft } from "#lib/shared/image-studio/seedream.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
 import type { PricingFeeds, PricingProvider } from "#lib/shared/pricing/feeds.ts";
 import { goto } from "$app/navigation";
+import ImageReferenceGuidance from "./ImageReferenceGuidance.svelte";
 import * as styles from "./image-review-styles.ts";
 
 let {
 	review,
 	draft,
+	referenceLabels,
+	duplicateWarning,
 	feeds,
 	nowMs,
 	provider = undefined,
@@ -28,6 +32,8 @@ let {
 }: {
 	review: ImageReviewData | null;
 	draft: SeedreamDraft;
+	referenceLabels: readonly string[];
+	duplicateWarning: string | null;
 	feeds: PricingFeeds;
 	nowMs: number;
 	provider?: PricingProvider;
@@ -57,13 +63,20 @@ type ReviewTerms = {
 	requiresConsent: boolean;
 	editDisclosure?: readonly string[];
 };
-const unavailable = $derived(
-	count !== 1 || retryLimit !== 0
-		? "Queue supports one request and zero additional attempts."
-		: isEdit && (draft.references.length !== 1 || draft.references[0]?.kind !== "url")
-			? "Queue requires exactly one public image URL. Files and multiple references can be staged for offline Review."
-			: null,
-);
+const unavailable = $derived.by(() => {
+	if (isEdit && duplicateWarning) return duplicateWarning;
+	if (count !== 1 || retryLimit !== 0)
+		return "Queue supports one request and zero additional attempts.";
+	if (
+		isEdit &&
+		(draft.references.length < 1 ||
+			draft.references.length > maxSeedreamReferences ||
+			draft.references.some((reference) => reference.kind !== "url"))
+	) {
+		return `Queue requires 1–${maxSeedreamReferences} public image URLs. Files can be staged for offline Review.`;
+	}
+	return null;
+});
 const request = $derived(
 	review && !unavailable ? { draft: $state.snapshot(draft), count, retryLimit } : null,
 );
@@ -267,9 +280,11 @@ $effect(() => {
 					<dt class={styles.term}>{isEdit ? "Reference images" : "Media on submission"}</dt>
 					<dd class={styles.detail}>
 						{#if review?.sources.length}
-							<ol class={styles.mediaList}>
-								{#each review.sources as source}
+							<!-- biome-ignore lint/a11y/noRedundantRoles: Safari needs an explicit role when list markers are hidden. -->
+							<ol class={styles.mediaList} role="list">
+								{#each review.sources as source, index}
 									<li>
+										{index + 1}. Reference {referenceLabels[index]} ·
 										{source.label}{source.kind === "url" ? " (URL reference)" : " (local file)"}
 									</li>
 								{/each}
@@ -278,6 +293,12 @@ $effect(() => {
 							Complete the request to review the media.
 						{:else}
 							None
+						{/if}
+						{#if isEdit && selectedProvider}
+							<ImageReferenceGuidance
+								provider={selectedProvider}
+								autoFraming={draft.references.length > 1 && draft.options.aspectRatio === "auto"}
+							/>
 						{/if}
 					</dd>
 				</div>
@@ -289,9 +310,10 @@ $effect(() => {
 						{/if}
 						{#if quote?.status === "known"}
 							<p>Estimated {quote.perRequest} {providerName} credits per request</p>
-							{#if current && quote.unit === "toapis_credit"}
+							{#if quote.unit === "toapis_credit"}
 								<p>Standard-route estimate ${quote.usd.perRequest} USD.</p>
-							{:else if !current}
+							{/if}
+							{#if !current}
 								<p>Estimated {quote.batch} {providerName} credits for the initial batch</p>
 							{/if}
 							{@render rateDates(quote.sourceDate, quote.expiresAt)}

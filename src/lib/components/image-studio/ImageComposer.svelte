@@ -1,27 +1,27 @@
 <script lang="ts">
-import { onMount, type Snippet, tick, untrack } from "svelte";
+import { type Snippet, tick, untrack } from "svelte";
 import {
 	maxSeedreamReferences,
 	referenceFileHelp,
 	type SeedreamReference,
 } from "#lib/shared/image-studio/references.ts";
 import {
-	createSeedreamDraft,
 	poyoPromptLimits,
 	type SeedreamDraft,
 	type SeedreamOperation,
 	type SeedreamProvider,
-	type SeedreamReviewInput,
 	seedreamBackgrounds,
 	seedreamOperations,
 	seedreamOutputFormats,
 	seedreamProviderNames,
 	seedreamProviders,
 	switchSeedreamDraft,
-	validateSeedreamDraft,
+	type validateSeedreamDraft,
 } from "#lib/shared/image-studio/seedream.ts";
 import { css } from "#styled-system/css";
 import { studioPanel } from "#styled-system/recipes";
+import { createReferenceDraft, type ReferenceDraft, referenceLabel } from "./draft-context.ts";
+import ImageReferenceGuidance from "./ImageReferenceGuidance.svelte";
 import ImageReferencePreview from "./ImageReferencePreview.svelte";
 import ImageReferenceSlot from "./ImageReferenceSlot.svelte";
 import {
@@ -91,21 +91,19 @@ let {
 	settingsHref = "/settings/providers",
 	reviewHref,
 	reviewPanel,
-	draft = $bindable(
-		untrack(() =>
-			createSeedreamDraft(
-				seedreamProviders.find((provider) => eligibleProviders.includes(provider)) ?? null,
-			),
-		),
-	),
-	reviewInput = $bindable(null),
+	duplicateWarning,
+	referenceDraft = $bindable(),
+	draft = $bindable(),
+	validation,
 }: {
 	eligibleProviders: readonly SeedreamProvider[];
 	settingsHref?: string;
 	reviewHref: string;
 	reviewPanel: Snippet;
-	draft?: SeedreamDraft;
-	reviewInput?: SeedreamReviewInput | null;
+	duplicateWarning: string | null;
+	referenceDraft: ReferenceDraft;
+	draft: SeedreamDraft;
+	validation: ReturnType<typeof validateSeedreamDraft>;
 } = $props();
 
 const id = $props.id();
@@ -113,22 +111,12 @@ let connectedProviders = $derived(
 	seedreamProviders.filter((provider) => eligibleProviders.includes(provider)),
 );
 const rememberedOptions = new Map<string, SeedreamDraft["options"]>();
-let slotKeys = $state(
-	untrack(() =>
-		Array.from(
-			{ length: Math.min(maxSeedreamReferences, draft.references.length + 1) },
-			(_, index) => index,
-		),
-	),
-);
-let nextSlotKey = untrack(() => slotKeys.length);
 let previewIndex = $state(0);
 let selectionStatus = $state("");
 let promptTouched = $state(untrack(() => draft.prompt.length > 0));
 let promptField: HTMLTextAreaElement;
 let preview: ReturnType<typeof ImageReferencePreview>;
 
-const validation = $derived(validateSeedreamDraft(draft, connectedProviders));
 const errors = $derived(validation.ok ? {} : validation.errors);
 
 $effect(() => {
@@ -137,14 +125,6 @@ $effect(() => {
 		connectedProviders[0] ??
 		null;
 	if (provider !== draft.provider) untrack(() => select(provider));
-});
-
-$effect(() => {
-	reviewInput = validation.ok ? validation.input : null;
-});
-
-onMount(() => () => {
-	reviewInput = null;
 });
 
 function select(provider: SeedreamProvider | null, operation: SeedreamOperation = draft.operation) {
@@ -163,17 +143,31 @@ function select(provider: SeedreamProvider | null, operation: SeedreamOperation 
 				: "Reference images cleared.";
 	}
 	previewIndex = 0;
-	slotKeys = [nextSlotKey++];
+	referenceDraft = createReferenceDraft();
 	draft = next;
 }
 
+function reserveIdentity() {
+	return referenceDraft.nextIdentity++;
+}
+
 function keepEmptySlot() {
-	if (slotKeys.length === draft.references.length && slotKeys.length < maxSeedreamReferences) {
-		slotKeys.push(nextSlotKey++);
+	const slots = referenceDraft.slots;
+	if (slots.length === draft.references.length && slots.length < maxSeedreamReferences) {
+		const identity = reserveIdentity();
+		slots.push({ key: identity, identity, privateName: "" });
 	}
 }
 
-function setReference(index: number, reference: SeedreamReference) {
+function setReference(
+	index: number,
+	reference: SeedreamReference,
+	privateName = "",
+	replacementIdentity?: number,
+) {
+	const slot = referenceDraft.slots[index];
+	if (draft.references[index]) slot.identity = replacementIdentity ?? reserveIdentity();
+	slot.privateName = privateName;
 	draft.references[index] = reference;
 	keepEmptySlot();
 	previewIndex = index;
@@ -182,15 +176,38 @@ function setReference(index: number, reference: SeedreamReference) {
 
 async function removeReference(index: number) {
 	draft.references.splice(index, 1);
-	slotKeys.splice(index, 1);
+	referenceDraft.slots.splice(index, 1);
 	keepEmptySlot();
+	selectionStatus = "";
 	if (previewIndex === index)
 		previewIndex = Math.min(index, Math.max(0, draft.references.length - 1));
 	else if (previewIndex > index) previewIndex--;
 
-	const nextFile = `${id}-reference-${slotKeys[index]}`;
+	const nextSlot = referenceDraft.slots[index];
 	await tick();
-	document.getElementById(nextFile)?.focus({ preventScroll: true });
+	document.getElementById(`${id}-reference-${nextSlot.key}`)?.focus({ preventScroll: true });
+}
+
+async function moveReference(index: number, offset: -1 | 1) {
+	const destination = index + offset;
+	const reference = draft.references[index];
+	if (!reference || !draft.references[destination]) return;
+	const slot = referenceDraft.slots[index];
+	draft.references.splice(index, 1);
+	draft.references.splice(destination, 0, reference);
+	referenceDraft.slots.splice(index, 1);
+	referenceDraft.slots.splice(destination, 0, slot);
+	if (previewIndex === index) previewIndex = destination;
+	else if (previewIndex === destination) previewIndex = index;
+	selectionStatus = `Reference ${referenceLabel(slot.identity)} moved to position ${destination + 1} of ${draft.references.length}.`;
+	await tick();
+	const fileId = `${id}-reference-${slot.key}`;
+	const up = document.getElementById(`${fileId}-up`) as HTMLButtonElement | null;
+	const down = document.getElementById(`${fileId}-down`) as HTMLButtonElement | null;
+	const [preferred, alternate] = offset === -1 ? [up, down] : [down, up];
+	const focus =
+		preferred && !preferred.disabled ? preferred : (alternate ?? document.getElementById(fileId));
+	focus?.focus();
 }
 
 async function showReference(index: number) {
@@ -344,18 +361,30 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 					<fieldset class={requestFieldset} aria-describedby={`${id}-reference-help`}>
 						<legend class={requestLegend}>Reference images</legend>
 						<p class={requestHelp} id={`${id}-reference-help`}>
-							Add 1–{maxSeedreamReferences} images in prompt order.
-							{referenceFileHelp(provider)} each. Queue supports one public image URL. Files and
-							additional references can be staged for offline Review.
+							Queue supports 1–{maxSeedreamReferences} public image URLs. For offline Review, you
+							can also stage files ({referenceFileHelp(provider)} each).
 						</p>
-						{#each slotKeys as key, index (key)}
+						<ImageReferenceGuidance
+							{provider}
+							autoFraming={draft.references.length > 1 && draft.options.aspectRatio === "auto"}
+						/>
+						{#if duplicateWarning}
+							<p class={requestError} role="status">{duplicateWarning}</p>
+						{/if}
+						{#each referenceDraft.slots as slot, index (slot.key)}
 							<ImageReferenceSlot
 								{provider}
 								{index}
-								fileId={`${id}-reference-${key}`}
+								{slot}
+								fileId={`${id}-reference-${slot.key}`}
 								helpId={`${id}-reference-help`}
 								reference={draft.references[index]}
-								onSelect={(reference) => setReference(index, reference)}
+								canMoveDown={index < draft.references.length - 1}
+								{reserveIdentity}
+								onSelect={(reference, privateName, replacementIdentity) =>
+									setReference(index, reference, privateName, replacementIdentity)}
+								onRename={(name) => (slot.privateName = name)}
+								onMove={(offset) => moveReference(index, offset)}
 								onRemove={() => removeReference(index)}
 								onPreview={() => showReference(index)}
 							/>

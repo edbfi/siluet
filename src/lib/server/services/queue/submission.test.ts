@@ -5,10 +5,12 @@ import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { toapisRates } from "../../../../../tests/fixtures/toapis-feed";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
-import { decodePricingFeed, pricingMaxAgeMs } from "../../../shared/pricing/feed";
+import { pricingMaxAgeMs } from "../../../shared/pricing/feed";
+import { pricingSourceDate } from "../../../shared/pricing/feeds";
 import { decodeToapisPricingFeed } from "../../../shared/pricing/toapis-feed";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
+import { loadBundledPricing } from "../pricing/local-feed";
 import { createProviderConnections } from "../providers/connections";
 import { parseQueueRequest } from "./request";
 import { createSubmissionQueue } from "./submission";
@@ -18,10 +20,23 @@ let dir: string;
 let posted: string[];
 const referenceUrl =
 	"https://photo-fixture.example.org/private%2Ffan?sig=private%2Bnz&v=1&v=2#layer-id";
+const secondReferenceUrl = referenceUrl.replace("private%2Bnz", "alternate%2Bqy");
 const prompt = "private prompt with a folded fan";
-function makeInput(provider: "poyo" | "toapis" = "poyo", url?: string) {
-	const draft = createSeedreamDraft(provider, url ? "edit" : "generate");
-	if (url) draft.references = [{ kind: "url", url, hostname: "mock.example" }];
+
+async function installationReviewDigest() {
+	const row = await db.use((conn) =>
+		conn.get<{ secret: string }>(sql`SELECT secret FROM image_review_key WHERE singleton=1`),
+	);
+	if (!row) throw new Error("Expected installation signing key.");
+	return (...parts: unknown[]) =>
+		createHmac("sha256", Buffer.from(row.secret, "hex"))
+			.update(JSON.stringify(parts))
+			.digest("hex");
+}
+
+function makeInput(provider: "poyo" | "toapis" = "poyo", ...urls: string[]) {
+	const draft = createSeedreamDraft(provider, urls.length ? "edit" : "generate");
+	draft.references = urls.map((url) => ({ kind: "url", url, hostname: "mock.example" }));
 	const parsed = parseQueueRequest({
 		draft: { ...draft, prompt },
 		count: 1,
@@ -97,14 +112,7 @@ test("legacy generation Review tokens and accepted bindings remain compatible", 
 	const api = await queue();
 	const review = await api.review("owner", input);
 	if ("error" in review) throw new Error("Expected Review.");
-	const row = await db.use((conn) =>
-		conn.get<{ secret: string }>(sql`SELECT secret FROM image_review_key WHERE singleton=1`),
-	);
-	if (!row) throw new Error("Expected installation signing key.");
-	const digest = (...parts: unknown[]) =>
-		createHmac("sha256", Buffer.from(row.secret, "hex"))
-			.update(JSON.stringify(parts))
-			.digest("hex");
+	const digest = await installationReviewDigest();
 	const id = review.token.split(".")[0];
 	const terms = digest("review-terms-v1", 1, review.quote, true, null);
 	const signature = digest("review-v1", id, terms, "owner", "poyo", input.request.body, 1, 0);
@@ -121,7 +129,7 @@ test("legacy generation Review tokens and accepted bindings remain compatible", 
 });
 
 test.each(["poyo", "toapis"] as const)(
-	"a %s edit binds the full provider payload and replays one accepted Review after restart",
+	"a %s multi-reference edit binds the ordered provider payload and replays after restart",
 	async (provider) => {
 		const delivered: unknown[] = [];
 		const openQueue = () =>
@@ -133,13 +141,14 @@ test.each(["poyo", "toapis"] as const)(
 				},
 				async () => ({}),
 			);
-		const input = makeInput(provider, referenceUrl);
+		const input = makeInput(provider, referenceUrl, secondReferenceUrl);
 		const api = await openQueue();
 		const review = await api.review("owner", input);
 		if ("error" in review) throw new Error("Expected Review.");
 		const disclosure = "editDisclosure" in review ? review.editDisclosure : undefined;
 		expect(disclosure).toBeArray();
 		const text = Array.isArray(disclosure) ? disclosure.join(" ") : "";
+		expect(text).toMatch(/every full reference URL/i);
 		expect(text).toMatch(/path.*query.*fragment/i);
 		expect(text).toMatch(/upstream/i);
 		expect(text).toMatch(/signed link.*expir/i);
@@ -153,12 +162,16 @@ test.each(["poyo", "toapis"] as const)(
 
 		const click = { ...input, token: review.token, acceptUnknown: true };
 		expect(await api.submit("other", click)).toEqual({ error: "invalid" });
-		for (const altered of [
-			makeInput(provider, referenceUrl.replace("private%2Bnz", "other%2Bnz")),
-			makeInput(provider, referenceUrl.replace("&v=1&v=2", "&v=2&v=1")),
-			makeInput(provider, referenceUrl.replace("#layer-id", "#other-layer")),
+		const changes = [
+			makeInput(provider, secondReferenceUrl, referenceUrl),
+			makeInput(provider, referenceUrl, secondReferenceUrl.replace("alternate", "other")),
+			makeInput(provider, referenceUrl.replace("&v=1&v=2", "&v=2&v=1"), secondReferenceUrl),
+			makeInput(provider, referenceUrl, secondReferenceUrl.replace("#layer-id", "#other-layer")),
+			makeInput(provider, referenceUrl),
+			makeInput(provider, referenceUrl, secondReferenceUrl, `${referenceUrl}-extra`),
 			makeInput(provider),
-		]) {
+		];
+		for (const altered of changes) {
 			expect(await api.submit("owner", { ...click, ...altered, token: review.token })).toEqual({
 				error: "invalid",
 			});
@@ -183,6 +196,7 @@ test.each(["poyo", "toapis"] as const)(
 			"photo-fixture",
 			"private%2Ffan",
 			"private%2Bnz",
+			"alternate%2Bqy",
 			"layer-id",
 		]) {
 			expect(persisted).not.toContain(privateMarker);
@@ -192,6 +206,11 @@ test.each(["poyo", "toapis"] as const)(
 		db = await openInstallation(dir);
 		const reopened = await openQueue();
 		expect(await reopened.submit("owner", click)).toEqual(first);
+		for (const altered of changes) {
+			expect(await reopened.submit("owner", { ...click, ...altered, token: review.token })).toEqual(
+				{ error: "invalid" },
+			);
+		}
 		expect(await reopened.submit("owner", { ...click, acceptUnknown: false })).toEqual({
 			error: "invalid",
 		});
@@ -199,8 +218,100 @@ test.each(["poyo", "toapis"] as const)(
 	},
 );
 
+const previousEditDisclosure = {
+	poyo: [
+		"Queue sends Poyo.ai your prompt and full reference URL, including its path, query with any signature, and fragment. Poyo.ai and its upstream model services may process these inputs and fetch the image.",
+		"Keep the image reachable through processing without cookies or extra headers. A signed link may grant access until expiry. A recipient can keep a copy it has already fetched, even after the link expires.",
+		"Poyo.ai displays input parameters in task history and retains generation history for three months. The retention period for fetched reference images is unknown.",
+	],
+	toapis: [
+		"Queue sends ToAPIs your prompt and full reference URL, including its path, query with any signature, and fragment. ToAPIs and its upstream model services may process these inputs and fetch the image, including through a fallback for eligible accounts and regions.",
+		"Keep the image reachable through processing without cookies or extra headers. A signed link may grant access until expiry. A recipient can keep a copy it has already fetched, even after the link expires.",
+		"ToAPIs keeps API call logs for 90 days by default. Retention of submitted URLs and fetched reference images is unspecified.",
+	],
+};
+
+test.each(["poyo", "toapis"] as const)(
+	"after the %s edit upgrade, a claimed single-reference Review replays and an unused one stales",
+	async (provider) => {
+		const input = makeInput(provider, referenceUrl);
+		const previous = await createSubmissionQueue(
+			db,
+			providerStore(db).credential,
+			async (_id, _route, key) => {
+				posted.push(key);
+			},
+			async () => ({}),
+			Date.now,
+			(route) => previousEditDisclosure[route],
+		);
+		const acceptedReview = await previous.review("owner", input);
+		const unusedReview = await previous.review("owner", input);
+		if ("error" in acceptedReview || "error" in unusedReview) throw new Error("Expected Review.");
+		const digest = await installationReviewDigest();
+		const oldTerms = digest(
+			"edit-review-terms-v1",
+			1,
+			acceptedReview.quote,
+			true,
+			null,
+			previousEditDisclosure[provider],
+		);
+		const { method, url, body } = input.request;
+		for (const { token } of [acceptedReview, unusedReview]) {
+			const id = token.split(".")[0];
+			const signature = digest(
+				"edit-review-v1",
+				id,
+				oldTerms,
+				"owner",
+				provider,
+				method,
+				url,
+				body,
+				1,
+				0,
+			);
+			expect(token).toBe(`${id}.${oldTerms}.${signature}`);
+		}
+		const acceptedClick = { ...input, token: acceptedReview.token, acceptUnknown: true };
+		const accepted = await previous.submit("owner", acceptedClick);
+		expect(accepted).toHaveProperty("jobId");
+
+		await db.close();
+		db = await openInstallation(dir);
+		const upgraded = await queue();
+		expect(await upgraded.submit("owner", acceptedClick)).toEqual(accepted);
+		expect(
+			await upgraded.submit("owner", {
+				...makeInput(provider, secondReferenceUrl),
+				token: acceptedReview.token,
+				acceptUnknown: true,
+			}),
+		).toEqual({ error: "invalid" });
+		expect(await upgraded.submit("owner", { ...acceptedClick, acceptUnknown: false })).toEqual({
+			error: "invalid",
+		});
+		const unused = await upgraded.submit("owner", { ...acceptedClick, token: unusedReview.token });
+		expect(unused).toMatchObject({
+			error: "stale",
+			review: { quote: unusedReview.quote, acceptUnknown: false },
+		});
+		expect(posted).toEqual([`fixture-${provider}`]);
+		expect(await db.use((conn) => conn.all(sql`SELECT id FROM image_job`))).toHaveLength(1);
+		if (!("review" in unused)) throw new Error("Expected updated Review.");
+		expect(unused.review).toMatchObject({
+			editDisclosure: expect.arrayContaining([expect.stringMatching(/every full reference URL/i)]),
+		});
+		expect(
+			await upgraded.submit("owner", { ...acceptedClick, token: unused.review.token }),
+		).toHaveProperty("jobId");
+		expect(posted).toEqual([`fixture-${provider}`, `fixture-${provider}`]);
+	},
+);
+
 test("changing only the edit disclosure content stales unused consent and preserves a claimed replay", async () => {
-	const input = makeInput("poyo", referenceUrl);
+	const input = makeInput("poyo", referenceUrl, secondReferenceUrl);
 	let disclosure = ["The reference is retained for three months."];
 	const openQueue = () =>
 		createSubmissionQueue(
@@ -242,34 +353,38 @@ test("changing only the edit disclosure content stales unused consent and preser
 	expect(posted).toEqual(["accepted"]);
 });
 
-test("a Poyo.ai edit quote includes one reference charge", async () => {
-	const feed = decodePricingFeed({
-		version: 1,
-		provider: "poyo",
-		revision: "a".repeat(40),
-		sourceDate: "2026-11-19T13:42:30Z",
-		rates: {
-			"z-image": { kind: "per-request", credits: "2" },
-			"seedream-5.5": {
-				kind: "per-image-with-references",
-				resolutions: { "1K": "4", "1.5K": "4", "2K": "7" },
-				perReference: "1.6",
-			},
-		},
-	});
-	if (!feed) throw new Error("Invalid fixture rate.");
-	const api = await createSubmissionQueue(
-		db,
-		providerStore(db).credential,
-		async () => {},
-		async () => ({ poyo: feed }),
-		() => Date.parse(feed.sourceDate) + 100,
-	);
-	expect(await api.review("owner", makeInput("poyo", referenceUrl))).toMatchObject({
-		quote: { status: "known", perRequest: "8.6", maxAttempts: 1, sourceDate: feed.sourceDate },
-		requiresConsent: false,
-	});
-});
+test.each(["poyo", "toapis"] as const)(
+	"a %s edit quotes one, two, and ten references from its dated bundled rates",
+	async (provider) => {
+		const feed = await loadBundledPricing(provider);
+		if (!feed) throw new Error("Invalid bundled feed.");
+		const sourceDate = pricingSourceDate(feed);
+		const api = await createSubmissionQueue(
+			db,
+			providerStore(db).credential,
+			async () => {},
+			async () => (feed.provider === "poyo" ? { poyo: feed } : { toapis: feed }),
+			() => Date.parse(sourceDate) + 100,
+		);
+		for (const [count, poyoTotal] of [
+			[1, "8.6"],
+			[2, "10.2"],
+			[10, "23"],
+		] as const) {
+			const urls = Array.from({ length: count }, (_, index) => `${referenceUrl}-${index}`);
+			expect(await api.review("owner", makeInput(provider, ...urls))).toMatchObject({
+				quote: {
+					status: "known",
+					perRequest: provider === "poyo" ? poyoTotal : "5.6",
+					maxAttempts: 1,
+					sourceDate,
+					...(provider === "toapis" && { usd: { perRequest: "0.028", batch: "0.028" } }),
+				},
+				requiresConsent: provider === "toapis",
+			});
+		}
+	},
+);
 
 test("removing the reviewed credential before first claim requires a fresh review and sends nothing", async () => {
 	const input = makeInput();
@@ -369,7 +484,10 @@ test.each(["generate", "edit"] as const)(
 		if (!feed) throw new Error("Invalid fixture rate.");
 		let time = Date.parse(feed.observedAt) + 100;
 		let available = true;
-		const input = makeInput("toapis", operation === "edit" ? referenceUrl : undefined);
+		const input =
+			operation === "edit"
+				? makeInput("toapis", referenceUrl, secondReferenceUrl)
+				: makeInput("toapis");
 		const api = await createSubmissionQueue(
 			db,
 			providerStore(db).credential,

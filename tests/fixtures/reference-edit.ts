@@ -6,6 +6,31 @@ export const referencePathMarker = "private-edit-path";
 export const referenceQueryMarker = "private-edit-query";
 export const referenceFragmentMarker = "private-edit-fragment";
 export const signedReference = `HTTPS://${referenceHost}:443/${referencePathMarker}%2fscene%20A.png?sig=${referenceQueryMarker}%2B%2f&part=one&part=two#${referenceFragmentMarker}`;
+const secondReferenceMarkers = [
+	"private-second-path",
+	"private-second-query",
+	"private-second-fragment",
+] as const;
+export const secondSignedReference = `https://${referenceHost}/${secondReferenceMarkers[0]}%2Fb.png?part=two&sig=${secondReferenceMarkers[1]}%2b&part=one#${secondReferenceMarkers[2]}`;
+const extraReferenceMarker = "private-extra-reference";
+export const tenSignedReferences = [
+	secondSignedReference,
+	signedReference,
+	...Array.from(
+		{ length: 8 },
+		(_, index) => `https://${referenceHost}/${extraReferenceMarker}-${index + 3}.png`,
+	),
+];
+const providerEchoMarker = "private-provider-error-detail";
+export const referenceMarkers = [
+	referenceHost,
+	referencePathMarker,
+	referenceQueryMarker,
+	referenceFragmentMarker,
+	...secondReferenceMarkers,
+	extraReferenceMarker,
+	providerEchoMarker,
+];
 export const editedImagePath = "/media/reference-edit.png";
 export const editedImageSignature = "fixture-edited-result-signature";
 export const editedPng = Buffer.from(
@@ -15,42 +40,55 @@ export const editedPng = Buffer.from(
 
 type Outcome = "completed" | "download-fails-once" | "rejected" | "failed" | "timeout";
 
-export function referenceEditFixtures(provider: SeedreamProvider, outcome: Outcome = "completed") {
+export function referenceEditFixtures(
+	provider: SeedreamProvider,
+	outcome: Outcome = "completed",
+	prompt = "",
+) {
 	const submissions: unknown[] = [];
-	const taskId = `${provider}-reference-edit-fixture`;
+	const statusPaths: string[] = [];
 	const result = `https://${referenceHost}/result/reference-edit.png?sig=${editedImageSignature}`;
 	let downloads = 0;
 	// Provider response fields follow the Seedream submit, status and error contracts.
 	const fixture = startProviderFixtures(async (request, path) => {
 		if (path === `/${provider}/submit` && request.method === "POST") {
 			submissions.push((await request.json()) as unknown);
+			const echo = `${providerEchoMarker} ${prompt} ${signedReference} ${secondSignedReference}`;
 			if (outcome === "timeout") {
-				return new Response(signedReference, { headers: { "x-siluet-fixture-timeout": "yes" } });
+				return new Response(echo, { headers: { "x-siluet-fixture-timeout": "yes" } });
 			}
 			if (outcome === "rejected") {
 				return provider === "poyo"
 					? Response.json({
 							code: 400,
-							error: { type: "file_format_error", message: signedReference },
+							error: { type: "file_format_error", message: echo },
 						})
-					: Response.json(
-							{ error: { code: "invalid_image", message: signedReference } },
-							{ status: 400 },
-						);
+					: Response.json({ error: { code: "invalid_image", message: echo } }, { status: 400 });
 			}
+			const taskId = `${provider}-reference-edit-fixture-${submissions.length}`;
+			statusPaths.push(`/${provider}/status/${taskId}`);
 			return provider === "poyo"
-				? Response.json({ code: 200, data: { task_id: taskId } })
-				: Response.json({ id: taskId, status: "pending" });
+				? Response.json({ code: 200, data: { task_id: taskId, metadata: echo } })
+				: Response.json({ id: taskId, status: "pending", metadata: echo });
 		}
-		if (path === `/${provider}/status/${taskId}`) {
+		if (statusPaths.includes(path)) {
+			const taskId = path.split("/").at(-1);
 			if (outcome === "failed") {
+				const message = `${providerEchoMarker} ${secondSignedReference}`;
+				if (provider === "poyo") {
+					return Response.json({
+						code: 200,
+						data: { task_id: taskId, status: "failed", error: { message } },
+					});
+				}
 				return Response.json({
 					id: taskId,
 					status: "failed",
 					error: {
 						code: "generation_failed",
 						reason: "reference_media_unreadable",
-						input_media_errors: [{ message: signedReference }],
+						message: `${providerEchoMarker} ${prompt}`,
+						input_media_errors: [{ index: 0, message }],
 					},
 				});
 			}
@@ -81,10 +119,10 @@ export function referenceEditFixtures(provider: SeedreamProvider, outcome: Outco
 			)
 				return new Response(null, { status: 403 });
 			if (downloads === 1 && outcome === "download-fails-once")
-				return new Response(signedReference, { status: 502 });
+				return new Response(`${providerEchoMarker} ${secondSignedReference}`, { status: 502 });
 			return new Response(editedPng, { headers: { "content-type": "image/png" } });
 		}
 		return null;
 	});
-	return { ...fixture, submissions, statusPath: `/${provider}/status/${taskId}` };
+	return { ...fixture, submissions, statusPaths };
 }

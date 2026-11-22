@@ -1,4 +1,9 @@
-import { parseReferenceUrl, type RemoteReference } from "../../../shared/image-studio/references";
+import {
+	duplicateReferenceSlots,
+	maxSeedreamReferences,
+	parseReferenceUrl,
+	type RemoteReference,
+} from "../../../shared/image-studio/references";
 import {
 	buildSeedreamRequest,
 	poyoAspectRatios,
@@ -67,23 +72,26 @@ export function parseQueueRequest(value: unknown) {
 	const references: RemoteReference[] = [];
 	if (draft.operation === "edit") {
 		if (
-			draft.references.length !== 1 ||
+			draft.references.length < 1 ||
+			draft.references.length > maxSeedreamReferences ||
 			Object.keys(draft).some((key) => !draftFields.includes(key)) ||
 			Object.keys(options).some((key) => !optionFields.includes(key))
 		)
 			return null;
-		const reference: unknown = draft.references[0];
-		if (
-			!record(reference) ||
-			reference.kind !== "url" ||
-			typeof reference.url !== "string" ||
-			(reference.hostname !== undefined && typeof reference.hostname !== "string") ||
-			Object.keys(reference).some((key) => !["kind", "url", "hostname"].includes(key))
-		)
-			return null;
-		const parsed = parseReferenceUrl(reference.url);
-		if (!parsed) return null;
-		references.push(parsed);
+		for (const reference of draft.references as unknown[]) {
+			if (
+				!record(reference) ||
+				reference.kind !== "url" ||
+				typeof reference.url !== "string" ||
+				(reference.hostname !== undefined && typeof reference.hostname !== "string") ||
+				Object.keys(reference).some((key) => !["kind", "url", "hostname"].includes(key))
+			)
+				return null;
+			const parsed = parseReferenceUrl(reference.url);
+			if (!parsed) return null;
+			references.push(parsed);
+		}
+		if (duplicateReferenceSlots(references)) return null;
 	} else if (draft.references.length !== 0) {
 		return null;
 	}

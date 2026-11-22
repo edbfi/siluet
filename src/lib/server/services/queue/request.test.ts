@@ -77,6 +77,32 @@ test.each(["poyo", "toapis"] as const)(
 	},
 );
 
+test.each(["poyo", "toapis"] as const)(
+	"a %s edit keeps every public URL and derived hostname in slot order",
+	(provider) => {
+		const urls = [
+			editUrl.replace("A%2bZ", "another"),
+			editUrl.replace("images.example.org", "photos.example.org"),
+			editUrl,
+			...Array.from({ length: 7 }, (_, index) => `${editUrl}-${index}`),
+		];
+		for (const count of [2, 10]) {
+			const ordered = urls.slice(0, count);
+			const references = ordered.map((url) => ({ ...editDraft.references[0], url: `  ${url}  ` }));
+			const parsed = parseQueueRequest({
+				...request,
+				draft: { ...editDraft, provider, references },
+			});
+			expect(parsed?.input.references).toEqual(
+				ordered.map((url) => ({ kind: "url", url, hostname: new URL(url).hostname })),
+			);
+			expect(parsed?.request.body).toMatchObject(
+				provider === "poyo" ? { input: { image_urls: ordered } } : { image_urls: ordered },
+			);
+		}
+	},
+);
+
 test("live edit rejects unsupported attempts, output controls, and reference shapes", () => {
 	const remote = editDraft.references[0];
 	const file = { kind: "file", file: { name: "local.png", size: 90, type: "image/png" } };
@@ -94,9 +120,12 @@ test("live edit rejects unsupported attempts, output controls, and reference sha
 	}
 	for (const references of [
 		[],
-		[remote, remote],
+		[remote, { ...remote, url: editUrl }],
+		Array.from({ length: 11 }, (_, index) => ({ ...remote, url: `${editUrl}-${index}` })),
 		[file],
 		[remote, file],
+		[remote, { ...remote, url: "not a URL" }],
+		[remote, { ...remote, name: "private annotation" }],
 		[null],
 		[{ url: editUrl }],
 		[{ ...remote, url: 3 }],
