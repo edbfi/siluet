@@ -113,6 +113,32 @@ jobs:
             | length > 0 and all(to_entries[]; .value.result == "success"
                 or (.value.result == "skipped" and (.key | IN($allowed[]))))
           ' <<<"$NEEDS" >/dev/null || { echo "::error::ci-ok failed: $(jq -c 'map_values(.result)' <<<"$NEEDS")"; exit 1; }
+  # Weekly backstop outside ci-ok: fails 14 days before published rates expire, so a stopped
+  # pricing.yml schedule still leaves at least 7 days of notice.
+  pricing-freshness:
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.repository == 'edbfi/siluet'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with: { bun-version-file: package.json }
+      # Stage each feed on its own, so one absent branch or file cannot hide the others.
+      - name: Read the published feeds
+        run: >-
+          bash scripts/pricing/stage-feeds.sh "$RUNNER_TEMP/pricing-feeds"
+          pricing-data:pricing/v2/poyo.json:poyo-v2.json
+          pricing-data:pricing/v1/feed.json:poyo-v1.json
+          pricing-data-toapis:pricing/v1/toapis.json:toapis.json
+      - name: Check the published rates
+        if: ${{ !cancelled() }}
+        run: >-
+          bun scripts/pricing/freshness.ts --fail-within-days 14
+          --poyo-v2 "$RUNNER_TEMP/pricing-feeds/poyo-v2.json"
+          --poyo-v1 "$RUNNER_TEMP/pricing-feeds/poyo-v1.json"
+          --toapis "$RUNNER_TEMP/pricing-feeds/toapis.json"
   audit:
     if: github.event_name != 'pull_request'
     strategy: { fail-fast: false, matrix: { dir: ["."] } }

@@ -50,7 +50,7 @@ def valid_feed($observed):
     and (.[0] | del(.conditions)) == (.[1] | del(.conditions))
     and .[0].source == .[2].source and .[3].source == .[4].source);
 
-read_feed
+read_feed(4096)
 | if type == "object"
   and (del(.receiptDelaySeconds) | keys) == ["conversionCacheAgeSeconds", "conversionSourceUrl", "creditsPerUsd", "gaps",
     "observedAt", "provider", "rates", "version"]

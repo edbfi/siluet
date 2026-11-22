@@ -3,6 +3,9 @@ import { collectPoyoPricing } from "./source.ts";
 
 const revision = "1234567890abcdef1234567890abcdef12345678";
 const sourceDate = "2026-11-18T14:43:22Z";
+// One pinned clock dates the history check, floored to the second.
+const clock = () => Date.parse("2026-11-22T13:30:00.750Z");
+const confirmedAt = "2026-11-22T13:30:00Z";
 const license = "\uFEFFSynthetic license for offline tests\n";
 const commitsUrl =
 	"https://api.github.com/repos/PoyoAPI/poyo-devtools/commits?path=artifacts%2Fcapability-catalog.json&per_page=1";
@@ -130,13 +133,14 @@ function source(
 
 test("collects the whole supported set with exact decimals and the path commit date", async () => {
 	const upstream = source();
-	const feed = await collectPoyoPricing(upstream.fetch, license);
+	const feed = await collectPoyoPricing(upstream.fetch, license, undefined, clock);
 
 	expect(feed).toEqual({
-		version: 1,
+		version: 2,
 		provider: "poyo",
 		revision,
 		sourceDate,
+		confirmedAt,
 		rates: {
 			"z-image": { kind: "per-request", credits: "3.25" },
 			"seedream-5.5": {
@@ -151,7 +155,26 @@ test("collects the whole supported set with exact decimals and the path commit d
 		`${rawBase}artifacts/capability-catalog.json`,
 		`${rawBase}LICENSE`,
 	]);
-	expect(await collectPoyoPricing(source().fetch, license)).toEqual(feed);
+	expect(await collectPoyoPricing(source().fetch, license, undefined, clock)).toEqual(feed);
+});
+
+test("rejects a catalog commit dated after the confirmation clock", async () => {
+	const upstream = source(undefined, {
+		[commitsUrl]: () =>
+			Response.json([{ sha: revision, commit: { committer: { date: "2026-11-22T13:30:01Z" } } }]),
+	});
+	await expect(collectPoyoPricing(upstream.fetch, license, undefined, clock)).rejects.toThrow(
+		"future",
+	);
+	expect(upstream.seen).toEqual([commitsUrl]);
+	const atClock = source(undefined, {
+		[commitsUrl]: () =>
+			Response.json([{ sha: revision, commit: { committer: { date: confirmedAt } } }]),
+	});
+	expect(await collectPoyoPricing(atClock.fetch, license, undefined, clock)).toMatchObject({
+		sourceDate: confirmedAt,
+		confirmedAt,
+	});
 });
 
 test("allows reviewed rate fields to change without changing the rules", async () => {

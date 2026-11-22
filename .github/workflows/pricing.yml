@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/pricing.yml'
       - 'pricing/v1/**'
+      - 'pricing/v2/**'
       - 'scripts/pricing/**'
       - 'src/lib/shared/pricing/**'
   schedule:
@@ -39,7 +40,9 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with: { bun-version-file: package.json }
       - name: Test the PoYo pricing contract offline
-        run: bun test ./scripts/pricing/providers/poyo ./scripts/pricing/publish.test.ts
+        run: >-
+          bun test ./scripts/pricing/providers/poyo ./scripts/pricing/publish.test.ts
+          ./scripts/pricing/freshness.test.ts ./scripts/pricing/stage-feeds.test.ts
       - name: Collect the PoYo catalog revision
         id: upstream
         if: github.event_name != 'pull_request'
@@ -92,13 +95,17 @@ jobs:
           git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
           git fetch --no-tags --depth=1 origin "$GITHUB_REF"
           if [[ $(git rev-parse FETCH_HEAD) != "$GITHUB_SHA" ]]; then
-            echo "The default branch has advanced. A current run can publish pricing."
+            message="The default branch has advanced. A current run can publish $PRICING_PROVIDER pricing."
+            echo "::notice title=Pricing not published::$message"
+            echo "- $message" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           script_dir="$RUNNER_TEMP/pricing-scripts"
           paths=(publish.sh publish-validation.jq "providers/$PRICING_PROVIDER/publish.jq")
           if [[ "$PRICING_PROVIDER" == toapis ]]; then
             paths+=(providers/toapis/freshness.jq)
+          else
+            paths+=(providers/poyo/{rates,publish-v2,project-v1,order}.jq)
           fi
           for path in "${paths[@]}"; do
             mkdir -p -- "$(dirname -- "$script_dir/$path")"
@@ -120,7 +127,11 @@ jobs:
           if [[ $PRICING_PROVIDER == poyo ]]; then
             args+=("$script_dir/LICENSE.poyo")
           fi
-          bash -- "$script_dir/publish.sh" "${args[@]}" <<<"$PRICING_FEED"
+          # Hand the feed to the publisher as a file, never as an argument.
+          feed_file=$(mktemp)
+          trap 'rm -f -- "$feed_file"' EXIT
+          printf '%s' "$PRICING_FEED" > "$feed_file"
+          bash -- "$script_dir/publish.sh" "${args[@]}" < "$feed_file"
 
   publish-toapis:
     name: Publish ToAPIs pricing
@@ -138,3 +149,36 @@ jobs:
           PRICING_FEED: ${{ needs.collect-toapis.outputs.feed }}
           PRICING_PUSH_TOKEN: ${{ github.token }}
         run: *publish_feed
+
+  # Warn at 14 days and fail at 7, so a failed run emails before bundled or published rates expire.
+  check-freshness:
+    name: Check pricing freshness
+    if: >-
+      ${{ !cancelled() &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      github.repository == 'edbfi/siluet' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    needs: [publish-poyo, publish-toapis]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: { contents: read }
+    steps:
+      - *checkout
+      - *setup_bun
+      # Stage each feed on its own, so one absent branch or file cannot hide the others. A read
+      # failure fails this step, and the check below still reports every staged feed.
+      - name: Read the published and bundled feeds
+        run: >-
+          bash scripts/pricing/stage-feeds.sh "$RUNNER_TEMP/pricing-feeds"
+          pricing-data:pricing/v2/poyo.json:poyo-v2.json
+          pricing-data:pricing/v1/feed.json:poyo-v1.json
+          pricing-data-toapis:pricing/v1/toapis.json:toapis.json
+          main:pricing/v2/poyo.json:bundled-poyo.json
+      - name: Check the published and bundled rates
+        if: ${{ !cancelled() }}
+        run: >-
+          bun scripts/pricing/freshness.ts --fail-within-days 7
+          --poyo-v2 "$RUNNER_TEMP/pricing-feeds/poyo-v2.json"
+          --poyo-v1 "$RUNNER_TEMP/pricing-feeds/poyo-v1.json"
+          --toapis "$RUNNER_TEMP/pricing-feeds/toapis.json"
+          --bundled-poyo "$RUNNER_TEMP/pricing-feeds/bundled-poyo.json"

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { decodeToapisPricingFeed } from "../../src/lib/shared/pricing/toapis-feed";
@@ -73,10 +73,11 @@ test("publishes one ToAPIs feed and preserves the last good observation on inval
 		if (!result.success) throw new Error(result.stderr.toString());
 		return result.stdout.toString().trimEnd();
 	}
+	const summary = resolve(sandbox, "summary.md");
 	function publish(value: unknown) {
 		return Bun.spawnSync(["bash", script, "toapis"], {
 			cwd: local,
-			env: { PATH: process.env.PATH, HOME: sandbox },
+			env: { PATH: process.env.PATH, HOME: sandbox, GITHUB_STEP_SUMMARY: summary },
 			stdin: new TextEncoder().encode(JSON.stringify(value)),
 			stdout: "pipe",
 			stderr: "pipe",
@@ -93,13 +94,21 @@ test("publishes one ToAPIs feed and preserves the last good observation on inval
 
 		const firstPublish = publish(observation);
 		if (!firstPublish.success) throw new Error(firstPublish.stderr.toString());
+		expect(firstPublish.stdout.toString()).toContain(
+			`::notice title=Pricing published::ToAPIs pricing published: observed ${observation.observedAt}.`,
+		);
+		expect(readFileSync(summary, "utf8")).toContain("ToAPIs pricing published");
 		const first = git(remote, "rev-parse", ref);
 		expect(git(remote, "for-each-ref", "--format=%(refname)")).toBe(ref);
 		expect(git(remote, "ls-tree", "-r", "--name-only", ref)).toBe(feedPath);
 		expect(JSON.parse(git(remote, "show", `${ref}:${feedPath}`))).toEqual(observation);
 
-		expect(publish(observation).exitCode).toBe(0);
-		expect(publish({ ...observation, observedAt: observed(4, "10:30:00") }).exitCode).toBe(0);
+		expect(publish(observation).stdout.toString()).toContain("ToAPIs pricing is unchanged.");
+		const sameDay = publish({ ...observation, observedAt: observed(4, "10:30:00") });
+		expect(sameDay.exitCode).toBe(0);
+		expect(sameDay.stdout.toString()).toContain(
+			"::notice title=Pricing not published::ToAPIs pricing was already published today.",
+		);
 		expect(git(remote, "rev-parse", ref)).toBe(first);
 
 		const next = { ...observation, observedAt: observed(3) };
@@ -220,20 +229,28 @@ test("missing page ages keep their positions during a source rollback check", ()
 	}
 	const previous = snapshot(2 * daySeconds, "image", 4);
 	const next = snapshot(1.5 * daySeconds, "million-total-tokens", 3);
+	const sandbox = mkdtempSync(resolve(tmpdir(), "siluet-toapis-order-"));
+	const files = {
+		candidate: resolve(sandbox, "candidate.json"),
+		previous: resolve(sandbox, "previous.json"),
+	};
+	writeFileSync(files.candidate, `${JSON.stringify(next)}\n`);
+	writeFileSync(files.previous, `${JSON.stringify(previous)}\n`);
 	const result = Bun.spawnSync([
 		"jq",
 		"-en",
-		"--argjson",
+		"--slurpfile",
 		"candidate",
-		JSON.stringify(next),
-		"--argjson",
+		files.candidate,
+		"--slurpfile",
 		"previous",
-		JSON.stringify(previous),
+		files.previous,
 		"--arg",
 		"now",
 		observed(0),
 		"-f",
 		resolve(import.meta.dir, "providers/toapis/freshness.jq"),
 	]);
+	rmSync(sandbox, { recursive: true, force: true });
 	expect(result.stderr.toString()).toContain("rollback");
 });
