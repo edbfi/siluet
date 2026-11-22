@@ -6,7 +6,7 @@ Keep documentation short and tied to a reader and task. Prefer an existing READM
 
 ## From a requirement to a release
 
-- Use `spec-driven-development` for the capability map in `docs/SPEC.md` and for a module's `docs/SPEC-<id>.md`. Review every new or revised spec with the `council` skill, verify its findings, and bring any unresolved disagreements to the owner. Obtain owner approval of the reviewed spec before implementation. Bring changes to audience, access, spending or product scope back to the owner with a recommendation.
+- Use `spec-driven-development` for the capability map in `docs/SPEC.md` and for a module's `docs/SPEC-<id>.md`. Review every new or revised spec with the `council` skill and verify its findings. A spec the council confirms is approved for implementation; resolve remaining disagreements with the council's recommendation and record the reason. Bring changes to audience, access, spending or product scope back to the owner with a recommendation.
 - Use `planning-and-task-breakdown` for a short `tasks/plan.md` and a verifiable `tasks/todo.md`. Retire the plan when its work is complete. Keep durable decisions and their reasons in `docs/decisions.md`.
 - Use `incremental-implementation` and `test-driven-development` to deliver one observable outcome at a time. Reproduce a failure or specify the expected behavior with a failing test, then run the focused checks as the code changes.
 - Use `code-review-and-quality` before filing. Trace routes, imports, failure paths and supported model inputs. Remove code made obsolete by the change. Run the [local checks](README.md#development) before committing.
