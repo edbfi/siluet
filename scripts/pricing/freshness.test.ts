@@ -7,7 +7,7 @@ import {
 	decodeToapisPricingFeed,
 	toapisFeedExpiryMs,
 } from "../../src/lib/shared/pricing/toapis-feed";
-import { poyoV2Feed } from "../../tests/fixtures/poyo-v2-feed";
+import { poyoV2Feed, sizedPoyoV2Feed } from "../../tests/fixtures/poyo-v2-feed";
 import { toapisRates } from "../../tests/fixtures/toapis-feed";
 import { checkPricingFreshness, readFreshnessArgs } from "./freshness";
 
@@ -77,6 +77,53 @@ describe("published PoYo freshness", () => {
 		if (content !== undefined) writeFileSync(path(name), content);
 		const [result] = await check({ poyoV2: path(name) }, Date.parse("2026-11-30T00:00:00Z"));
 		expect(result.level).toBe("error");
+	});
+});
+
+describe("publication size limits", () => {
+	const at = daysLeft(20);
+	/** Write compact JSON padded with spaces to exactly `bytes`, including the trailing LF. */
+	function padded(name: string, value: unknown, bytes: number) {
+		const json = JSON.stringify(value);
+		writeFileSync(path(name), `${json}${" ".repeat(bytes - json.length - 1)}\n`);
+		return path(name);
+	}
+
+	test("a published v2 feed may be 64 KiB including its LF", async () => {
+		const largest = sizedPoyoV2Feed(65_536);
+		writeFileSync(path("v2.json"), `${JSON.stringify(largest)}\n`);
+		const [fits] = await check({ poyoV2: path("v2.json") }, at);
+		expect(fits.level).toBe("notice");
+		writeFileSync(path("v2.json"), `${JSON.stringify(sizedPoyoV2Feed(65_537))}\n`);
+		expect(await check({ poyoV2: path("v2.json") }, at)).toEqual([
+			{ level: "error", message: "Published PoYo v2 rates are missing or invalid." },
+		]);
+	});
+
+	test.each([
+		["poyoV1", bundledV1, "Published PoYo v1 rates"],
+		["toapis", toapisRates, "Published ToAPIs rates"],
+	] as const)(
+		"a published %s feed may be 4096 bytes including its LF",
+		async (key, feed, label) => {
+			const [fits] = await check({ [key]: padded("feed.json", feed, 4096) }, at);
+			expect(fits.message).toStartWith(`${label} expire`);
+			expect(await check({ [key]: padded("feed.json", feed, 4097) }, at)).toEqual([
+				{ level: "error", message: `${label} are missing or invalid.` },
+			]);
+		},
+	);
+
+	test("a bundled feed keeps the 256 KiB local file limit", async () => {
+		const bundled = path("bundled.json");
+		writeFileSync(bundled, `${JSON.stringify(sizedPoyoV2Feed(65_537))}\n`);
+		const [fits] = await check({ bundledPoyo: bundled }, at);
+		expect(fits.message).toStartWith("Bundled PoYo rates on main expire");
+		const [over] = await check(
+			{ bundledPoyo: padded("bundled.json", poyoV2Feed, 256 * 1024 + 1) },
+			at,
+		);
+		expect(over.message).toBe("Bundled PoYo rates on main are missing or invalid.");
 	});
 });
 

@@ -14,7 +14,10 @@ import {
 } from "../../src/lib/shared/pricing/toapis-feed";
 
 const day = 24 * 60 * 60 * 1000;
-const fileByteLimit = 256 * 1024;
+// Published blobs, trailing LF included, as publish.sh limits them. Bundled files are local.
+const publishedV2ByteLimit = 64 * 1024;
+const publishedV1ByteLimit = 4096;
+const bundledByteLimit = 256 * 1024;
 
 type Level = "notice" | "warning" | "error";
 export type FreshnessCheck = { level: Level; message: string };
@@ -28,7 +31,11 @@ export type FreshnessOptions = {
 };
 
 type Evidence = { evidenceMs: number; expiresMs: number };
-type Feed = { label: string; read: (value: unknown) => Evidence | undefined };
+type Feed = {
+	label: string;
+	byteLimit: number;
+	read: (value: unknown) => Evidence | undefined;
+};
 
 function poyoEvidence(feed: PoyoPricingFeed | undefined): Evidence | undefined {
 	if (!feed) return;
@@ -38,14 +45,17 @@ function poyoEvidence(feed: PoyoPricingFeed | undefined): Evidence | undefined {
 const feeds = {
 	poyoV2: {
 		label: "Published PoYo v2 rates",
+		byteLimit: publishedV2ByteLimit,
 		read: (value) => poyoEvidence(decodePoyoV2Feed(value)),
 	},
 	poyoV1: {
 		label: "Published PoYo v1 rates",
+		byteLimit: publishedV1ByteLimit,
 		read: (value) => poyoEvidence(decodePricingFeed(value)),
 	},
 	toapis: {
 		label: "Published ToAPIs rates",
+		byteLimit: publishedV1ByteLimit,
 		read(value) {
 			const feed = decodeToapisPricingFeed(value);
 			if (!feed) return;
@@ -57,17 +67,18 @@ const feeds = {
 	},
 	bundledPoyo: {
 		label: "Bundled PoYo rates on main",
+		byteLimit: bundledByteLimit,
 		read: (value) => poyoEvidence(decodePoyoPricingFeed(value)),
 	},
 } satisfies Record<string, Feed>;
 
-/** Read a feed file. `undefined` means the file does not exist. */
-async function readJson(path: string): Promise<unknown> {
+/** Read a feed file. `undefined` means the file does not exist, `null` that it is unusable. */
+async function readJson(path: string, byteLimit: number): Promise<unknown> {
 	const file = Bun.file(path);
 	if (!(await file.exists())) return;
 	try {
-		const bytes = await file.slice(0, fileByteLimit + 1).arrayBuffer();
-		if (bytes.byteLength > fileByteLimit) return null;
+		const bytes = await file.slice(0, byteLimit + 1).arrayBuffer();
+		if (bytes.byteLength > byteLimit) return null;
 		return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
 	} catch {
 		return null;
@@ -99,11 +110,11 @@ export async function checkPricingFreshness(
 ): Promise<FreshnessCheck[]> {
 	const checks: FreshnessCheck[] = [];
 	const check = async (feed: Feed, path: string, value?: unknown) => {
-		const json = value === undefined ? await readJson(path) : value;
+		const json = value === undefined ? await readJson(path, feed.byteLimit) : value;
 		checks.push(classify(feed, json === undefined ? undefined : feed.read(json), nowMs, options));
 	};
 	if (options.poyoV2 !== undefined) {
-		const v2 = await readJson(options.poyoV2);
+		const v2 = await readJson(options.poyoV2, feeds.poyoV2.byteLimit);
 		// The published v1 feed deliberately ages once v2 exists.
 		if (v2 !== undefined || options.poyoV1 === undefined)
 			await check(feeds.poyoV2, options.poyoV2, v2);
