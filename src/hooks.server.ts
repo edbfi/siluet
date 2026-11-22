@@ -1,6 +1,7 @@
 import type { Handle, HandleServerError, ServerInit } from "@sveltejs/kit/hooks";
 import { AccessError, recoverMessage } from "#lib/server/services/owner/access-error.ts";
 import { securityNotice } from "#lib/server/services/owner/cookies.ts";
+import { ordinaryRequest } from "#lib/server/services/owner/request-limit.ts";
 import { initializeOwner, type StudioRuntime } from "#lib/server/services/owner/runtime.ts";
 import { building, dev } from "$app/env";
 
@@ -16,7 +17,10 @@ export const handleError: HandleServerError = ({ event, kind }) => {
 export const handle: Handle = async ({ event, resolve }) => {
 	const { request, route, locals, cookies } = event;
 	const headers: Record<string, string> = {
-		"cache-control": route.id === "/gallery/[jobId]/media" ? "private, no-store" : "no-store",
+		"cache-control":
+			route.id === "/gallery/[jobId]/media" || route.id === "/image/files/[draft]/[handle]"
+				? "private, no-store"
+				: "no-store",
 	};
 	const deny = (status: number) =>
 		new Response(`Open the studio at ${studio.origin.origin}/.`, { status, headers });
@@ -28,7 +32,23 @@ export const handle: Handle = async ({ event, resolve }) => {
 		(!read && request.headers.get("origin") !== studio.origin.origin)
 	)
 		return deny(403);
-	if (route.id === "/healthz") return resolve(event);
+	if (route.id?.startsWith("/image/files/")) {
+		// Staged copies are private to this origin, including previews loaded by GET.
+		const origin = request.headers.get("origin");
+		const site = request.headers.get("sec-fetch-site");
+		if (
+			(origin !== null && origin !== studio.origin.origin) ||
+			(site !== null && site !== "same-origin" && site !== "none")
+		)
+			return deny(403);
+	}
+	// The listener accepts 32,000,000 bytes for image staging only. Keep 512 KiB elsewhere,
+	// for declared and streamed bodies.
+	const staging = request.method === "POST" && route.id === "/image/files/[draft]";
+	const bounded = staging ? request : await ordinaryRequest(request);
+	if (!bounded) return new Response(null, { status: 413, headers });
+	const boundedEvent = bounded === request ? event : { ...event, request: bounded };
+	if (route.id === "/healthz") return resolve(boundedEvent);
 	try {
 		await studio.checkAccess();
 	} catch (e) {
@@ -60,5 +80,5 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (claimed && !locals.owner && route.id !== "/sign-in")
 		return read ? move("/sign-in") : deny(401);
 	if (locals.owner && route.id === "/sign-in") return read ? move("/") : deny(403);
-	return resolve(event);
+	return resolve(boundedEvent);
 };

@@ -1,11 +1,14 @@
 import type { EventEmitter } from "node:events";
-import { openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
+import { openRuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
 import { checkRequestSecurity, cleanUnusedKeys } from "../../db/security-state";
 import { checkPoyoConnection } from "../../providers/poyo/connection";
 import { checkToapisConnection } from "../../providers/toapis/connection";
 import { createGallery } from "../gallery/gallery";
 import { createJobTracking } from "../jobs/tracking";
+import { createMediaPreparation } from "../media-cleanup/preparation";
+import { createScratchPool } from "../media-staging/scratch";
+import { createStages } from "../media-staging/stages";
 import { createProviderConnections } from "../providers/connections";
 import { createVideoAccess } from "../providers/video-access";
 import { createSubmissionQueue } from "../queue/submission";
@@ -20,9 +23,18 @@ export async function initializeOwner(dev: boolean) {
 	const lifecycle: EventEmitter = process;
 	if (!dev && !lifecycle.listenerCount("siluet:ready"))
 		throw new Error("Start Siluet with bun run start.");
-	const installation = await openInstallation(ownerDirectory(dev));
+	const installation = await openRuntimeInstallation(ownerDirectory(dev));
 	try {
-		const access = createOwnerAccess(installation, Date.now, origin.origin);
+		// Only this runtime holds the registry entry and Turso's lock, so leftovers
+		// from an interrupted process can be reclaimed before any staging.
+		const scratch = createScratchPool(installation);
+		await scratch.reclaim();
+		const stages = createStages(await scratch.scope("image"));
+		// Owner changes that remove sessions also retire their staged copies.
+		const ownerInstallation = { ...installation, retireSessions: stages.retireSessions };
+		const shutdown = new AbortController();
+		const prepareMedia = createMediaPreparation(installation, { shutdown: shutdown.signal });
+		const access = createOwnerAccess(ownerInstallation, Date.now, origin.origin);
 		await access.security.initialize();
 		const store = providerStore(installation);
 		const providers = createProviderConnections(store, {
@@ -36,9 +48,9 @@ export async function initializeOwner(dev: boolean) {
 		const queue = await createSubmissionQueue(installation, store.credential, jobs);
 		let workers: Promise<void> | undefined;
 		async function checkAccess() {
-			await checkRequestSecurity(installation);
+			await checkRequestSecurity(ownerInstallation);
 			workers ??= (async () => {
-				await cleanUnusedKeys(installation);
+				await cleanUnusedKeys(ownerInstallation);
 				await gallery.recover();
 				await jobs.resume();
 			})().catch((e) => {
@@ -65,16 +77,33 @@ export async function initializeOwner(dev: boolean) {
 		}
 		const ready = () =>
 			void announce().catch(() => console.error("Unable to verify studio storage."));
+		let closing: Promise<void> | undefined;
+		// Stop admission, let the held preparation and its stage write settle, then
+		// remove staged copies before storage closes and the registry entry is released.
+		function close() {
+			closing ??= (async () => {
+				clearTimeout(rotation);
+				shutdown.abort();
+				jobs.close();
+				await runtimeEntry(installation).preparation?.settled;
+				await stages.close();
+				await installation.close();
+			})();
+			return closing;
+		}
 		if (dev) await announce();
 		else {
+			// The launcher emits siluet:stopping before the adapter drains requests.
+			lifecycle.once("siluet:stopping", () => shutdown.abort());
 			lifecycle.once("sveltekit:shutdown", () => {
-				clearTimeout(rotation);
-				jobs.close();
-				void installation.close().catch(() => console.error("Unable to close studio storage."));
+				void close().catch(() => console.error("Unable to close studio storage."));
 			});
 			lifecycle.emit("siluet:ready", ready);
 		}
 		return {
+			close,
+			stages,
+			prepareMedia,
 			origin,
 			checkAccess,
 			videoAccess,

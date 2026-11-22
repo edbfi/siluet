@@ -91,3 +91,47 @@ test.each(terminalSignals)("the launcher delivers %s to a draining server", asyn
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+test("launcher cancellation reaches active preparation before the adapter drains", async () => {
+	const root = await mkdtemp(join(tmpdir(), "siluet-active-drain-"));
+	try {
+		await mkdir(join(root, "build"));
+		await mkdir(join(root, "scripts"));
+		await copyFile(`${import.meta.dir}/start.ts`, join(root, "scripts/start.ts"));
+		// The fake adapter drains only after the runtime has seen siluet:stopping.
+		await writeFile(
+			join(root, "build/index.js"),
+			`
+			let cancelled = false;
+			process.on("siluet:stopping", () => { cancelled = true; });
+			process.on("SIGTERM", () => { process.exit(cancelled ? 0 : 2); });
+			process.send("ready");
+		`,
+		);
+		const ready = Promise.withResolvers<void>();
+		const server = Bun.spawn([process.execPath, join(root, "scripts/start.ts"), "--serve"], {
+			ipc(message) {
+				if (message === "ready") ready.resolve();
+			},
+		});
+		try {
+			await ready.promise;
+			server.send("stop");
+			expect(await server.exited).toBe(0);
+		} finally {
+			server.kill();
+			await server.exited;
+		}
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("the launcher raises the listener body limit for local image staging", async () => {
+	const limits: (string | undefined)[] = [];
+	await launchStudio({ SILUET_SERVER_PORT: "3100" }, async (env) => {
+		limits.push(env.SILUET_SERVER_BODY_SIZE_LIMIT);
+		return 0;
+	});
+	expect(limits).toEqual(["32000000"]);
+});

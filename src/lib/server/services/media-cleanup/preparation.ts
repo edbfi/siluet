@@ -1,0 +1,156 @@
+import { createHash } from "node:crypto";
+import sharp from "sharp";
+import type { PreparedStageMedia } from "../../../shared/media-staging/descriptor";
+import { type RuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
+import { cleanJpeg, JpegCleanupError } from "./jpeg";
+import { cleanPng, PngCleanupError } from "./png";
+import {
+	failure,
+	maxPreparationBytes,
+	mediaMime,
+	PreparationError,
+	readBounded,
+} from "./preparation-bytes";
+
+// libvips' operation cache would retain decoded pixels between requests. Disable it
+// for the whole server process, which also covers Gallery verification.
+// https://sharp.pixelplumbing.com/api-utility/#cache
+sharp.cache(false);
+
+export { PreparationError };
+export type PreparedMedia = PreparedStageMedia;
+
+export const preparationMs = 30_000;
+
+export type Cleaners = {
+	jpeg: (
+		bytes: Uint8Array,
+		options: { signal: AbortSignal },
+	) => Promise<{ bytes: Uint8Array; transform: "none" | "reencoded-rotation" }>;
+	png: (bytes: Uint8Array, options: { signal: AbortSignal }) => Promise<Uint8Array>;
+};
+const qualified: Cleaners = { jpeg: cleanJpeg, png: cleanPng };
+
+/**
+ * Take the installation's one preparation slot or refuse with "busy". The slot is
+ * recorded in the process registry entry, so a reloaded module sees it, and is
+ * released only after every tracked promise has settled.
+ */
+export function acquirePreparation(installation: RuntimeInstallation) {
+	const entry = runtimeEntry(installation);
+	if (entry.preparation) throw failure("busy");
+	const work = new Set<Promise<unknown>>();
+	const settled = Promise.withResolvers<void>();
+	const slot = { settled: settled.promise };
+	entry.preparation = slot;
+	let released = false;
+	return {
+		/** Keep the slot until this promise settles, even if its caller stops waiting. */
+		track<T>(promise: Promise<T>) {
+			work.add(promise);
+			return promise;
+		},
+		release() {
+			if (released) return;
+			released = true;
+			void Promise.allSettled(work).then(() => {
+				if (entry.preparation === slot) entry.preparation = undefined;
+				settled.resolve();
+			});
+		},
+		[Symbol.dispose]() {
+			this.release();
+		},
+	};
+}
+
+function refusal(error: unknown) {
+	if (error instanceof JpegCleanupError && error.code !== "cancelled")
+		return new PreparationError("declined", [error.message, error.advice]);
+	if (error instanceof PngCleanupError && error.code !== "cancelled")
+		return new PreparationError("declined", [error.message, error.guidance]);
+	return error instanceof PreparationError ? error : failure("failed");
+}
+
+export function createMediaPreparation(
+	installation: RuntimeInstallation,
+	{
+		shutdown,
+		cleaners = qualified,
+		deadlineMs = preparationMs,
+	}: { shutdown?: AbortSignal; cleaners?: Cleaners; deadlineMs?: number } = {},
+) {
+	/**
+	 * Read, clean and verify one file, then hand it to `commit` (the stage write)
+	 * while still holding the slot. The deadline starts at admission.
+	 */
+	return async function prepareMedia<T>(
+		source: Uint8Array | ReadableStream<Uint8Array>,
+		signal: AbortSignal,
+		commit: (media: PreparedMedia) => Promise<T>,
+	): Promise<T> {
+		const timeout = new AbortController();
+		const stopped = AbortSignal.any(
+			shutdown ? [signal, shutdown, timeout.signal] : [signal, timeout.signal],
+		);
+		const check = () => {
+			if (timeout.signal.aborted) throw failure("timeout");
+			if (signal.aborted || shutdown?.aborted) throw failure("cancelled");
+		};
+		const cancelSource = () => {
+			if (source instanceof ReadableStream && !source.locked) void source.cancel().catch(() => {});
+		};
+		let slot: ReturnType<typeof acquirePreparation>;
+		try {
+			check();
+			slot = acquirePreparation(installation);
+		} catch (error) {
+			cancelSource();
+			throw error instanceof PreparationError ? error : failure("failed");
+		}
+		const timer = setTimeout(() => timeout.abort(), deadlineMs);
+		// Reject promptly on abort. The slot still waits for the tracked work.
+		const interrupted = new Promise<never>((_, reject) => {
+			stopped.addEventListener("abort", () => reject(new Error("stopped")), { once: true });
+		});
+		interrupted.catch(() => {});
+		const race = <V>(work: Promise<V>) => Promise.race([slot.track(work), interrupted]);
+		let committing = false;
+		try {
+			const input =
+				source instanceof Uint8Array
+					? source
+					: await race(readBounded(source, maxPreparationBytes, check, stopped));
+			check();
+			if (input.byteLength > maxPreparationBytes) throw failure("limit");
+			const mime = mediaMime(input);
+			if (!mime) throw failure("format");
+			const cleaned =
+				mime === "image/jpeg"
+					? await race(cleaners.jpeg(input, { signal: stopped }))
+					: {
+							bytes: await race(cleaners.png(input, { signal: stopped })),
+							transform: "none" as const,
+						};
+			check();
+			const bytes = new Uint8Array(cleaned.bytes);
+			if (mediaMime(bytes) !== mime) throw failure("failed");
+			const digest = createHash("sha256").update(bytes).digest("hex");
+			const media: PreparedMedia =
+				mime === "image/jpeg"
+					? { bytes, digest, mime, size: bytes.length, transform: cleaned.transform }
+					: { bytes, digest, mime, size: bytes.length, transform: "none" };
+			committing = true;
+			return await slot.track(commit(media));
+		} catch (error) {
+			cancelSource();
+			if (committing) throw error;
+			check();
+			throw refusal(error);
+		} finally {
+			clearTimeout(timer);
+			slot.release();
+		}
+	};
+}
+export type MediaPreparation = ReturnType<typeof createMediaPreparation>;

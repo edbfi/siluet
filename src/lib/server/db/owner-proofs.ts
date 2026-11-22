@@ -6,6 +6,7 @@ import { checkStep, makeRecoverySet, recoveryDigest } from "../services/owner/fa
 import { idleMs, insertSession, lifetimeMs } from "./access-store";
 import type { OwnerTransaction } from "./installation";
 import type { Factor, Policy } from "./security-state";
+import { deleteOwnerSessions } from "./session-retirement";
 
 export async function requireSession(tx: OwnerTransaction, digest: string, now: number) {
 	if (
@@ -101,7 +102,7 @@ export async function rotateSecurity(
 ) {
 	await tx.run(sql`UPDATE owner_security SET enabled=${enabled ? 1 : 0},revision=revision+1`);
 	await tx.run(sql`DELETE FROM owner_proof`);
-	await tx.run(sql`DELETE FROM session`);
+	await deleteOwnerSessions(tx);
 	await tx.run(sql`DELETE FROM recovery_code`);
 	const session = token();
 	await tx.run(insertSession(sessionDigest(session), now));

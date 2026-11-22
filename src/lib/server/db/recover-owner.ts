@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { Installation } from "./installation";
 import { transact } from "./security-state";
+import { deleteOwnerSessions } from "./session-retirement";
 export async function recoverOwner(
 	installation: Installation,
 	hash: string,
@@ -20,7 +21,7 @@ export async function recoverOwner(
 		await tx.run(sql`DELETE FROM owner_factor`);
 		await tx.run(sql`DELETE FROM recovery_code`);
 		await tx.run(sql`DELETE FROM owner_proof`);
-		await tx.run(sql`DELETE FROM session`);
+		await deleteOwnerSessions(tx);
 		await tx.run(sql`DELETE FROM auth_attempt`);
 		await tx.run(sql`DELETE FROM factor_attempt`);
 		if (
