@@ -142,6 +142,10 @@ describe("PoYo rate expiry", () => {
 		const confirmed = Date.parse(poyoV2Feed.confirmedAt);
 		expect(poyoFeedExpiryMs(poyoV2Feed)).toBe(confirmed + 30 * day);
 		expect(poyoFeedExpiryMs(poyoV2Feed, confirmed + day)).toBe(confirmed + 30 * day);
-		expect(poyoFeedExpiryMs(poyoV2Feed, confirmed - day)).toBe(confirmed + 29 * day);
+		// A confirmation after the local clock falls back to the source date, so the expiry
+		// stays fixed while the clock catches up instead of moving with every request.
+		const fromSource = Date.parse(poyoV2Feed.sourceDate) + 30 * day;
+		expect(poyoFeedExpiryMs(poyoV2Feed, confirmed - day)).toBe(fromSource);
+		expect(poyoFeedExpiryMs(poyoV2Feed, confirmed - 1)).toBe(fromSource);
 	});
 });

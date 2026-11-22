@@ -225,13 +225,14 @@ describe("confirmed PoYo v2 rates", () => {
 		expect(estimatePrice(v2, zImage, expiresAt)).toMatchObject({ reason: "expired-feed" });
 	});
 
-	test("caps a confirmation dated after the clock at 30 days from now", () => {
-		const at = Date.parse("2026-12-01T00:00:00Z");
-		expect(estimatePrice(v2, zImage, at)).toMatchObject({
-			status: "known",
-			sourceDate: v2.sourceDate,
-			expiresAt: "2026-12-31T00:00:00.000Z",
-		});
+	test("ignores a confirmation dated after the clock and keeps a fixed expiry", () => {
+		for (const at of [Date.parse("2026-12-01T00:00:00Z"), Date.parse("2026-12-10T00:00:00Z")]) {
+			expect(estimatePrice(v2, zImage, at)).toMatchObject({
+				status: "known",
+				sourceDate: v2.sourceDate,
+				expiresAt: "2026-12-19T13:42:30.000Z",
+			});
+		}
 	});
 
 	test("reports an invalid clock only before the source date", () => {

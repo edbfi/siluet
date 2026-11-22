@@ -128,8 +128,13 @@ export function poyoConfirmationMs(feed: PoyoPricingFeed): number {
 	return parsePricingInstant(feed.version === 2 ? feed.confirmedAt : feed.sourceDate);
 }
 
-/** Rates expire 30 days after their confirmation, which never counts as later than `nowMs`. */
+/**
+ * Rates expire 30 days after their confirmation. A confirmation later than `nowMs` (a clock
+ * behind the publisher, or a forged date) is ignored in favour of the source date, so the
+ * expiry stays fixed for a given feed and cannot be extended past real time.
+ */
 export function poyoFeedExpiryMs(feed: PoyoPricingFeed, nowMs = Number.POSITIVE_INFINITY): number {
 	const confirmed = poyoConfirmationMs(feed);
-	return (feed.version === 2 ? Math.min(confirmed, nowMs) : confirmed) + pricingMaxAgeMs;
+	const evidence = confirmed <= nowMs ? confirmed : parsePricingInstant(feed.sourceDate);
+	return evidence + pricingMaxAgeMs;
 }
