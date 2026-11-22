@@ -15,6 +15,20 @@ export const maxSeedreamReferences = 10;
 export const publicReferenceUrlError =
 	"Enter a public HTTP or HTTPS URL without a username or password.";
 
+/**
+ * The one local JPEG or PNG that Siluet cleans for an edit. Queue stays URL-only
+ * until file Review terms exist.
+ */
+export function cleanableReferenceFile(references: readonly SeedreamReference[]): File | null {
+	const [reference] = references;
+	if (references.length !== 1 || reference?.kind !== "file") return null;
+	const { type, name } = reference.file;
+	const generic = !type || type === "application/octet-stream";
+	return /^image\/(jpeg|png)$/i.test(type) || (generic && /\.(jpe?g|png)$/i.test(name))
+		? reference.file
+		: null;
+}
+
 export function duplicateReferenceSlots(
 	references: readonly SeedreamReference[],
 ): [first: number, duplicate: number] | null {

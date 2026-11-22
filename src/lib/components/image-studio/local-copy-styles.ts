@@ -1,5 +1,4 @@
-import { css, cx } from "#styled-system/css";
-import { studioButton } from "#styled-system/recipes";
+import { css } from "#styled-system/css";
 
 export const section = css({
 	display: "grid",
@@ -14,14 +13,7 @@ export const heading = css({ margin: 0, fontWeight: 650, fontSize: "0.95rem" });
 export const subheading = css({ margin: 0, fontWeight: 650, fontSize: "0.875rem" });
 export const note = css({ margin: 0, color: "muted", fontSize: "0.85rem" });
 
-export const prepare = cx(
-	studioButton({ appearance: "secondary" }),
-	css({
-		justifySelf: "start",
-		minHeight: "44px",
-		_disabled: { color: "muted", cursor: "progress" },
-	}),
-);
+export const failure = css({ margin: 0, color: "danger", fontSize: "0.85rem" });
 
 export const figure = css({ display: "grid", gap: "0.35rem", margin: 0 });
 

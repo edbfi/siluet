@@ -39,5 +39,5 @@
 - [x] Clean JPEG and PNG in process. Keep upright JPEG entropy data byte-identical and verify re-encoded rotations against mapped source samples.
 - [x] Hold one preparation slot per installation from admission through the stage write. Reserve staged copies in the shared 128 MiB scratch pool.
 - [x] Retire staged copies with their sessions, and reclaim scratch only under the installation lock.
-- [x] Prepare and preview one local copy in Review while Queue stays URL-only.
+- [x] Clean one attached local copy automatically and preview it in Review while Queue stays URL-only.
 - [ ] Pass the hosted media-cleanup matrix on Linux x64 and ARM64 and macOS.

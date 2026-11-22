@@ -8,9 +8,13 @@ import {
 } from "#lib/components/image-studio/draft-context.ts";
 import ImageComposer from "#lib/components/image-studio/ImageComposer.svelte";
 import ImageReview from "#lib/components/image-studio/ImageReview.svelte";
+import { LocalCopy } from "#lib/components/image-studio/local-copy.svelte.ts";
 import SeedreamFields from "#lib/components/image-studio/SeedreamFields.svelte";
 import ZImageFields from "#lib/components/image-studio/ZImageFields.svelte";
-import { duplicateReferenceSlots } from "#lib/shared/image-studio/references.ts";
+import {
+	cleanableReferenceFile,
+	duplicateReferenceSlots,
+} from "#lib/shared/image-studio/references.ts";
 import { createImageReview } from "#lib/shared/image-studio/review.ts";
 import {
 	buildSeedreamRequest,
@@ -41,6 +45,12 @@ let composer = $state<ComposerDraft>(
 				references: createReferenceDraft(),
 			},
 	),
+);
+// Siluet cleans an attached local file as soon as it is attached.
+const localCopy = new LocalCopy(() =>
+	composer.model === "seedream-5.5" && composer.request.operation === "edit"
+		? cleanableReferenceFile(composer.request.references)
+		: null,
 );
 let shell: ReturnType<typeof ImageComposer>;
 let previewIndex = $state(0);
@@ -120,6 +130,7 @@ $effect(() => {
 				bind:referenceDraft={composer.references}
 				validation={seedream}
 				{duplicateWarning}
+				{localCopy}
 				bind:previewIndex
 				focusPreview={() => shell.focusPreview()}
 			/>
@@ -148,6 +159,7 @@ $effect(() => {
 			nowMs={data.pricingNowMs}
 			provider={composer.request.provider ?? undefined}
 			operation={composer.request.operation}
+			{localCopy}
 		/>
 	{/snippet}
 </ImageComposer>

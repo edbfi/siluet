@@ -25,7 +25,8 @@ import type { PricingFeeds, PricingProvider } from "#lib/shared/pricing/feeds.ts
 import { goto } from "$app/navigation";
 import ImageReferenceGuidance from "./ImageReferenceGuidance.svelte";
 import * as styles from "./image-review-styles.ts";
-import LocalCopyPreparation from "./LocalCopyPreparation.svelte";
+import LocalCopyDetails from "./LocalCopyDetails.svelte";
+import type { LocalCopy } from "./local-copy.svelte.ts";
 
 let {
 	modelId,
@@ -40,6 +41,7 @@ let {
 	provider = undefined,
 	operation = "generate",
 	headingId = "studio-review-title",
+	localCopy = undefined,
 }: {
 	modelId: string;
 	connected: boolean;
@@ -53,6 +55,8 @@ let {
 	provider?: PricingProvider;
 	operation?: ReviewOperation;
 	headingId?: string;
+	/** The cleaned copy of an attached local file, shown here as information. */
+	localCopy?: LocalCopy;
 } = $props();
 
 const providerNames = { poyo: "Poyo.ai", toapis: "ToAPIs" };
@@ -107,18 +111,6 @@ const request = $derived(
 		? { operationKey: entry.key, draft: $state.snapshot(draft), count, retryLimit }
 		: null,
 );
-// One local JPEG or PNG in a Seedream edit can be prepared and previewed. Queue
-// stays URL-only until file Review terms exist.
-const localFile = $derived.by(() => {
-	const [reference] = draft.references;
-	if (modelId === zImageModel.id || !isEdit || draft.references.length !== 1) return null;
-	if (reference?.kind !== "file") return null;
-	const { type, name } = reference.file;
-	const generic = !type || type === "application/octet-stream";
-	return /^image\/(jpeg|png)$/i.test(type) || (generic && /\.(jpe?g|png)$/i.test(name))
-		? reference.file
-		: null;
-});
 let authorized = $state.raw<{ request: QueueInput; terms: ReviewTerms } | null>(null);
 let pending = $state<"review" | "queue" | null>(null);
 let acceptedToken = $state<string | null>(null);
@@ -436,8 +428,8 @@ $effect(() => {
 						: "The provider does not enforce the estimated spend as a cap."}
 				</p>
 			{/if}
-			{#if localFile}
-				<LocalCopyPreparation file={localFile} {headingId} />
+			{#if localCopy?.file}
+				<LocalCopyDetails copy={localCopy} {headingId} />
 			{/if}
 			{#if disclosure}
 				<h3 class={styles.disclosureHeading} id={`${headingId}-disclosure`}>Provider disclosure</h3>

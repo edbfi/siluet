@@ -26,6 +26,7 @@ import { createReferenceDraft, type ReferenceDraft, referenceLabel } from "./dra
 import ImagePrompt from "./ImagePrompt.svelte";
 import ImageReferenceGuidance from "./ImageReferenceGuidance.svelte";
 import ImageReferenceSlot from "./ImageReferenceSlot.svelte";
+import type { LocalCopy } from "./local-copy.svelte.ts";
 import {
 	requestControl,
 	requestError,
@@ -82,6 +83,7 @@ let {
 	previewIndex = $bindable(),
 	focusPreview,
 	duplicateWarning,
+	localCopy,
 	referenceDraft = $bindable(),
 	draft = $bindable(),
 	validation,
@@ -92,6 +94,7 @@ let {
 	previewIndex: number;
 	focusPreview: () => void;
 	duplicateWarning: string | null;
+	localCopy: LocalCopy;
 	referenceDraft: ReferenceDraft;
 	draft: SeedreamDraft;
 	validation: ReturnType<typeof validateSeedreamDraft>;
@@ -282,8 +285,8 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 					Queue supports 1–{maxSeedreamReferences} public image URLs. For offline Review, you can
 					also stage files ({referenceFileHelp(provider)} each).
 				{:else}
-					Queue needs a connected provider. For offline Review, you can prepare a local copy of one
-					{referenceFileHelp(provider)}.
+					Queue needs a connected provider. For offline Review, Siluet cleans a local copy of one
+					{referenceFileHelp(provider)} when you attach it.
 				{/if}
 			</p>
 			{#if provider}
@@ -303,6 +306,7 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 					fileId={`${id}-reference-${slot.key}`}
 					helpId={`${id}-reference-help`}
 					reference={draft.references[index]}
+					{localCopy}
 					canMoveDown={index < draft.references.length - 1}
 					{reserveIdentity}
 					onSelect={(reference, privateName, replacementIdentity) =>

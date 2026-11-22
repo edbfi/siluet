@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { duplicateReferenceSlots } from "./references";
+import { cleanableReferenceFile, duplicateReferenceSlots } from "./references";
 
 const signed = "https://images.example.org/shot%2fa?sig=first&v=1&v=2#detail";
 const distinct = "https://images.example.org/shot%2fa?sig=second&v=1&v=2#detail";
@@ -27,4 +27,23 @@ test("keeps different signatures and URL spellings distinct even on the same hos
 			remote(signed.replace("#detail", "#other")),
 		]),
 	).toBeNull();
+});
+
+test("cleans exactly one local JPEG or PNG reference", () => {
+	const local = (name: string, type: string) => ({
+		kind: "file" as const,
+		file: new File(["image"], name, { type }),
+	});
+	const png = local("shot.png", "image/png");
+	expect(cleanableReferenceFile([png])).toBe(png.file);
+	const jpeg = local("shot.JPEG", "");
+	expect(cleanableReferenceFile([jpeg])).toBe(jpeg.file);
+	const generic = local("shot.jpg", "application/octet-stream");
+	expect(cleanableReferenceFile([generic])).toBe(generic.file);
+	expect(cleanableReferenceFile([local("shot.webp", "image/webp")])).toBeNull();
+	expect(cleanableReferenceFile([local("shot.png", "image/webp")])).toBeNull();
+	expect(cleanableReferenceFile([local("shot.gif", "")])).toBeNull();
+	expect(cleanableReferenceFile([png, png])).toBeNull();
+	expect(cleanableReferenceFile([remote(signed)])).toBeNull();
+	expect(cleanableReferenceFile([])).toBeNull();
 });
