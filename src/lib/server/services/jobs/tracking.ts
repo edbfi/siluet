@@ -2,8 +2,15 @@ import { sql } from "drizzle-orm";
 import type { ProviderId } from "../../../shared/providers/connections";
 import type { SeedanceBody } from "../../../shared/video-studio/seedance";
 import { type BatchStop, imageBatchStore, retryStillSupported } from "../../db/image-batch-store";
-import { imageCredentialAccess } from "../../db/image-credential-access";
-import { type ImageJob, imageJobStore, skipImageSend } from "../../db/image-job-store";
+import {
+	hasCorrelation,
+	type ImageJob,
+	imageJobStore,
+	isVideoJob,
+	jobCredentialAccess,
+	jobPollDeadline,
+	skipImageSend,
+} from "../../db/image-job-store";
 import type { Installation } from "../../db/installation";
 import { retryTime } from "../../db/provider-gate";
 import type { providerStore } from "../../db/provider-store";
@@ -99,11 +106,8 @@ export function createJobTracking(
 		cancelTimer(job.id);
 		if (closed || !autoTrack(job) || job.next_read_at === null) return;
 		const due = Math.max(job.next_read_at, earliest);
-		if (
-			due >= (job.video_poll_deadline ?? job.poll_deadline) ||
-			now() >= (job.video_poll_deadline ?? job.poll_deadline)
-		)
-			return;
+		const deadline = jobPollDeadline(job);
+		if (due >= deadline || now() >= deadline) return;
 		const cancel = scheduleRead(
 			async () => {
 				timers.delete(job.id);
@@ -117,13 +121,8 @@ export function createJobTracking(
 	}
 
 	async function originalKey(job: ImageJob) {
-		return (
-			await credentials.credential(
-				job.provider,
-				job.revision,
-				job.business_id ? "toapis-video" : imageCredentialAccess(job.provider, job.model),
-			)
-		)?.key;
+		return (await credentials.credential(job.provider, job.revision, jobCredentialAccess(job)))
+			?.key;
 	}
 
 	async function afterBalance(job: ImageJob) {
@@ -141,12 +140,11 @@ export function createJobTracking(
 		if (
 			closed ||
 			!job ||
-			(lookup ? !job.business_id || job.state !== "unknown" || job.task_id : !job.task_id) ||
+			(lookup ? !hasCorrelation(job) || job.state !== "unknown" || job.task_id : !job.task_id) ||
 			(job.next_read_at ?? job.created_at + 5000) > now()
 		)
 			return null;
-		if (automatic && (!autoTrack(job) || now() >= (job.video_poll_deadline ?? job.poll_deadline)))
-			return null;
+		if (automatic && (!autoTrack(job) || now() >= jobPollDeadline(job))) return null;
 
 		const key = await originalKey(job);
 		if (closed) return null;
@@ -167,14 +165,15 @@ export function createJobTracking(
 			lookup ? job : undefined,
 		);
 		if (closed || !reserved) return null;
-		if (automatic && now() >= (reserved.video_poll_deadline ?? reserved.poll_deadline)) {
+		if (automatic && now() >= jobPollDeadline(reserved)) {
 			await store.releaseUnread(id, token, job.next_read_at ?? now() + holdMs);
 			return null;
 		}
 
-		const videoRead = reserved.business_id
-			? await video.status(key, reserved.business_id, reserved.task_id)
-			: null;
+		const correlation =
+			reserved.provider === "toapis" && isVideoJob(reserved) ? reserved.business_id : null;
+		const videoRead =
+			correlation === null ? null : await video.status(key, correlation, reserved.task_id);
 		const observation =
 			videoRead ?? (await adapters[job.provider].status(key, reserved.task_id ?? ""));
 		const finished = now();
@@ -301,7 +300,7 @@ export function createJobTracking(
 	}
 
 	async function summarize(rows: ImageJob[]) {
-		const readable = rows.some((job) => job.task_id || job.business_id)
+		const readable = rows.some((job) => job.task_id || hasCorrelation(job))
 			? await credentials.jobReadability()
 			: () => false;
 		return rows.map((job) => ({
@@ -338,12 +337,12 @@ export function createJobTracking(
 		},
 		async videoResult(id: string) {
 			const job = await store.get(id);
-			if (!job?.business_id || job.state !== "completed") return null;
+			if (!job || !isVideoJob(job) || job.state !== "completed") return null;
 			const delivery = cachedResult(job) ?? (await readStatus(id, false));
 			return delivery && (await originalKey(job)) ? delivery : null;
 		},
 		async isVideo(id: string) {
-			return !!(await store.get(id))?.business_id;
+			return isVideoJob(await store.get(id));
 		},
 		async dispatch(id: string, provider: ProviderId, key: string, request: ReviewedImageRequest) {
 			if (closed || !(await store.beginDispatch(id, provider, now()))) return;
@@ -406,7 +405,7 @@ export function createJobTracking(
 			if (job?.state !== "completed") return null;
 			const url = await readStatus(id, false);
 			// A Settings change during the read also stops delivery of an unsaved result.
-			return url && !job.business_id && (await credentials.jobReadability())(job) ? url.url : null;
+			return url && !isVideoJob(job) && (await credentials.jobReadability())(job) ? url.url : null;
 		},
 
 		needsCredential: store.needsCredential,

@@ -44,7 +44,7 @@ test("H3 and Seedance Review name the same Gallery Save profile", () => {
 });
 
 describe("H3 input boundaries", () => {
-	const bytes = (count: number) => "a".repeat(count - 4) + "🌲";
+	const bytes = (count: number) => `${"a".repeat(count - 4)}🌲`;
 	test.each([
 		[{ duration: 5 }, true],
 		[{ duration: 10 }, true],

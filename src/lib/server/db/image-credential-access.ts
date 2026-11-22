@@ -2,11 +2,13 @@ import { type SQL, sql } from "drizzle-orm";
 import { zImageModel } from "../../shared/media-catalog/registry";
 import type { ProviderId } from "../../shared/providers/connections";
 
-export type CredentialAccess = "seedream" | "poyo-balance";
+export type ImageCredentialAccess = "seedream" | "poyo-balance";
+/** The connection check that a job's key must have passed. */
+export type CredentialAccess = ImageCredentialAccess | "toapis-video";
 
 const balanceAccepted = { provider: "poyo", model: zImageModel.id } as const;
 
-export function imageCredentialAccess(provider: ProviderId, model: string): CredentialAccess {
+export function imageCredentialAccess(provider: ProviderId, model: string): ImageCredentialAccess {
 	return provider === balanceAccepted.provider && model === balanceAccepted.model
 		? "poyo-balance"
 		: "seedream";

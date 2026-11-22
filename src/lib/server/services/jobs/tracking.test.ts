@@ -15,9 +15,11 @@ import {
 } from "../../../shared/image-studio/z-image";
 import type { ProviderId } from "../../../shared/providers/connections";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
+import { imageJobStore } from "../../db/image-job-store";
 import { openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
+import { videoJobPollingWindowMs } from "../../db/video-schema";
 import type { CheckFetch } from "../../providers/connection-check";
 import { createGallery } from "../gallery/gallery";
 import { createJobTracking } from "./tracking";
@@ -794,3 +796,117 @@ test.each(["generate", "edit"] as const)(
 			expect(JSON.stringify(rows)).not.toContain(value);
 	},
 );
+
+// A Poyo video claim as Video Queue writes it: no correlation ID and a NULL video deadline.
+async function insertH3(id = "h3", revision = 1, state = "submitting") {
+	await installation.use((db) =>
+		db.run(sql`INSERT INTO image_job (id,binding,provider,revision,quote,state,created_at,model,operation,poll_deadline,video_terms)
+			VALUES (${id},'binding','poyo',${revision},${JSON.stringify(quote)},${state},${now},'h3-max','text-to-video',
+				${now + imageJobPollingWindowMs},'["terms"]')`),
+	);
+}
+
+function h3Reader(reads: string[], status = "running") {
+	return (async (url: string) => {
+		reads.push(url);
+		return Response.json({ code: 200, data: { task_id: "h3_task", status } });
+	}) as CheckFetch;
+}
+
+function manualTimers() {
+	const due: (() => Promise<void>)[] = [];
+	return {
+		due,
+		scheduleRead: (read: () => Promise<void>) => {
+			due.push(read);
+			return () => {};
+		},
+		async fire() {
+			const read = due.pop();
+			if (!read) throw new Error("No scheduled read.");
+			await read();
+		},
+	};
+}
+
+test("accepted H3 ack records; automatic polling continues past 120 s and stops at 600 s", async () => {
+	// A balance-only Poyo key: Seedream access is not required to poll H3.
+	await providerStore(installation).save("poyo", credential, now, false, 1);
+	await insertH3("h3", 2);
+	const reads: string[] = [];
+	const timers = manualTimers();
+	tracker = createJobTracking(installation, providerStore(installation), {
+		fetch: h3Reader(reads),
+		now: () => now,
+		random: () => 0,
+		scheduleRead: timers.scheduleRead,
+	});
+	const store = imageJobStore(installation);
+	expect(await store.beginDispatch("h3", "poyo", now)).toBeTruthy();
+	const recorded = await store.recordSubmission(
+		"h3",
+		{ kind: "accepted", taskId: "h3_task" },
+		now,
+		2_000,
+	);
+	expect(recorded).toMatchObject({
+		state: "waiting",
+		task_id: "h3_task",
+		video_poll_deadline: null,
+	});
+	const acknowledged = now;
+	await tracker.resume();
+	now = acknowledged + 130_000;
+	await timers.fire();
+	expect(reads).toEqual(["https://api.poyo.ai/api/generate/status/h3_task"]);
+	expect(await latest("h3")).toMatchObject({
+		state: "running",
+		tracking: "automatic",
+		pollDeadline: acknowledged + videoJobPollingWindowMs,
+	});
+	now = acknowledged + videoJobPollingWindowMs;
+	await timers.fire().catch(() => {});
+	expect(reads).toHaveLength(1);
+	expect(await latest("h3")).toMatchObject({ tracking: "manual", canRefresh: true });
+	await tracker.refresh("h3");
+	expect(reads).toHaveLength(2);
+});
+
+test("replacing the Poyo key pauses H3 reads and discards a read in flight", async () => {
+	await insertH3();
+	const store = imageJobStore(installation);
+	await store.beginDispatch("h3", "poyo", now);
+	await store.recordSubmission("h3", { kind: "accepted", taskId: "h3_task" }, now, 2_000);
+	const settings = providerStore(installation);
+	let replace = true;
+	makeTracking(async () => {
+		if (replace) {
+			replace = false;
+			await settings.save("poyo", "replacement", now, true, 1);
+		}
+		return Response.json({ code: 200, data: { task_id: "h3_task", status: "failed" } });
+	});
+	now += 2_000;
+	await tracker?.refresh("h3");
+	expect(await store.get("h3")).toMatchObject({ state: "waiting", read_token: expect.any(String) });
+	now += 60_000;
+	await tracker?.refresh("h3");
+	expect(await latest("h3")).toMatchObject({
+		state: "waiting",
+		message: expect.stringContaining("original API key"),
+	});
+});
+
+test("unknown Poyo job raises no Settings warning; active and unsaved H3 jobs do", async () => {
+	const settings = providerStore(installation);
+	await settings.save("poyo", credential, now, false, 1);
+	await insertH3("lost", 2, "unknown");
+	const store = imageJobStore(installation);
+	expect(await store.needsCredential("poyo")).toBe(false);
+	await insertH3("active", 2, "running");
+	expect(await store.needsCredential("poyo")).toBe(true);
+	await installation.use((db) =>
+		db.run(sql`UPDATE image_job SET state='completed' WHERE id='active'`),
+	);
+	expect(await store.needsCredential("poyo")).toBe(true);
+});

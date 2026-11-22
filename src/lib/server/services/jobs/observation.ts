@@ -1,4 +1,9 @@
-import type { ImageJob, StatusNote } from "../../db/image-job-store";
+import {
+	hasCorrelation,
+	type ImageJob,
+	isVideoJob,
+	type StatusNote,
+} from "../../db/image-job-store";
 import { retryTime } from "../../db/provider-gate";
 import type { TaskBilling, TaskFailureReason, TaskObservation } from "../../providers/image-job";
 import { retryDelay } from "../queue/submit-gate";
@@ -75,7 +80,7 @@ export function statusUpdate(
 				(job.state === "failed" && observation.state === "completed"));
 		const validTransition =
 			isActive(job) ||
-			(job.business_id && job.state === "unknown") ||
+			(hasCorrelation(job) && job.state === "unknown") ||
 			job.state === observation.state;
 		const merged = mergeBilling(billing, observation.billing);
 		if (terminalConflict) billing = { status: "conflicting" };
@@ -115,7 +120,7 @@ export function statusUpdate(
 					: null,
 			failures,
 			nextReadAt:
-				observation.kind === "observed" && !job.business_id
+				observation.kind === "observed" && !isVideoJob(job)
 					? now + delay
 					: Math.max(now + delay, retryTime(observation.retryAfter, now)),
 		},

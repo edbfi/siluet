@@ -5,11 +5,12 @@ import {
 	type ProviderId,
 	providerIds,
 } from "../../shared/providers/connections";
+import type { CredentialAccess } from "./image-credential-access";
 import {
-	type CredentialAccess as ImageCredentialAccess,
-	imageCredentialAccess,
-} from "./image-credential-access";
-import { jobsNeedCredential } from "./image-job-store";
+	type JobCredentialScope,
+	jobCredentialAccess,
+	jobsNeedCredential,
+} from "./image-job-store";
 import type { Installation } from "./installation";
 import { ProviderKeyPolicyError, prepareProviderKey, readProviderKey } from "./provider-key";
 
@@ -48,8 +49,6 @@ function decrypt(key: Buffer, encoded: string, data: Buffer) {
 		throw error;
 	}
 }
-
-type CredentialAccess = ImageCredentialAccess | "toapis-video";
 
 function allowsCredential(access: CredentialAccess, provider: ProviderId, seedream: boolean) {
 	if (access === "poyo-balance") return provider === "poyo";
@@ -172,20 +171,8 @@ export function providerStore(installation: Installation) {
 		},
 		async jobReadability() {
 			const { revisions } = await inspectConnections();
-			return ({
-				provider,
-				model,
-				revision,
-				business_id,
-			}: {
-				provider: ProviderId;
-				model: string;
-				revision: number;
-				business_id?: string | null;
-			}) =>
-				revisions[business_id ? "toapis-video" : imageCredentialAccess(provider, model)].get(
-					provider,
-				) === revision;
+			return (job: JobCredentialScope) =>
+				revisions[jobCredentialAccess(job)].get(job.provider) === job.revision;
 		},
 		async save(
 			id: ProviderId,
