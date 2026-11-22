@@ -5,15 +5,22 @@ import type { JobSummary } from "./summary";
 
 function outcome(
 	attempts: JobSummary[],
-	closed: boolean,
+	batch: ImageBatch,
 ): "unsent" | "pending" | "uncertain" | "successful" | "paused" | "failed" | "rejected" {
 	const last = attempts.at(-1);
-	if (!last) return closed ? "unsent" : "pending";
+	if (!last) return batch.closed_reason ? "unsent" : "pending";
 	if (attempts.some((attempt) => attempt.state === "completed")) return "successful";
 	if (last.skipped && attempts.length === 1) return "unsent";
 	if (last.state === "unknown") return "uncertain";
 	if (last.tracking === "paused" && last.state !== "failed") return "paused";
 	if (["waiting", "running", "submitting"].includes(last.state)) return "pending";
+	if (
+		!batch.closed_reason &&
+		last.retryPending &&
+		attempts.length <= batch.retry_limit &&
+		!attempts.some((attempt) => attempt.billing?.status === "conflicting")
+	)
+		return "pending";
 	if (attempts.some((attempt) => attempt.taskId)) return "failed";
 	return "rejected";
 }
@@ -29,7 +36,7 @@ export function batchHistory(batch: ImageBatch, jobs: JobSummary[]) {
 			slot: i + 1,
 			attempts: rows,
 			used: rows.filter((job) => !job.skipped).length,
-			outcome: outcome(rows, closed),
+			outcome: outcome(rows, batch),
 		} as const;
 	});
 	const counts = {

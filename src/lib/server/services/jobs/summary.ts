@@ -21,13 +21,13 @@ export type JobSummary = {
 	attempt: number | null;
 	taskId: string | null;
 	throttled: boolean;
+	retryPending: boolean;
 	skipped: ImageJob["skipped"];
 	id: string;
 	provider: ProviderId;
 	model: string;
 	operation: ImageJob["operation"];
 	galleryReason: ImageJob["gallery_reason"];
-
 	state: JobState | "unsent";
 	createdAt: number;
 	updatedAt: number;
@@ -166,11 +166,14 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		taskId: job.task_id,
 		skipped: job.skipped,
 		throttled: !!job.throttle,
+		retryPending:
+			job.retry_state === "ready" ||
+			job.retry_state === "settlement" ||
+			job.retry_state === "watch",
 		provider: job.provider,
 		model: job.model,
 		operation: job.operation,
 		galleryReason: job.gallery_reason,
-
 		state: job.skipped ? "unsent" : job.state,
 		createdAt: job.created_at,
 		updatedAt: job.updated_at ?? job.created_at,

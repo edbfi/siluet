@@ -156,6 +156,10 @@ test.each(["poyo", "toapis"] as const)(
 		const queue = await runtime();
 		const click = await review(queue, provider, 5, 3);
 		expect(posts).toBeEmpty();
+		let firstThrottleOutcome: string | undefined;
+		beforeSleep = async () => {
+			if (posts.length === 1) firstThrottleOutcome = (await history()).requests[0].outcome;
+		};
 		const [one, two] = await Promise.all([
 			queue.submit("owner", click),
 			queue.submit("owner", click),
@@ -166,6 +170,7 @@ test.each(["poyo", "toapis"] as const)(
 		expect(posts).toEqual(Array(20).fill(click.request.body));
 		const batch = await history();
 		expect(batch.counts.rejected).toBe(5);
+		expect(firstThrottleOutcome).toBe("pending");
 		expect((await jobs.list()).map((job) => job.operation)).toEqual(
 			Array(20).fill(click.entry.key.operation),
 		);
@@ -179,7 +184,7 @@ test.each(["poyo", "toapis"] as const)(
 		expect(attempts.slice(0, 5).map((row) => row.slot)).toEqual([1, 2, 3, 4, 5]);
 		expect(attempts.slice(0, 5).every((row) => row.attempt === 1)).toBe(true);
 		if (provider === "toapis")
-			expect(batch.settlement).toEqual({ credits: "0", usd: "0", complete: false });
+			expect(batch.settlement).toEqual({ credits: null, usd: null, complete: false });
 		await providerStore(db).remove(provider);
 		jobs.close();
 		await db.close();
@@ -650,6 +655,7 @@ test("manual Refresh without a failure reason preserves automatic refund proof a
 		const [after] = await imageBatchStore(db).attempts(batch.id);
 		expect(reads).toBe(2);
 		expect(after.retry_state).toBe("ready");
+		expect((await history()).requests[0].outcome).toBe("pending");
 		expect(after.retry_at).toBe(job.retry_at);
 		expect(posts).toBe(1);
 	};
@@ -808,7 +814,7 @@ test.each([
 		expect(refreshed).toBe(true);
 		expect(reads).toBeGreaterThanOrEqual(2);
 		expect(posts).toBe(1);
-		expect((await history()).settlement).toEqual({ complete: false, credits: "0", usd: "0" });
+		expect((await history()).settlement).toEqual({ complete: false, credits: null, usd: null });
 	},
 );
 

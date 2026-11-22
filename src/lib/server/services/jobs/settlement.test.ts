@@ -14,6 +14,16 @@ test("one coherent observation proves each distinct charge and an unaccounted PO
 		credits: "50.07500000001",
 	});
 	const refund = task("b", { status: "refunded", usd: "0", credits: "0.0000" });
+	expect(taskSettlement([task(null, null)], true)).toEqual({
+		complete: false,
+		credits: null,
+		usd: null,
+	});
+	expect(taskSettlement([refund, task(null, null)], true)).toEqual({
+		complete: false,
+		credits: "0",
+		usd: "0",
+	});
 	const jobs = [
 		settled,
 		refund,

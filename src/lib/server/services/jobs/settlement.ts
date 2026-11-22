@@ -43,8 +43,10 @@ export function taskSettlement(
 		tasks.set(job.taskId, mergeBilling(tasks.get(job.taskId) ?? null, job.billing));
 	}
 	const amounts = [...tasks.values()].map(completeAmount).filter((amount) => amount !== null);
+	complete = complete && amounts.length === tasks.size;
+	if (!complete && !amounts.length) return { complete, credits: null, usd: null };
 	return {
-		complete: complete && amounts.length === tasks.size,
+		complete,
 		credits: sumAmounts(amounts.map((a) => a.credits)),
 		usd: sumAmounts(amounts.map((a) => a.usd)),
 	};

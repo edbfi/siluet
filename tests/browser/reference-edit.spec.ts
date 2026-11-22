@@ -866,6 +866,14 @@ for (const provider of ["poyo", "toapis"] as const) {
 					Array(5).fill(providerPayload(provider, [secondSignedReference, signedReference])),
 				);
 				const second = batch.getByRole("region", { name: "Request 2", exact: true });
+				await expect(second.getByRole("heading", { level: 3 })).toHaveText(
+					"Request 2 · Successful",
+				);
+				await expect(second.getByRole("heading", { level: 4 })).toHaveText("Attempt 1");
+				if (provider === "toapis")
+					await expect(batch).toContainText(
+						"Total unknown · known subtotal · 22.4 credits · $0.112 USD",
+					);
 				const save = second.getByRole("button", { name: "Save to Gallery" });
 				await expect(save).toBeEnabled({ timeout: 20_000 });
 				await save.press("Enter");

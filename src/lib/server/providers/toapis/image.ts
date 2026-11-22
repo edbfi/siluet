@@ -145,7 +145,8 @@ export function createToapisImage(read: CheckFetch = fetch) {
 				`${endpoint}/${taskId}`,
 				key,
 			);
-			// A depleted query bucket can advertise its reset as an epoch in seconds.
+			// ToAPIs lists Reset without units. Only a ten-digit value on a depleted query
+			// bucket is interpreted as Unix seconds. This is a local fixture assumption.
 			const resetMs = reset && /^\d{10}$/.test(reset) ? Number(reset) * 1000 : 0;
 			const quota =
 				category === "async_query" && remaining === "0" && resetMs ? { queryAfter: resetMs } : {};

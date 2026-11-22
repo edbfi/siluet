@@ -9,6 +9,15 @@ import { styles } from "./jobs-styles.ts";
 
 let { data, form }: PageProps = $props();
 let pending = $state<Record<string, "refresh" | "save" | undefined>>({});
+const outcomeLabels = {
+	unsent: "Not submitted",
+	pending: "Pending",
+	uncertain: "May have been submitted",
+	successful: "Successful",
+	paused: "Tracking paused",
+	failed: "Failed",
+	rejected: "Rejected",
+};
 const stopReasons = {
 	finished: "Dispatch finished.",
 	expired: "The two-minute authorization expired.",
@@ -100,11 +109,15 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 		<article class={styles.job} aria-labelledby={`job-${job.id}-title`} id={`job-${job.id}`}>
 			<header>
 				<div class={styles.header}>
-					<h2 class={styles.heading} id={`job-${job.id}-title`}>
+					<svelte:element
+						this={job.batchId ? "h4" : "h2"}
+						class={styles.heading}
+						id={`job-${job.id}-title`}
+					>
 						{job.batchId
 							? `Attempt ${job.attempt}`
 							: `${releasedModels.find((model) => model.id === entry?.modelId)?.label ?? job.model} · ${provider}`}
-					</h2>
+					</svelte:element>
 					<span class={styles.state} data-state={job.state} aria-live="polite"
 						>{job.galleryReason === "unsupported-image"
 							? "Completed · unsupported image for Gallery"
@@ -284,16 +297,17 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 				{/if}
 				{#if batch.settlement}
 					<p>
-						{batch.settlement.complete ? "Confirmed total" : "Total unknown · known subtotal"} ·
-						{batch.settlement.credits} credits · ${batch.settlement.usd} USD
+						{#if batch.settlement.credits === null}
+							Total unknown
+						{:else}
+							{batch.settlement.complete ? "Confirmed total" : "Total unknown · known subtotal"} ·
+							{batch.settlement.credits} credits · ${batch.settlement.usd} USD
+						{/if}
 					</p>
 				{/if}
 				{#each batch.requests as request (request.slot)}
 					<section aria-label={`Request ${request.slot}`}>
-						<h3>
-							Request {request.slot} ·
-							{request.outcome === "unsent" ? "Not submitted" : request.outcome}
-						</h3>
+						<h3>Request {request.slot} · {outcomeLabels[request.outcome]}</h3>
 						<p>
 							{request.used} of {1 + batch.retryLimit} attempts used{batch.reason &&
 							request.used < 1 + batch.retryLimit
