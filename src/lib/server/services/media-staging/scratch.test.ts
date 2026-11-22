@@ -70,3 +70,36 @@ test("reclaim needs the lock handle; a contending runtime fails first", async ()
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+test("reclaim retries a busy leftover with backoff and names scratch when it gives up", async () => {
+	const root = await createOwnerDirectory();
+	const installation = await openRuntimeInstallation(root);
+	try {
+		const busy = () => Object.assign(new Error("resource busy"), { code: "EBUSY" });
+		let attempts = 0;
+		const retrying = createScratchPool(installation, {
+			retryDelays: [1, 1, 1],
+			removeTree: async (path) => {
+				if (++attempts < 3) throw busy();
+				await rm(path, { recursive: true, force: true });
+			},
+		});
+		await retrying.reclaim();
+		expect(attempts).toBe(3);
+		attempts = 0;
+		const stuck = createScratchPool(installation, {
+			retryDelays: [1, 1, 1],
+			removeTree: async () => {
+				attempts++;
+				throw busy();
+			},
+		});
+		await expect(stuck.reclaim()).rejects.toThrow(
+			"Unable to clear Siluet's scratch directory from an earlier run",
+		);
+		expect(attempts).toBe(4);
+	} finally {
+		await installation.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});

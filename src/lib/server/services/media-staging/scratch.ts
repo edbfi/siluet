@@ -30,7 +30,15 @@ export type ScratchScope = {
  */
 export function createScratchPool(
 	installation: RuntimeInstallation,
-	{ bytes = scratchPoolBytes } = {},
+	{
+		bytes = scratchPoolBytes,
+		retryDelays = [50, 250, 1000],
+		removeTree = (path: string) => rm(path, { recursive: true, force: true }),
+	}: {
+		bytes?: number;
+		retryDelays?: readonly number[];
+		removeTree?: (path: string) => Promise<void>;
+	} = {},
 ) {
 	const root = join(installation.directory, "scratch");
 	let used = 0;
@@ -65,7 +73,23 @@ export function createScratchPool(
 			if (!isRuntimeInstallation(installation))
 				throw new Error("Scratch reclaim requires the runtime installation lock.");
 			if (reclaimed || used) throw new Error("Scratch is already in use.");
-			await rm(root, { recursive: true, force: true });
+			// Windows refuses to delete a file another process holds open. Retry as unlink does.
+			let failure: unknown;
+			for (const delay of [0, ...retryDelays]) {
+				if (delay) await Bun.sleep(delay);
+				try {
+					await removeTree(root);
+					failure = undefined;
+					break;
+				} catch (error) {
+					failure = error;
+				}
+			}
+			if (failure)
+				throw new Error(
+					"Unable to clear Siluet's scratch directory from an earlier run. Close any program using files in its data directory's scratch folder, then start Siluet again.",
+					{ cause: failure },
+				);
 			await mkdir(root, { mode: 0o700 });
 			reclaimed = true;
 		},
