@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# Stage pricing feeds from origin for freshness.ts, one feed at a time.
+# Stage pricing feeds from origin for freshness.ts, one feed at a time. Needs bash 4 or later.
 # Usage: stage-feeds.sh DIR BRANCH:PATH:NAME...
 #
 # A branch or file that is confirmed absent is left unstaged, so freshness.ts reports it as

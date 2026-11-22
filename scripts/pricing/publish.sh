@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# Runs on the Ubuntu Actions runners; local runs need GNU date and bash 4 or later.
 set -euo pipefail
 export LC_ALL=C GIT_TERMINAL_PROMPT=0
 
@@ -40,10 +41,13 @@ skip() {
   exit 0
 }
 
-# Write the canonical compact JSON and its trailing LF. Reject input over the byte limit.
+# Write the canonical compact JSON and its trailing LF. Reject input over the byte limit, and
+# output whose published blob (LF included) would exceed it. LC_ALL=C makes ${#feed} a byte count.
 canonical_feed() {
-  local filter=$1 limit=$2
-  head -c "$((limit + 1))" | jq -RsceS -L "$script_dir" -f "$script_dir/$filter"
+  local filter=$1 limit=$2 feed
+  feed=$(head -c "$((limit + 1))" | jq -RsceS -L "$script_dir" -f "$script_dir/$filter")
+  ((${#feed} + 1 <= limit)) || fail "The pricing feed exceeds the size limit."
+  printf '%s\n' "$feed"
 }
 
 field() {
@@ -79,8 +83,6 @@ now_seconds=$(date -u -d "$now" '+%s')
 if [[ $provider == poyo ]]; then
   v1_name=feed.json
   canonical_feed providers/poyo/publish-v2.jq 65536 >"$work/candidate.json"
-  # The published blob, including its trailing LF, must fit the 64 KiB wire limit.
-  (($(wc -c <"$work/candidate.json") <= 65536)) || fail "The pricing feed exceeds the size limit."
   source_date=$(field sourceDate "$work/candidate.json")
   confirmed_at=$(field confirmedAt "$work/candidate.json")
   license_blob=$(git hash-object --no-filters -w -- "$2")
