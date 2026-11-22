@@ -204,8 +204,10 @@ describe("confirmed PoYo v2 rates", () => {
 
 	test("stays known after the source ages when a later confirmation exists", () => {
 		const at = Date.parse("2026-12-20T12:00:00Z");
-		expect(estimatePrice({ ...v2, version: 1, confirmedAt: undefined }, zImage, at)).toMatchObject({
+		const { confirmedAt: _, ...unconfirmed } = v2;
+		expect(estimatePrice({ ...unconfirmed, version: 1 }, zImage, at)).toMatchObject({
 			status: "unknown",
+			reason: "expired-feed",
 		});
 		expect(estimatePrice(v2, zImage, at)).toEqual({
 			status: "known",
@@ -235,6 +237,13 @@ describe("confirmed PoYo v2 rates", () => {
 		}
 	});
 
+	test("reports an invalid clock when a later confirmation cannot count and the source has aged", () => {
+		const future = { ...v2, confirmedAt: "2027-01-10T00:00:00Z" };
+		const at = Date.parse("2026-12-25T00:00:00Z");
+		expect(estimatePrice(future, zImage, at)).toMatchObject({ reason: "invalid-clock" });
+		expect(estimatePrice(v2, zImage, at)).toMatchObject({ status: "known" });
+	});
+
 	test("reports an invalid clock only before the source date", () => {
 		const source = Date.parse(v2.sourceDate);
 		expect(estimatePrice(v2, zImage, source - 1)).toMatchObject({ reason: "invalid-clock" });
@@ -257,6 +266,13 @@ describe("confirmed PoYo v2 rates", () => {
 		expect(
 			estimatePrice(
 				{ ...v2, rates: { ...v2.rates, "seedream-5.5": v2.rates["z-image"] } },
+				seedreamEdit,
+				at,
+			),
+		).toMatchObject({ reason: "rate-unavailable" });
+		expect(
+			estimatePrice(
+				{ ...v2, rates: { ...v2.rates, "seedream-5.5": unfamiliar } },
 				seedreamEdit,
 				at,
 			),

@@ -5,6 +5,7 @@ import {
 	isFixedRate,
 	isReferenceRate,
 	type PoyoRate,
+	poyoConfirmationMs,
 	poyoFeedExpiryMs,
 } from "./poyo-feed";
 
@@ -193,9 +194,12 @@ export function estimatePrice(feed: unknown, input: PriceInput, nowMs: number): 
 	if (nowMs < parsePricingInstant(poyoFeed.sourceDate)) {
 		return unknown("invalid-clock");
 	}
-	// A confirmation dated after the clock cannot extend the rates beyond 30 days from now.
+	// A confirmation dated after the clock is ignored, so the rates age from the source date.
 	const expiresAt = poyoFeedExpiryMs(poyoFeed, nowMs);
-	if (nowMs >= expiresAt) return unknown("expired-feed");
+	if (nowMs >= expiresAt) {
+		// Refresh cannot help while the clock is behind the confirmation it already holds.
+		return unknown(nowMs < poyoConfirmationMs(poyoFeed) ? "invalid-clock" : "expired-feed");
+	}
 
 	// Quote only the kind each model is known to use. Anything else is unavailable here.
 	const rate: PoyoRate | undefined = poyoFeed.rates[model];
