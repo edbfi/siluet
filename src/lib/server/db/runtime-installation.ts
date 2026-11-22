@@ -1,7 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { type Installation, openInstallation } from "./installation";
 import { preparePrivateDirectory } from "./private-directory";
-import { providerKeyFilename } from "./provider-key";
 
 /** Work that must settle before its installation closes, such as one preparation. */
 export type RuntimeSlot = { readonly settled: Promise<void> };
@@ -49,14 +48,10 @@ export async function openRuntimeInstallation(
 ): Promise<RuntimeInstallation> {
 	if (Object.hasOwn(env, "LIMBO_DISABLE_FILE_LOCK"))
 		throw new Error("Studio requires the native file lock.");
-	await preparePrivateDirectory(directory, providerKeyFilename, mode === "recovery");
+	await preparePrivateDirectory(directory, mode === "recovery");
 	const path = await realpath(directory);
 	const info = await stat(path, { bigint: true });
-	const identity = info.ino
-		? `${info.dev}:${info.ino}`
-		: process.platform === "win32"
-			? path.toLowerCase()
-			: path;
+	const identity = info.ino ? `${info.dev}:${info.ino}` : path;
 	if (active.has(identity)) throw new Error("Studio installation is in use.");
 	const entry: Entry = { identity };
 	active.set(identity, entry);

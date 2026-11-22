@@ -60,9 +60,9 @@ test("a private directory inside the studio checkout is rejected before credenti
 	const served = await mkdtemp(join(process.cwd(), "owner-directory-test-"));
 	try {
 		const alias = join(directory, "alias");
-		await symlink(served, alias, "junction");
+		await symlink(served, alias);
 		const outward = join(served, "external");
-		await symlink(directory, outward, "junction");
+		await symlink(directory, outward);
 		for (const root of [served, alias, outward]) {
 			const data = join(root, "settings");
 			await expect(openInstallation(data)).rejects.toThrow("outside the studio files");
@@ -74,31 +74,16 @@ test("a private directory inside the studio checkout is rejected before credenti
 	}
 });
 
-test.skipIf(process.platform !== "win32")(
-	"a new installation inherits its private parent ACL",
-	async () => {
-		const installation = await openInstallation(join(directory, "siluet"));
-		try {
-			expect(await installation.hasOwner()).toBe(false);
-		} finally {
-			await installation.close();
-		}
-	},
-);
-
-test.skipIf(process.platform !== "win32")(
-	"an NTFS grant to other local users prevents initialization",
-	async () => {
-		// Give the well-known Users group read access on this empty fixture only.
-		const grant = Bun.spawn(["icacls.exe", directory, "/grant", "*S-1-5-32-545:(OI)(CI)R"], {
-			stdout: "ignore",
-			stderr: "ignore",
-		});
-		expect(await grant.exited).toBe(0);
-		await expect(openInstallation(directory)).rejects.toThrow("Check grants to other accounts");
-		expect(await Bun.file(join(directory, "installation.id")).exists()).toBe(false);
-	},
-);
+test("a new nested installation is created 0700", async () => {
+	const nested = join(directory, "siluet");
+	const installation = await openInstallation(nested);
+	try {
+		expect((await lstat(nested)).mode & 0o777).toBe(0o700);
+		expect(await installation.hasOwner()).toBe(false);
+	} finally {
+		await installation.close();
+	}
+});
 
 test("a foreign platform is refused rather than reported as damaged storage", async () => {
 	const platform = Object.getOwnPropertyDescriptor(process, "platform");
@@ -142,14 +127,11 @@ test("an unrelated file prevents first initialization", async () => {
 	await expect(openInstallation(directory)).rejects.toThrow("storage");
 	expect(await Bun.file(join(directory, "installation.id")).exists()).toBe(false);
 });
-test.skipIf(process.platform === "win32")(
-	"group readable storage is rejected before initialization",
-	async () => {
-		await chmod(directory, 0o750);
-		await expect(openInstallation(directory)).rejects.toThrow("must be private");
-		expect(await Bun.file(join(directory, "installation.id")).exists()).toBe(false);
-	},
-);
+test("group readable storage is rejected before initialization", async () => {
+	await chmod(directory, 0o750);
+	await expect(openInstallation(directory)).rejects.toThrow("must be private");
+	expect(await Bun.file(join(directory, "installation.id")).exists()).toBe(false);
+});
 
 test("an unrelated working directory does not become the installation's checkout", async () => {
 	const entry = new URL("./installation.ts", import.meta.url).href;

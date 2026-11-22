@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { lstat, open } from "node:fs/promises";
 import { join } from "node:path";
-import { DirectoryPolicyError, verifyWindowsKeyAcl } from "./private-directory";
+import { DirectoryPolicyError } from "./private-directory";
 
 export const lockFilename = "owner-recovery.sqlite";
 const sentinel = "CREATE TABLE recovery_lock (version INTEGER PRIMARY KEY CHECK(version=1))";
@@ -13,11 +13,7 @@ const unavailable = () =>
 async function inspect(path: string) {
 	try {
 		const file = await lstat(path);
-		if (
-			!file.isFile() ||
-			file.nlink !== 1 ||
-			(process.platform !== "win32" && (file.uid !== process.getuid?.() || file.mode & 0o077))
-		)
+		if (!file.isFile() || file.nlink !== 1 || file.uid !== process.getuid?.() || file.mode & 0o077)
 			throw unavailable();
 		return true;
 	} catch (e) {
@@ -38,7 +34,6 @@ export async function acquireRecoveryLock(directory: string, recovery: boolean) 
 				if (!(e instanceof Error && "code" in e && e.code === "EEXIST")) throw e;
 			}
 			if (!(await inspect(path))) throw unavailable();
-			if (process.platform === "win32") await verifyWindowsKeyAcl(directory, lockFilename);
 		}
 		if ((await inspect(`${path}-wal`)) || (await inspect(`${path}-shm`))) throw unavailable();
 		await inspect(`${path}-journal`);

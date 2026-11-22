@@ -1,12 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import { lstat, open, rename, rm } from "node:fs/promises";
-import { basename, join } from "node:path";
-import { verifyWindowsKeyAcl } from "./private-directory";
+import { join } from "node:path";
 
 export const providerKeyFilename = "provider-credentials.key";
 const keySize = 32;
-const windows = process.platform === "win32";
 
 export class ProviderKeyPolicyError extends Error {
 	constructor() {
@@ -16,8 +14,7 @@ export class ProviderKeyPolicyError extends Error {
 
 const isMissing = (error: unknown) =>
 	error instanceof Error && "code" in error && error.code === "ENOENT";
-const isPrivate = (entry: Stats) =>
-	windows || (entry.uid === process.getuid?.() && (entry.mode & 0o077) === 0);
+const isPrivate = (entry: Stats) => entry.uid === process.getuid?.() && (entry.mode & 0o077) === 0;
 
 async function inspect(directory: string, path: string) {
 	try {
@@ -50,29 +47,14 @@ function sameEntries(a: KeyEntries, b: KeyEntries) {
 	return sameEntry(a.parent, b.parent) && sameFile(a.file, b.file);
 }
 
-async function checkWindowsPermissions(directory: string, filename?: string) {
-	if (!windows) return;
-	try {
-		await verifyWindowsKeyAcl(directory, filename);
-	} catch {
-		throw new ProviderKeyPolicyError();
-	}
-}
-
 async function loadProviderKey(directory: string, path: string) {
 	for (let attempt = 0; attempt < 2; attempt++) {
 		const inspected = await inspect(directory, path);
-		try {
-			await checkWindowsPermissions(directory, inspected.file ? providerKeyFilename : undefined);
-		} catch (error) {
-			if (!sameEntries(inspected, await inspect(directory, path))) continue;
-			throw error;
-		}
 		if (!sameEntries(inspected, await inspect(directory, path))) continue;
 		if (!inspected.file || inspected.file.size !== keySize) return { inspected, key: null };
 
 		try {
-			const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+			const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
 			try {
 				if (!sameFile(inspected.file, await file.stat())) continue;
 				const key = await file.readFile();
@@ -92,12 +74,9 @@ export async function readProviderKey(directory: string) {
 	return (await loadProviderKey(directory, join(directory, providerKeyFilename))).key;
 }
 
-async function writeTemporaryKey(directory: string, path: string, key: Buffer) {
+async function writeTemporaryKey(path: string, key: Buffer) {
 	const file = await open(path, "wx", 0o600);
 	try {
-		// Windows ignores the Unix creation mode. Verify the temp file's ACL before
-		// writing secrets. A same-volume rename preserves the security descriptor.
-		await checkWindowsPermissions(directory, basename(path));
 		await file.writeFile(key);
 		await file.sync();
 	} finally {
@@ -106,7 +85,6 @@ async function writeTemporaryKey(directory: string, path: string, key: Buffer) {
 }
 
 async function syncDirectory(directory: string) {
-	if (windows) return;
 	const handle = await open(directory, "r");
 	try {
 		await handle.sync();
@@ -132,7 +110,7 @@ export async function prepareProviderKey(directory: string) {
 	if (!current) {
 		const temporaryPath = join(directory, `${providerKeyFilename}.${crypto.randomUUID()}.tmp`);
 		try {
-			await writeTemporaryKey(directory, temporaryPath, key);
+			await writeTemporaryKey(temporaryPath, key);
 			const { file } = await inspect(directory, temporaryPath);
 			if (file?.size !== keySize) throw new ProviderKeyPolicyError();
 			temporary = { path: temporaryPath, file };

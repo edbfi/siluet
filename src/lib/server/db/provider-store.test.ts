@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import {
 	chmod,
 	link,
 	lstat,
+	open,
 	readdir,
 	readFile,
 	rm,
@@ -163,46 +164,43 @@ test("ciphertext cannot be transferred to a different provider", async () => {
 	});
 });
 
-test.skipIf(process.platform === "win32")(
-	"the separate key must be a regular owner-only file",
-	async () => {
-		const store = providerStore(installation);
-		await saveCurrent(store, "poyo", poyoKey, 123, true);
-		expect((await lstat(keyPath())).mode & 0o777).toBe(0o600);
-		await chmod(keyPath(), 0o640);
-		expect(await statusOf(store, "poyo")).toEqual({
-			id: "poyo",
-			state: "repair",
-			hasCredential: true,
-		});
-		await expect(saveCurrent(store, "poyo", poyoKey, 789, false)).rejects.toThrow();
-		await chmod(keyPath(), 0o600);
-		expect(await statusOf(store, "poyo")).toEqual({
-			id: "poyo",
-			state: "connected",
-			verifiedAt: 123,
-			seedream: true,
-		});
-		const alias = join(directory, "alias");
-		await link(keyPath(), alias);
-		expect(await statusOf(store, "poyo")).toEqual({
-			id: "poyo",
-			state: "repair",
-			hasCredential: true,
-		});
-		await unlink(alias);
-		await writeFile(alias, await readFile(keyPath()), { mode: 0o600 });
-		await unlink(keyPath());
-		await symlink(alias, keyPath());
-		expect(await statusOf(store, "poyo")).toEqual({
-			id: "poyo",
-			state: "repair",
-			hasCredential: true,
-		});
-		await expect(saveCurrent(store, "poyo", poyoKey, 789, false)).rejects.toThrow();
-		expect((await lstat(keyPath())).isSymbolicLink()).toBe(true);
-	},
-);
+test("the separate key must be a regular owner-only file", async () => {
+	const store = providerStore(installation);
+	await saveCurrent(store, "poyo", poyoKey, 123, true);
+	expect((await lstat(keyPath())).mode & 0o777).toBe(0o600);
+	await chmod(keyPath(), 0o640);
+	expect(await statusOf(store, "poyo")).toEqual({
+		id: "poyo",
+		state: "repair",
+		hasCredential: true,
+	});
+	await expect(saveCurrent(store, "poyo", poyoKey, 789, false)).rejects.toThrow();
+	await chmod(keyPath(), 0o600);
+	expect(await statusOf(store, "poyo")).toEqual({
+		id: "poyo",
+		state: "connected",
+		verifiedAt: 123,
+		seedream: true,
+	});
+	const alias = join(directory, "alias");
+	await link(keyPath(), alias);
+	expect(await statusOf(store, "poyo")).toEqual({
+		id: "poyo",
+		state: "repair",
+		hasCredential: true,
+	});
+	await unlink(alias);
+	await writeFile(alias, await readFile(keyPath()), { mode: 0o600 });
+	await unlink(keyPath());
+	await symlink(alias, keyPath());
+	expect(await statusOf(store, "poyo")).toEqual({
+		id: "poyo",
+		state: "repair",
+		hasCredential: true,
+	});
+	await expect(saveCurrent(store, "poyo", poyoKey, 789, false)).rejects.toThrow();
+	expect((await lstat(keyPath())).isSymbolicLink()).toBe(true);
+});
 
 test("reading key status does not create a missing installation directory", async () => {
 	const missing = join(directory, "absent");
@@ -210,47 +208,41 @@ test("reading key status does not create a missing installation directory", asyn
 	await expect(lstat(missing)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
-test.skipIf(process.platform !== "win32")(
-	"an unsafe key ACL requires repair without closing the installation",
-	async () => {
-		await saveCurrent(providerStore(installation), "poyo", poyoKey, 123, true);
-		await installation.close();
-		const grant = Bun.spawn(["icacls.exe", keyPath(), "/grant", "*S-1-5-32-545:R"], {
-			stdout: "ignore",
-			stderr: "ignore",
-		});
-		expect(await grant.exited).toBe(0);
-		installation = await openInstallation(directory);
-		expect(await statusOf(providerStore(installation), "poyo")).toEqual({
-			id: "poyo",
-			state: "repair",
-			hasCredential: true,
-		});
-		await expect(
-			saveCurrent(providerStore(installation), "poyo", poyoKey, 789, false),
-		).rejects.toThrow();
-	},
-);
+test("an unsafe key at startup requires repair without closing", async () => {
+	await saveCurrent(providerStore(installation), "poyo", poyoKey, 123, true);
+	await installation.close();
+	await chmod(keyPath(), 0o640);
+	installation = await openInstallation(directory);
+	const store = providerStore(installation);
+	expect(await statusOf(store, "poyo")).toEqual({
+		id: "poyo",
+		state: "repair",
+		hasCredential: true,
+	});
+	expect(await installation.hasOwner()).toBe(false);
+	await expect(saveCurrent(store, "poyo", poyoKey, 789, false)).rejects.toThrow();
+});
 
-test.skipIf(process.platform !== "win32")(
-	"Windows looks up the directory and its key without inspecting unrelated children",
-	async () => {
-		const store = providerStore(installation);
-		await saveCurrent(store, "poyo", poyoKey, 123, true);
-		await saveCurrent(store, "toapis", toapisKey, 456, true);
-		const unrelated = join(directory, "unrelated.tmp");
-		await writeFile(unrelated, "fixture");
-		const grant = Bun.spawn(["icacls.exe", unrelated, "/grant", "*S-1-5-32-545:R"], {
-			stdout: "ignore",
-			stderr: "ignore",
-		});
-		expect(await grant.exited).toBe(0);
-		expect(await store.statuses()).toEqual([
-			{ id: "poyo", state: "connected", verifiedAt: 123, seedream: true },
-			{ id: "toapis", state: "connected", verifiedAt: 456, seedream: true },
-		]);
-	},
-);
+test("a failed directory sync leaves the credential unpublished", async () => {
+	const store = providerStore(installation);
+	const revision = await store.revision("poyo");
+	const probe = await open(directory, "r");
+	const proto = Object.getPrototypeOf(probe);
+	await probe.close();
+	const syncFile = proto.sync;
+	const sync = spyOn(proto, "sync").mockImplementation(async function (this: typeof probe) {
+		if ((await this.stat()).isDirectory())
+			throw Object.assign(new Error("Fixture directory sync failed"), { code: "EIO" });
+		return syncFile.apply(this);
+	});
+	try {
+		await expect(store.save("poyo", poyoKey, 123, true, revision)).rejects.toThrow();
+	} finally {
+		sync.mockRestore();
+	}
+	expect(await statusOf(store, "poyo")).toEqual({ id: "poyo", state: "disconnected" });
+	expect(await store.revision("poyo")).toBe(revision);
+});
 
 test("an owner-only installation upgrades in place with its existing session", async () => {
 	await installation.close();
@@ -397,34 +389,31 @@ test("a continuing write lock leaves the saved connection intact", async () => {
 	}
 });
 
-test.skipIf(process.platform === "win32")(
-	"unsafe key permissions require repair before sending a candidate to a provider",
-	async () => {
-		let reads = 0;
-		const check = async () => {
-			reads++;
-			return { outcome: "accepted", seedream: true } as const;
-		};
-		const store = providerStore(installation);
-		const service = createProviderConnections(store, { poyo: check, toapis: check });
-		await saveCurrent(store, "poyo", poyoKey, 123, true);
-		await chmod(keyPath(), 0o640);
-		try {
-			expect(await service.statuses()).toEqual([
-				{ id: "poyo", state: "repair", hasCredential: true },
-				{ id: "toapis", state: "repair", hasCredential: false },
-			]);
-			expect(await service.connect("poyo", poyoKey)).toBe("storage-repair");
-			expect(await service.connect("toapis", toapisKey)).toBe("storage-repair");
-			expect(reads).toBe(0);
-		} finally {
-			await chmod(keyPath(), 0o600);
-		}
-		expect((await service.imageAvailability()).eligibleProviders).toEqual(["poyo"]);
-		expect(await service.connect("toapis", toapisKey)).toBe("connected");
-		expect(reads).toBe(1);
-	},
-);
+test("unsafe key permissions require repair before sending a candidate to a provider", async () => {
+	let reads = 0;
+	const check = async () => {
+		reads++;
+		return { outcome: "accepted", seedream: true } as const;
+	};
+	const store = providerStore(installation);
+	const service = createProviderConnections(store, { poyo: check, toapis: check });
+	await saveCurrent(store, "poyo", poyoKey, 123, true);
+	await chmod(keyPath(), 0o640);
+	try {
+		expect(await service.statuses()).toEqual([
+			{ id: "poyo", state: "repair", hasCredential: true },
+			{ id: "toapis", state: "repair", hasCredential: false },
+		]);
+		expect(await service.connect("poyo", poyoKey)).toBe("storage-repair");
+		expect(await service.connect("toapis", toapisKey)).toBe("storage-repair");
+		expect(reads).toBe(0);
+	} finally {
+		await chmod(keyPath(), 0o600);
+	}
+	expect((await service.imageAvailability()).eligibleProviders).toEqual(["poyo"]);
+	expect(await service.connect("toapis", toapisKey)).toBe("connected");
+	expect(reads).toBe(1);
+});
 
 test("dispatch opens an eligible credential only at the requested revision", async () => {
 	const store = providerStore(installation);

@@ -7,7 +7,6 @@ import { requireSupportedPlatform, UnsupportedPlatformError } from "../platform"
 import { installationMigrations, migrateInstallation } from "./migrations";
 
 import { DirectoryPolicyError, preparePrivateDirectory } from "./private-directory";
-import { providerKeyFilename } from "./provider-key";
 import { acquireRecoveryLock, lockFilename } from "./recovery-lock";
 import { verifyRecoverySchema } from "./recovery-schema";
 
@@ -25,8 +24,7 @@ export async function openInstallation(
 	let client: Awaited<ReturnType<typeof connect>> | undefined;
 	requireSupportedPlatform();
 	try {
-		// The provider store checks its key before use and can report a reconnect.
-		await preparePrivateDirectory(directory, providerKeyFilename, recovery);
+		await preparePrivateDirectory(directory, recovery);
 		directory = await realpath(directory);
 		const marker = join(directory, "installation.id");
 		const database = join(directory, "studio.db");
