@@ -21,7 +21,7 @@ Saved images and videos stay in your local Gallery and open offline.
 
 ## Quick start
 
-Requires [Bun](https://bun.sh) on Apple Silicon macOS, x64 Windows, or glibc Linux (x64 or ARM64).
+Requires [Bun](https://bun.sh) on Linux or macOS. Tested on glibc Linux (x64 and ARM64) and Apple Silicon macOS.
 
 ```sh
 bun ci
