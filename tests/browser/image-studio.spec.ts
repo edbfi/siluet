@@ -1270,6 +1270,48 @@ test("built Image Studio cleans an attached local copy automatically while Queue
 			expect(sentWith("POST")).toHaveLength(posts + 1);
 		});
 
+		await test.step("a back-forward restore resumes a ready copy and leaves a failed one", async () => {
+			// Chromium does not keep this page in the back-forward cache under test, so
+			// the page transition events are dispatched directly.
+			const transition = (type: "pagehide" | "pageshow") =>
+				page.evaluate(
+					(type) => dispatchEvent(new PageTransitionEvent(type, { persisted: true })),
+					type,
+				);
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await fileStatus("Cleaned copy ready.");
+			const src = (await cleaned.getAttribute("src")) ?? "";
+			let posts = sentWith("POST").length;
+			await transition("pagehide");
+			await gone(src);
+			await transition("pageshow");
+			await fileStatus("Cleaned copy ready.");
+			await expect(cleaned).not.toHaveAttribute("src", src);
+			expect(sentWith("POST")).toHaveLength(posts + 1);
+
+			await page.route("**/image/files/*", (route) =>
+				route.request().method() === "POST" ? route.abort() : route.continue(),
+			);
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await expect(tryAgain).toBeVisible();
+			posts = sentWith("POST").length;
+			await transition("pagehide");
+			await transition("pageshow");
+			await expect(tryAgain).toBeVisible();
+			expect(sentWith("POST")).toHaveLength(posts);
+			await page.unroute("**/image/files/*");
+			await tryAgain.press("Enter");
+			await fileStatus("Cleaned copy ready.");
+		});
+
 		await test.step("leaving the page retires the copy", async () => {
 			const src = (await cleaned.getAttribute("src")) ?? "";
 			await page
