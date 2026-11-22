@@ -46,12 +46,14 @@ for (const provider of ["poyo", "toapis"] as const) {
 			await page.setViewportSize({ width: 320, height: 760 });
 			await page.goto(`${origin}/image`);
 			await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(prompt);
-			const inspect = page.getByRole("button", { name: "Review request", exact: true });
+			const inspect = page.getByRole("button", { name: /^(Review request|Reviewing…)$/ });
 			await inspect.press("Enter");
 			await expect(inspect).toHaveCount(0);
 			const checkbox = page.getByRole("checkbox", { name: /unknown/i });
 			if (provider === "toapis" || (await checkbox.count())) await checkbox.check();
-			await page.getByRole("button", { name: "Queue 1 request" }).press("Enter");
+			const queue = page.getByRole("button", { name: "Queue 1 request" });
+			await expect(queue).toBeEnabled();
+			await queue.press("Enter");
 			await expect(page).toHaveURL(/\/jobs/);
 			const article = page.getByRole("article");
 			await expect(article.getByText("Completed", { exact: true })).toBeVisible({
