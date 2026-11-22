@@ -50,6 +50,20 @@ export function defineRestart(state: ScanState, data: Buffer) {
 	state.restart = data.readUInt16BE(0);
 }
 
+// T.81 Tables F.1 and F.2: P-bit samples give DC difference categories up to
+// P + 3 and AC sizes up to P + 2 (8-bit: 11 and 10; 12-bit: 15 and 14). G.1.2.1
+// and G.1.2.2 code a progressive first scan's values after the point transform,
+// so category plus Al stays within the same bound. libjpeg's jdhuff.c and
+// jdphuff.c store a coefficient, `s << Al` in a progressive scan, in a 16-bit
+// JCOEF, where a larger value can truncate to zero and change which refinement
+// bits the decoder reads.
+// https://github.com/libjpeg-turbo/libjpeg-turbo/blob/3.2.1/src/jdphuff.c
+export type CoefficientBits = { dc: number; ac: number };
+
+function coefficientBits({ precision }: JpegFrame, al: number): CoefficientBits {
+	return { dc: precision + 3 - al, ac: precision + 2 - al };
+}
+
 // Stands in for a table the scan never decodes with; any symbol is refused.
 const unused: Huffman = {
 	maxCode: new Int32Array(17).fill(-1),
@@ -89,7 +103,7 @@ function readScan(sos: Buffer, frame: JpegFrame, { huffman }: ScanState) {
 		const ac = usesAc ? (huffman[4 + (sos[i + 1] & 15)] ?? refuseJpeg("invalid")) : unused;
 		components.push({ ...frame.components[index], index, dc, ac });
 	}
-	return { ss, se, ah, al, components };
+	return { ss, se, ah, al, components, bits: coefficientBits(frame, al) };
 }
 
 type ScanComponent = ReturnType<typeof readScan>["components"][number];
@@ -114,10 +128,10 @@ function layout(frame: JpegFrame, components: ScanComponent[]) {
 }
 
 // F.2.2: a DC difference category and its bits, then AC run/size pairs up to EOB.
-function sequentialCoder(reader: EntropyReader) {
+function sequentialCoder(reader: EntropyReader, bits: CoefficientBits) {
 	const block = ({ dc, ac }: ScanComponent) => {
 		const size = reader.decode(dc);
-		if (size > 11) refuseJpeg("invalid");
+		if (size > bits.dc) refuseJpeg("invalid");
 		reader.read(size);
 		for (let k = 1; k < 64; ) {
 			const symbol = reader.decode(ac);
@@ -129,7 +143,7 @@ function sequentialCoder(reader: EntropyReader) {
 				k += 16;
 				continue;
 			}
-			if (size > 10 || k + run > 63) refuseJpeg("invalid");
+			if (size > bits.ac || k + run > 63) refuseJpeg("invalid");
 			reader.read(size);
 			k += run + 1;
 		}
@@ -154,7 +168,7 @@ export function walkScan(
 	const reader = entropyReader(bytes, start, end);
 	const coder = frame.progressive
 		? progressiveCoder(reader, scan, state.progression, mcus)
-		: sequentialCoder(reader);
+		: sequentialCoder(reader, scan.bits);
 	for (let mcu = 0; mcu < mcus; mcu++) {
 		if (state.restart && mcu && mcu % state.restart === 0) {
 			reader.restart(0xd0 + ((mcu / state.restart - 1) & 7));

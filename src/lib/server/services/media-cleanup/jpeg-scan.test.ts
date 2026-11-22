@@ -256,3 +256,47 @@ describe("walkScan in progressive frames", () => {
 		refuses(refine, "invalid");
 	});
 });
+
+describe("coefficient magnitude", () => {
+	// One 8×8 block. DC code "0" is the only DC symbol; AC 00 is `acSymbol`, 01 is EOB.
+	const dcOnly = (symbol: number) => segment(0xc4, 0x00, 1, ...Array(15).fill(0), symbol);
+	const tables = (dc: number, ac: number) => [...quantization, ...dcOnly(dc), ...acTable(ac, 0x00)];
+	const firstDc = { ids: [1], band: [0, 0, 0x00], data: [0x7f] };
+	// A size-10 coefficient of 512, then EOB: 00 1000000000 01 and two padding bits.
+	const largeAc = [0x20, 0x07];
+	// A category-11 DC difference of 1024: 0 10000000000 and four padding bits.
+	const largeDc = [0x40, 0x0f];
+
+	test("accepts the largest category an 8-bit frame allows after the point transform", () => {
+		const progressive = (scans: Scan[], dc = 0x00) =>
+			jpeg(8, 8, [0x11], scans, 0, tables(dc, 0x0a), 0xc2);
+		expect(
+			readJpeg(progressive([firstDc, { ids: [1], band: [1, 63, 0x00], data: largeAc }])).frame
+				.progressive,
+		).toBe(true);
+		expect(
+			readJpeg(progressive([{ ids: [1], band: [0, 0, 0x00], data: largeDc }], 0x0b)).frame
+				.progressive,
+		).toBe(true);
+	});
+
+	test("refuses a progressive coefficient whose category plus Al exceeds the precision", () => {
+		// libjpeg stores s << Al in a 16-bit JCOEF: 512 << 7 truncates to 0, so a
+		// decoder would skip the correction bits this coefficient later carries.
+		const progressive = (scans: Scan[], dc = 0x00) =>
+			jpeg(8, 8, [0x11], scans, 0, tables(dc, 0x0a), 0xc2);
+		for (const al of [1, 7]) {
+			refuses(progressive([firstDc, { ids: [1], band: [1, 63, al], data: largeAc }]), "invalid");
+			refuses(progressive([{ ids: [1], band: [0, 0, al], data: largeDc }], 0x0b), "invalid");
+		}
+	});
+
+	test("refuses a sequential category beyond an 8-bit frame's", () => {
+		// Both are otherwise complete: a DC difference of 2048 then EOB, or an
+		// all-zero DC then an AC coefficient of 1024 and EOB.
+		const sequential = (data: number[], dc: number) =>
+			jpeg(8, 8, [0x11], [{ ids: [1], data }], 0, tables(dc, 0x0b));
+		refuses(sequential([0x40, 0x07], 0x0c), "invalid");
+		refuses(sequential([0x10, 0x01], 0x00), "invalid");
+	});
+});

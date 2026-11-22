@@ -33,7 +33,7 @@ function readFrame(code: number, data: Buffer) {
 	if (components.length === 1 && (components[0].h !== 1 || components[0].v !== 1)) {
 		refuseJpeg("unsupported");
 	}
-	return { width, height, components, progressive: code === 0xc2 };
+	return { precision: data[0], width, height, components, progressive: code === 0xc2 };
 }
 
 function scanEnd(bytes: Buffer, start: number) {

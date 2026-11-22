@@ -1,5 +1,6 @@
 import type { EntropyReader, Huffman } from "./jpeg-entropy";
 import { refuseJpeg } from "./jpeg-errors";
+import type { CoefficientBits } from "./jpeg-scan";
 
 // Progressive Huffman scans, decoded as ITU-T T.81 Annex G.1.2 and libjpeg's
 // jdphuff.c read them, so the walk ends exactly where the decoder stops.
@@ -12,6 +13,8 @@ export type ProgressiveScan = {
 	ah: number;
 	al: number;
 	components: Component[];
+	/** The largest category a first scan may code, after its point transform. */
+	bits: CoefficientBits;
 };
 
 /**
@@ -51,7 +54,7 @@ export function progressiveCoder(
 	blocks: number,
 ) {
 	advance(progression, scan);
-	const { ss, se, ah } = scan;
+	const { ss, se, ah, bits } = scan;
 	if (ss === 0) {
 		// G.1.2.1: a first DC scan codes a difference category and its bits; a
 		// refinement codes one bit per block.
@@ -61,7 +64,7 @@ export function progressiveCoder(
 				return;
 			}
 			const size = reader.decode(dc);
-			if (size > 11) refuseJpeg("invalid");
+			if (size > bits.dc) refuseJpeg("invalid");
 			reader.read(size);
 		};
 		return { restart() {}, block };
@@ -102,7 +105,7 @@ export function progressiveCoder(
 			const size = symbol & 15;
 			if (size) {
 				k += run;
-				if (k > se || size > 10) refuseJpeg("invalid");
+				if (k > se || size > bits.ac) refuseJpeg("invalid");
 				reader.read(size);
 				mark(block, k);
 			} else if (run === 15) {
