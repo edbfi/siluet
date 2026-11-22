@@ -1,6 +1,9 @@
+export const videoJobPollingWindowMs = 600_000;
+
 export const videoMigration = [
 	"ALTER TABLE image_job ADD COLUMN business_id TEXT",
 	"CREATE UNIQUE INDEX video_business_id ON image_job(business_id)",
+	// Keep the original migration SQL fixed at videoJobPollingWindowMs.
 	"ALTER TABLE image_job ADD COLUMN video_poll_deadline INTEGER CHECK(video_poll_deadline IS NULL OR (business_id IS NOT NULL AND task_id IS NOT NULL AND video_poll_deadline=submission_recorded_at+600000))",
 	"ALTER TABLE image_job ADD COLUMN video_progress INTEGER CHECK(video_progress BETWEEN 0 AND 100)",
 	"ALTER TABLE image_job ADD COLUMN video_terms TEXT",

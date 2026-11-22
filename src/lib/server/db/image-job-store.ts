@@ -14,6 +14,7 @@ import { credentialPermitsImage } from "./image-credential-access";
 import { imageJobPollingWindowMs } from "./image-job-schema";
 import type { Installation, InstallationTransaction } from "./installation";
 import { nextProviderStart, recordProviderStart } from "./provider-gate";
+import { videoJobPollingWindowMs } from "./video-schema";
 
 export type JobState = "submitting" | "unknown" | "rejected" | TaskState;
 export type StatusNote =
@@ -43,11 +44,11 @@ export type ImageJob = {
 	gallery_reason: "unsupported-image" | null;
 	created_at: number;
 	poll_deadline: number;
-	business_id?: string | null;
-	video_poll_deadline?: number | null;
-	video_progress?: number | null;
-	video_observation_id?: string | null;
-	read_token?: string | null;
+	business_id: string | null;
+	video_poll_deadline: number | null;
+	video_progress: number | null;
+	video_observation_id: string | null;
+	read_token: string | null;
 	updated_at: number | null;
 	task_id: string | null;
 	next_read_at: number | null;
@@ -198,7 +199,7 @@ export function imageJobStore({ use }: Installation) {
 					WHERE id=${job.batch_id} AND closed_reason IS NULL`);
 						return tx.get<ImageJob>(sql`UPDATE image_job SET state=${state}, task_id=${taskId},
 					rejection=${rejection}, next_read_at=CASE WHEN business_id IS NOT NULL THEN MAX(COALESCE(next_read_at,0),${now + initialWait}) ELSE ${taskId ? now + initialWait : null} END,
-				video_poll_deadline=CASE WHEN business_id IS NOT NULL AND ${taskId} IS NOT NULL THEN ${now + 600000} END,
+				video_poll_deadline=CASE WHEN business_id IS NOT NULL AND ${taskId} IS NOT NULL THEN ${now + videoJobPollingWindowMs} END,
 					updated_at=${now}, submission_recorded_at=${now}, throttle=${Number(result.kind === "throttled")},
 					retry_state=CASE WHEN ${taskId} IS NOT NULL THEN retry_state WHEN batch_id IS NOT NULL AND ${result.kind}='throttled' THEN 'ready' END,
 					retry_at=${throttleUntil || null},
@@ -296,7 +297,7 @@ export function imageJobStore({ use }: Installation) {
 				task_id=COALESCE(task_id,${update.recoveredTask ?? null}),
 				submission_recorded_at=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now} ELSE submission_recorded_at END,
 				poll_deadline=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now + imageJobPollingWindowMs} ELSE poll_deadline END,
-				video_poll_deadline=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now + 600000} ELSE video_poll_deadline END,
+				video_poll_deadline=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now + videoJobPollingWindowMs} ELSE video_poll_deadline END,
 				video_observation_id=CASE WHEN business_id IS NOT NULL THEN ${token} END,
 				video_progress=COALESCE(${update.progress ?? null},video_progress),
 				next_read_at=${update.nextReadAt}, read_token=NULL, read_failures=${update.failures},
