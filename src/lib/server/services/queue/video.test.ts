@@ -69,11 +69,11 @@ test("video checks preserve ciphertext, revision and image eligibility, with ind
 		[{ success: true, object: "list", data: [{ id: "seedance-2-5" }] }, "eligible"],
 	] as const) {
 		next(response);
-		await access.check();
+		expect((await access.check()).eligible).toBe(state === "eligible");
 		expect((await access.current()).record?.state).toBe(state);
 		expect(await store.credential("toapis", 1)).toEqual({ key: "fixture", revision: 1 });
 	}
-	expect(await access.check()).toContain("rate limited");
+	expect((await access.check()).message).toContain("rate limited");
 	expect(
 		await db.use((c) => c.get(sql`SELECT * FROM provider_credential WHERE provider='toapis'`)),
 	).toEqual(original);

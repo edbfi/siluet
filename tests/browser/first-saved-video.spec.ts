@@ -117,7 +117,10 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			);
 			await page.goto(`${origin}/settings/providers?provider=toapis`);
 			await page.getByRole("button", { name: "Check video access" }).press("Enter");
-			await expect(page.getByText(/Seedance 2.5 was listed/).first()).toBeVisible();
+			await expect(page.getByText(/Seedance 2.5 was listed/)).toHaveCount(1);
+			await expect(
+				page.getByRole("status").filter({ hasText: /Seedance 2.5 was listed/ }),
+			).toBeVisible();
 			await page.goto(`${origin}/video`);
 			let review: { token: string; blockers: string[] } | undefined;
 			for (const width of [1100, 320]) {

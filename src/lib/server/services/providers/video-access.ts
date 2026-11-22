@@ -39,11 +39,14 @@ export function createVideoAccess(
 			const now = Date.now();
 			attempts = attempts.filter((t) => t > now - 60_000);
 			if (checking || attempts.length >= 3)
-				return "Video check is busy or rate limited. Try again in a minute.";
+				return {
+					eligible: false,
+					message: "Video check is busy or rate limited. Try again in a minute.",
+				};
 			checking = true;
 			try {
 				const { saved } = await current();
-				if (!saved) return accessMessage.disconnected;
+				if (!saved) return { eligible: false, message: accessMessage.disconnected };
 				attempts.push(now);
 				const result = await check(saved.key);
 				const state =
@@ -55,7 +58,10 @@ export function createVideoAccess(
 				ON CONFLICT(provider,model) DO UPDATE SET revision=excluded.revision,state=excluded.state,checked_at=excluded.checked_at
 				WHERE model_access.checked_at<=excluded.checked_at OR model_access.revision<>excluded.revision RETURNING revision`),
 				);
-				return row ? accessMessage[state] : "The saved connection changed. Check again.";
+				return {
+					eligible: Boolean(row) && state === "eligible",
+					message: row ? accessMessage[state] : "The saved connection changed. Check again.",
+				};
 			} finally {
 				checking = false;
 			}

@@ -75,7 +75,7 @@ export const actions = {
 	video: async ({ locals }) => ({
 		provider: "toapis" as const,
 		outcome: "video-checked" as const,
-		message: await locals.studio.videoAccess.check(),
+		...(await locals.studio.videoAccess.check()),
 	}),
 	connect: (event) => changeConnection(event, "connect"),
 	remove: (event) => changeConnection(event, "remove"),
