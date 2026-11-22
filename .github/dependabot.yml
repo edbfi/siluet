@@ -24,6 +24,3 @@ updates:
       biome: { patterns: ["@biomejs/*"] }
       playwright: { patterns: [playwright, "@playwright/*"] }
       patch-minor: { patterns: ["*"], update-types: [minor, patch] }
-    ignore:
-      # SvelteKit sync needs the TS6 compiler API: https://github.com/edbfi/siluet/actions/runs/44936539906
-      - { dependency-name: typescript, versions: [">=7"] }
