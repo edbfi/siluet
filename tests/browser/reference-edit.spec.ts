@@ -420,7 +420,22 @@ for (const provider of ["poyo", "toapis"] as const) {
 					await consent.press("Space");
 					await expect(consent).toBeChecked();
 				}
-				await page.getByRole("button", { name: "Move up reference image 2" }).press("Enter");
+				const request = page.getByRole("region", { name: "Request", exact: true });
+				for (const area of [request, facts]) {
+					if (provider === "poyo") {
+						await expect(area).toContainText(/“image 1” and “image 2”/);
+						await expect(area).toContainText(/Poyo.ai determines framing/);
+					} else {
+						await expect(area).toContainText(/Numbered prompt references are unspecified/);
+					}
+				}
+				await request.getByRole("button", { name: "Move up reference image 2" }).press("Enter");
+				await expect(
+					request.getByRole("button", { name: "Move down reference image 1" }),
+				).toBeFocused();
+				await expect(
+					request.getByRole("status").filter({ hasText: "Reference B moved to position 1 of 2." }),
+				).toBeVisible();
 				await expect(inspect).toBeEnabled();
 				await expect(queue).toBeDisabled();
 				await chooseReference(page, 3, tenSignedReferences[2]);
