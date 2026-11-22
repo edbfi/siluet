@@ -55,6 +55,9 @@ export class LocalCopy {
 	// The copy came from automatic recovery and has not loaded yet. If it is lost
 	// too, the creator decides whether to try again.
 	#recovered = false;
+	// An expired copy is cleaned again once per attach or Try again, so an idle
+	// tab does not hold scratch space and the preparation slot indefinitely.
+	#renewed = false;
 
 	constructor(source: () => File | null) {
 		$effect(() => {
@@ -66,7 +69,7 @@ export class LocalCopy {
 
 	/** Clean the attached file again after a failure. */
 	retry() {
-		if (this.file && !this.pending) void this.#prepare(false);
+		if (this.file && !this.pending) this.#restart();
 	}
 
 	/** The preview of `stage` loaded. */
@@ -88,7 +91,12 @@ export class LocalCopy {
 		if (file === this.file) return;
 		this.#detach();
 		this.file = file;
-		if (file) void this.#prepare(false);
+		if (file) this.#restart();
+	}
+
+	#restart() {
+		this.#renewed = false;
+		void this.#prepare(false);
 	}
 
 	#detach() {
@@ -101,6 +109,7 @@ export class LocalCopy {
 		this.failed = false;
 		this.pending = false;
 		this.#recovered = false;
+		this.#renewed = false;
 	}
 
 	// Remove every copy of this draft, including one a request we abandoned may have
@@ -120,16 +129,30 @@ export class LocalCopy {
 		this.stage = staged;
 		this.message = null;
 		clearTimeout(this.#expiry);
-		// The server removes an idle copy at its deadline. Clean the file again then.
-		this.#expiry = setTimeout(
-			() => {
-				if (this.stage !== staged) return;
-				this.stage = null;
-				this.message = "The cleaned copy expired.";
-				void this.#prepare(true);
-			},
-			Math.max(0, staged.deadline - serverNow),
-		);
+		// The server removes an idle copy at its deadline. Clean the file again then,
+		// once; a copy that is already past it counts as expired.
+		const remaining = staged.deadline - serverNow;
+		if (remaining <= 0) {
+			this.#expire();
+			return;
+		}
+		this.#expiry = setTimeout(() => {
+			if (this.stage !== staged) return;
+			if (this.#renewed) {
+				this.#expire();
+				return;
+			}
+			this.#renewed = true;
+			this.stage = null;
+			this.message = "The cleaned copy expired.";
+			void this.#prepare(true);
+		}, remaining);
+	}
+
+	#expire() {
+		this.#retire();
+		this.stage = null;
+		this.#fail("The cleaned copy expired.");
 	}
 
 	#fail(message: string) {

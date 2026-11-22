@@ -1230,7 +1230,7 @@ test("built Image Studio cleans an attached local copy automatically while Queue
 			expect((await page.request.get(new URL(src, origin).href)).status()).toBe(404);
 		});
 
-		await test.step("a copy that reaches its idle deadline is cleaned again automatically", async () => {
+		await test.step("a copy that reaches its idle deadline is cleaned again once, then offers Try again", async () => {
 			await page.clock.install();
 			await page.goto(new URL("/image", origin).href);
 			await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(promptText);
@@ -1255,6 +1255,19 @@ test("built Image Studio cleans an attached local copy automatically while Queue
 			const renewed = (await cleaned.getAttribute("src")) ?? "";
 			expect(renewed).not.toBe(expiring);
 			await gone(expiring);
+			// An idle tab does not keep cleaning the file: the second expiry retires it.
+			const posts = sentWith("POST").length;
+			await page.clock.fastForward("15:10");
+			await fileStatus("The cleaned copy expired.");
+			await expect(tryAgain).toBeVisible();
+			await expect(cleaned).toHaveCount(0);
+			await gone(renewed);
+			await page.clock.fastForward("15:10");
+			expect(sentWith("POST")).toHaveLength(posts);
+			await tryAgain.press("Enter");
+			await fileStatus("Cleaned copy ready.");
+			await expect(cleaned).toBeVisible();
+			expect(sentWith("POST")).toHaveLength(posts + 1);
 		});
 
 		await test.step("leaving the page retires the copy", async () => {
