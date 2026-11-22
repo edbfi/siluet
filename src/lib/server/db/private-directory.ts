@@ -1,6 +1,7 @@
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { requireSupportedPlatform } from "../platform";
 
 export class DirectoryPolicyError extends Error {}
 
@@ -111,6 +112,7 @@ export async function preparePrivateDirectory(
 	deferredFile?: string,
 	existing = false,
 ) {
+	requireSupportedPlatform();
 	if (!isAbsolute(directory))
 		throw new DirectoryPolicyError("An absolute data directory is required.");
 	const checkout = dirname(createRequire(import.meta.url).resolve("#studio-manifest"));

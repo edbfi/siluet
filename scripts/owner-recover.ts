@@ -1,13 +1,23 @@
-import { recoverOwner } from "../src/lib/server/db/recover-owner";
-import { openRuntimeInstallation } from "../src/lib/server/db/runtime-installation";
-import { hashPassword } from "../src/lib/server/services/owner/credentials";
-import { ownerDirectory } from "../src/lib/server/services/owner/data-directory";
+import {
+	requireSupportedPlatform,
+	UnsupportedPlatformError,
+	unsupportedPlatformMessage,
+} from "../src/lib/server/platform";
 import { consoleMode } from "./windows-console-mode";
 
 async function main() {
+	// Refuse before loading storage and its native bindings.
+	requireSupportedPlatform();
 	const input = process.stdin,
 		output = process.stderr;
 	if (!input.isTTY || !output.isTTY) throw new Error("Run recovery from an interactive terminal.");
+	const [{ recoverOwner }, { openRuntimeInstallation }, { hashPassword }, { ownerDirectory }] =
+		await Promise.all([
+			import("../src/lib/server/db/recover-owner"),
+			import("../src/lib/server/db/runtime-installation"),
+			import("../src/lib/server/services/owner/credentials"),
+			import("../src/lib/server/services/owner/data-directory"),
+		]);
 	const installation = await openRuntimeInstallation(ownerDirectory(), process.env, "recovery");
 	const raw = !!input.isRaw;
 	const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
@@ -129,9 +139,11 @@ if (import.meta.main)
 			"The data directory must be private.",
 		];
 		console.error(
-			allowed.some((prefix) => message.startsWith(prefix))
-				? message
-				: "Owner recovery could not finish. Verify the stopped installation and its backup.",
+			e instanceof UnsupportedPlatformError
+				? unsupportedPlatformMessage
+				: allowed.some((prefix) => message.startsWith(prefix))
+					? message
+					: "Owner recovery could not finish. Verify the stopped installation and its backup.",
 		);
 		process.exitCode = 1;
 	});

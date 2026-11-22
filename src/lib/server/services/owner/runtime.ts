@@ -2,6 +2,7 @@ import type { EventEmitter } from "node:events";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
 import { checkRequestSecurity, cleanUnusedKeys } from "../../db/security-state";
+import { requireSupportedPlatform } from "../../platform";
 import { checkPoyoConnection } from "../../providers/poyo/connection";
 import { checkToapisConnection } from "../../providers/toapis/connection";
 import { createGallery } from "../gallery/gallery";
@@ -48,6 +49,7 @@ export function initializeOwner(dev: boolean) {
 }
 
 async function openOwner(dev: boolean) {
+	requireSupportedPlatform();
 	const origin = studioOrigin(process.env, dev);
 	const lifecycle: EventEmitter = process;
 	if (!dev && !lifecycle.listenerCount("siluet:ready"))

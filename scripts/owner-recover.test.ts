@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, copyFile, readdir, readFile, rm } from "node:fs/promises";
+import { chmod, copyFile, exists, readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { TOTP } from "otpauth";
@@ -7,6 +7,7 @@ import { openInstallation } from "../src/lib/server/db/installation";
 import { providerStore } from "../src/lib/server/db/provider-store";
 import { lockFilename } from "../src/lib/server/db/recovery-lock";
 import { checkedSecurity } from "../src/lib/server/db/security-state";
+import { unsupportedPlatformMessage } from "../src/lib/server/platform";
 import { galleryStorage } from "../src/lib/server/services/gallery/storage";
 import { createOwnerAccess } from "../src/lib/server/services/owner/access";
 import { createOwnerDirectory } from "../tests/fixtures/owner-directory";
@@ -62,6 +63,26 @@ test("recovery requires an interactive terminal before inspecting storage", asyn
 		expect(await readdir(directory)).toEqual([]);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
+	}
+});
+test("recovery on a foreign platform refuses before storage", async () => {
+	const parent = await createOwnerDirectory();
+	try {
+		const directory = join(parent, "siluet");
+		const child = Bun.spawnSync(
+			[
+				process.execPath,
+				"--preload",
+				join(import.meta.dir, "../tests/fixtures/foreign-platform.ts"),
+				join(import.meta.dir, "owner-recover.ts"),
+			],
+			{ env: { ...process.env, SILUET_DATA_DIR: directory, SILUET_TEST_PLATFORM: "freebsd" } },
+		);
+		expect(child.stderr.toString()).toBe(`${unsupportedPlatformMessage}\n`);
+		expect(child.exitCode).toBe(1);
+		expect(await exists(directory)).toBe(false);
+	} finally {
+		await rm(parent, { recursive: true, force: true });
 	}
 });
 test.each(["missing", "unsafe"])(

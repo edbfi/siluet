@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, expect, type Mock, mock, spyOn, test } from "bun:test";
 import type { EventEmitter } from "node:events";
-import { rm } from "node:fs/promises";
+import { exists, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import * as runtimeInstallation from "../../db/runtime-installation";
+import { UnsupportedPlatformError } from "../../platform";
 import { initializeOwner } from "./runtime";
 
 const keys = ["SILUET_DATA_DIR", "SILUET_SERVER_PORT", "SILUET_SERVER_ORIGIN"] as const;
@@ -110,5 +112,19 @@ test("a dev reload still opens after the previous runtime failed to close", asyn
 		expect(error.mock.calls).toHaveLength(1);
 	} finally {
 		await third.close();
+	}
+});
+
+test("initializeOwner refuses a foreign platform before creating data", async () => {
+	const data = join(directory, "siluet");
+	const platform = Object.getOwnPropertyDescriptor(process, "platform");
+	if (!platform) throw new Error("Expected process.platform.");
+	process.env.SILUET_DATA_DIR = data;
+	Object.defineProperty(process, "platform", { ...platform, value: "freebsd" });
+	try {
+		await expect(initializeOwner(false)).rejects.toThrow(UnsupportedPlatformError);
+		expect(await exists(data)).toBe(false);
+	} finally {
+		Object.defineProperty(process, "platform", platform);
 	}
 });

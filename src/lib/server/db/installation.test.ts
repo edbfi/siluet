@@ -3,6 +3,7 @@ import { chmod, lstat, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
+import { unsupportedPlatformMessage } from "../platform";
 import { openInstallation } from "./installation";
 
 let directory: string;
@@ -98,6 +99,20 @@ test.skipIf(process.platform !== "win32")(
 		expect(await Bun.file(join(directory, "installation.id")).exists()).toBe(false);
 	},
 );
+
+test("a foreign platform is refused rather than reported as damaged storage", async () => {
+	const platform = Object.getOwnPropertyDescriptor(process, "platform");
+	if (!platform) throw new Error("Expected process.platform.");
+	Object.defineProperty(process, "platform", { ...platform, value: "freebsd" });
+	try {
+		await expect(openInstallation(join(directory, "siluet"))).rejects.toThrow(
+			unsupportedPlatformMessage,
+		);
+	} finally {
+		Object.defineProperty(process, "platform", platform);
+	}
+	await expect(lstat(join(directory, "siluet"))).rejects.toMatchObject({ code: "ENOENT" });
+});
 
 test("a claimed marker in the database requires its owner row", async () => {
 	const initial = await openInstallation(directory);

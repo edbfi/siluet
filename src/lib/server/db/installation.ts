@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { connect } from "@tursodatabase/database";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/tursodatabase/database";
+import { requireSupportedPlatform, UnsupportedPlatformError } from "../platform";
 import { installationMigrations, migrateInstallation } from "./migrations";
 
 import { DirectoryPolicyError, preparePrivateDirectory } from "./private-directory";
@@ -22,6 +23,7 @@ export async function openInstallation(
 	const recovery = mode === "recovery";
 	let lock: Awaited<ReturnType<typeof acquireRecoveryLock>> | undefined;
 	let client: Awaited<ReturnType<typeof connect>> | undefined;
+	requireSupportedPlatform();
 	try {
 		// The provider store checks its key before use and can report a reconnect.
 		await preparePrivateDirectory(directory, providerKeyFilename, recovery);
@@ -106,7 +108,8 @@ export async function openInstallation(
 			/Locking error: Failed locking file|locked by another process/i.test(error.message)
 		)
 			throw new DirectoryPolicyError("Studio installation is in use.");
-		if (error instanceof DirectoryPolicyError) throw error;
+		if (error instanceof DirectoryPolicyError || error instanceof UnsupportedPlatformError)
+			throw error;
 		throw storageError();
 	}
 }

@@ -79,6 +79,12 @@ export async function launchStudio(
 }
 
 if (import.meta.main) {
+	// Keep this check inline: tests copy start.ts alone into a temporary checkout.
+	// The message matches unsupportedPlatformMessage in src/lib/server/platform.ts.
+	if (process.platform !== "linux" && process.platform !== "darwin") {
+		console.error("Siluet runs on Linux and macOS only.");
+		process.exit(1);
+	}
 	if (process.argv[2] === "--serve") {
 		try {
 			process.chdir(fileURLToPath(new URL("../", import.meta.url)));
