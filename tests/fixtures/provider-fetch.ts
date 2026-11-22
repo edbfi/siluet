@@ -23,9 +23,13 @@ globalThis.fetch = new Proxy(globalThis.fetch, {
 		}
 		if (url.origin === "https://93.184.216.34" && url.pathname === "/result/image")
 			path = "/media/image";
+		if (url.origin === "https://93.184.216.34" && url.pathname === "/result/reference-edit.png")
+			path = `/media/reference-edit.png${url.search}`;
 		if (path) {
 			const response = await read(new URL(path, fixtureOrigin), init);
 			if (response.headers.get("x-siluet-fixture-exit") === "yes") process.exit(79);
+			if (response.headers.has("x-siluet-fixture-timeout"))
+				throw new DOMException(await response.text(), "TimeoutError");
 			return response;
 		}
 		// Track every other server-side request without contacting its destination.

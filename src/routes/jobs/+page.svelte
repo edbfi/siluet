@@ -15,7 +15,7 @@ const states = {
 	waiting: "Waiting",
 	running: "Running",
 	completed: "Completed",
-	failed: "Generation failed",
+	failed: "Job failed",
 };
 const walletReasons = {
 	missing: "A balance reading is missing.",

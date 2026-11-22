@@ -1,7 +1,7 @@
 import { expect, jest, test } from "bun:test";
 import { downloadImage } from "./download";
 
-const source = "https://images.example/image?signature=private";
+const source = "https://images.example.org/image?signature=private";
 const resolve = async () => "93.184.216.34";
 
 test("resolves each origin, then connects only to the vetted IP with its TLS name", async () => {
@@ -10,7 +10,7 @@ test("resolves each origin, then connects only to the vetted IP with its TLS nam
 	const bytes = await downloadImage(source, {
 		resolve: async (host) => {
 			hosts.push(host);
-			return host === "images.example" ? "93.184.216.34" : "2606:4700:4700::1111";
+			return host === "images.example.org" ? "93.184.216.34" : "2606:4700:4700::1111";
 		},
 		request: async (url, init) => {
 			requests.push(url.href);
@@ -24,7 +24,7 @@ test("resolves each origin, then connects only to the vetted IP with its TLS nam
 			expect(init.tls?.serverName).toBe(hosts.at(-1));
 			expect(init.tls?.rejectUnauthorized).toBe(true);
 			return requests.length === 1
-				? Response.redirect("https://cdn.example/finished", 302)
+				? Response.redirect("https://cdn.example.org/finished", 302)
 				: new Response("data");
 		},
 	});
@@ -32,7 +32,7 @@ test("resolves each origin, then connects only to the vetted IP with its TLS nam
 		"https://93.184.216.34/image?signature=private",
 		"https://[2606:4700:4700::1111]/finished",
 	]);
-	expect(hosts).toEqual(["images.example", "cdn.example"]);
+	expect(hosts).toEqual(["images.example.org", "cdn.example.org"]);
 	expect(bytes.toString()).toBe("data");
 });
 
@@ -64,8 +64,8 @@ test("rejects nonpublic resolved addresses before issuing a request", async () =
 test("redirects cannot select loopback, embedded credentials or plain HTTP", async () => {
 	for (const location of [
 		"https://127.0.0.1/",
-		"https://a:b@cdn.example/x",
-		"http://cdn.example/y",
+		"https://a:b@cdn.example.org/x",
+		"http://cdn.example.org/y",
 	]) {
 		let calls = 0;
 		await expect(

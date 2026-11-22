@@ -58,6 +58,14 @@ export const mediaList = css({
 	paddingInlineStart: "1.15rem",
 	"& > li + li": { marginBlockStart: "0.25rem" },
 });
+export const disclosureHeading = css({ marginBlock: "0.85rem 0.35rem", fontWeight: 650 });
+export const disclosure = css({
+	margin: 0,
+	paddingInlineStart: "1.15rem",
+	listStyleType: "disc",
+	overflowWrap: "anywhere",
+	"& > li + li": { marginBlockStart: "0.35rem" },
+});
 export const note = css({ color: "muted", fontSize: "0.85rem" });
 
 export const batch = css({

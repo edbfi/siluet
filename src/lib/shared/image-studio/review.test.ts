@@ -194,6 +194,8 @@ test.each([
 	["https://[::1].", "[URL hidden]."],
 	["[https://user:private@[::1]]", "[[URL hidden]]"],
 	["//[::1]", "[URL hidden]"],
+	["https://assets.test/img?sig=prefix<private>tail#frag", "[URL hidden]"],
+	["<https://assets.test/img?sig=prefix<private>tail#frag>.", "<[URL hidden]>."],
 	["https://assets.test/media?token=---", "[URL hidden]"],
 	["assets.test/media?token=***", "[URL hidden]"],
 	["https://assets.test/media?token=...", "[URL hidden]"],

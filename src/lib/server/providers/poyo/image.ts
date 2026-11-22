@@ -71,8 +71,8 @@ export function createPoyoImage(read: CheckFetch = fetch) {
 		async submit(key: string, request: ReviewedImageRequest): Promise<Submission> {
 			if (request.url !== submitUrl) return { kind: "unknown" };
 			const { ok, status, body } = await requestImageJson(read, submitUrl, key, request);
-			if (isRecord(body) && isRecord(body.data) && isTaskId(body.data.task_id))
-				return ok && body.code === 200 && !body.error
+			if (isRecord(body) && isRecord(body.data) && Object.hasOwn(body.data, "task_id"))
+				return ok && body.code === 200 && !body.error && isTaskId(body.data.task_id)
 					? { kind: "accepted", taskId: body.data.task_id }
 					: { kind: "unknown" };
 			const reason = rejection(status, body);
@@ -100,6 +100,7 @@ export function createPoyoImage(read: CheckFetch = fetch) {
 			return {
 				kind: "observed",
 				state,
+				failureReason: null,
 				billing: credits === null ? null : { status: "reported", credits },
 				resultUrl: state === "completed" ? oneImage(data.files) : null,
 				expiresAt: null,

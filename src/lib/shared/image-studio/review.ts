@@ -47,6 +47,7 @@ const closingWrapper = new Map([
 	['"', '"'],
 	["'", "'"],
 	["(", ")"],
+	["<", ">"],
 	["[", "]"],
 	["{", "}"],
 	["“", "”"],
@@ -74,11 +75,15 @@ function redactLink(token: string): string {
 	}
 	let prefix = token.slice(0, start);
 	// A bare host can have user:password@ in front of it. Keep only its opening punctuation.
-	if (prefix.endsWith("@")) prefix = /^['"*\p{Ps}\p{Pi}]*/u.exec(prefix)?.[0] ?? "";
+	if (prefix.endsWith("@")) prefix = /^[<'"*\p{Ps}\p{Pi}]*/u.exec(prefix)?.[0] ?? "";
 	// In a bracketed IPv6 authority, the closing bracket belongs to the address.
 	const hostEnd = start + (ipv6Authority.exec(token.slice(start))?.[0].length ?? 0);
 	let end = token.length;
-	while (end > hostEnd && closingPunctuation.test(token[end - 1])) end--;
+	while (
+		end > hostEnd &&
+		(closingPunctuation.test(token[end - 1]) || (token[end - 1] === ">" && prefix.endsWith("<")))
+	)
+		end--;
 	// Trailing punctuation can itself be a private query value. Only a paired wrapper
 	// provides a boundary between a query or fragment and the surrounding prose.
 	if (end < token.length && /[?#]/u.test(token.slice(start))) {
@@ -105,7 +110,7 @@ export function createImageReview(
 	const { prompt, image_urls: urls, ...options } = fields;
 	const safeFields: ImageFields = {
 		...fields,
-		prompt: prompt.replace(/[^\s<>]+/gu, redactLink),
+		prompt: prompt.replace(/\S+/gu, redactLink),
 		...(urls && {
 			image_urls: urls.map((_, index) =>
 				references[index]?.kind === "file" ? "[local image]" : "[remote URL hidden]",

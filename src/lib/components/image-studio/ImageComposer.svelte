@@ -345,7 +345,8 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 						<legend class={requestLegend}>Reference images</legend>
 						<p class={requestHelp} id={`${id}-reference-help`}>
 							Add 1–{maxSeedreamReferences} images in prompt order.
-							{referenceFileHelp(provider)} each.
+							{referenceFileHelp(provider)} each. Queue supports one public image URL. Files and
+							additional references can be staged for offline Review.
 						</p>
 						{#each slotKeys as key, index (key)}
 							<ImageReferenceSlot

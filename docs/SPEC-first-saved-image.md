@@ -1,6 +1,6 @@
 # First saved image
 
-**Milestone 3, first slice · Approved by the owner.** The creator queues one reviewed Seedream 5.5 text-to-image generation on either connected provider, follows it in Jobs, chooses **Save to Gallery**, and opens the saved image after restarting Siluet with both providers offline. Live Queue supports one request and zero retries. Reference-guided edits (URL or uploaded file), batches and automatic retries retain [offline Review](SPEC-image-studio.md) with an explanation beside the disabled Queue. Live edits and uploads are later slices of milestone 3.
+**Milestone 3, first slice · Approved by the owner.** The creator queues one reviewed Seedream 5.5 text-to-image generation on either connected provider, follows it in Jobs, chooses **Save to Gallery**, and opens the saved image after restarting Siluet with both providers offline. Live Queue supports one request and zero retries. The [next slice](SPEC-seedream-reference-edit.md) extends this flow to one public reference URL. Files, multiple references, batches and automatic retries retain [offline Review](SPEC-image-studio.md) with an explanation beside the disabled Queue.
 
 ## What one click authorizes
 

@@ -99,7 +99,14 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		message =
 			"This attempt may still cost credits. Check provider history before authorizing another request.";
 	if (job.rejection) message = rejections[job.rejection];
-	if (!message && job.state === "failed") message = "The provider reported that generation failed.";
+	if (job.state === "failed") {
+		if (job.failure_reason === "reference_media_unreadable") {
+			const failure = "The provider could not read the reference image.";
+			message = message ? `${failure} ${message}` : failure;
+		} else {
+			message ??= "The provider reported that the job failed.";
+		}
+	}
 	if (!message && job.expires_at !== null && job.expires_at <= now)
 		message = "The provider's last reported image expiry has passed.";
 	const tracking = isReadPaused(note)

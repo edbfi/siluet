@@ -1,3 +1,4 @@
+import { parseReferenceUrl, type RemoteReference } from "../../../shared/image-studio/references";
 import {
 	buildSeedreamRequest,
 	poyoAspectRatios,
@@ -20,6 +21,18 @@ function dimension(value: unknown): value is number | undefined {
 	return value === undefined || (typeof value === "number" && Number.isSafeInteger(value));
 }
 
+const draftFields = ["operation", "provider", "prompt", "references", "options"];
+const optionFields = [
+	"aspectRatio",
+	"background",
+	"resolution",
+	"outputFormat",
+	"sizeMode",
+	"width",
+	"height",
+	"watermark",
+];
+
 export function parseQueueRequest(value: unknown) {
 	if (
 		!record(value) ||
@@ -34,11 +47,10 @@ export function parseQueueRequest(value: unknown) {
 	const draft = value.draft;
 	if (
 		!record(draft) ||
-		draft.operation !== "generate" ||
+		(draft.operation !== "generate" && draft.operation !== "edit") ||
 		!member(draft.provider, seedreamProviders) ||
 		typeof draft.prompt !== "string" ||
-		!Array.isArray(draft.references) ||
-		draft.references.length !== 0
+		!Array.isArray(draft.references)
 	)
 		return null;
 	const options = draft.options;
@@ -52,15 +64,38 @@ export function parseQueueRequest(value: unknown) {
 		typeof options.watermark !== "boolean"
 	)
 		return null;
+	const references: RemoteReference[] = [];
+	if (draft.operation === "edit") {
+		if (
+			draft.references.length !== 1 ||
+			Object.keys(draft).some((key) => !draftFields.includes(key)) ||
+			Object.keys(options).some((key) => !optionFields.includes(key))
+		)
+			return null;
+		const reference: unknown = draft.references[0];
+		if (
+			!record(reference) ||
+			reference.kind !== "url" ||
+			typeof reference.url !== "string" ||
+			(reference.hostname !== undefined && typeof reference.hostname !== "string") ||
+			Object.keys(reference).some((key) => !["kind", "url", "hostname"].includes(key))
+		)
+			return null;
+		const parsed = parseReferenceUrl(reference.url);
+		if (!parsed) return null;
+		references.push(parsed);
+	} else if (draft.references.length !== 0) {
+		return null;
+	}
 	const pixels = draft.provider === "toapis" && options.sizeMode === "pixels";
 	const width = pixels ? options.width : undefined;
 	const height = pixels ? options.height : undefined;
 	if (!dimension(width) || !dimension(height)) return null;
 	const validation = validateSeedreamDraft({
 		provider: draft.provider,
-		operation: "generate",
+		operation: draft.operation,
 		prompt: draft.prompt,
-		references: [],
+		references,
 		options: {
 			aspectRatio: options.aspectRatio,
 			background: options.background,
@@ -76,8 +111,9 @@ export function parseQueueRequest(value: unknown) {
 	const input = validation.input;
 	return {
 		input,
-		request: buildSeedreamRequest(input, () => {
-			throw new Error("Generation cannot contain references.");
+		request: buildSeedreamRequest(input, (reference) => {
+			if (reference.kind !== "url") throw new Error("Live edits require a URL reference.");
+			return reference.url;
 		}),
 		acceptUnknown: value.acceptUnknown,
 		token: value.token,

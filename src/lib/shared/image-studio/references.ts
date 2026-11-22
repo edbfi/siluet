@@ -98,6 +98,21 @@ function imageFormat(bytes: Uint8Array): keyof typeof fileTypes | undefined {
 	}
 }
 
+// These TLDs are reserved for local, non-DNS or infrastructure use.
+// https://www.iana.org/assignments/special-use-domain-names
+// https://www.iana.org/domains/arpa
+const nonPublicTlds = new Set([
+	"alt",
+	"arpa",
+	"example",
+	"internal",
+	"invalid",
+	"local",
+	"localhost",
+	"onion",
+	"test",
+]);
+
 // The browser can rule out local names and non-public address literals without DNS or requests.
 function isPublicHostname(hostname: string): boolean {
 	const host = hostname.replace(/\.$/, "");
@@ -114,15 +129,17 @@ function isPublicHostname(hostname: string): boolean {
 			(first === 169 && second === 254) ||
 			(first === 172 && second >= 16 && second <= 31) ||
 			(first === 192 && second === 168) ||
+			(first === 192 && second === 88 && third === 99) ||
 			(first === 192 && second === 0 && (third === 0 || third === 2)) ||
 			(first === 198 && (second === 18 || second === 19 || (second === 51 && third === 100))) ||
 			(first === 203 && second === 0 && third === 113)
 		);
 	}
+	const labels = host.split(".");
 	return (
-		host.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) &&
-		host.includes(".") &&
-		![".localhost", ".local", ".internal", ".home.arpa"].some((suffix) => host.endsWith(suffix))
+		labels.every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) &&
+		labels.length > 1 &&
+		!nonPublicTlds.has(labels[labels.length - 1])
 	);
 }
 

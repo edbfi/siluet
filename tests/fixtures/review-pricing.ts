@@ -5,12 +5,10 @@ import toapisBundle from "../../pricing/v1/toapis.json";
 import { pricingCachePath } from "../../src/lib/server/services/pricing/local-feed";
 import { toapisRates } from "./toapis-feed";
 
-export async function writeReviewPricing(cacheHome: string) {
-	const cachedSeconds = 2 * 24 * 60 * 60;
+export async function writeReviewPricing(cacheHome: string, cachedSeconds = 2 * 24 * 60 * 60) {
 	const latest = Math.max(Date.parse(poyoBundle.sourceDate), Date.parse(toapisBundle.observedAt));
-	// Keep the two-day-old conversion evidence newer than the bundle. The browser clock follows observedMs.
-	const observedMs =
-		Math.floor(Math.max(latest + cachedSeconds * 1000, Date.now()) / 1000) * 1000 + 1000;
+	// Keep cached conversion evidence at least as recent as the bundle.
+	const observedMs = Math.floor(Math.max(latest + cachedSeconds * 1000, Date.now()) / 1000) * 1000;
 	const observedAt = new Date(observedMs).toISOString().replace(".000Z", "Z");
 	const poyo = {
 		version: 1,
@@ -36,5 +34,9 @@ export async function writeReviewPricing(cacheHome: string) {
 			JSON.stringify({ checkedAt: observedAt, feed: toapis }),
 		),
 	]);
-	return { observedMs, observedAt, toapisExpiry: observedMs + 28 * 24 * 60 * 60 * 1000 };
+	return {
+		observedMs,
+		observedAt,
+		toapisExpiry: observedMs + (30 * 24 * 60 * 60 - cachedSeconds) * 1000,
+	};
 }
