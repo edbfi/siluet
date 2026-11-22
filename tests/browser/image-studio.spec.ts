@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { cmykJpeg, localImageMarker, rotatedJpeg, uprightPng } from "../fixtures/local-image";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import {
 	providerFixtureKeys as keys,
@@ -876,5 +877,234 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			rm(directory, { recursive: true, force: true }),
 			rm(cacheHome, { recursive: true, force: true }),
 		]);
+	}
+});
+
+test("built Review prepares and previews one cleaned local copy while Queue stays URL-only", async ({
+	context,
+	page,
+}) => {
+	test.setTimeout(90_000);
+	page.setDefaultTimeout(10_000);
+	const { TOTP } = await import("otpauth");
+	const directory = await createOwnerDirectory();
+	const fixtures = startProviderFixtures();
+	let studio: Awaited<ReturnType<typeof startStudio>> | undefined;
+	try {
+		const server = await startStudio(directory, "0", false, fixtures.env);
+		studio = server;
+		const { origin } = server;
+		const password = randomUUID();
+		const outbound: string[] = [];
+		const pageErrors: Error[] = [];
+		page.on("pageerror", (error) => pageErrors.push(error));
+		await context.route("**/*", (route) => {
+			const url = new URL(route.request().url());
+			if (url.origin === origin.origin) return route.continue();
+			outbound.push(url.origin);
+			return route.abort();
+		});
+		await expect.poll(server.token).not.toBe("");
+		await page.goto(new URL("/setup", origin).href);
+		await page.getByLabel("Claim token").fill(server.token());
+		await enterOwnerDetails(page, password);
+		await page.getByRole("button", { name: "Claim studio" }).press("Enter");
+		await page.getByRole("link", { name: "Skip for now" }).click();
+		await expect(page).toHaveURL(origin.href);
+
+		const files = (draft: string) => new URL(`/image/files/${draft}`, origin).href;
+		const stage = (draft: string, data: Buffer, headers: Record<string, string> = {}) =>
+			page.request.post(files(draft), {
+				headers: {
+					origin: origin.origin,
+					"content-type": "application/octet-stream",
+					...headers,
+				},
+				data,
+			});
+
+		await test.step("no provider connected: the route stages and serves a private copy", async () => {
+			const png = await uprightPng();
+			const draft = randomUUID();
+			const staged = await stage(draft, png);
+			expect(staged.status()).toBe(200);
+			const descriptor = await staged.json();
+			expect(Object.keys(descriptor).sort()).toEqual([
+				"deadline",
+				"digest",
+				"draft",
+				"handle",
+				"mime",
+				"size",
+				"transform",
+			]);
+			expect(descriptor).toMatchObject({ mime: "image/png", transform: "none", draft });
+			const media = await page.request.get(`${files(draft)}/${descriptor.handle}`);
+			expect(media.status()).toBe(200);
+			expect(media.headers()).toMatchObject({
+				"content-type": "image/png",
+				"cache-control": "private, no-store",
+				"x-content-type-options": "nosniff",
+				"cross-origin-resource-policy": "same-origin",
+			});
+			expect(Buffer.from(await media.body()).equals(png)).toBe(true);
+			expect(
+				(
+					await page.request.get(`${files(draft)}/${descriptor.handle}`, {
+						headers: { "sec-fetch-site": "cross-site" },
+					})
+				).status(),
+			).toBe(403);
+			expect((await stage(randomUUID(), png, { origin: "null" })).status()).toBe(403);
+			expect((await stage("not-a-draft", png)).status()).toBe(400);
+			expect(fixtures.requests).toEqual([]);
+			await page.request.post(`${files(draft)}/${descriptor.handle}`, {
+				headers: { origin: origin.origin },
+			});
+			expect((await page.request.get(`${files(draft)}/${descriptor.handle}`)).status()).toBe(404);
+		});
+
+		await page.goto(new URL("/settings/providers", origin).href);
+		await saveKey(page, keys.poyo);
+		const providerChecks = fixtures.requests.length;
+		await page.goto(new URL("/image", origin).href);
+		const operation = page.getByLabel("Operation", { exact: true });
+		const firstFile = page.getByLabel("Reference image 1", { exact: true });
+		const review = page.getByRole("region", { name: "Review request", exact: true });
+		const facts = review.getByRole("tabpanel", { name: "Review", exact: true });
+		const localCopy = facts.getByRole("region", { name: "Local copy", exact: true });
+		const prepare = localCopy.getByRole("button", { name: /^Prepar/ });
+		const status = localCopy.getByRole("status");
+		const cleaned = localCopy.getByRole("img", { name: "Cleaned local copy" });
+		const queue = review.getByRole("button", { name: "Queue 1 request" });
+		await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(promptText);
+		await operation.selectOption("edit");
+
+		let first = "";
+		await test.step("Prepare local copy → progress, preview, cleaned size, survival notes, Queue disabled", async () => {
+			await firstFile.setInputFiles({
+				name: "sideways-photo.jpg",
+				mimeType: "image/jpeg",
+				buffer: await rotatedJpeg(),
+			});
+			await expect(prepare).toHaveText("Prepare local copy");
+			await expect(queue).toBeDisabled();
+			await expect(queue).toHaveAccessibleDescription(/1–10 public image URLs/i);
+			const hold = Promise.withResolvers<void>();
+			await page.route("**/image/files/*", async (route) => {
+				await hold.promise;
+				await route.continue();
+			});
+			await prepare.press("Enter");
+			await expect(prepare).toHaveText("Preparing local copy…");
+			await expect(prepare).toBeDisabled();
+			await expect(status).toHaveText("Cleaning and verifying the file…");
+			hold.resolve();
+			await expect(status).toHaveText("Cleaned copy ready.");
+			await page.unroute("**/image/files/*");
+			await expect(cleaned).toHaveAttribute(
+				"src",
+				/^\/image\/files\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/,
+			);
+			first = (await cleaned.getAttribute("src")) ?? "";
+			await expect
+				.poll(() =>
+					cleaned.evaluate((image) => [
+						(image as HTMLImageElement).naturalWidth,
+						(image as HTMLImageElement).naturalHeight,
+					]),
+				)
+				.toEqual([32, 48]);
+			await expect(localCopy).toContainText(/JPEG · [\d.]+ KB \([\d,]+ bytes\)/);
+			await expect(localCopy).toContainText("Re-encoded to apply rotation.");
+			await expect(localCopy).toContainText("Watermarks in the picture itself survive.");
+			await expect(localCopy).toContainText("Its creator, copyright, creation date");
+			await expect(queue).toBeDisabled();
+			await expect(queue).toHaveAccessibleDescription(/1–10 public image URLs/i);
+			const served = await page.request.get(new URL(first, origin).href);
+			expect(served.headers()["content-type"]).toBe("image/jpeg");
+			const bytes = Buffer.from(await served.body());
+			expect(bytes.includes(Buffer.from(localImageMarker))).toBe(false);
+			await expect(localCopy).toContainText(`(${bytes.length.toLocaleString("en-US")} bytes)`);
+			// The preview stays inside the Review panel.
+			const [imageBox, panelBox] = await Promise.all([cleaned.boundingBox(), facts.boundingBox()]);
+			expect(imageBox && panelBox && imageBox.width <= panelBox.width).toBe(true);
+		});
+
+		await test.step("replacement 404s the old preview", async () => {
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await expect(cleaned).toHaveCount(0);
+			await expect(prepare).toHaveText("Prepare local copy");
+			await expect
+				.poll(async () => (await page.request.get(new URL(first, origin).href)).status())
+				.toBe(404);
+			await prepare.press("Enter");
+			await expect(status).toHaveText("Cleaned copy ready.");
+			await expect(localCopy).toContainText(/PNG · /);
+			await expect(localCopy).not.toContainText("Re-encoded to apply rotation");
+			await expect(prepare).toHaveText("Prepare again");
+			const previous = (await cleaned.getAttribute("src")) ?? "";
+			await prepare.press("Enter");
+			await expect(status).toHaveText("Cleaned copy ready.");
+			expect(await cleaned.getAttribute("src")).not.toBe(previous);
+			expect((await page.request.get(new URL(previous, origin).href)).status()).toBe(404);
+		});
+
+		await test.step("CMYK refusal, no preview", async () => {
+			await firstFile.setInputFiles({
+				name: "print.jpg",
+				mimeType: "image/jpeg",
+				buffer: await cmykJpeg(),
+			});
+			await prepare.press("Enter");
+			await expect(status).toHaveText(
+				"The JPEG uses unsupported image coding. Export a single-frame SDR JPEG or PNG.",
+			);
+			await expect(cleaned).toHaveCount(0);
+			await expect(queue).toBeDisabled();
+		});
+
+		await test.step("other-tab security change clears it", async () => {
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await prepare.press("Enter");
+			await expect(status).toHaveText("Cleaned copy ready.");
+			const src = (await cleaned.getAttribute("src")) ?? "";
+			const security = await context.newPage();
+			try {
+				await security.goto(new URL("/settings/security", origin).href);
+				await security.getByLabel("Current password").fill(password);
+				await security.getByRole("button", { name: "Set up authenticator" }).click();
+				const seed = await security.locator("section code").first().textContent();
+				if (!seed) throw new Error("Missing manual setup.");
+				await security
+					.getByLabel("New authenticator code")
+					.fill(new TOTP({ secret: seed }).generate());
+				await security.getByRole("button", { name: "Confirm authenticator" }).click();
+				await expect(security.locator("section li")).toHaveCount(10);
+			} finally {
+				await security.close();
+			}
+			await expect(cleaned).toHaveCount(0);
+			await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toHaveValue("");
+			expect((await page.request.get(new URL(src, origin).href)).status()).toBe(404);
+		});
+
+		expect(fixtures.requests).toHaveLength(providerChecks);
+		expect(outbound).toEqual([]);
+		expect(pageErrors).toEqual([]);
+		for (const value of [localImageMarker, "sideways-photo.jpg", "upright.png", "print.jpg"])
+			expect(server.diagnostics()).not.toContain(value);
+	} finally {
+		await studio?.stop();
+		fixtures.stop();
+		await rm(directory, { recursive: true, force: true });
 	}
 });

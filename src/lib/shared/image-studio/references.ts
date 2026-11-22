@@ -75,7 +75,10 @@ export function referenceFileError(
 	file: Pick<File, "name" | "size" | "type">,
 ): string | null {
 	const { maxBytes, description } = referenceLimits[provider];
-	return fileFormat(provider, file) && file.size > 0 && file.size <= maxBytes
+	// A JPEG or PNG is checked again after local cleanup, which can change its size.
+	const format = fileFormat(provider, file);
+	const sourceLimit = format === "jpeg" || format === "png" ? 32_000_000 : maxBytes;
+	return format && file.size > 0 && file.size <= sourceLimit
 		? null
 		: `Choose a non-empty image. Supported files are ${description}.`;
 }
