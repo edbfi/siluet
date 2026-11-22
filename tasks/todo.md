@@ -16,4 +16,4 @@
 - [x] Verify read-only recovery, matching status, billing and read cooldowns.
 - [x] Verify private Save, Range playback and removal across restart in the built studio.
 - [x] Run local checks on glibc Linux ARM64 and verify offline playback in the built studio.
-- [ ] Review the implementation with council and land after the registry and Z-Image.
+- [x] Review the implementation with council and verify the registry and Z-Image have landed.

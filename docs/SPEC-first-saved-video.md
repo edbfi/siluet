@@ -1,6 +1,6 @@
 # First saved video
 
-**Draft for council and owner review.** This is the first slice of Video Studio, Jobs and Gallery in the [capability map](SPEC.md). One signed-in creator uses their ToAPIs key to review and queue one Seedance 2.5 text-to-video request with zero retries. They follow it in Jobs, choose **Save to Gallery**, then play, seek, download or remove the saved clip after restarting with the provider offline. This slice builds on the [first saved image](SPEC-first-saved-image.md) and [D1–D5](decisions.md). Provider references were checked on 2026-11-22.
+**Approved for implementation.** This is the first slice of Video Studio, Jobs and Gallery in the [capability map](SPEC.md). One signed-in creator uses their ToAPIs key to review and queue one Seedance 2.5 text-to-video request with zero retries. They follow it in Jobs, choose **Save to Gallery**, then play, seek, download or remove the saved clip after restarting with the provider offline. This slice builds on the [first saved image](SPEC-first-saved-image.md) and [D1–D5](decisions.md). Provider references were checked on 2026-11-22.
 
 ## Compose and review
 

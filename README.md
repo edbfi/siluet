@@ -24,7 +24,7 @@ If Jobs says **May have been submitted**, check your provider history before aut
 
 In **Settings → Providers → ToAPIs**, choose **Check video access** for your saved key. In **Video Studio**, review one Seedance 2.5 clip, read its unknown price and Save limitations, and accept the terms before Queue. Jobs can **Check submission** after an uncertain send. A completed job offers **Save to Gallery**. Open the saved video in Gallery to play, seek, download or remove your local copy.
 
-New video submissions and saves require a qualified local FFmpeg build. Set `SILUET_FFMPEG_DIR` before starting the server. With that environment variable set, the unit and smoke suites exercise the native codec matrix and built-app playback. See [native qualification](docs/decisions.md#d6--verify-stored-video-samples-before-gallery-publication).
+New video submissions and saves require the pinned FFmpeg and ffprobe 9.0.2_1 build on glibc Linux ARM64, with `/usr/bin/setpriv` and `/usr/bin/prlimit`. Set `SILUET_FFMPEG_DIR` before starting the server. With that environment variable set, the unit and smoke suites exercise the native codec matrix and built-app playback. See [native qualification](docs/decisions.md#d6--verify-stored-video-samples-before-gallery-publication).
 
 ## Tech stack
 
