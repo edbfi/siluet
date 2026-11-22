@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
-import { readdir, rm, writeFile } from "node:fs/promises";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { chmod, copyFile, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
@@ -137,4 +138,72 @@ test("a complete unsupported result survives restart until publication succeeds"
 	);
 	expect(await reopened.save(jobId)).toBe(true);
 	expect(await reason()).toEqual({ gallery_reason: null, state: "completed" });
+});
+
+test("video identity reconciliation leaves the installation connection available", async () => {
+	const digest = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
+	const bytes = await readFile(
+		join(import.meta.dir, "../../../../../tests/fixtures/video/silent.mp4"),
+	);
+	const path = join(directory, `gallery-${digest(jobId)}`);
+	await writeFile(path, bytes);
+	await installation.use((db) =>
+		db.run(sql`INSERT INTO gallery_image
+		(job_id,state,mime,width,height,size,digest,saved_at,duration,file_identity)
+		VALUES (${jobId},'saved','video/mp4',320,240,${bytes.length},${digest(bytes)},1,2,'previous-identity')`),
+	);
+
+	const probe = await open(path);
+	const proto = Object.getPrototypeOf(probe);
+	await probe.close();
+	const readBytes = proto.read;
+	for (const action of ["list", "get", "openVideo"] as const) {
+		await copyFile(path, `${path}.restore`);
+		await rename(`${path}.restore`, path);
+		expect(await gallery.openVideo(jobId, true)).toBeNull();
+		let connectionAvailable = false;
+		const read = spyOn(proto, "read").mockImplementationOnce(async function (
+			this: typeof probe,
+			...args: unknown[]
+		) {
+			connectionAvailable = await Promise.race([
+				installation.use(async () => true),
+				new Promise<false>((resolve) => setImmediate(() => resolve(false))),
+			]);
+			return readBytes.apply(this, args);
+		});
+		try {
+			if (action === "list") expect(await gallery.list()).toMatchObject([{ available: true }]);
+			if (action === "get") expect(await gallery.get(jobId)).toMatchObject({ available: true });
+			if (action === "openVideo") {
+				const video = await gallery.openVideo(jobId);
+				try {
+					expect(await video?.handle.readFile()).toEqual(bytes);
+				} finally {
+					await video?.handle.close();
+				}
+			}
+			expect(connectionAvailable).toBe(true);
+		} finally {
+			read.mockRestore();
+		}
+		const rebound = await gallery.openVideo(jobId, true);
+		expect(rebound).not.toBeNull();
+		await rebound?.handle.close();
+	}
+	await copyFile(path, `${path}.restore`);
+	await rename(`${path}.restore`, path);
+	await gallery.recover();
+	const recovered = await gallery.openVideo(jobId, true);
+	expect(recovered).not.toBeNull();
+	await recovered?.handle.close();
+	if (process.platform !== "win32") {
+		await chmod(path, 0o400);
+		expect(await gallery.openVideo(jobId, true)).toBeNull();
+		expect((await gallery.get(jobId))?.available).toBe(true);
+		await chmod(path, 0o600);
+	}
+	await writeFile(path, Buffer.alloc(bytes.length));
+	expect(await gallery.openVideo(jobId)).toBeNull();
+	expect((await gallery.get(jobId))?.available).toBe(false);
 });

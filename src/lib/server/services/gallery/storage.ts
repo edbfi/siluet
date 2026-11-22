@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { type FileHandle, lstat, open, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { sql } from "drizzle-orm";
+import { type SQL, sql } from "drizzle-orm";
 import type { Installation } from "../../db/installation";
 import type { verifyImage } from "./verify-image";
 
+type Update = (statement: SQL) => Promise<unknown>;
 type ImageInfo = Awaited<ReturnType<typeof verifyImage>>;
 type Row = Omit<ImageInfo, "mime"> & {
 	mime: ImageInfo["mime"] | "video/mp4";
@@ -62,11 +63,12 @@ export function galleryStorage({ directory, use }: Installation) {
 	const locked = <T>(work: (tx: Write) => Promise<T>) =>
 		use((db) => db.transaction(work, { behavior: "immediate" }));
 
-	async function markUnavailable(db: Pick<Connection, "run">, row: Row) {
-		await db.run(sql`UPDATE gallery_image SET state='unavailable' WHERE job_id=${row.job_id}
+	const liveUpdate: Update = (statement) => use((db) => db.get(statement));
+	async function markUnavailable(update: Update, row: Row) {
+		await update(sql`UPDATE gallery_image SET state='unavailable' WHERE job_id=${row.job_id}
 			AND state='saved' AND saved_at=${row.saved_at} AND digest=${row.digest} AND file_identity IS ${row.file_identity}`);
 	}
-	async function checkedVideo(db: Pick<Connection, "run">, row: Row, metadataOnly = false) {
+	async function checkedVideo(update: Update, row: Row, metadataOnly = false) {
 		try {
 			const handle = await open(
 				pathFor(row.job_id),
@@ -86,9 +88,11 @@ export function galleryStorage({ directory, use }: Installation) {
 							throw new Error("The saved video changed during verification.");
 						}
 						if (matches) {
-							await db.run(sql`UPDATE gallery_image SET file_identity=${signature} WHERE job_id=${row.job_id}
-								AND state='saved' AND saved_at=${row.saved_at} AND digest=${row.digest} AND file_identity=${row.file_identity}`);
-							valid = true;
+							valid = Boolean(
+								await update(sql`UPDATE gallery_image SET file_identity=${signature} WHERE job_id=${row.job_id}
+								AND state='saved' AND saved_at=${row.saved_at} AND digest=${row.digest} AND file_identity IN (${row.file_identity},${signature}) RETURNING 1`),
+							);
+							if (!valid) return null;
 						}
 					}
 				}
@@ -99,13 +103,13 @@ export function galleryStorage({ directory, use }: Installation) {
 		} catch (error) {
 			if (!absent(error)) throw error;
 		}
-		await markUnavailable(db, row);
+		await markUnavailable(update, row);
 		return null;
 	}
-	async function entry(db: Pick<Connection, "run">, row: Row) {
+	async function entry(update: Update, row: Row) {
 		let available = row.state === "saved";
 		if (available && row.mime === "video/mp4") {
-			const video = await checkedVideo(db, row);
+			const video = await checkedVideo(update, row);
 			available = Boolean(video);
 			await video?.handle.close();
 		} else if (available) {
@@ -116,7 +120,7 @@ export function galleryStorage({ directory, use }: Installation) {
 				if (!absent(error)) throw error;
 				available = false;
 			}
-			if (!available) await markUnavailable(db, row);
+			if (!available) await markUnavailable(update, row);
 		}
 		return {
 			jobId: row.job_id,
@@ -127,6 +131,19 @@ export function galleryStorage({ directory, use }: Installation) {
 			height: row.height,
 			available,
 		};
+	}
+	// The caller reconciles existing clips before publication. If another clip has
+	// appeared since then, verify its cached identity without hashing under the write lock.
+	async function existingPublication(tx: Write, row: Row | undefined) {
+		if (row?.state === "deleting") return false;
+		if (row?.state !== "saved") return;
+		const update: Update = (statement) => tx.get(statement);
+		if (row.mime === "video/mp4") {
+			const video = await checkedVideo(update, row, true);
+			await video?.handle.close();
+			return Boolean(video);
+		}
+		if ((await entry(update, row)).available) return true;
 	}
 	async function finishRemoval(tx: Write, id: string) {
 		await rm(pathFor(id), { force: true });
@@ -141,7 +158,8 @@ export function galleryStorage({ directory, use }: Installation) {
 				const published = new Set<string>();
 				for (const row of rows) {
 					if (row.state === "deleting") await finishRemoval(tx, row.job_id);
-					else if ((await entry(tx, row)).available) published.add(filename(row.job_id));
+					else if ((await entry((statement) => tx.get(statement), row)).available)
+						published.add(filename(row.job_id));
 				}
 				for (const file of await readdir(directory, { withFileTypes: true })) {
 					if (
@@ -153,21 +171,19 @@ export function galleryStorage({ directory, use }: Installation) {
 				}
 			});
 		},
-		list() {
-			return use(async (db) => {
-				const rows = await db.all<Row>(
+		async list() {
+			const rows = await use((db) =>
+				db.all<Row>(
 					sql`SELECT * FROM gallery_image WHERE state != 'deleting' ORDER BY saved_at DESC, job_id`,
-				);
-				const entries = [];
-				for (const row of rows) entries.push(await entry(db, row));
-				return entries;
-			});
+				),
+			);
+			const entries = [];
+			for (const row of rows) entries.push(await entry(liveUpdate, row));
+			return entries;
 		},
-		get(id: string) {
-			return use(async (db) => {
-				const row = await db.get<Row>(rowQuery(id));
-				return row && row.state !== "deleting" ? entry(db, row) : null;
-			});
+		async get(id: string) {
+			const row = await use((db) => db.get<Row>(rowQuery(id)));
+			return row && row.state !== "deleting" ? entry(liveUpdate, row) : null;
 		},
 		markUnsupported(id: string) {
 			return use((db) =>
@@ -179,9 +195,8 @@ export function galleryStorage({ directory, use }: Installation) {
 		},
 		publish(id: string, bytes: Buffer, info: ImageInfo) {
 			return locked(async (tx) => {
-				const row = await tx.get<Row>(rowQuery(id));
-				if (row?.state === "deleting") return false;
-				if (row && (await entry(tx, row)).available) return true;
+				const existing = await existingPublication(tx, await tx.get<Row>(rowQuery(id)));
+				if (existing !== undefined) return existing;
 				const path = pathFor(id);
 				// The write transaction excludes another publisher and the startup sweep.
 				// Clear a partial write from an interrupted Save before reusing this name.
@@ -219,9 +234,8 @@ export function galleryStorage({ directory, use }: Installation) {
 					))
 				)
 					return false;
-				const row = await tx.get<Row>(rowQuery(id));
-				if (row?.state === "deleting") return false;
-				if (row && (await entry(tx, row)).available) return true;
+				const existing = await existingPublication(tx, await tx.get<Row>(rowQuery(id)));
+				if (existing !== undefined) return existing;
 				const path = pathFor(id);
 				await rename(scratch, path);
 				try {
@@ -237,13 +251,11 @@ export function galleryStorage({ directory, use }: Installation) {
 				}
 			});
 		},
-		openVideo(id: string, metadataOnly = false) {
-			return use(async (db) => {
-				const row = await db.get<Row>(rowQuery(id));
-				return row?.state === "saved" && row.mime === "video/mp4"
-					? checkedVideo(db, row, metadataOnly)
-					: null;
-			});
+		async openVideo(id: string, metadataOnly = false) {
+			const row = await use((db) => db.get<Row>(rowQuery(id)));
+			return row?.state === "saved" && row.mime === "video/mp4"
+				? checkedVideo(liveUpdate, row, metadataOnly)
+				: null;
 		},
 		read(id: string) {
 			return use(async (db) => {
@@ -266,7 +278,7 @@ export function galleryStorage({ directory, use }: Installation) {
 				} catch (error) {
 					if (!absent(error)) throw error;
 				}
-				await markUnavailable(db, row);
+				await markUnavailable((statement) => db.get(statement), row);
 				return null;
 			});
 		},

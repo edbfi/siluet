@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmod, copyFile, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
@@ -50,23 +50,6 @@ test.skipIf(!process.env.SILUET_FFMPEG_DIR)(
 					await video.handle.close();
 				}
 			}
-			const [name] = (await readdir(directory)).filter((p) => p.startsWith("gallery-"));
-			const path = join(directory, name);
-			await chmod(path, 0o400);
-			expect(await gallery.openVideo("one", true)).toBeNull();
-			expect((await gallery.list())[0]?.available).toBe(true);
-			await copyFile(sample, `${path}.restore`);
-			await rename(`${path}.restore`, path);
-			await other.recover();
-			const restored = await gallery.openVideo("one");
-			expect(restored).not.toBeNull();
-			if (restored) {
-				try {
-					expect(await restored.handle.readFile()).toEqual(bytes);
-				} finally {
-					await restored.handle.close();
-				}
-			}
 			const replacing = Promise.withResolvers<void>();
 			const resume = Promise.withResolvers<void>();
 			const repair = other.saveVideo("three", async () => {
@@ -83,9 +66,6 @@ test.skipIf(!process.env.SILUET_FFMPEG_DIR)(
 			expect(await gallery.saveVideo("two", result)).toContain("write failed");
 			expect(await gallery.get("two")).toBeNull();
 			expect((await readdir(directory)).filter((p) => p.endsWith(".part"))).toBeEmpty();
-			await writeFile(path, Buffer.alloc(bytes.length));
-			expect(await gallery.openVideo("one")).toBeNull();
-			expect((await gallery.list())[0]?.available).toBe(false);
 			// Crash after durable removal intent, and an abandoned transfer owned by a prior runtime.
 			const token = crypto.randomUUID();
 			await writeFile(join(directory, `video-${token}.part`), "incomplete");
