@@ -2,6 +2,10 @@ import ledger from "../../docs/media-catalog.v1.json";
 
 type Provider = keyof typeof ledger.providers;
 
+export function documentedRoutes(row: { route: string | null; aliases?: string[] }) {
+	return row.route === null ? [] : [row.route, ...(row.aliases ?? [])];
+}
+
 export function catalogCoverage(provider: Provider) {
 	const rows = ledger.providers[provider].rows;
 	const ids = new Set(rows.flatMap((row) => row.ids));
@@ -14,8 +18,9 @@ export function catalogCoverage(provider: Provider) {
 	let queue = 0;
 	let partialOptions = 0;
 	for (const row of rows) {
-		documentedOperations += row.ids.length * row.operations.length;
-		prerequisiteBound += row.ids.length * Object.keys(row.requires ?? {}).length;
+		const routeIds = documentedRoutes(row).length * row.ids.length;
+		documentedOperations += routeIds * row.operations.length;
+		prerequisiteBound += routeIds * Object.keys(row.requires ?? {}).length;
 		for (const name of Object.values(row.support ?? {})) {
 			const profile = ledger.supportProfiles[name as keyof typeof ledger.supportProfiles];
 			if (profile.review) review += row.ids.length;

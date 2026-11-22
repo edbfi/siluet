@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import ledger from "../../docs/media-catalog.v1.json";
 import { releasedOperations, seedreamModel } from "../../src/lib/shared/media-catalog/registry";
-import { catalogCoverage } from "./coverage";
+import { catalogCoverage, documentedRoutes } from "./coverage";
 
 const { poyo, toapis } = ledger.providers;
 const providers = ["poyo", "toapis"] as const;
@@ -152,14 +152,14 @@ test.each(providers)("%s documents each route, alias and operation once", (provi
 			expect(row.support).toBeUndefined();
 			continue;
 		}
+		expect(row.route).not.toBeNull();
 		expect(row.operations.length).toBeGreaterThan(0);
 		for (const [operation, rule] of Object.entries(row.requires ?? {})) {
 			expect(row.operations).toContain(operation);
 			expect(rule.kind).toBeTruthy();
 			expect(typeof rule.upstreamOperationInScope).toBe("boolean");
 		}
-		const aliases = "aliases" in row ? (row.aliases ?? []) : [];
-		for (const route of [row.route, ...aliases]) {
+		for (const route of documentedRoutes(row)) {
 			expect(route).toMatch(/^POST \/\S+$/);
 			for (const id of row.ids) {
 				for (const operation of row.operations) {
@@ -203,7 +203,7 @@ test.each(providers)(
 		expect(catalogCoverage(provider)).toEqual({
 			discoveredIds: provider === "poyo" ? 164 : 119,
 			unresolvedIds: provider === "poyo" ? 5 : 21,
-			documentedOperations: provider === "poyo" ? 317 : 330,
+			documentedOperations: provider === "poyo" ? 317 : 331,
 			prerequisiteBound: provider === "poyo" ? 2 : 17,
 			review: 2,
 			queue: 2,

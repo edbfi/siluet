@@ -38,7 +38,7 @@ const optionFields = [
 	"watermark",
 ];
 
-export function parseQueueRequest(value: unknown) {
+export function parseQueueRequest(value: unknown, action: "review" | "submit" = "review") {
 	if (
 		!record(value) ||
 		value.count !== 1 ||
@@ -56,20 +56,30 @@ export function parseQueueRequest(value: unknown) {
 		(draft.operation !== "generate" && draft.operation !== "edit") ||
 		!member(draft.provider, releasedProviders) ||
 		typeof draft.prompt !== "string" ||
-		Object.keys(draft).some((key) => !draftFields.includes(key)) ||
 		!Array.isArray(draft.references)
 	)
 		return null;
 	const options = draft.options;
 	if (
 		!record(options) ||
-		Object.keys(options).some((key) => !optionFields.includes(key)) ||
 		!member(options.aspectRatio, [...poyoAspectRatios, "auto"] as const) ||
 		!member(options.background, seedreamBackgrounds) ||
 		!member(options.resolution, seedreamResolutions) ||
 		!member(options.outputFormat, seedreamOutputFormats) ||
 		!member(options.sizeMode, ["tier", "pixels"] as const) ||
 		typeof options.watermark !== "boolean"
+	)
+		return null;
+	// Before operation keys, generation discarded unrecognized draft and option fields.
+	const replayOnly =
+		Object.keys(draft).some((key) => !draftFields.includes(key)) ||
+		Object.keys(options).some((key) => !optionFields.includes(key));
+	if (
+		replayOnly &&
+		(action !== "submit" ||
+			draft.operation !== "generate" ||
+			"operationKey" in value ||
+			typeof value.token !== "string")
 	)
 		return null;
 	const references: RemoteReference[] = [];
@@ -117,6 +127,7 @@ export function parseQueueRequest(value: unknown) {
 	// Older Reviews carry only the Seedream provider and draft mode.
 	if ("operationKey" in value && resolveOperationKey(value.operationKey) !== entry) return null;
 	return {
+		replayOnly,
 		entry,
 		input,
 		request: buildSeedreamRequest(input, (reference) => {

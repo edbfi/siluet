@@ -70,6 +70,41 @@ afterEach(async () => {
 	await rm(dir, { recursive: true, force: true });
 });
 
+test("a legacy generation body with ignored fields can replay only an authenticated existing claim", async () => {
+	const api = await queue();
+	const input = makeInput();
+	const reviewed = await api.review("owner", input);
+	if (!("token" in reviewed)) throw new Error("Expected generation Review");
+	const draft = createSeedreamDraft("poyo");
+	const body = {
+		draft: {
+			...draft,
+			prompt,
+			displayName: "ignored",
+			options: { ...draft.options, colorLabel: "ignored" },
+		},
+		count: 1,
+		retryLimit: 0,
+		acceptUnknown: true,
+		token: reviewed.token,
+	};
+	expect(parseQueueRequest(body)).toBeNull();
+	const replay = parseQueueRequest(body, "submit");
+	if (!replay) throw new Error("Expected legacy replay normalization");
+	expect(await api.submit("owner", replay)).toEqual({ error: "invalid" });
+	expect(posted).toBeEmpty();
+	const accepted = await api.submit("owner", {
+		...input,
+		token: reviewed.token,
+		acceptUnknown: true,
+	});
+	expect(accepted).toHaveProperty("jobId");
+	expect(await api.submit("other", replay)).toEqual({ error: "invalid" });
+	expect(await api.submit("owner", replay)).toEqual(accepted);
+	expect(posted).toHaveLength(1);
+	expect(parseQueueRequest({ ...body, operationKey: input.entry.key }, "submit")).toBeNull();
+});
+
 test.each(["poyo", "toapis"] as const)(
 	"a %s Review permits exactly one accepted generation across concurrent clicks and restart",
 	async (provider) => {
