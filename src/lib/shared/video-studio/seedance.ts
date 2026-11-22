@@ -1,10 +1,10 @@
-import { redactPrompt } from "../image-studio/review";
-import { resolveOperationKey, seedanceOperation } from "../media-catalog/registry";
+import { seedanceOperation } from "../media-catalog/registry";
+import { saveProfileDisclosure } from "./save-profile";
 export const videoRatios = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"] as const;
 export const videoDisclosures = [
 	"The prompt is sent to ToAPIs for one potentially billable submission.",
 	"The total charge is unknown. Fallback may be available on eligible accounts and regions. Its route and price are unknown.",
-	"Gallery saves complete H.264/AAC MP4 files within its size, dimension and 12-second limits. A completed billable clip outside them stays with the provider.",
+	saveProfileDisclosure,
 ];
 export const videoDefaults = {
 	prompt: "",
@@ -13,31 +13,10 @@ export const videoDefaults = {
 	resolution: "720p",
 	generate_audio: true,
 };
-export function parseVideo(value: unknown) {
+/** The reviewed Seedance options of an exact draft, or null. */
+export function seedanceRequest(d: object, prompt: string) {
 	if (
-		!value ||
-		typeof value !== "object" ||
-		!("draft" in value) ||
-		!("operationKey" in value) ||
-		resolveOperationKey(value.operationKey) !== seedanceOperation ||
-		!("count" in value) ||
-		value.count !== 1 ||
-		!("retryLimit" in value) ||
-		value.retryLimit !== 0 ||
-		!("acceptTerms" in value) ||
-		typeof value.acceptTerms !== "boolean" ||
-		Object.keys(value).some(
-			(k) => !["draft", "operationKey", "count", "retryLimit", "acceptTerms", "token"].includes(k),
-		)
-	)
-		return null;
-	const d = value.draft;
-	if (
-		!d ||
-		typeof d !== "object" ||
 		Object.keys(d).some((k) => !Object.hasOwn(videoDefaults, k)) ||
-		!("prompt" in d) ||
-		typeof d.prompt !== "string" ||
 		!("duration" in d) ||
 		typeof d.duration !== "number" ||
 		!Number.isInteger(d.duration) ||
@@ -51,8 +30,7 @@ export function parseVideo(value: unknown) {
 	)
 		return null;
 	const ratio = videoRatios.find((r) => r === d.aspect_ratio);
-	const prompt = d.prompt.trim();
-	if (!ratio || !prompt || new TextEncoder().encode(prompt).length > 4000) return null;
+	if (!ratio) return null;
 	const options = {
 		video_operation: "generate",
 		duration: d.duration,
@@ -64,18 +42,6 @@ export function parseVideo(value: unknown) {
 		disable_nsfw: false,
 	} as const;
 	const body = { model: seedanceOperation.key.model, prompt, ...options };
-	return {
-		body,
-		options,
-		acceptTerms: value.acceptTerms,
-		token: "token" in value ? value.token : null,
-	};
+	return { body, options };
 }
-export type VideoRequest = NonNullable<ReturnType<typeof parseVideo>>;
-export function previewVideo(body: VideoRequest["body"]) {
-	return {
-		...body,
-		prompt: redactPrompt(body.prompt),
-		client_business_id: "[Siluet assigns a correlation ID at Queue]",
-	};
-}
+export type SeedanceBody = NonNullable<ReturnType<typeof seedanceRequest>>["body"];

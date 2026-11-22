@@ -3,7 +3,8 @@ import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { seedanceOperation } from "../../../shared/media-catalog/registry";
-import { parseVideo, videoDefaults } from "../../../shared/video-studio/seedance";
+import { parseVideo } from "../../../shared/video-studio/request";
+import { videoDefaults } from "../../../shared/video-studio/seedance";
 import { imageJobStore } from "../../db/image-job-store";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
@@ -112,7 +113,7 @@ test("one durable claim binds the eligible key, exact terms and transient draft 
 		reason: "token-usage-unknown",
 		advertisedUnitRate: { usd: "10" },
 	});
-	expect(first.preview.prompt).not.toContain("private.test");
+	expect(JSON.stringify(first.preview)).not.toContain("private.test");
 	expect(await click(first.token, false)).toEqual({ error: "invalid" });
 	now += 31 * 86400_000;
 	expect(await click(first.token)).toEqual({ error: "stale" });

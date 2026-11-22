@@ -6,7 +6,12 @@ import {
 	reviewBatchCounts,
 	reviewRetryLimits,
 } from "../../src/lib/shared/image-studio/review-price";
-import { releasedModels, releasedOperations } from "../../src/lib/shared/media-catalog/registry";
+import {
+	h3MaxOperation,
+	releasedModels,
+	releasedOperations,
+	resolveOperationKey,
+} from "../../src/lib/shared/media-catalog/registry";
 import { catalogCoverage, documentedRoutes } from "./coverage";
 
 const { poyo, toapis } = ledger.providers;
@@ -223,10 +228,34 @@ test.each(providers)(
 			unresolvedIds: provider === "poyo" ? 5 : 21,
 			documentedOperations: provider === "poyo" ? 317 : 331,
 			prerequisiteBound: provider === "poyo" ? 2 : 17,
-			review: provider === "poyo" ? 4 : 3,
-			queue: provider === "poyo" ? 4 : 3,
-			partialOptions: provider === "poyo" ? 4 : 3,
-			addedSinceBaseline: provider === "poyo" ? 2 : 1,
+			review: provider === "poyo" ? 5 : 3,
+			queue: provider === "poyo" ? 5 : 3,
+			partialOptions: provider === "poyo" ? 5 : 3,
+			addedSinceBaseline: provider === "poyo" ? 3 : 1,
 		});
 	},
 );
+
+test("H3 key never resolves to ToAPIs", () => {
+	expect(resolveOperationKey(h3MaxOperation.key)).toBe(h3MaxOperation);
+	const toapisRow = toapis.rows.find((row) => row.ids.includes("MiniMax-H3-Max"));
+	expect(toapisRow).toBeDefined();
+	for (const key of [
+		{ ...h3MaxOperation.key, provider: "toapis" },
+		{ ...h3MaxOperation.key, provider: "toapis", model: "MiniMax-H3-Max" },
+		...(toapisRow?.operations ?? []).map((operation) => ({
+			provider: "toapis",
+			model: "MiniMax-H3-Max",
+			route: toapisRow?.route,
+			operation,
+		})),
+	])
+		expect(resolveOperationKey(key)).toBeUndefined();
+	expect(toapisRow && "support" in toapisRow).toBe(false);
+	const poyoRow = poyo.rows.find((row) => row.ids.includes("h3-max"));
+	expect(poyoRow?.support).toEqual({ "text-to-video": h3MaxOperation.profile });
+	expect(ledger.supportProfiles[h3MaxOperation.profile]).toMatchObject({
+		addedSinceBaseline: true,
+		optionCoverage: "partial",
+	});
+});

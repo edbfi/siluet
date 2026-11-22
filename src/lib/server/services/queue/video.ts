@@ -2,11 +2,8 @@ import { timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import { queueEvidenceProblem, seedanceOperation } from "../../../shared/media-catalog/registry";
-import {
-	previewVideo,
-	type VideoRequest,
-	videoDisclosures,
-} from "../../../shared/video-studio/seedance";
+import { previewVideo, type VideoRequest } from "../../../shared/video-studio/request";
+import { type SeedanceBody, videoDisclosures } from "../../../shared/video-studio/seedance";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import type { Installation } from "../../db/installation";
 import { nextProviderStart } from "../../db/provider-gate";
@@ -22,12 +19,7 @@ import { reviewSigner, tokenFormat } from "./review-signature";
 export async function createVideoQueue(
 	installation: Installation,
 	access: ReturnType<typeof createVideoAccess>,
-	dispatch: (
-		id: string,
-		key: string,
-		body: VideoRequest["body"],
-		business: string,
-	) => Promise<void>,
+	dispatch: (id: string, key: string, body: SeedanceBody, business: string) => Promise<void>,
 	feeds = loadStudioPricingFeeds,
 	now = Date.now,
 ) {
@@ -81,7 +73,7 @@ export async function createVideoQueue(
 				quote,
 				blockers,
 				disclosures: videoDisclosures,
-				preview: previewVideo(input.body),
+				preview: previewVideo(input),
 			};
 		},
 		async submit(owner: string, input: VideoRequest) {
@@ -123,7 +115,8 @@ export async function createVideoQueue(
 					{ behavior: "immediate" },
 				),
 			);
-			if (!("business" in claim) || claim.business === undefined) return claim;
+			if (!("business" in claim) || claim.business === undefined || "input" in input.body)
+				return claim;
 			await dispatch(id, claim.key, input.body, claim.business);
 			return { jobId: id };
 		},

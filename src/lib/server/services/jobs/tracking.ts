@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { ProviderId } from "../../../shared/providers/connections";
-import type { VideoRequest } from "../../../shared/video-studio/seedance";
+import type { SeedanceBody } from "../../../shared/video-studio/seedance";
 import { type BatchStop, imageBatchStore, retryStillSupported } from "../../db/image-batch-store";
 import { imageCredentialAccess } from "../../db/image-credential-access";
 import { type ImageJob, imageJobStore, skipImageSend } from "../../db/image-job-store";
@@ -311,7 +311,7 @@ export function createJobTracking(
 	}
 
 	return {
-		async dispatchVideo(id: string, key: string, body: VideoRequest["body"], business: string) {
+		async dispatchVideo(id: string, key: string, body: SeedanceBody, business: string) {
 			if (closed || !(await store.beginDispatch(id, "toapis", now()))) return;
 			const response = await gatedSend(
 				"toapis",
