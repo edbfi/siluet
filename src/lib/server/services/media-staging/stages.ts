@@ -33,6 +33,8 @@ function matches(a: MediaDescriptor, b: MediaDescriptor) {
 
 export type StageOptions = {
 	now?: () => number;
+	/** The clock a preparation deadline is measured on. */
+	monotonic?: () => number;
 	/** Aggregate in-memory dispatch buffers, separate from the scratch pool. */
 	buffers?: number;
 	retryDelays?: readonly number[];
@@ -47,6 +49,7 @@ export function createStages(
 	scratch: ScratchScope,
 	{
 		now = Date.now,
+		monotonic = () => performance.now(),
 		buffers: bufferLimit = 32_000_000,
 		retryDelays = [50, 250, 1000],
 		removeFile = (path) => rm(path, { force: true }),
@@ -250,8 +253,10 @@ export function createStages(
 	}
 	type PutOptions = {
 		valid?: () => Promise<boolean>;
-		/** The preparation's deadline, request and shutdown. Nothing publishes once it aborts. */
+		/** The preparation's request, shutdown and timer. Nothing is written or published once it aborts. */
 		signal?: AbortSignal;
+		/** The preparation's monotonic deadline, checked even when its timer has not fired yet. */
+		deadline?: number;
 	};
 	function put<P extends StageProfile>(
 		scope: StageScope,
@@ -261,10 +266,10 @@ export function createStages(
 	function put(
 		scope: StageScope,
 		media: PreparedStageMedia,
-		{ valid = async () => true, signal }: PutOptions = {},
+		{ valid = async () => true, signal, deadline = Infinity }: PutOptions = {},
 	) {
 		const write = { scope: { ...scope }, retired: wasDiscarded(scope) };
-		const stopped = () => closed || write.retired || !!signal?.aborted;
+		const stopped = () => closed || write.retired || !!signal?.aborted || monotonic() >= deadline;
 		writes.add(write);
 		return serialize(async () => {
 			if (stopped() || !(await valid())) throw new StageError("Stage unavailable.");
@@ -276,6 +281,8 @@ export function createStages(
 					? { mime: media.mime, transform: media.transform }
 					: { mime: media.mime, transform: "none" };
 			if (bytes.length !== size || !size || size > maxStageBytes) throw new ChangedStage();
+			// Checked again with no await before reserving and starting the write.
+			if (stopped()) throw new StageError("Stage unavailable.");
 			let reservation: ScratchReservation;
 			try {
 				// Reserve before writing so a full pool leaves no partial file.

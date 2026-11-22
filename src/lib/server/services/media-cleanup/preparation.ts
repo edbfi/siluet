@@ -22,6 +22,9 @@ export type PreparedMedia = PreparedStageMedia;
 
 export const preparationMs = 30_000;
 
+/** What stops a preparation: its request, shutdown and timer, and its monotonic deadline. */
+export type PreparationStop = { signal: AbortSignal; deadline: number };
+
 export type Cleaners = {
 	jpeg: (
 		bytes: Uint8Array,
@@ -86,25 +89,33 @@ export function createMediaPreparation(
 		shutdown,
 		cleaners = qualified,
 		deadlineMs = preparationMs,
-	}: { shutdown?: AbortSignal; cleaners?: Cleaners; deadlineMs?: number } = {},
+		monotonic = () => performance.now(),
+	}: {
+		shutdown?: AbortSignal;
+		cleaners?: Cleaners;
+		deadlineMs?: number;
+		monotonic?: () => number;
+	} = {},
 ) {
 	/**
 	 * Read, clean and verify one file, then hand it to `commit` (the stage write)
 	 * while still holding the slot. The deadline starts at admission. `commit`
-	 * receives the deadline, request and shutdown as one signal and must not
-	 * publish once it aborts. The slot waits for the write and any rollback.
+	 * receives the request, shutdown and timer as one signal plus the monotonic
+	 * deadline, and must not write or publish once either stops it. The slot
+	 * waits for the write and any rollback.
 	 */
 	return async function prepareMedia<T>(
 		source: Uint8Array | ReadableStream<Uint8Array>,
 		signal: AbortSignal,
-		commit: (media: PreparedMedia, signal: AbortSignal) => Promise<T>,
+		commit: (media: PreparedMedia, stop: PreparationStop) => Promise<T>,
 	): Promise<T> {
+		const deadline = monotonic() + deadlineMs;
 		const timeout = new AbortController();
 		const stopped = AbortSignal.any(
 			shutdown ? [signal, shutdown, timeout.signal] : [signal, timeout.signal],
 		);
 		const check = () => {
-			if (timeout.signal.aborted) throw failure("timeout");
+			if (timeout.signal.aborted || monotonic() >= deadline) throw failure("timeout");
 			if (signal.aborted || shutdown?.aborted) throw failure("cancelled");
 		};
 		const cancelSource = () => {
@@ -156,7 +167,7 @@ export function createMediaPreparation(
 					? { bytes, digest, mime, size: bytes.length, transform: cleaned.transform }
 					: { bytes, digest, mime, size: bytes.length, transform: "none" };
 			committing = true;
-			return await slot.track(commit(media, stopped));
+			return await slot.track(commit(media, { signal: stopped, deadline }));
 		} catch (error) {
 			cancelSource();
 			check();

@@ -27,9 +27,9 @@ export async function stageFile(event: RequestEvent) {
 		return new Response(null, { status: 413 });
 	const token = event.cookies.get(locals.studio.cookieName);
 	try {
-		const stage = await locals.studio.prepareMedia(request.body, request.signal, (media, signal) =>
+		const stage = await locals.studio.prepareMedia(request.body, request.signal, (media, stop) =>
 			locals.studio.stages.put(scope, media, {
-				signal,
+				...stop,
 				valid: async () => (await locals.studio.access.session(token)) === scope.owner,
 			}),
 		);

@@ -301,3 +301,51 @@ test("discarding a draft removes its copies and refuses a later write to that dr
 	time += 15 * 60_000;
 	expect((await stages.put(owner, png(5))).size).toBe(1);
 });
+
+test("a stop during session validation writes no file and charges no scratch", async () => {
+	let writes = 0;
+	const { stages, pool, files } = await setup(8, {
+		writeFile: async (path, bytes) => {
+			writes++;
+			await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
+		},
+	});
+	const stopped = new AbortController();
+	await expect(
+		stages.put(scope(), png(1, 2), {
+			signal: stopped.signal,
+			valid: async () => {
+				stopped.abort();
+				return true;
+			},
+		}),
+	).rejects.toThrow("Stage unavailable");
+	const owner = scope();
+	await expect(
+		stages.put(owner, png(3), {
+			valid: async () => {
+				void stages.discardDraft(owner);
+				return true;
+			},
+		}),
+	).rejects.toThrow("Stage unavailable");
+	expect(writes).toBe(0);
+	expect(pool.used).toBe(0);
+	expect(await files()).toEqual([]);
+});
+
+test("a passed preparation deadline publishes nothing even before its timer fires", async () => {
+	let clock = 0;
+	const { stages, pool, files } = await setup(8, {
+		monotonic: () => clock,
+		writeFile: async (path, bytes) => {
+			clock = 100;
+			await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
+		},
+	});
+	const owner = scope();
+	await expect(stages.put(owner, png(1, 2), { deadline: 50 })).rejects.toThrow("Stage unavailable");
+	expect(pool.used).toBe(0);
+	expect(await files()).toEqual([]);
+	await expect(stages.put(owner, png(1, 2), { deadline: 50 })).rejects.toThrow("Stage unavailable");
+});

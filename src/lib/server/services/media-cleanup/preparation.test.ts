@@ -175,7 +175,7 @@ test("a stage write that crosses the deadline publishes nothing and holds the sl
 	});
 	const quick = createMediaPreparation(installation, { deadlineMs: 100 });
 	const draft = { owner: "owner", session: "session", draft: crypto.randomUUID() };
-	const pending = quick(png, signal, (media, stop) => stages.put(draft, media, { signal: stop }));
+	const pending = quick(png, signal, (media, stop) => stages.put(draft, media, stop));
 	pending.catch(() => {});
 	await entered.promise;
 	await Bun.sleep(200);
@@ -185,6 +185,30 @@ test("a stage write that crosses the deadline publishes nothing and holds the sl
 	await expect(pending).rejects.toMatchObject({ code: "timeout" });
 	await held()?.settled;
 	expect(held()).toBeUndefined();
+	expect(scratch.used).toBe(0);
+	expect(await readdir(scope.directory)).toEqual([]);
+	await stages.close();
+});
+
+test("a deadline that passes before its timer fires publishes nothing and reports a timeout", async () => {
+	let clock = 0;
+	const scratch = createScratchPool(installation);
+	await scratch.reclaim();
+	const scope = await scratch.scope("image");
+	const stages = createStages(scope, {
+		monotonic: () => clock,
+		writeFile: async (path, bytes) => {
+			// The deadline passes during the write. The 30 s timer cannot have fired.
+			clock = 31_000;
+			await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
+		},
+	});
+	const timed = createMediaPreparation(installation, { monotonic: () => clock });
+	const draft = { owner: "owner", session: "session", draft: crypto.randomUUID() };
+	await expect(
+		timed(png, signal, (media, stop) => stages.put(draft, media, stop)),
+	).rejects.toMatchObject({ code: "timeout" });
+	await held()?.settled;
 	expect(scratch.used).toBe(0);
 	expect(await readdir(scope.directory)).toEqual([]);
 	await stages.close();
