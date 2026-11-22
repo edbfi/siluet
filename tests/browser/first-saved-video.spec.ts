@@ -72,7 +72,7 @@ test("video-only key reviews once, saves one video and reopens its original byte
 		await mkdir(join(release, "scripts"));
 		await copyFile("scripts/start.ts", join(release, "scripts/start.ts"));
 		await copyFile("package.json", join(release, "package.json"));
-		await symlink(resolve("node_modules"), join(release, "node_modules"), "junction");
+		await symlink(resolve("node_modules"), join(release, "node_modules"));
 		expect(await readFile(join(release, "build/server/qualification.mp4"))).toEqual(bytes);
 		const native = process.env.SILUET_FFMPEG_DIR;
 		server = await startStudio(

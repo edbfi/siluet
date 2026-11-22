@@ -70,6 +70,25 @@ test("failed image verification leaves the job eligible for another save", async
 	expect(await gallery.save(jobId)).toBe(true);
 });
 
+test("a failed directory sync publishes no Gallery row", async () => {
+	const probe = await open(directory, "r");
+	const proto = Object.getPrototypeOf(probe);
+	await probe.close();
+	const syncFile = proto.sync;
+	const sync = spyOn(proto, "sync").mockImplementation(async function (this: typeof probe) {
+		if ((await this.stat()).isDirectory())
+			throw Object.assign(new Error("Fixture directory sync failed"), { code: "EIO" });
+		return syncFile.apply(this);
+	});
+	try {
+		expect(await gallery.save(jobId)).toBe(false);
+	} finally {
+		sync.mockRestore();
+	}
+	expect(await gallery.list()).toEqual([]);
+	expect(await installation.use((db) => db.all(sql`SELECT job_id FROM gallery_image`))).toEqual([]);
+});
+
 test("recovery discards unindexed writes and finishes interrupted deletion", async () => {
 	await gallery.save(jobId);
 	const orphan = join(directory, `gallery-${"a".repeat(64)}`);
@@ -197,12 +216,10 @@ test("video identity reconciliation leaves the installation connection available
 	const recovered = await gallery.openVideo(jobId, true);
 	expect(recovered).not.toBeNull();
 	await recovered?.handle.close();
-	if (process.platform !== "win32") {
-		await chmod(path, 0o400);
-		expect(await gallery.openVideo(jobId, true)).toBeNull();
-		expect((await gallery.get(jobId))?.available).toBe(true);
-		await chmod(path, 0o600);
-	}
+	await chmod(path, 0o400);
+	expect(await gallery.openVideo(jobId, true)).toBeNull();
+	expect((await gallery.get(jobId))?.available).toBe(true);
+	await chmod(path, 0o600);
 	await writeFile(path, Buffer.alloc(bytes.length));
 	expect(await gallery.openVideo(jobId)).toBeNull();
 	expect((await gallery.get(jobId))?.available).toBe(false);

@@ -17,7 +17,6 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		...(await access.security.settings(session, requested && present ? receipt.get : undefined)),
 		canResume: !requested && present,
 		offer: url.searchParams.has("offer"),
-		windows: process.platform === "win32",
 	};
 };
 export const actions = {

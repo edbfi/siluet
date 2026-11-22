@@ -11,41 +11,8 @@ async function interruptKeyRead(directory: string) {
 	const name = (await readdir(directory)).find((entry) => /^factor-.*[.]key$/.test(entry));
 	if (!name) throw new Error("Missing fixture key.");
 	const path = join(directory, name);
-	if (process.platform !== "win32") {
-		await chmod(path, 0);
-		return () => chmod(path, 0o600);
-	}
-	const child = Bun.spawn(
-		[
-			"powershell.exe",
-			"-NoProfile",
-			"-NonInteractive",
-			"-Command",
-			"$ErrorActionPreference='Stop'; $f=[IO.File]::Open($env:SILUET_FIXTURE_KEY,'Open','Read','None'); [Console]::WriteLine('held'); [Console]::ReadLine() | Out-Null; $f.Dispose()",
-		],
-		{
-			env: { ...process.env, SILUET_FIXTURE_KEY: path },
-			stdin: "pipe",
-			stdout: "pipe",
-			stderr: "ignore",
-		},
-	);
-	const reader = child.stdout.getReader();
-	try {
-		const first = await reader.read();
-		if (!new TextDecoder().decode(first.value).includes("held"))
-			throw new Error("Missing native sharing lock.");
-	} catch (e) {
-		child.kill();
-		await child.exited;
-		throw e;
-	} finally {
-		reader.releaseLock();
-	}
-	return async () => {
-		child.stdin.end();
-		await child.exited;
-	};
+	await chmod(path, 0);
+	return () => chmod(path, 0o600);
 }
 
 async function candidate(page: Page, password: string) {
@@ -104,8 +71,6 @@ for (const javascript of [true, false]) {
 				await expect(
 					page.getByRole("heading", { name: "Connect your authenticator" }),
 				).toBeFocused();
-			if (process.platform === "win32")
-				await expect(page.getByText("bun run owner:recover", { exact: true })).toBeVisible();
 			await page
 				.getByLabel("New authenticator code")
 				.fill(totp.generate({ timestamp: Date.now() }));
