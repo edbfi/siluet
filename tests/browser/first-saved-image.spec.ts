@@ -464,12 +464,11 @@ test("a 429 that arrives after the reviewed rates expire keeps the expiry notice
 		const late = page.waitForResponse(`${origin}/image/queue`);
 		held.resolve();
 		await late;
-		// Let the page handle the late 429 before checking the notice again.
-		await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+		// The button returns from "Queuing…" only after the page has handled the late 429.
+		await expect(queue).toBeDisabled();
 		await expect(review.getByRole("status")).toHaveText(
 			"The reviewed rates expired. Review the request again before queuing.",
 		);
-		await expect(queue).toBeDisabled();
 		expect(fixtures.requests.filter((row) => row.path.endsWith("/submit"))).toEqual([]);
 	} finally {
 		await server?.stop();

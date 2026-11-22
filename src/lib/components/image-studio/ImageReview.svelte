@@ -217,13 +217,15 @@ async function queue() {
 			if (!mounted || input !== request || current?.token !== token) return;
 			// No job was claimed, so the same Review token and consent queue it later.
 			const until = result?.until;
-			const deadline =
-				typeof until === "number" && Number.isFinite(until)
-					? ` after ${new Date(Math.ceil(until / 1000) * 1000)
-							.toISOString()
-							.replace(/\.\d{3}Z$/, "")
-							.replace("T", " ")} UTC`
-					: " shortly";
+			const date = new Date(
+				typeof until === "number" ? Math.ceil(until / 1000) * 1000 : Number.NaN,
+			);
+			const deadline = Number.isNaN(date.getTime())
+				? " shortly"
+				: ` after ${date
+						.toISOString()
+						.replace(/\.\d{3}Z$/, "")
+						.replace("T", " ")} UTC`;
 			feedback = {
 				request: input,
 				message: `The provider is cooling down. Nothing was sent. Click Queue again${deadline}.`,
