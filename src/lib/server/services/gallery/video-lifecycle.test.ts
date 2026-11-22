@@ -1,11 +1,20 @@
 import { expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
-import { h264Aac, setField } from "../../../../../tests/fixtures/video/mp4-boxes";
+import {
+	box,
+	h264Aac,
+	payload,
+	replaceBox,
+	rewrite,
+	setField,
+} from "../../../../../tests/fixtures/video/mp4-boxes";
+import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
+import { createJobTracking } from "../jobs/tracking";
 import { downloadVideo } from "../video-media/download";
 import { createGallery } from "./gallery";
 
@@ -350,4 +359,153 @@ test("a video over 64 MiB, declared or observed, gets the profile message", asyn
 			expect(await gallery.get("large")).toBeNull();
 			expect(await scratchFiles(directory)).toBeEmpty();
 		});
+});
+
+/** h264Aac rewritten to a clip Gallery refuses, named after what makes it ineligible. */
+function outsideProfile() {
+	const source = h264Aac();
+	const avc1 = "moov/trak#0/mdia/minf/stbl/stsd/avc1";
+	// Thirteen presented seconds with a matching mvhd (the stts row is 24 samples of 6,656).
+	let long = setField(source, "moov/trak#0/mdia/mdhd", 16, 13 * 12288);
+	long = rewrite(long, "moov/trak#0/mdia/minf/stbl/stts", () => {
+		const row = Buffer.alloc(16);
+		row.writeUInt32BE(1, 4);
+		row.writeUInt32BE(24, 8);
+		row.writeUInt32BE((13 * 12288) / 24, 12);
+		return row;
+	});
+	long = setField(long, "moov/trak#0/edts/elst", 8, 13 * 48000);
+	long = setField(long, "moov/mvhd", 16, 13 * 48000);
+	const mov = rewrite(source, "ftyp", (data) =>
+		Buffer.concat([Buffer.from("qt  "), data.subarray(4)]),
+	);
+	return {
+		hevc: replaceBox(source, avc1, box("hvc1", payload(source, avc1))),
+		"2520x1080": setField(setField(source, avc1, 24, 2520, 2), avc1, 26, 1080, 2),
+		"13 s": long,
+		mov,
+	};
+}
+
+test("Poyo single video saves through the structural verifier", async () => {
+	const directory = await createOwnerDirectory();
+	let db = await openRuntimeInstallation(directory);
+	let now = Date.parse("2026-11-22T00:00:00Z");
+	const clip = "https://93.184.216.34/h3.mp4";
+	let tracking: ReturnType<typeof createJobTracking> | undefined;
+	try {
+		await providerStore(db).save("poyo", "balance-only", now, false, 0);
+		tracking = createJobTracking(db, providerStore(db), {
+			now: () => now,
+			random: () => 0,
+			fetch: async (url, init) => {
+				if (url.endsWith("/api/user/balance"))
+					return Response.json({ code: 200, data: { credits_amount: 100 } });
+				if (init.method === "POST") {
+					const id = JSON.parse(String(init.body)).input.prompt;
+					return Response.json({ code: 200, data: { task_id: id } });
+				}
+				return Response.json({
+					code: 200,
+					data: {
+						task_id: url.split("/").at(-1),
+						status: "finished",
+						credits_amount: 80,
+						files: [{ file_type: "video", file_url: clip }],
+					},
+				});
+			},
+		});
+		const jobs = tracking;
+		for (const id of ["silent", "audio"]) {
+			await db.use((c) =>
+				c.run(sql`INSERT INTO image_job (id,binding,provider,revision,quote,state,created_at,model,operation,poll_deadline,video_terms)
+					VALUES (${id},'binding','poyo',1,'{}','submitting',${now},'h3-max','text-to-video',${now + 120_000},'[]')`),
+			);
+			await jobs.dispatchVideo(id, "balance-only", {
+				provider: "poyo",
+				body: {
+					model: "h3-max",
+					input: {
+						prompt: id,
+						duration: 5,
+						resolution: "768p",
+						aspect_ratio: "16:9",
+						enable_safety_checker: false,
+					},
+				},
+			});
+		}
+		now += 2_000;
+		for (const id of ["silent", "audio"]) await jobs.refresh(id);
+		let body: Buffer = h264Aac();
+		const gallery = createGallery(
+			db,
+			async () => null,
+			undefined,
+			(source, path) => {
+				expect(source).toEqual({ url: clip, fallback: null });
+				return downloadVideo(source, path, {
+					resolve: async () => "93.184.216.34",
+					request: async () => new Response(new Uint8Array(body)),
+				});
+			},
+		);
+		const save = async (id: string, bytes: Buffer) => {
+			body = bytes;
+			now += 10_000;
+			return gallery.saveVideo(id, () => jobs.videoResult(id));
+		};
+		const profile = "This completed video is outside the supported Gallery profile.";
+		const webm = Buffer.from("1a45dfa38b42868101428284", "hex");
+		const truncated = h264Aac().subarray(0, h264Aac().length - 64);
+		const refusals: [string, Buffer, string][] = [
+			...Object.entries(outsideProfile()).map(
+				([name, bytes]) => [name, bytes, profile] as [string, Buffer, string],
+			),
+			[
+				"webm",
+				Buffer.concat([webm, Buffer.from("webm"), Buffer.alloc(32)]),
+				"This completed video is WebM or Matroska. Gallery keeps MP4 files only.",
+			],
+			[
+				"truncated final sample",
+				truncated,
+				"The video download or local write failed. Retry Save on this job.",
+			],
+		];
+		for (const [name, bytes, message] of refusals) {
+			expect(await save("silent", bytes), name).toBe(message);
+			expect(
+				(await jobs.list()).find((job) => job.id === "silent"),
+				name,
+			).toMatchObject({
+				state: "completed",
+				canSave: true,
+				billing: { status: "reported", credits: "80" },
+			});
+		}
+		expect(await gallery.get("silent")).toBeNull();
+		const silent = await readFile("tests/fixtures/video/silent.mp4");
+		expect(await save("silent", silent)).toBe("Saved to Gallery.");
+		expect(await save("audio", h264Aac())).toBe("Saved to Gallery.");
+		jobs.close();
+		await db.close();
+		db = await openRuntimeInstallation(directory);
+		const reopened = createGallery(db, async () => null);
+		await reopened.recover();
+		const video = await reopened.openVideo("silent");
+		if (!video) throw new Error("Expected the saved H3 clip to reopen.");
+		try {
+			expect(await video.handle.readFile()).toEqual(silent);
+		} finally {
+			await video.handle.close();
+		}
+		await reopened.remove("audio");
+		expect(await reopened.get("audio")).toBeNull();
+	} finally {
+		tracking?.close();
+		await db.close();
+		await rm(directory, { recursive: true, force: true });
+	}
 });
