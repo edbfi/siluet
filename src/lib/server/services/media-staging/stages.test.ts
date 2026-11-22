@@ -282,3 +282,22 @@ test("closing stops open previews at once, before a queued write settles", async
 	await lease.handle.close();
 	expect(await files()).toEqual([]);
 });
+
+test("discarding a draft removes its copies and refuses a later write to that draft", async () => {
+	let time = 1;
+	const { stages, files, pool } = await setup(8, { now: () => time });
+	const owner = scope();
+	const kept = scope();
+	await stages.put(owner, png(1, 2));
+	const other = await stages.put(kept, png(3));
+	// A request the browser abandoned can still reach the store after the discard.
+	await stages.discardDraft({ ...owner, session: "other" });
+	expect(await files()).toHaveLength(2);
+	await stages.discardDraft(owner);
+	await expect(stages.put(owner, png(4))).rejects.toThrow("Stage unavailable");
+	expect(await files()).toEqual([other.handle]);
+	expect(pool.used).toBe(1);
+	// The refusal lasts as long as an idle copy would.
+	time += 15 * 60_000;
+	expect((await stages.put(owner, png(5))).size).toBe(1);
+});

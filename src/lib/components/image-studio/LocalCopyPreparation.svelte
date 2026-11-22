@@ -9,12 +9,14 @@ import * as styles from "./local-copy-styles.ts";
 
 let { file, headingId }: { file: File; headingId: string } = $props();
 
-// One opaque draft per Review panel. Preparing again replaces its earlier copy.
-const draftId = crypto.randomUUID();
+// One opaque draft per prepared file. Preparing again replaces its earlier copy.
+let draftId = crypto.randomUUID();
+let used = false;
 let stage = $state.raw<MediaDescriptor | null>(null);
 let pending = $state(false);
 let message = $state<string | null>(null);
 let preparing: { file: File; abort: AbortController } | null = null;
+let expiry: ReturnType<typeof setTimeout> | undefined;
 
 const resource = (staged: MediaDescriptor) => `/image/files/${staged.draft}/${staged.handle}`;
 const caption = $derived.by(() => {
@@ -25,11 +27,38 @@ const caption = $derived.by(() => {
 	return `${mime === "image/png" ? "PNG" : "JPEG"} · ${rounded} (${size.toLocaleString("en-US")} bytes)`;
 });
 
-function discard(staged: MediaDescriptor | null) {
-	if (staged) void fetch(resource(staged), { method: "POST", keepalive: true }).catch(() => {});
+// Remove every copy of this draft, including one a request we abandoned may have
+// committed, and continue with a fresh draft.
+function retireDraft() {
+	clearTimeout(expiry);
+	if (used) {
+		void fetch(`/image/files/${draftId}`, { method: "DELETE", keepalive: true }).catch(() => {});
+		draftId = crypto.randomUUID();
+		used = false;
+	}
 }
 
-// A different file, or leaving Review, retires the preparation and its copy.
+function show(staged: MediaDescriptor, serverNow: number) {
+	stage = staged;
+	clearTimeout(expiry);
+	// The server removes an idle copy at its deadline. Stop showing it then.
+	expiry = setTimeout(
+		() => {
+			if (stage !== staged) return;
+			stage = null;
+			message = "The cleaned copy expired. Prepare it again.";
+		},
+		Math.max(0, staged.deadline - serverNow),
+	);
+}
+
+function unavailable() {
+	retireDraft();
+	stage = null;
+	message = "The cleaned copy is no longer available. Prepare it again.";
+}
+
+// A different file, or leaving Review, retires the preparation and its copies.
 let shown: File | undefined;
 $effect(() => {
 	const next = file;
@@ -38,7 +67,7 @@ $effect(() => {
 		shown = next;
 		preparing?.abort.abort();
 		preparing = null;
-		discard(stage);
+		retireDraft();
 		stage = null;
 		message = null;
 		pending = false;
@@ -46,7 +75,7 @@ $effect(() => {
 });
 onDestroy(() => {
 	preparing?.abort.abort();
-	discard(stage);
+	retireDraft();
 });
 
 async function prepare() {
@@ -55,8 +84,12 @@ async function prepare() {
 	preparing = current;
 	pending = true;
 	message = null;
-	const previous = stage;
+	// The earlier copy stays on the server until this request settles. Success
+	// replaces it there; any other outcome retires the draft and both copies.
 	stage = null;
+	clearTimeout(expiry);
+	used = true;
+	let staged: MediaDescriptor | null = null;
 	try {
 		const response = await fetch(`/image/files/${draftId}`, {
 			method: "POST",
@@ -66,12 +99,12 @@ async function prepare() {
 		});
 		const result: unknown = await response.json().catch(() => null);
 		if (preparing !== current) return;
-		const staged = response.ok ? parseStageDescriptor(result) : null;
-		if (staged && staged.draft === draftId) {
-			stage = staged;
+		staged = response.ok ? parseStageDescriptor(result) : null;
+		if (staged?.draft === draftId) {
+			show(staged, Date.parse(response.headers.get("date") ?? "") || Date.now());
 			return;
 		}
-		discard(previous);
+		staged = null;
 		const error =
 			result && typeof result === "object" && "error" in result ? result.error : undefined;
 		message =
@@ -81,10 +114,10 @@ async function prepare() {
 					? error
 					: "Image preparation unavailable. Try again.";
 	} catch {
-		if (preparing === current && !current.abort.signal.aborted)
-			message = "Image preparation unavailable. Try again.";
+		if (preparing === current) message = "Image preparation unavailable. Try again.";
 	} finally {
 		if (preparing === current) {
+			if (!staged) retireDraft();
 			preparing = null;
 			pending = false;
 		}
@@ -118,7 +151,12 @@ async function prepare() {
 	</p>
 	{#if stage}
 		<figure class={styles.figure}>
-			<img class={styles.preview} src={resource(stage)} alt="Cleaned local copy">
+			<img
+				class={styles.preview}
+				src={resource(stage)}
+				alt="Cleaned local copy"
+				onerror={unavailable}
+			>
 			<figcaption class={styles.note}>{caption}</figcaption>
 		</figure>
 		{#if stage.transform === "reencoded-rotation"}

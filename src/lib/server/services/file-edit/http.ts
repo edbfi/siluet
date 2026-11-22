@@ -45,6 +45,14 @@ export async function stageFile(event: RequestEvent) {
 	}
 }
 
+/** Discard every copy of this draft, including one from a request the browser abandoned. */
+export async function discardDraft(event: RequestEvent) {
+	const scope = scopeFor(event, event.params.draft);
+	if (!scope) return new Response(null, { status: 404 });
+	await event.locals.studio.stages.discardDraft(scope);
+	return new Response(null, { status: 204 });
+}
+
 export async function stagedMedia(event: RequestEvent, discard: boolean) {
 	const scope = scopeFor(event, event.params.draft);
 	const handle = event.params.handle;

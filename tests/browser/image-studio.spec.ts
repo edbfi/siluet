@@ -1064,6 +1064,32 @@ test("built Review prepares and previews one cleaned local copy while Queue stay
 			expect((await page.request.get(new URL(previous, origin).href)).status()).toBe(404);
 		});
 
+		await test.step("a failed Prepare again retires the earlier copy", async () => {
+			await expect(status).toHaveText("Cleaned copy ready.");
+			const previous = (await cleaned.getAttribute("src")) ?? "";
+			await page.route("**/image/files/*", (route) =>
+				route.request().method() === "POST" ? route.abort() : route.continue(),
+			);
+			await prepare.press("Enter");
+			await expect(status).toHaveText("Image preparation unavailable. Try again.");
+			await page.unroute("**/image/files/*");
+			await expect(cleaned).toHaveCount(0);
+			await expect(prepare).toHaveText("Prepare local copy");
+			await expect
+				.poll(async () => (await page.request.get(new URL(previous, origin).href)).status())
+				.toBe(404);
+		});
+
+		await test.step("a preview that fails to load asks to prepare again", async () => {
+			await page.route("**/image/files/*/*", (route) =>
+				route.request().method() === "GET" ? route.fulfill({ status: 404 }) : route.continue(),
+			);
+			await prepare.press("Enter");
+			await expect(status).toHaveText("The cleaned copy is no longer available. Prepare it again.");
+			await expect(cleaned).toHaveCount(0);
+			await page.unroute("**/image/files/*/*");
+		});
+
 		await test.step("CMYK refusal, no preview", async () => {
 			await firstFile.setInputFiles({
 				name: "print.jpg",
@@ -1117,6 +1143,26 @@ test("built Review prepares and previews one cleaned local copy while Queue stay
 			await expect(cleaned).toHaveCount(0);
 			await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toHaveValue("");
 			expect((await page.request.get(new URL(src, origin).href)).status()).toBe(404);
+		});
+
+		await test.step("Review stops showing a copy at its idle deadline", async () => {
+			await page.clock.install();
+			await page.goto(new URL("/image", origin).href);
+			await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(promptText);
+			await operation.selectOption("edit");
+			await firstFile.setInputFiles({
+				name: "upright.png",
+				mimeType: "image/png",
+				buffer: await uprightPng(),
+			});
+			await prepare.press("Enter");
+			await expect(status).toHaveText("Cleaned copy ready.");
+			await page.clock.fastForward("14:50");
+			await expect(cleaned).toBeVisible();
+			await page.clock.fastForward("00:20");
+			await expect(status).toHaveText("The cleaned copy expired. Prepare it again.");
+			await expect(cleaned).toHaveCount(0);
+			await expect(prepare).toHaveText("Prepare local copy");
 		});
 
 		expect(fixtures.requests).toHaveLength(providerChecks);

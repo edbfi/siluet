@@ -57,7 +57,14 @@ export function createStages(
 	const stages = new Map<string, Stage>();
 	// Files whose unlink failed stay charged until a later sweep removes them.
 	const leftovers = new Map<string, ScratchReservation>();
-	const writes = new Set<{ session: string; retired: boolean }>();
+	const writes = new Set<{ scope: StageScope; retired: boolean }>();
+	// Drafts the browser discarded, until any write it abandoned could no longer arrive.
+	const discarded = new Map<string, number>();
+	const draftKey = ({ owner, session, draft }: StageScope) => `${owner}\n${session}\n${draft}`;
+	function wasDiscarded(scope: StageScope) {
+		for (const [key, until] of discarded) if (until <= now()) discarded.delete(key);
+		return discarded.has(draftKey(scope));
+	}
 	let buffers = 0,
 		closed = false,
 		tail = Promise.resolve();
@@ -256,7 +263,7 @@ export function createStages(
 		media: PreparedStageMedia,
 		{ valid = async () => true, signal }: PutOptions = {},
 	) {
-		const write = { session: scope.session, retired: false };
+		const write = { scope: { ...scope }, retired: wasDiscarded(scope) };
 		const stopped = () => closed || write.retired || !!signal?.aborted;
 		writes.add(write);
 		return serialize(async () => {
@@ -314,7 +321,7 @@ export function createStages(
 		}).finally(() => writes.delete(write));
 	}
 	function retireSessions(digests: ReadonlySet<string>) {
-		for (const write of writes) if (digests.has(write.session)) write.retired = true;
+		for (const write of writes) if (digests.has(write.scope.session)) write.retired = true;
 		for (const stage of stages.values())
 			if (digests.has(stage.scope.session)) stage.readers.abort();
 		return serialize(async () => {
@@ -360,6 +367,18 @@ export function createStages(
 			return serialize(async () => {
 				const stage = stages.get(handle);
 				if (stage && same(stage.scope, scope)) await remove(stage);
+			});
+		},
+		/**
+		 * Remove every copy of this draft, including one a request the browser
+		 * abandoned has just written, and refuse later writes to the draft.
+		 */
+		discardDraft(scope: StageScope) {
+			wasDiscarded(scope);
+			discarded.set(draftKey(scope), now() + stageIdleMs);
+			for (const write of writes) if (same(write.scope, scope)) write.retired = true;
+			return serialize(async () => {
+				for (const stage of stages.values()) if (same(stage.scope, scope)) await remove(stage);
 			});
 		},
 		revoke(session: string) {
