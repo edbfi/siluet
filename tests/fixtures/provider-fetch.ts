@@ -2,6 +2,7 @@
 const fixtureOrigin = process.env.SILUET_TEST_PROVIDER_ORIGIN;
 const endpoints = new Map([
 	["https://api.poyo.ai/api/user/balance", "/poyo/balance"],
+	["https://toapis.com/v1/models?type=video", "/toapis/video-models"],
 	["https://toapis.com/v1/models?type=image", "/toapis/models"],
 ]);
 
@@ -24,10 +25,15 @@ globalThis.fetch = new Proxy(globalThis.fetch, {
 				path = url.pathname.replace("/api/generate/status/", "/poyo/status/");
 		}
 		if (url.origin === "https://toapis.com") {
+			if (url.pathname === "/v1/videos/generations") path = "/toapis/video-submit";
+			if (url.pathname.startsWith("/v1/videos/generations/"))
+				path = url.pathname.replace("/v1/videos/generations/", "/toapis/video-status/");
 			if (url.pathname === "/v1/images/generations") path = "/toapis/submit";
 			if (url.pathname.startsWith("/v1/images/generations/"))
 				path = url.pathname.replace("/v1/images/generations/", "/toapis/status/");
 		}
+		if (url.origin === "https://93.184.216.34" && url.pathname === "/result/video")
+			path = "/media/video";
 		if (url.origin === "https://93.184.216.34" && url.pathname === "/result/image")
 			path = "/media/image";
 		if (url.origin === "https://93.184.216.34" && url.pathname === "/result/reference-edit.png")

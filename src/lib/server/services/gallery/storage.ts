@@ -1,13 +1,16 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readdir, rm } from "node:fs/promises";
+import { lstat, open, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import type { Installation } from "../../db/installation";
 import type { verifyImage } from "./verify-image";
 
 type ImageInfo = Awaited<ReturnType<typeof verifyImage>>;
-type Row = ImageInfo & {
+type Row = Omit<ImageInfo, "mime"> & {
+	mime: ImageInfo["mime"] | "video/mp4";
+	duration: number | null;
+	file_identity: string | null;
 	job_id: string;
 	state: "saved" | "deleting" | "unavailable";
 	size: number;
@@ -21,6 +24,9 @@ const filename = (id: string) => `gallery-${hash(id)}`;
 const rowQuery = (id: string) => sql`SELECT * FROM gallery_image WHERE job_id=${id}`;
 const absent = (error: unknown) =>
 	error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ELOOP");
+
+const identity = (s: { dev: bigint; ino: bigint; ctimeNs: bigint }) =>
+	[s.dev, s.ino, s.ctimeNs].join("/");
 
 async function syncDirectory(path: string) {
 	// Windows does not support opening a directory for fsync via Node's fs API.
@@ -46,8 +52,11 @@ export function galleryStorage({ directory, use }: Installation) {
 		let available = row.state === "saved";
 		if (available) {
 			try {
-				const stat = await lstat(pathFor(row.job_id));
-				available = stat.isFile() && stat.size === row.size;
+				const stat = await lstat(pathFor(row.job_id), { bigint: true });
+				available =
+					stat.isFile() &&
+					stat.size === BigInt(row.size) &&
+					(row.mime !== "video/mp4" || identity(stat) === row.file_identity);
 			} catch (error) {
 				if (!absent(error)) throw error;
 				available = false;
@@ -58,6 +67,7 @@ export function galleryStorage({ directory, use }: Installation) {
 			jobId: row.job_id,
 			mime: row.mime,
 			savedAt: row.saved_at,
+			...(row.mime === "video/mp4" && { duration: row.duration }),
 			width: row.width,
 			height: row.height,
 			available,
@@ -141,10 +151,68 @@ export function galleryStorage({ directory, use }: Installation) {
 				}
 			});
 		},
+		publishVideo(
+			id: string,
+			scratch: string,
+			token: string,
+			info: { duration: number; width: number; height: number; size: number; digest: string },
+		) {
+			return locked(async (tx) => {
+				if (
+					!(await tx.get(
+						sql`SELECT 1 FROM video_save WHERE token=${token} AND job_id=${id} AND cancelled=0`,
+					))
+				)
+					return false;
+				const row = await tx.get<Row>(rowQuery(id));
+				if (row?.state === "deleting") return false;
+				if (row && (await entry(tx, row)).available) return true;
+				const path = pathFor(id);
+				await rename(scratch, path);
+				try {
+					const signature = identity(await lstat(path, { bigint: true }));
+					await syncDirectory(directory);
+					await tx.run(sql`INSERT OR REPLACE INTO gallery_image
+						(job_id,state,mime,width,height,size,digest,saved_at,duration,file_identity)
+						VALUES (${id},'saved','video/mp4',${info.width},${info.height},${info.size},${info.digest},${Date.now()},${info.duration},${signature})`);
+					return true;
+				} catch (error) {
+					await rm(path, { force: true });
+					throw error;
+				}
+			});
+		},
+		openVideo(id: string) {
+			return use(async (db) => {
+				const row = await db.get<Row>(rowQuery(id));
+				if (row?.state !== "saved" || row.mime !== "video/mp4") return null;
+				try {
+					const handle = await open(
+						pathFor(id),
+						constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+					);
+					let valid = false;
+					try {
+						const info = await handle.stat({ bigint: true });
+						valid =
+							info.isFile() &&
+							info.size === BigInt(row.size) &&
+							identity(info) === row.file_identity;
+						if (valid) return { handle, size: row.size };
+					} finally {
+						if (!valid) await handle.close();
+					}
+				} catch (error) {
+					if (!absent(error)) throw error;
+				}
+				await markUnavailable(db, row);
+				return null;
+			});
+		},
 		read(id: string) {
 			return use(async (db) => {
 				const row = await db.get<Row>(rowQuery(id));
-				if (row?.state !== "saved") return null;
+				if (row?.state !== "saved" || row.mime === "video/mp4") return null;
 				try {
 					const file = await open(
 						pathFor(id),
@@ -168,7 +236,10 @@ export function galleryStorage({ directory, use }: Installation) {
 		},
 		async remove(id: string) {
 			// Commit deletion intent before unlink. Recovery completes either remaining step.
-			await use((db) => db.run(sql`UPDATE gallery_image SET state='deleting' WHERE job_id=${id}`));
+			await locked(async (tx) => {
+				await tx.run(sql`UPDATE video_save SET cancelled=1 WHERE job_id=${id}`);
+				await tx.run(sql`UPDATE gallery_image SET state='deleting' WHERE job_id=${id}`);
+			});
 			return locked(async (tx) => {
 				const row = await tx.get<Row>(rowQuery(id));
 				if (row?.state !== "deleting") return false;

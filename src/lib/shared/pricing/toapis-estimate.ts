@@ -40,6 +40,7 @@ function standardImageOptions(options: Record<string, unknown>): boolean {
 
 function standardVideoOptions(options: Record<string, unknown>, operation: string): boolean {
 	return Object.entries(options).every(([key, setting]) => {
+		if (key === "return_last_frame") return setting === false;
 		if (key === "video_operation") return setting === operation;
 		// Media lives outside the option object and is classified separately.
 		return [

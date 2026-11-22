@@ -73,7 +73,10 @@ export function statusUpdate(
 			job.provider === "toapis" &&
 			((job.state === "completed" && observation.state === "failed") ||
 				(job.state === "failed" && observation.state === "completed"));
-		const validTransition = isActive(job) || job.state === observation.state;
+		const validTransition =
+			isActive(job) ||
+			(job.business_id && job.state === "unknown") ||
+			job.state === observation.state;
 		const merged = mergeBilling(billing, observation.billing);
 		if (terminalConflict) billing = { status: "conflicting" };
 		else if (validTransition || merged?.status === "conflicting") billing = merged;
@@ -88,7 +91,10 @@ export function statusUpdate(
 			expiresAt = observation.expiresAt ?? job.expires_at;
 			if (state === "completed") {
 				resultUrl = expiresAt !== null && expiresAt <= now ? null : observation.resultUrl;
-				if (!resultUrl) note = "result-unavailable";
+				if (!resultUrl)
+					note = observation.unsupportedVideoResult
+						? "unsupported-video-result"
+						: "result-unavailable";
 			}
 		} else {
 			note = "unknown-status";
@@ -109,7 +115,7 @@ export function statusUpdate(
 					: null,
 			failures,
 			nextReadAt:
-				observation.kind === "observed"
+				observation.kind === "observed" && !job.business_id
 					? now + delay
 					: Math.max(now + delay, retryTime(observation.retryAfter, now)),
 		},

@@ -5,7 +5,10 @@ import {
 	type ProviderId,
 	providerIds,
 } from "../../shared/providers/connections";
-import { type CredentialAccess, imageCredentialAccess } from "./image-credential-access";
+import {
+	type CredentialAccess as ImageCredentialAccess,
+	imageCredentialAccess,
+} from "./image-credential-access";
 import { jobsNeedCredential } from "./image-job-store";
 import type { Installation } from "./installation";
 import { ProviderKeyPolicyError, prepareProviderKey, readProviderKey } from "./provider-key";
@@ -46,8 +49,12 @@ function decrypt(key: Buffer, encoded: string, data: Buffer) {
 	}
 }
 
+type CredentialAccess = ImageCredentialAccess | "toapis-video";
+
 function allowsCredential(access: CredentialAccess, provider: ProviderId, seedream: boolean) {
-	return access === "poyo-balance" ? provider === "poyo" : seedream;
+	if (access === "poyo-balance") return provider === "poyo";
+	if (access === "toapis-video") return provider === "toapis";
+	return seedream;
 }
 
 export function providerStore(installation: Installation) {
@@ -59,6 +66,7 @@ export function providerStore(installation: Installation) {
 		const revisions = {
 			seedream: new Map<ProviderId, number>(),
 			"poyo-balance": new Map<ProviderId, number>(),
+			"toapis-video": new Map<ProviderId, number>(),
 		};
 		const rows = await use((db) =>
 			db.all<{
@@ -103,6 +111,7 @@ export function providerStore(installation: Installation) {
 					}
 					if (seedream) revisions.seedream.set(id, row.revision);
 					if (id === "poyo") revisions["poyo-balance"].set(id, row.revision);
+					if (id === "toapis") revisions["toapis-video"].set(id, row.revision);
 					return { id, state: "connected", verifiedAt, seedream };
 				}
 			} catch {
@@ -167,11 +176,16 @@ export function providerStore(installation: Installation) {
 				provider,
 				model,
 				revision,
+				business_id,
 			}: {
 				provider: ProviderId;
 				model: string;
 				revision: number;
-			}) => revisions[imageCredentialAccess(provider, model)].get(provider) === revision;
+				business_id?: string | null;
+			}) =>
+				revisions[business_id ? "toapis-video" : imageCredentialAccess(provider, model)].get(
+					provider,
+				) === revision;
 		},
 		async save(
 			id: ProviderId,

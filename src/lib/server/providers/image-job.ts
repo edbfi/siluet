@@ -20,7 +20,7 @@ export type StatusPause = "authorization" | "missing-task" | "unknown-status";
 export type TaskBilling =
 	| { status: "reported"; credits: string }
 	| { status: "settled" | "refunded"; credits: string | null; usd: string | null }
-	| { status: "unknown" | "conflicting" };
+	| { status: "unknown" | "conflicting" | "pending" };
 
 export type TaskObservation = { retryAfter: string | null; queryAfter?: number } & (
 	| {
@@ -31,6 +31,7 @@ export type TaskObservation = { retryAfter: string | null; queryAfter?: number }
 			settlementPending?: boolean;
 			billing: TaskBilling | null;
 			resultUrl: string | null;
+			unsupportedVideoResult?: true;
 			expiresAt: number | null;
 	  }
 	| { kind: "paused"; reason: StatusPause }
@@ -66,7 +67,7 @@ export async function requestImageJson(
 	read: CheckFetch,
 	url: string,
 	key: string,
-	request?: ReviewedImageRequest,
+	request?: { method: string; body: unknown },
 ) {
 	try {
 		const headers = new Headers({ Authorization: `Bearer ${key}`, Accept: "application/json" });

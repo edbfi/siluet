@@ -1,3 +1,4 @@
+import { copyFile } from "node:fs/promises";
 import panda from "@pandacss/vite";
 import adapter from "@sveltejs/adapter-bun";
 import { sveltekit } from "@sveltejs/kit/vite";
@@ -7,14 +8,25 @@ import { checkPublicAssets, guardPublicAssets } from "./scripts/public-assets.ts
 
 checkPublicAssets("static");
 
+const bunAdapter = adapter({
+	envPrefix: "SILUET_SERVER_",
+	serverOptions: { hostname: "127.0.0.1" },
+});
+
 export default defineConfig({
 	plugins: [
 		guardPublicAssets("static"),
 		sveltekit({
-			adapter: adapter({
-				envPrefix: "SILUET_SERVER_",
-				serverOptions: { hostname: "127.0.0.1" },
-			}),
+			adapter: {
+				...bunAdapter,
+				async adapt(builder) {
+					await bunAdapter.adapt(builder);
+					await copyFile(
+						"src/lib/server/services/video-media/qualification.mp4",
+						"build/server/qualification.mp4",
+					);
+				},
+			},
 		}),
 		panda({ transform: true }),
 	],

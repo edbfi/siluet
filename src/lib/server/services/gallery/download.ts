@@ -5,12 +5,12 @@ import { parseReferenceUrl } from "../../../shared/image-studio/references";
 const encodedLimit = 32 * 1024 * 1024;
 const invalid = () => new Error("Could not retrieve the image.");
 
-type Transport = {
+export type Transport = {
 	resolve: (hostname: string) => Promise<string>;
 	request: (url: URL, init: BunFetchRequestInit) => Promise<Response>;
 };
 
-const direct: Transport = {
+export const direct: Transport = {
 	resolve: async (hostname) => (await lookup(hostname)).address,
 	request: (url, init) => fetch(url, init),
 };
@@ -49,12 +49,18 @@ async function readImage(response: Response) {
 	}
 }
 
-async function transfer(source: string, transport: Transport, signal: AbortSignal) {
+export class DeliveryUnavailable extends Error {}
+
+export async function mediaResponse(source: string, transport: Transport, signal: AbortSignal) {
 	let url = new URL(source);
 	for (let redirects = 0; redirects <= 5; redirects++) {
 		if (url.protocol !== "https:" || !parseReferenceUrl(url.href)) throw invalid();
 		const hostname = url.hostname.replace(/^\[|\]$/g, "");
-		const address = isIP(hostname) ? hostname : await transport.resolve(hostname);
+		const address = isIP(hostname)
+			? hostname
+			: await transport.resolve(hostname).catch(() => {
+					throw new DeliveryUnavailable();
+				});
 		const family = isIP(address);
 		const literal = family === 6 ? `[${address}]` : address;
 		if (!family || !parseReferenceUrl(`https://${literal}/`)) throw invalid();
@@ -63,18 +69,28 @@ async function transfer(source: string, transport: Transport, signal: AbortSigna
 		// https://bun.com/docs/runtime/networking/fetch#connecting-to-a-specific-address
 		const target = new URL(url);
 		target.hostname = literal;
-		const response = await transport.request(target, {
-			redirect: "manual",
-			credentials: "omit",
-			keepalive: false,
-			proxy: false,
-			decompress: false,
-			headers: { host: url.host, "accept-encoding": "identity" },
-			tls: { serverName: hostname, rejectUnauthorized: true },
-			signal,
-		});
-		if (![301, 302, 303, 307, 308].includes(response.status)) return readImage(response);
-		await response.body?.cancel();
+		const response = await transport
+			.request(target, {
+				redirect: "manual",
+				credentials: "omit",
+				keepalive: false,
+				proxy: false,
+				decompress: false,
+				headers: { host: url.host, "accept-encoding": "identity" },
+				tls: { serverName: hostname, rejectUnauthorized: true },
+				signal,
+			})
+			.catch(() => {
+				throw new DeliveryUnavailable();
+			});
+		if (![301, 302, 303, 307, 308].includes(response.status)) {
+			if (response.status >= 300 && response.status < 400) {
+				void response.body?.cancel().catch(() => {});
+				throw invalid();
+			}
+			return response;
+		}
+		void response.body?.cancel().catch(() => {});
 		const location = response.headers.get("location");
 		if (!location) throw invalid();
 		url = new URL(location, url);
@@ -90,7 +106,10 @@ export async function downloadImage(source: string, transport = direct) {
 		deadline.reject(invalid());
 	}, 30_000);
 	try {
-		return await Promise.race([transfer(source, transport, controller.signal), deadline.promise]);
+		return await Promise.race([
+			mediaResponse(source, transport, controller.signal).then(readImage),
+			deadline.promise,
+		]);
 	} finally {
 		clearTimeout(timer);
 	}

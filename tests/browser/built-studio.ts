@@ -9,14 +9,19 @@ export async function startStudio(
 	port = "0",
 	collide = false,
 	env: Record<string, string> = {},
+	buildRoot = process.cwd(),
 ) {
-	const processHandle = fork(collide ? "tests/browser/occupied-port.ts" : "scripts/start.ts", [], {
-		execPath: process.execPath,
-		execArgv: ["--preload", join(process.cwd(), "tests/browser/launcher-control.ts")],
-		cwd: process.cwd(),
-		env: { ...process.env, ...env, SILUET_DATA_DIR: directory, SILUET_SERVER_PORT: port },
-		stdio: ["ignore", "pipe", "pipe", "ipc"],
-	});
+	const processHandle = fork(
+		collide ? "tests/browser/occupied-port.ts" : join(buildRoot, "scripts/start.ts"),
+		[],
+		{
+			execPath: process.execPath,
+			execArgv: ["--preload", join(process.cwd(), "tests/browser/launcher-control.ts")],
+			cwd: process.cwd(),
+			env: { ...process.env, ...env, SILUET_DATA_DIR: directory, SILUET_SERVER_PORT: port },
+			stdio: ["ignore", "pipe", "pipe", "ipc"],
+		},
+	);
 	if (!processHandle.stdout || !processHandle.stderr) throw new Error("Missing studio output.");
 	let diagnostics = "";
 	processHandle.stderr.on("data", (chunk) => {

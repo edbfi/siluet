@@ -23,7 +23,7 @@ import {
 	validateZImageDraft,
 } from "#lib/shared/image-studio/z-image.ts";
 import {
-	releasedOperations,
+	releasedImageOperations,
 	seedreamModel,
 	zImageModel,
 } from "#lib/shared/media-catalog/registry.ts";
@@ -77,7 +77,7 @@ const active = $derived.by(() => {
 		const { input } = zImage;
 		return {
 			entry:
-				releasedOperations.find(
+				releasedImageOperations.find(
 					(entry) => entry.modelId === input.model && entry.mode === input.operation,
 				) ?? null,
 			review: createImageReview(input, buildZImageRequest(input)),

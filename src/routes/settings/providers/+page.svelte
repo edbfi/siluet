@@ -128,6 +128,17 @@ function save(
 								>{dateFormat.format(provider.verifiedAt)} UTC</time
 							>
 						</p>
+						{#if provider.id === "toapis"}
+							<p class={styles.notice}>
+								{data.videoAccess.message}
+								{data.videoAccess.checkedAt
+									? `${dateFormat.format(data.videoAccess.checkedAt)} UTC`
+									: ""}
+							</p>
+							<form method="POST" action="?/video&provider=toapis">
+								<button type="submit" class={styles.action}>Check video access</button>
+							</form>
+						{/if}
 						{#if !provider.seedream}
 							<p class={cx(styles.warning, styles.notice)}>Seedream 5.5 access unavailable.</p>
 						{/if}

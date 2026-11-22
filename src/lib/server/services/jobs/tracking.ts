@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { ProviderId } from "../../../shared/providers/connections";
+import type { VideoRequest } from "../../../shared/video-studio/seedance";
 import { type BatchStop, imageBatchStore, retryStillSupported } from "../../db/image-batch-store";
 import { imageCredentialAccess } from "../../db/image-credential-access";
 import { type ImageJob, imageJobStore, skipImageSend } from "../../db/image-job-store";
@@ -10,8 +11,10 @@ import type { CheckFetch } from "../../providers/connection-check";
 import { type ReviewedImageRequest, statusTimeoutMs } from "../../providers/image-job";
 import { createPoyoImage } from "../../providers/poyo/image";
 import { createToapisImage } from "../../providers/toapis/image";
+import { createToapisVideo } from "../../providers/toapis/video";
 import { type BatchAuthorization, dispatchBatch } from "../queue/batch-dispatch";
 import { createSubmitGate } from "../queue/submit-gate";
+import type { VideoDelivery } from "../video-media/download";
 import { batchHistory } from "./batch-history";
 import { retryEvidence, statusUpdate } from "./observation";
 import { isActive, isReadPaused, summarizeJob } from "./summary";
@@ -58,10 +61,32 @@ export function createJobTracking(
 	const store = imageJobStore(installation);
 	const batches = imageBatchStore(installation);
 	const gatedSend = createSubmitGate(installation, now, random);
+	const video = createToapisVideo(read);
 	const poyo = createPoyoImage(read);
 	const adapters = { poyo, toapis: createToapisImage(read) };
+	// Recovery may return a short-lived completed result before the next status read is allowed.
+	// Keep its URL only in this runtime and require the durable observation to still match.
+	const recoveredResults = new Map<
+		string,
+		{ token: string; until: number; delivery: VideoDelivery }
+	>();
+	function cachedResult(job: ImageJob) {
+		const cached = recoveredResults.get(job.id);
+		if (
+			cached &&
+			job.state === "completed" &&
+			!job.pause_reason &&
+			!job.read_token &&
+			cached.token === job.video_observation_id &&
+			now() < cached.until &&
+			(job.expires_at === null || now() < job.expires_at)
+		)
+			return cached.delivery;
+		recoveredResults.delete(job.id);
+		return null;
+	}
 	const timers = new Map<string, () => void>();
-	const inFlight = new Map<string, Promise<string | null>>();
+	const inFlight = new Map<string, Promise<VideoDelivery | null>>();
 	let start: Promise<void> | undefined;
 	let closed = false;
 
@@ -74,7 +99,11 @@ export function createJobTracking(
 		cancelTimer(job.id);
 		if (closed || !autoTrack(job) || job.next_read_at === null) return;
 		const due = Math.max(job.next_read_at, earliest);
-		if (due >= job.poll_deadline || now() >= job.poll_deadline) return;
+		if (
+			due >= (job.video_poll_deadline ?? job.poll_deadline) ||
+			now() >= (job.video_poll_deadline ?? job.poll_deadline)
+		)
+			return;
 		const cancel = scheduleRead(
 			async () => {
 				timers.delete(job.id);
@@ -92,7 +121,7 @@ export function createJobTracking(
 			await credentials.credential(
 				job.provider,
 				job.revision,
-				imageCredentialAccess(job.provider, job.model),
+				job.business_id ? "toapis-video" : imageCredentialAccess(job.provider, job.model),
 			)
 		)?.key;
 	}
@@ -107,11 +136,17 @@ export function createJobTracking(
 		await store.finishWallet(job.id, balance, now());
 	}
 
-	async function observe(id: string, automatic: boolean) {
+	async function observe(id: string, automatic: boolean, lookup = false) {
 		const job = await store.get(id);
-		if (closed || !job?.task_id || job.next_read_at === null || job.next_read_at > now())
+		if (
+			closed ||
+			!job ||
+			(lookup ? !job.business_id || job.state !== "unknown" || job.task_id : !job.task_id) ||
+			(job.next_read_at ?? job.created_at + 5000) > now()
+		)
 			return null;
-		if (automatic && (!autoTrack(job) || now() >= job.poll_deadline)) return null;
+		if (automatic && (!autoTrack(job) || now() >= (job.video_poll_deadline ?? job.poll_deadline)))
+			return null;
 
 		const key = await originalKey(job);
 		if (closed) return null;
@@ -123,14 +158,25 @@ export function createJobTracking(
 		const token = crypto.randomUUID();
 		// The durable reservation covers a read interrupted by a restart before its cooldown is known.
 		const holdMs = statusTimeoutMs + initialWait[job.provider] + intervalJitter[job.provider];
-		const reserved = await store.reserveRead(id, token, now, holdMs, automatic);
-		if (closed || !reserved?.task_id) return null;
-		if (automatic && now() >= reserved.poll_deadline) {
-			await store.releaseUnread(id, token, job.next_read_at);
+		const reserved = await store.reserveRead(
+			id,
+			token,
+			now,
+			holdMs,
+			automatic,
+			lookup ? job : undefined,
+		);
+		if (closed || !reserved) return null;
+		if (automatic && now() >= (reserved.video_poll_deadline ?? reserved.poll_deadline)) {
+			await store.releaseUnread(id, token, job.next_read_at ?? now() + holdMs);
 			return null;
 		}
 
-		const observation = await adapters[job.provider].status(key, reserved.task_id);
+		const videoRead = reserved.business_id
+			? await video.status(key, reserved.business_id, reserved.task_id)
+			: null;
+		const observation =
+			videoRead ?? (await adapters[job.provider].status(key, reserved.task_id ?? ""));
 		const finished = now();
 		const interval =
 			initialWait[job.provider] + Math.floor(random() * (intervalJitter[job.provider] + 1));
@@ -139,25 +185,42 @@ export function createJobTracking(
 			automatic && reserved.retry_state
 				? retryEvidence(reserved, observation, update.billing, finished, random)
 				: null;
-		const saved = await store.recordStatus(id, token, finished, {
+		const saved = await store.recordStatus(reserved, token, finished, {
 			...update,
 			retry,
+			lookup,
+			progress: videoRead?.progress,
+			recoveredTask: lookup ? videoRead?.taskId : undefined,
 			queryAfter: Math.max(
 				observation.queryAfter ?? 0,
 				observation.kind === "temporary" ? retryTime(observation.retryAfter, finished) : 0,
 			),
 		});
 
-		if (!saved) return null;
+		if (!saved) {
+			if (lookup && videoRead?.taskId) await store.identityConflict(id, videoRead.taskId);
+			return null;
+		}
 		if (isActive(reserved) && (saved.state === "completed" || saved.state === "failed"))
 			await finishBalance(saved);
-		return resultUrl;
+		const delivery = resultUrl ? { url: resultUrl, fallback: videoRead?.fallback ?? null } : null;
+		if (lookup && delivery) {
+			const until = Math.min(finished + interval, update.nextReadAt);
+			recoveredResults.set(id, { token, until, delivery });
+			setTimeout(
+				() => {
+					if (recoveredResults.get(id)?.token === token) recoveredResults.delete(id);
+				},
+				Math.max(0, until - now()),
+			).unref();
+		}
+		return delivery;
 	}
 
-	function readStatus(id: string, automatic: boolean) {
+	function readStatus(id: string, automatic: boolean, lookup = false) {
 		const active = inFlight.get(id);
 		if (active) return active;
-		const operation = observe(id, automatic)
+		const operation = observe(id, automatic, lookup)
 			.then(async (url) => {
 				const job = await store.get(id);
 				if (job) schedule(job);
@@ -238,13 +301,50 @@ export function createJobTracking(
 	}
 
 	async function summarize(rows: ImageJob[]) {
-		const readable = rows.some((job) => job.task_id)
+		const readable = rows.some((job) => job.task_id || job.business_id)
 			? await credentials.jobReadability()
 			: () => false;
-		return rows.map((job) => summarizeJob(job, readable(job), now()));
+		return rows.map((job) => ({
+			hasRecoveredResult: !!cachedResult(job),
+			...summarizeJob(job, readable(job), now()),
+		}));
 	}
 
 	return {
+		async dispatchVideo(id: string, key: string, body: VideoRequest["body"], business: string) {
+			if (closed || !(await store.beginDispatch(id, "toapis", now()))) return;
+			const response = await gatedSend(
+				"toapis",
+				Infinity,
+				1,
+				() => video.submit(key, body, business),
+				{
+					allowed: async (tx) =>
+						!closed &&
+						!!(await tx.get(
+							sql`SELECT 1 FROM image_job j JOIN provider_credential c ON c.provider=j.provider AND c.revision=j.revision WHERE j.id=${id} AND j.state='submitting' AND c.ciphertext IS NOT NULL AND j.submission_recorded_at IS NULL`,
+						)),
+					blocked: (tx, reason, until) => skipImageSend(tx, id, reason, now(), until),
+				},
+			);
+			if ("blocked" in response) return;
+			const { result } = response;
+			const job = await store.recordSubmission(id, result, now(), 5000, response.retryAt);
+			if (job) schedule(job);
+			else if (result.kind === "accepted") await store.identityConflict(id, result.taskId);
+		},
+		async lookup(id: string) {
+			await readStatus(id, false, true);
+		},
+		async videoResult(id: string) {
+			const job = await store.get(id);
+			if (!job?.business_id || job.state !== "completed") return null;
+			const delivery = cachedResult(job) ?? (await readStatus(id, false));
+			return delivery && (await originalKey(job)) ? delivery : null;
+		},
+		async isVideo(id: string) {
+			return !!(await store.get(id))?.business_id;
+		},
 		async dispatch(id: string, provider: ProviderId, key: string, request: ReviewedImageRequest) {
 			if (closed || !(await store.beginDispatch(id, provider, now()))) return;
 			await send(id, provider, key, request, 1, provider === "poyo");
@@ -283,6 +383,7 @@ export function createJobTracking(
 			closed = true;
 			for (const cancel of timers.values()) cancel();
 			timers.clear();
+			recoveredResults.clear();
 		},
 
 		list: async () => summarize(await store.list()),
@@ -305,7 +406,7 @@ export function createJobTracking(
 			if (job?.state !== "completed") return null;
 			const url = await readStatus(id, false);
 			// A Settings change during the read also stops delivery of an unsaved result.
-			return url && (await credentials.jobReadability())(job) ? url : null;
+			return url && !job.business_id && (await credentials.jobReadability())(job) ? url.url : null;
 		},
 
 		needsCredential: store.needsCredential,

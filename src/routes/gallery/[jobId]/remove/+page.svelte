@@ -11,10 +11,15 @@ let { data, form }: PageProps = $props();
 <section class={page} aria-labelledby="confirm-title">
 	<h1 id="confirm-title">Remove from Gallery?</h1>
 	<div>
-		<strong>Image {data.image.jobId.slice(0, 8)}</strong>
+		<strong
+			>{data.image.mime === "video/mp4" ? "Video" : "Image"} {data.image.jobId.slice(0, 8)}</strong
+		>
 		<SavedImageDetails {...data.image} />
 	</div>
-	<p>This deletes the image from this device. You can still find the job in Jobs.</p>
+	<p>
+		This deletes the {data.image.mime === "video/mp4" ? "video" : "image"} from this device. You can
+		still find the job in Jobs.
+	</p>
 	{#if form?.message}
 		<p role="alert">{form.message}</p>
 	{/if}

@@ -2,7 +2,7 @@
 import type { Snippet } from "svelte";
 import type { SeedreamReference } from "#lib/shared/image-studio/references.ts";
 import type { SeedreamOperation } from "#lib/shared/image-studio/seedream.ts";
-import { releasedModels, zImageModel } from "#lib/shared/media-catalog/registry.ts";
+import { releasedImageModels, zImageModel } from "#lib/shared/media-catalog/registry.ts";
 import { css } from "#styled-system/css";
 import { studioPanel } from "#styled-system/recipes";
 import ImageReferencePreview from "./ImageReferencePreview.svelte";
@@ -25,7 +25,7 @@ let {
 	reference,
 	previewIndex,
 }: {
-	model: (typeof releasedModels)[number];
+	model: (typeof releasedImageModels)[number];
 	onModel: (model: string) => void;
 	fields: Snippet;
 	reviewPanel: Snippet;
@@ -116,7 +116,7 @@ export function focusPreview() {
 					value={model.id}
 					onchange={(event) => onModel(event.currentTarget.value)}
 				>
-					{#each releasedModels as choice (choice.id)}
+					{#each releasedImageModels as choice (choice.id)}
 						<optgroup label={choice.family}>
 							<option value={choice.id}>{choice.label}</option>
 						</optgroup>

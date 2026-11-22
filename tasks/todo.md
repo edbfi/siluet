@@ -8,3 +8,12 @@
 - [x] Add the upstream Dependabot auto-merge workflow and the full Biome migration workflow together after verifying the gate.
 - [x] Verify Dependabot security updates are enabled in the [repository settings](https://github.com/edbfi/siluet/settings/security_analysis). Checked 2026-11-22.
 - [ ] Confirm the central Bun maintenance token can open a maintenance PR for Siluet. The [scheduled run](https://github.com/edbfi/edbfi-ci/actions/runs/44910073092) found Bun 1.4.5 clean on 2026-11-21, so it exercised discovery only. The [upstream setup](https://github.com/edbfi/edbfi-ci/blob/main/SETUP.md#credentials) lists the account-level grant.
+
+## First saved video
+
+- [x] Verify full-track sample accounting and native decode under the resource limits.
+- [x] Verify credential revision, eligibility, review consent and one durable generation.
+- [x] Verify read-only recovery, matching status, billing and read cooldowns.
+- [x] Verify private Save, Range playback and removal across restart in the built studio.
+- [x] Run local checks on glibc Linux ARM64 and verify offline playback in the built studio.
+- [ ] Review the implementation with council and land after the registry and Z-Image.

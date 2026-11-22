@@ -7,7 +7,7 @@ import {
 	zImagePromptHint,
 	zImageSizes,
 } from "#lib/shared/image-studio/z-image.ts";
-import { releasedOperations, zImageModel } from "#lib/shared/media-catalog/registry.ts";
+import { releasedImageOperations, zImageModel } from "#lib/shared/media-catalog/registry.ts";
 import { css } from "#styled-system/css";
 import ImagePrompt from "./ImagePrompt.svelte";
 import {
@@ -35,7 +35,7 @@ let {
 	promptError?: string;
 } = $props();
 const id = $props.id();
-const operations = releasedOperations.filter((entry) => entry.modelId === zImageModel.id);
+const operations = releasedImageOperations.filter((entry) => entry.modelId === zImageModel.id);
 let candidate = $state("");
 let urlError = $state("");
 let urlField = $state<HTMLInputElement>();

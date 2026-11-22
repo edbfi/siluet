@@ -13,7 +13,13 @@ export const zImageModel = {
 	label: "Z-Image",
 	family: "Alibaba / Z-Image",
 } as const;
-export const releasedModels = [seedreamModel, zImageModel] as const;
+export const releasedImageModels = [seedreamModel, zImageModel] as const;
+const seedanceModel = {
+	id: "seedance-2.5",
+	label: "Seedance 2.5",
+	family: "ByteDance / Seedance",
+} as const;
+export const releasedModels = [...releasedImageModels, seedanceModel] as const;
 
 export const seedreamRoutes = {
 	poyo: {
@@ -71,7 +77,21 @@ function zImageEntry(operation: keyof typeof ordinaryOperations) {
 	} as const;
 }
 
-export const releasedOperations = [
+export const seedanceOperation = {
+	modelId: seedanceModel.id,
+	profile: "seedance-generate",
+	key: {
+		provider: "toapis",
+		model: "seedance-2-5",
+		route: "POST /v1/videos/generations",
+		operation: "text-to-video",
+	},
+	mode: "generate",
+	label: "Create video",
+	evidence: { d4: "declared", catalogD4: "unknown" },
+} as const;
+
+export const releasedImageOperations = [
 	seedreamEntry("poyo", "text-to-image"),
 	seedreamEntry("poyo", "reference-image-edit"),
 	seedreamEntry("toapis", "text-to-image"),
@@ -79,6 +99,7 @@ export const releasedOperations = [
 	zImageEntry("text-to-image"),
 	zImageEntry("reference-image-edit"),
 ];
+export const releasedOperations = [...releasedImageOperations, seedanceOperation];
 export const releasedProviders = [
 	...new Set(releasedOperations.map((entry) => entry.key.provider)),
 ];
@@ -100,11 +121,11 @@ export function resolveOperationKey(value: unknown) {
 	);
 }
 
-export type ReleasedOperation = (typeof releasedOperations)[number];
-export type SeedreamOperation = ReleasedOperation["mode"];
+export type ReleasedImageOperation = (typeof releasedImageOperations)[number];
+export type SeedreamOperation = ReleasedImageOperation["mode"];
 
 export function seedreamOperation(provider: ProviderId, mode: SeedreamOperation) {
-	return releasedOperations.find(
+	return releasedImageOperations.find(
 		(entry) =>
 			entry.modelId === seedreamModel.id && entry.key.provider === provider && entry.mode === mode,
 	);

@@ -1,4 +1,7 @@
 import type { Installation } from "../../db/installation";
+import { downloadVideo, type VideoDelivery } from "../video-media/download";
+import { qualifiedVerifier, verifyVideo } from "../video-media/native";
+import { videoSaveSlot } from "../video-media/save-slot";
 import { downloadImage } from "./download";
 import { galleryStorage } from "./storage";
 import { UnsupportedGalleryImage, verifyImage } from "./verify-image";
@@ -7,7 +10,10 @@ export function createGallery(
 	installation: Installation,
 	resultUrl: (id: string) => Promise<string | null>,
 	download: (url: string) => Promise<Buffer> = downloadImage,
+	transferVideo = downloadVideo,
 ) {
+	const slot = videoSaveSlot(installation);
+	const videoSaves = new Map<string, Promise<string>>();
 	const storage = galleryStorage(installation);
 	const pending = new Map<string, Promise<boolean>>();
 	async function save(id: string) {
@@ -24,7 +30,46 @@ export function createGallery(
 		}
 	}
 	return {
-		recover: storage.recover,
+		async recover() {
+			await slot.reserve();
+			await storage.recover();
+		},
+		openVideo: storage.openVideo,
+		saveVideo(id: string, result: () => Promise<VideoDelivery | null>) {
+			const pending = videoSaves.get(id);
+			if (pending) return pending;
+			const work = (async () => {
+				if ((await storage.get(id))?.available) return "Saved to Gallery.";
+				const verifier = await qualifiedVerifier();
+				if (!verifier) return "The local video verifier is unavailable.";
+				const active = await slot.reserve(id);
+				if (!active) return "Another video Save is active. Try again after it finishes.";
+				if (active.kind === "join") {
+					await slot.waitForSave(active.token);
+					return (await storage.get(id))?.available
+						? "Saved to Gallery."
+						: "The video has not been saved. Check Jobs before retrying.";
+				}
+				try {
+					if ((await storage.get(id))?.available) return "Saved to Gallery.";
+					const delivery = await result();
+					if (!delivery)
+						return "The current task has no verified, unexpired video link. Check status and retry Save.";
+					const bytes = await transferVideo(delivery, active.path);
+					const info = await verifyVideo(active.path, verifier).catch(() => null);
+					if (!info) return "This completed video is outside the supported Gallery profile.";
+					return (await storage.publishVideo(id, active.path, active.token, { ...bytes, ...info }))
+						? "Saved to Gallery."
+						: "The video could not be saved.";
+				} finally {
+					await slot.release(active.token);
+				}
+			})()
+				.catch(() => "The video download or local write failed. Retry Save on this job.")
+				.finally(() => videoSaves.delete(id));
+			videoSaves.set(id, work);
+			return work;
+		},
 		get: storage.get,
 		list: storage.list,
 		read: storage.read,

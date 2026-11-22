@@ -17,20 +17,24 @@ let { data }: PageProps = $props();
 <section class={page} aria-labelledby="gallery-title">
 	<h1 id="gallery-title">Gallery</h1>
 	{#if data.images.length}
-		<ul class={grid} aria-label="Saved images">
+		<ul class={grid} aria-label="Saved media">
 			{#each data.images as image (image.jobId)}
 				{@const href = `/gallery/${encodeURIComponent(image.jobId)}`}
 				<li>
 					<a class={card} {href}>
 						<div class={preview}>
-							{#if image.available}
+							{#if image.available && image.mime === "video/mp4"}
+								<span aria-hidden="true">▶</span>
+							{:else if image.available}
 								<img src={`${href}/media`} alt="" loading="lazy" decoding="async">
 							{:else}
 								<span>File unavailable</span>
 							{/if}
 						</div>
 						<div class={caption}>
-							<strong>Image {image.jobId.slice(0, 8)}</strong>
+							<strong
+								>{image.mime === "video/mp4" ? "Video" : "Image"} {image.jobId.slice(0, 8)}</strong
+							>
 							<SavedImageDetails {...image} />
 						</div>
 					</a>
@@ -38,7 +42,7 @@ let { data }: PageProps = $props();
 			{/each}
 		</ul>
 	{:else}
-		<p>No saved images yet. Open a completed job and choose <strong>Save to Gallery</strong>.</p>
+		<p>No saved media yet. Open a completed job and choose <strong>Save to Gallery</strong>.</p>
 		<a class={link} href="/jobs">Open Jobs</a>
 	{/if}
 </section>

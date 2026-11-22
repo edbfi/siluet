@@ -8,7 +8,9 @@ import { checkToapisConnection } from "../../providers/toapis/connection";
 import { createGallery } from "../gallery/gallery";
 import { createJobTracking } from "../jobs/tracking";
 import { createProviderConnections } from "../providers/connections";
+import { createVideoAccess } from "../providers/video-access";
 import { createSubmissionQueue } from "../queue/submission";
+import { createVideoQueue } from "../queue/video";
 import { createOwnerAccess, rotationMs } from "./access";
 import { studioOrigin } from "./origin";
 
@@ -32,6 +34,8 @@ export async function initializeOwner(dev: boolean) {
 		toapis: checkToapisConnection(),
 	});
 	const jobs = createJobTracking(installation, store);
+	const videoAccess = createVideoAccess(installation, store);
+	const videoQueue = await createVideoQueue(installation, videoAccess, jobs.dispatchVideo);
 	const gallery = createGallery(installation, (id) => jobs.resultUrl(id));
 	const queue = await createSubmissionQueue(installation, store.credential, jobs);
 	await gallery.recover();
@@ -59,6 +63,8 @@ export async function initializeOwner(dev: boolean) {
 	}
 	return {
 		origin,
+		videoAccess,
+		videoQueue,
 		jobs,
 		gallery,
 		queue,

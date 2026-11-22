@@ -40,6 +40,8 @@ export type JobSummary = {
 	wallet: JobWallet | null;
 	expiresAt: number | null;
 	canRefresh: boolean;
+	canLookup: boolean;
+	progress: number | null;
 	canSave: boolean;
 };
 
@@ -59,6 +61,8 @@ const statusNotes: Record<StatusNote, string> = {
 		"The provider returned an unrecognized task status. Refresh status to check again.",
 	"credential-changed": "Status and unsaved results require the original API key for this job.",
 	temporary: "The provider status is temporarily unavailable.",
+	"unsupported-video-result":
+		"The provider returned an unsupported video result. Check provider history.",
 	"result-unavailable":
 		"The provider has no usable image link. Try again or check provider history.",
 };
@@ -74,7 +78,7 @@ export function isReadPaused(note: StatusNote | null) {
 export function storedBilling(job: ImageJob): TaskBilling | null {
 	if (!job.billing) return null;
 	const billing = JSON.parse(job.billing) as TaskBilling;
-	if (billing.status === "settled" || billing.status === "refunded") {
+	if (!job.business_id && (billing.status === "settled" || billing.status === "refunded")) {
 		if (billing.credits === null || billing.usd === null) return { status: "unknown" };
 		if (
 			billing.status === "refunded" &&
@@ -121,11 +125,27 @@ function walletSummary(job: ImageJob): JobWallet | null {
 
 export function summarizeJob(job: ImageJob, readable: boolean, now: number): JobSummary {
 	const canRefresh = job.task_id !== null && readable;
-	const note = job.task_id && !readable ? "credential-changed" : job.pause_reason;
+	const lookupPending = !!job.business_id && job.state === "unknown";
+	const note =
+		(job.task_id || lookupPending) && !readable ? "credential-changed" : job.pause_reason;
 	let message = note ? statusNotes[note] : null;
-	if (job.state === "unknown")
+	if (job.rejection)
 		message =
+			job.business_id && job.rejection === "authorization"
+				? "ToAPIs denied this submission."
+				: rejections[job.rejection];
+	if (job.business_id && note === "unknown-status")
+		message = "Task identity or status could not be verified. Check provider history.";
+	if (job.business_id && note === "result-unavailable")
+		message = "No usable video result was available. Check provider history or retry Save.";
+	if (job.state === "unknown") {
+		if (note === "missing-task") message = "The provider could not find this task.";
+		if (lookupPending && note === "unknown-status")
+			message = "Task identity or status could not be verified.";
+		const warning =
 			"This attempt may still cost credits. Check provider history before authorizing another request.";
+		message = message ? `${message} ${warning}` : warning;
+	}
 	if (job.skipped === "retry-evidence")
 		message = "Not submitted. New task evidence ruled out this retry.";
 	else if (job.skipped)
@@ -134,7 +154,6 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 				? `Not submitted. Provider cooldown until ${new Date(job.retry_at).toISOString()}. Review again before queuing.`
 				: "Not submitted. The dispatch window closed before sending.";
 	else if (job.throttle && job.batch_id) message = "Not admitted · throttled";
-	if (job.rejection) message = rejections[job.rejection];
 	if (job.state === "failed") {
 		if (job.transient_failure) {
 			const reason =
@@ -149,12 +168,12 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 			message ??= "The provider reported that the job failed.";
 		}
 	}
-	if (!message && job.expires_at !== null && job.expires_at <= now)
-		message = "The provider's last reported image expiry has passed.";
+	if ((!message || job.business_id) && job.expires_at !== null && job.expires_at <= now)
+		message = `The provider's last reported ${job.business_id ? "video" : "image"} expiry has passed.`;
 	const tracking = isReadPaused(note)
 		? "paused"
 		: isActive(job)
-			? now < job.poll_deadline
+			? now < (job.video_poll_deadline ?? job.poll_deadline)
 				? "automatic"
 				: "manual"
 			: "done";
@@ -177,8 +196,8 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		state: job.skipped ? "unsent" : job.state,
 		createdAt: job.created_at,
 		updatedAt: job.updated_at ?? job.created_at,
-		pollDeadline: job.poll_deadline,
-		nextReadAt: job.next_read_at,
+		pollDeadline: job.video_poll_deadline ?? job.poll_deadline,
+		nextReadAt: job.next_read_at ?? (lookupPending ? job.created_at + 5_000 : null),
 		tracking,
 		message,
 		quote: JSON.parse(job.quote) as PriceEstimate,
@@ -191,6 +210,12 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 				: walletSummary(job),
 		expiresAt: job.expires_at,
 		canRefresh,
-		canSave: canRefresh && job.state === "completed",
+		canLookup: lookupPending && readable,
+		progress: job.video_progress ?? null,
+		canSave:
+			canRefresh &&
+			job.state === "completed" &&
+			(!job.business_id ||
+				(!isReadPaused(note) && (job.expires_at === null || job.expires_at > now))),
 	};
 }

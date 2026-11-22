@@ -5,6 +5,8 @@ import { imageBatchSchema } from "./image-batch-schema";
 import { imageJobOperationMigration } from "./image-job-operation-migration";
 import { imageJobSchema } from "./image-job-schema";
 
+import { videoMigration } from "./video-schema";
+
 export const ownerMigrations = {
 	"20261121000000_owner_access": `CREATE TABLE installation (
 		singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -48,6 +50,7 @@ export const installationMigrations = {
 			AND provider='toapis' AND state='failed'))`,
 	"20261122030400_image_job_operation": imageJobOperationMigration,
 	"20261122120000_live_image_batches": imageBatchSchema,
+	"20261122121000_first_saved_video": videoMigration,
 };
 
 export async function migrateInstallation(

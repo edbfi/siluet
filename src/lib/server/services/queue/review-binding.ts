@@ -1,22 +1,18 @@
-import { createHmac } from "node:crypto";
 import type { editDisclosure } from "../../../shared/image-studio/edit-disclosure";
 import { createImageReview } from "../../../shared/image-studio/review";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import { zImageDisclosure } from "../../../shared/image-studio/z-image";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
 import type { LiveRequest } from "./request";
+import type { reviewSigner } from "./review-signature";
 
 export const batchDisclosureVersion = "batch-terms-v1";
 
 export function reviewBinding(
-	secret: string,
+	digest: Awaited<ReturnType<typeof reviewSigner>>,
 	discloseEdit: typeof editDisclosure,
 	discloseZImage = zImageDisclosure,
 ) {
-	const key = Buffer.from(secret, "hex");
-	function digest(...fields: unknown[]) {
-		return createHmac("sha256", key).update(JSON.stringify(fields)).digest("hex");
-	}
 	function signature(id: string, terms: string, owner: string, live: LiveRequest) {
 		if (live.entry.modelId === "z-image")
 			return digest("z-image-review-v1", id, terms, owner, live.entry.key, live.request, 1, 0);

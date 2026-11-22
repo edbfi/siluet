@@ -9,6 +9,12 @@
 		"support": "inventory"
 	},
 	"supportProfiles": {
+		"seedance-generate": {
+			"addedSinceBaseline": true,
+			"review": "ordinary prompt-only MP4, 4–10 seconds at 480p or 720p",
+			"queue": "one reviewed request with video access and qualified Gallery verifier",
+			"optionCoverage": "partial"
+		},
 		"z-image-generate": {
 			"addedSinceBaseline": true,
 			"review": "prompt, five aspect ratios, batch and retry estimate",
@@ -3401,6 +3407,7 @@
 						"video-extension",
 						"draft-video-generation"
 					],
+					"support": { "text-to-video": "seedance-generate" },
 					"contract": "documented",
 					"sources": ["seedance-2-5", "seedanceDraft"],
 					"d4": "declared",

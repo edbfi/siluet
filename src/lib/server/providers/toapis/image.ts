@@ -11,6 +11,7 @@ import {
 	type TaskObservation,
 	type TaskState,
 } from "../image-job";
+import { queryLimit, submitThrottled } from "./rate-limits";
 
 const endpoint = "https://toapis.com/v1/images/generations";
 
@@ -63,7 +64,7 @@ function rejection(status: number, body: unknown) {
 	return null;
 }
 
-function billing(value: unknown): TaskBilling {
+export function billing(value: unknown): TaskBilling {
 	if (!isRecord(value) || (value.status !== "settled" && value.status !== "refunded"))
 		return { status: "unknown" };
 	const credits = decimalText(value.credits);
@@ -78,7 +79,7 @@ function billing(value: unknown): TaskBilling {
 		: { status: value.status, credits, usd };
 }
 
-function expiry(value: unknown) {
+export function expiry(value: unknown) {
 	return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 8.64e12
 		? value * 1000
 		: null;
@@ -122,18 +123,7 @@ export function createToapisImage(read: CheckFetch = fetch) {
 				)
 					return { kind: "unknown" };
 			}
-			if (
-				status === 429 &&
-				category === "async_submit" &&
-				isRecord(body) &&
-				isRecord(body.error) &&
-				body.error.code === "rate_limit_exceeded" &&
-				Object.keys(body.error).every((key) =>
-					["type", "message", "code", "param"].includes(key),
-				) &&
-				Object.keys(body).every((key) => ["error", "message", "success"].includes(key))
-			)
-				return { kind: "throttled", retryAfter };
+			if (submitThrottled(status, category, body)) return { kind: "throttled", retryAfter };
 			const reason = rejection(status, body);
 			return reason ? { kind: "rejected", reason } : { kind: "unknown" };
 		},
@@ -145,11 +135,7 @@ export function createToapisImage(read: CheckFetch = fetch) {
 				`${endpoint}/${taskId}`,
 				key,
 			);
-			// ToAPIs lists Reset without units. Only a ten-digit value on a depleted query
-			// bucket is interpreted as Unix seconds. This is a local fixture assumption.
-			const resetMs = reset && /^\d{10}$/.test(reset) ? Number(reset) * 1000 : 0;
-			const quota =
-				category === "async_query" && remaining === "0" && resetMs ? { queryAfter: resetMs } : {};
+			const quota = queryLimit(category, remaining, reset);
 			const task = isRecord(body) ? body : null;
 			const state = task?.id === taskId ? states.get(task.status) : undefined;
 			const error = isRecord(task?.error) ? task.error : null;

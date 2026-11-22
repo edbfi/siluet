@@ -8,7 +8,7 @@ import type { PageProps } from "./$types";
 import { styles } from "./jobs-styles.ts";
 
 let { data, form }: PageProps = $props();
-let pending = $state<Record<string, "refresh" | "save" | undefined>>({});
+let pending = $state<Record<string, "refresh" | "save" | "lookup" | undefined>>({});
 const outcomeLabels = {
 	unsent: "Not submitted",
 	pending: "Pending",
@@ -71,7 +71,7 @@ $effect(() => {
 	return () => window.clearTimeout(timer);
 });
 
-function submit(id: string, action: "refresh" | "save"): SubmitFunction {
+function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFunction {
 	return ({ cancel }) => {
 		if (pending[id]) {
 			cancel();
@@ -95,7 +95,11 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 	<time datetime={new Date(time).toISOString()}>{clock.format(time)} UTC</time>
 {/snippet}
 
-{#snippet jobRow(job: PageProps["data"]["jobs"][number])}
+{#snippet jobRow(
+	job: Omit<PageProps["data"]["jobs"][number], "hasRecoveredResult"> & {
+		hasRecoveredResult?: boolean;
+	},
+)}
 	{#if job}
 		{@const entry = releasedOperations.find(
 			(entry) =>
@@ -134,6 +138,9 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 					{job.taskId && job.batchId ? ` · Task ${job.taskId}` : ""}
 				</p>
 			</header>
+			{#if job.progress != null}
+				<p class={styles.meta}>{job.progress}% complete</p>
+			{/if}
 			{#if job.message}
 				<p class={styles.note}>
 					{job.tracking === "paused" ? "Tracking paused. " : ""}{job.message}
@@ -163,6 +170,9 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 					{#if job.billing?.status === "reported"}
 						<dt>Provider-reported task credits</dt>
 						<dd>{job.billing.credits} {provider} credits. Settlement unverified.</dd>
+					{:else if job.billing?.status === "pending"}
+						<dt>Provider billing</dt>
+						<dd>Pending</dd>
 					{:else if job.billing?.status === "settled" || job.billing?.status === "refunded"}
 						<dt>{job.billing.status === "refunded" ? "Confirmed refund" : "Settled charge"}</dt>
 						<dd>
@@ -207,25 +217,27 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 					{#if job.expiresAt}
 						Provider result expires {@render date(job.expiresAt)}.
 					{:else}
-						The provider keeps this result for a limited time. Save it promptly.
+						Expiry unknown. The provider keeps this result for a limited time. Save it promptly.
 					{/if}
 				</p>
 			{/if}
-			{#if cooldown && (job.canRefresh || job.tracking === "automatic")}
+			{#if cooldown && (job.canRefresh || job.canLookup || job.tracking === "automatic")}
 				<p class={styles.meta}>Next status check available {@render date(cooldown)}.</p>
 			{/if}
 			{#if saved || job.canSave || job.canRefresh || job.state === "unknown"}
 				<div class={styles.actions}>
 					{#if saved}
 						<a class={styles.link} href={`/gallery/${encodeURIComponent(job.id)}`}
-							>Open saved image</a
+							>Open saved {job.model === "seedance-2-5" ? "video" : "image"}</a
 						>
+					{:else if job.canSave && job.model === "seedance-2-5" && !data.videoVerifier}
+						<p class={styles.note}>Save requires a qualified local video verifier.</p>
 					{:else if job.canSave}
 						<form method="POST" action="?/save" use:enhance={submit(job.id, "save")}>
 							<input type="hidden" name="id" value={job.id}>
 							<button
 								class={styles.button}
-								disabled={!!pending[job.id] || cooldown !== null}
+								disabled={!!pending[job.id] || (!job.hasRecoveredResult && cooldown !== null)}
 								type="submit"
 							>
 								{pending[job.id] === "save" ? "Saving…" : "Save to Gallery"}
@@ -245,7 +257,21 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 						</form>
 					{/if}
 					{#if job.state === "unknown"}
-						<a class={styles.link} href="/image">Review a new request</a>
+						{#if job.canLookup}
+							<form method="POST" action="?/lookup" use:enhance={submit(job.id, "lookup")}>
+								<input type="hidden" name="id" value={job.id}>
+								<button
+									type="submit"
+									class={styles.button}
+									disabled={!!pending[job.id] || cooldown !== null}
+								>
+									Check submission
+								</button>
+							</form>
+						{/if}
+						<a class={styles.link} href={job.model === "seedance-2-5" ? "/video" : "/image"}
+							>Review a new request</a
+						>
 					{/if}
 				</div>
 			{/if}
@@ -258,7 +284,7 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 
 <div class={styles.page}>
 	<h1>Jobs</h1>
-	<p class={styles.intro}>Track image requests and save completed images to Gallery.</p>
+	<p class={styles.intro}>Track image and video requests and save completed results to Gallery.</p>
 	<div class={styles.list}>
 		{#each data.batches as batch (batch.id)}
 			<section class={styles.job} id={`job-${batch.id}`} aria-label="Image batch">
@@ -327,10 +353,11 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 		{#if !data.jobs.length && !data.batches.length}
 			<div class={styles.job}>
 				<h2 class={styles.heading}>No jobs yet</h2>
-				<p class={styles.note}>
-					Queue a reviewed request in Image Studio to follow its progress here.
-				</p>
-				<a class={styles.link} href="/image">Open Image Studio</a>
+				<p class={styles.note}>Queue a reviewed image or video to follow its progress here.</p>
+				<div class={styles.actions}>
+					<a class={styles.link} href="/image">Open Image Studio</a>
+					<a class={styles.link} href="/video">Open Video Studio</a>
+				</div>
 			</div>
 		{/if}
 	</div>

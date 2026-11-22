@@ -13,7 +13,11 @@ import {
 	validateSeedreamDraft,
 } from "../../../shared/image-studio/seedream";
 import { buildZImageRequest, validateZImageDraft } from "../../../shared/image-studio/z-image";
-import { releasedProviders, resolveOperationKey } from "../../../shared/media-catalog/registry";
+import {
+	type ReleasedImageOperation,
+	releasedProviders,
+	resolveOperationKey,
+} from "../../../shared/media-catalog/registry";
 
 function record(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object" && !Array.isArray(value);
@@ -49,7 +53,7 @@ export type LiveRequest = {
 	count: number;
 	retryLimit: number;
 	replayOnly: boolean;
-	entry: NonNullable<ReturnType<typeof resolveOperationKey>>;
+	entry: ReleasedImageOperation;
 	input: Parameters<typeof buildSeedreamRequest>[0] | Parameters<typeof buildZImageRequest>[0];
 	request: ReturnType<typeof buildSeedreamRequest | typeof buildZImageRequest>;
 	acceptUnknown: boolean;

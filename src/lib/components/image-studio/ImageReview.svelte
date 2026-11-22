@@ -16,7 +16,7 @@ import type { SeedreamDraft } from "#lib/shared/image-studio/seedream.ts";
 import { type ZImageDraft, zImageDisclosure } from "#lib/shared/image-studio/z-image.ts";
 import {
 	queueEvidenceProblem,
-	type ReleasedOperation,
+	type ReleasedImageOperation,
 	zImageModel,
 } from "#lib/shared/media-catalog/registry.ts";
 import { sumAmounts } from "#lib/shared/pricing/decimal.ts";
@@ -42,7 +42,7 @@ let {
 }: {
 	modelId: string;
 	connected: boolean;
-	entry: ReleasedOperation | null;
+	entry: ReleasedImageOperation | null;
 	review: ImageReviewData | null;
 	draft: SeedreamDraft | ZImageDraft;
 	referenceLabels: readonly string[];
@@ -70,7 +70,7 @@ const selectedProvider = $derived(review?.pricing.provider ?? provider);
 const providerName = $derived(selectedProvider && providerNames[selectedProvider]);
 const isEdit = $derived((review?.pricing.operation ?? operation) === "edit");
 type QueueInput = {
-	operationKey: ReleasedOperation["key"];
+	operationKey: ReleasedImageOperation["key"];
 	draft: SeedreamDraft | ZImageDraft;
 	count: number;
 	retryLimit: number;
