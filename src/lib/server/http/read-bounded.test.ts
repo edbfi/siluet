@@ -43,3 +43,10 @@ test("refuses non-byte chunks and stops when its check or signal does", async ()
 	await read.catch(() => {});
 	expect(pending.cancelled()).toBeTrue();
 });
+
+test("cancels at once and refuses a body whose signal has already aborted", async () => {
+	const waiting = chunks([new Uint8Array(1)]);
+	const aborted = AbortSignal.abort(new Error("aborted"));
+	await expect(readBounded(waiting.stream, 10, undefined, aborted)).rejects.toThrow("aborted");
+	expect(waiting.cancelled()).toBeTrue();
+}, 1000);

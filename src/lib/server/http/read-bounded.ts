@@ -8,7 +8,8 @@ export class BodyLimitError extends Error {
 
 /**
  * Read a byte stream up to `limit` bytes. `check` runs around every read and may
- * throw to stop it; an abort cancels a pending read. Failure cancels the stream.
+ * throw to stop it; an abort, including one before the call, cancels the stream
+ * and rejects with its reason. Failure cancels the stream.
  */
 export async function readBounded(
 	stream: ReadableStream<Uint8Array>,
@@ -21,13 +22,17 @@ export async function readBounded(
 		void reader.cancel().catch(() => {});
 	};
 	signal?.addEventListener("abort", cancel, { once: true });
+	// An already-aborted signal never dispatches another abort event.
+	if (signal?.aborted) cancel();
 	const sink = new Bun.ArrayBufferSink();
 	sink.start();
 	let size = 0;
 	try {
 		for (;;) {
+			signal?.throwIfAborted();
 			check?.();
 			const chunk = await reader.read();
+			signal?.throwIfAborted();
 			check?.();
 			if (chunk.done) {
 				const data = sink.end();
