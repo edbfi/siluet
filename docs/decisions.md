@@ -18,11 +18,38 @@ An unresolved Poyo.ai submission may still debit the same wallet after a key cha
 
 Claim one owner with a single-use console token, then set a local password and optionally enroll an authenticator. Settings can link OIDC and direct LDAP independently to that owner, with guided OIDC setup for Tinyauth, Authelia and authentik. Authorize method changes by reauthenticating through a currently enabled method, including enrolled MFA. Before activating a new or replacement binding, complete a sign-in through that exact candidate. Before disabling or replacing a method, also require fresh proof through a method that will remain enabled. One sign-in can satisfy both checks when the same method and configuration survive the change. Remove the local password hash and revoke its sessions when the creator disables password sign-in. Bind the single-use, short-lived proof to the initiating browser session, exact change and the configurations being verified. In one transaction consume the proof, apply the change and enforce the last-method check. An explicit offline host recovery restores access to the existing studio. Bind OIDC to issuer and subject and verify signed authentication time for sensitive changes. Bind LDAP to an immutable directory ID over validated TLS. Apply enrolled MFA to all methods. Verify that a Tinyauth username cannot be reassigned before relying on its subject.
 
+Deferred on 2026-11-22: external OIDC and LDAP sign-in move to the backlog. Tinyauth linking remains blocked on subject evidence.
+
 ## D2 · Full image and video model coverage
 
 Approved by the owner on 2026-11-21. Siluet aims to support the image and video models of ToAPIs and Poyo.ai, including the operations and input options each exposes. A creator can use either platform independently. Text prompts, captions and other documented inputs belong to the image or video operation that accepts them. Standalone text models and other non-media model catalogs are outside this scope.
 
 Track coverage by provider, model and operation so that one supported model cannot be mistaken for support for a provider's entire catalog. Official provider sources establish capabilities. Record gaps and unknowns explicitly. This is the coverage target for future modules.
+
+### Verification by contract family
+
+Amended by the owner on 2026-11-22. D2 targets every documented image and video model without testing each one. A contract family shares a provider, route, request envelope, acknowledgement envelope, status and recovery flow, result envelope, and Save contract. Its representative gets offline fixtures for each of these cases:
+
+- acceptance
+- confirmed rejection
+- uncertain submission
+- throttling
+- expiry
+- failed download
+- replay across restart
+
+It also gets one built-app journey that ends in a verified Save and reopens the result offline from the Gallery. Each input class is tested once per family. A capability unique to one model gets its own slice.
+
+Other models are **contract-covered**. They are validated mechanically against the pinned Poyo.ai catalog or a curated ToAPIs descriptor with a drift check. They Queue only when all of these hold:
+
+- D4 allows the operation.
+- The price is known, or the creator accepts an unknown one.
+- A qualified Save check (D5 or D6) covers the output. Otherwise Siluet fails closed.
+- On ToAPIs, the key's inventory lists the model.
+
+Review names the verified model on the same path and the schema date, and states that the model was not tested individually.
+
+Live billable calls are zero by default. A new family whose responses cannot be authored from documentation may use one cheapest call. That call needs express owner approval, and its redacted response becomes a fixture.
 
 ## D3 · Local persistence with embedded Turso and Drizzle
 
@@ -31,6 +58,19 @@ Approved by the owner on 2026-11-21. The first approved feature that needs persi
 ## D4 · Optional filtering on media requests
 
 Siluet uses a fixed default for image and video generation and edits so switching models keeps the single creator’s chosen filtering policy. The composer sends `input.enable_safety_checker: false` to Poyo.ai and `disable_nsfw: false` to ToAPIs. On eligible ToAPIs accounts and regions the latter permits fallback. Show known schema conflicts before queuing. Preserve a rejection because dropping a field and resubmitting could change the result and incur a second charge.
+
+Poyo.ai's state comes from the pinned catalog:
+
+- A declared `enable_safety_checker` is compatible.
+- A closed schema without it means filtering is provider-fixed.
+- An open schema without it is unverified.
+
+The owner approved two exceptions on 2026-11-22:
+
+- **ToAPIs.** When acceptance of `disable_nsfw: false` is unconfirmed, Siluet may queue after Review discloses that. It still sends the field and never resubmits without it.
+- **Documented provider-fixed filtering.** Siluet may queue only after the creator acknowledges in that Review that the provider filters and Siluet cannot send the toggle. That acknowledgement is bound to the Review like spending consent.
+
+Siluet omits a field the schema forbids only on that acknowledged path. It never drops a field the provider accepts.
 
 ## D5 · Verify Gallery images before saving
 

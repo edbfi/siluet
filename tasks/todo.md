@@ -7,7 +7,17 @@
 - [x] Verify the [main ruleset](https://github.com/edbfi/siluet/rules/27793694) requires both checks from GitHub Actions. Read back the repository's merge, sign-off and Actions settings.
 - [x] Add the upstream Dependabot auto-merge workflow and the full Biome migration workflow together after verifying the gate.
 - [x] Verify Dependabot security updates are enabled in the [repository settings](https://github.com/edbfi/siluet/settings/security_analysis). Checked 2026-11-22.
-- [ ] Confirm the central Bun maintenance token can open a maintenance PR for Siluet. The [scheduled run](https://github.com/edbfi/edbfi-ci/actions/runs/44910073092) found Bun 1.4.5 clean on 2026-11-21, so it exercised discovery only. The [upstream setup](https://github.com/edbfi/edbfi-ci/blob/main/SETUP.md#credentials) lists the account-level grant.
+- [ ] Confirm the central Bun maintenance token can open a maintenance PR for Siluet. The owner reads back the `edbfi-bun-maintenance` token: it covers `edbfi/siluet` with read-write Contents and Pull requests and has not expired. Close this item when the first real Bun maintenance PR opens. The [scheduled run](https://github.com/edbfi/edbfi-ci/actions/runs/44910073092) found Bun 1.4.5 clean on 2026-11-21, so it exercised discovery only. The [upstream setup](https://github.com/edbfi/edbfi-ci/blob/main/SETUP.md#credentials) lists the account-level grant.
+
+## R0 operations
+
+- [ ] Each R0 PR passes the local checks, `ci-ok` and `pr-policy`. The pricing PRs also pass their pricing run and the failing tests their plan lists.
+- [ ] Close [#3](https://github.com/edbfi/siluet/pull/3) and delete its branch. The next Monday Dependabot run opens no TypeScript PR.
+- [ ] Dispatch `pricing.yml`. `pricing-data` gains `pricing/v2/poyo.json` with `sourceDate` 2026-11-19T13:42:30Z and that day's `confirmedAt`, and the v1 blob ID is unchanged. A same-day rerun prints the skip notice.
+- [ ] `check-freshness` passes for the published feeds and reports the bundled feed. `pricing:refresh` reports "updated" with both dates.
+- [ ] Dispatch the `ci.yml` `pricing-freshness` job and see it pass. The last editors of the `pricing.yml` and `ci.yml` cron lines receive scheduled-failure email.
+- [ ] Refresh the bundled v2 feed. It matches `pricing-data` semantically, the full checks pass, and the next `check-freshness` reports about 30 days.
+- [ ] The scheduled pricing run on 2026-12-01 succeeds.
 
 ## First saved video
 
