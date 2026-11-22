@@ -88,7 +88,7 @@ export function createStages(
 				reservation.release();
 				return true;
 			} catch {
-				// Windows refuses to delete a file with an open handle. Retry, then keep it charged.
+				// A busy file may refuse deletion; retry, then keep it charged.
 			}
 		}
 		leftovers.set(path, reservation);

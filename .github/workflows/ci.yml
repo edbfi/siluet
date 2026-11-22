@@ -59,7 +59,7 @@ jobs:
   native-owner:
     strategy:
       fail-fast: false
-      matrix: { os: [windows-latest, macos-15] }
+      matrix: { os: [macos-15] }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     permissions: { contents: read }

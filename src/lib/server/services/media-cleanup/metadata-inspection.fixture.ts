@@ -5,8 +5,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
 export const exifTool = process.env.SILUET_TEST_EXIFTOOL;
-// The Windows distribution bundles its own Perl next to exiftool.pl.
-const perl = process.env.SILUET_TEST_PERL ?? "perl";
+const perl = "perl";
 
 export async function inspectCleanup(
 	extension: "jpg" | "png",
@@ -29,7 +28,7 @@ export async function inspectCleanup(
 		const hash = createHash("sha256").update(source).digest("hex");
 		writeFileSync(paths.cleaned, await prepare(readFileSync(paths.source)));
 		verify((file, ...args) => {
-			// Pass bytes via stdin. ExifTool's command line filename charset differs on Windows.
+			// Pass bytes on stdin so ExifTool never parses the Unicode filenames.
 			const result = Bun.spawnSync([perl, exifTool, ...args, "-"], {
 				stdin: readFileSync(paths[file]),
 				timeout: 5_000,
