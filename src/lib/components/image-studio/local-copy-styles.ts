@@ -40,7 +40,10 @@ export const preview = css({
 export const disclosure = css({
 	margin: 0,
 	padding: "0.55rem 0.7rem",
+	// The surface color disappears in forced colors. The border keeps the callout visible.
+	border: "1px solid transparent",
 	borderRadius: "8px",
+	"@media (forced-colors: active)": { borderColor: "CanvasText" },
 	background: "staleSurface",
 	color: "stale",
 	fontSize: "0.85rem",

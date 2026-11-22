@@ -1027,6 +1027,17 @@ test("built Review prepares and previews one cleaned local copy while Queue stay
 				.toEqual([32, 48]);
 			await expect(localCopy).toContainText(/JPEG · [\d.]+ KB \([\d,]+ bytes\)/);
 			await expect(localCopy).toContainText("Re-encoded to apply rotation.");
+			// The disclosure keeps a visible edge when forced colors remove its surface.
+			await page.emulateMedia({ forcedColors: "active" });
+			const edge = await localCopy
+				.locator("p", { hasText: "Re-encoded to apply rotation." })
+				.evaluate((element) => {
+					const style = getComputedStyle(element);
+					return [style.borderTopStyle, style.borderTopWidth, style.borderTopColor];
+				});
+			await page.emulateMedia({ forcedColors: "none" });
+			expect(edge.slice(0, 2)).toEqual(["solid", "1px"]);
+			expect(edge[2]).not.toBe("rgba(0, 0, 0, 0)");
 			await expect(localCopy).toContainText("Watermarks in the picture itself survive.");
 			await expect(localCopy).toContainText("Its creator, copyright, creation date");
 			await expect(queue).toBeDisabled();
