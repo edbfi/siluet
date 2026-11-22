@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { referenceGif, truncatedReferenceGif } from "../../../../tests/fixtures/reference-image";
-import { checkReferenceFile, referenceFileAccept, referenceFileError } from "./references";
+import {
+	checkReferenceFile,
+	referenceFileAccept,
+	referenceFileError,
+	referenceFileHelp,
+} from "./references";
 
 const pngHeader = [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82];
 
@@ -47,6 +52,12 @@ test("JPEG and PNG source size is checked separately from cleaned upload size", 
 		expect(referenceFileError(provider, { ...sample, size: limit + 1 })).toBe(
 			"The image exceeds the 16 MiB local preparation limit. Choose a smaller SDR JPEG or PNG.",
 		);
+});
+
+test("the picker states the local JPEG and PNG limit apart from each provider's WebP and GIF limit", () => {
+	expect(referenceFileHelp(null)).toBe("JPEG or PNG up to 16 MiB");
+	expect(referenceFileHelp("poyo")).toBe("JPEG or PNG up to 16 MiB, or WebP up to 10 MB");
+	expect(referenceFileHelp("toapis")).toBe("JPEG or PNG up to 16 MiB, or WebP or GIF up to 30 MB");
 });
 
 test("with no provider connected, only a local JPEG or PNG is offered", async () => {

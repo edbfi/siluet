@@ -31,10 +31,10 @@ export function duplicateReferenceSlots(
 }
 
 const fileTypes = {
-	jpeg: { mime: "image/jpeg", extensions: [".jpg", ".jpeg"] },
-	png: { mime: "image/png", extensions: [".png"] },
-	webp: { mime: "image/webp", extensions: [".webp"] },
-	gif: { mime: "image/gif", extensions: [".gif"] },
+	jpeg: { name: "JPEG", mime: "image/jpeg", extensions: [".jpg", ".jpeg"] },
+	png: { name: "PNG", mime: "image/png", extensions: [".png"] },
+	webp: { name: "WebP", mime: "image/webp", extensions: [".webp"] },
+	gif: { name: "GIF", mime: "image/gif", extensions: [".gif"] },
 };
 
 const stillFormats = ["jpeg", "png", "webp"] as const;
@@ -44,16 +44,18 @@ const localLimits = {
 	maxBytes: maxLocalImageBytes,
 	description: localImageLimit,
 } as const;
+// A JPEG or PNG is always prepared locally first, under the shared source limit.
+// `maxBytes` applies to the WebP or GIF a provider accepts as it is.
 const referenceLimits = {
 	poyo: {
 		formats: stillFormats,
 		maxBytes: 10_000_000,
-		description: "JPEG, PNG or WebP up to 10 MB",
+		description: `${localImageLimit}, or WebP up to 10 MB`,
 	},
 	toapis: {
 		formats: [...stillFormats, "gif"],
 		maxBytes: 30_000_000,
-		description: "JPEG, PNG, WebP or GIF up to 30 MB",
+		description: `${localImageLimit}, or WebP or GIF up to 30 MB`,
 	},
 } as const;
 
@@ -115,7 +117,10 @@ export async function checkReferenceFile(
 	} catch {
 		return "Could not read this file. Choose it again.";
 	}
-	if (imageFormat(bytes) !== format) return `Choose a valid ${referenceFileHelp(provider)}.`;
+	if (imageFormat(bytes) !== format) {
+		const names = limitsFor(provider).formats.map((name) => fileTypes[name].name);
+		return `Choose a valid ${names.slice(0, -1).join(", ")} or ${names.at(-1)} image.`;
+	}
 	if (format === "gif" && !hasCompleteGifStream(bytes)) return "Choose a complete GIF file.";
 	return null;
 }

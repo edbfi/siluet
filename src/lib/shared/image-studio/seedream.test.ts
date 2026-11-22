@@ -329,7 +329,9 @@ test("reference file validation applies each provider’s formats and decimal by
 	expect(referenceFileError("poyo", { ...webp, size: 10_000_001 })).toMatch(/10 MB/);
 	expect(referenceFileError("toapis", { ...webp, size: 30_000_000 })).toBeNull();
 	expect(referenceFileError("toapis", { ...webp, size: 30_000_001 })).toMatch(/30 MB/);
-	expect(referenceFileError("poyo", { ...webp, type: "image/gif" })).toMatch(/JPEG, PNG or WebP/);
+	expect(referenceFileError("poyo", { ...webp, type: "image/gif" })).toBe(
+		"Choose a non-empty image. Supported files are JPEG or PNG up to 16 MiB, or WebP up to 10 MB.",
+	);
 	expect(referenceFileError("toapis", { ...webp, name: "ref.gif", type: "image/gif" })).toBeNull();
 	expect(referenceFileError("toapis", { ...webp, type: "image/svg+xml" })).not.toBeNull();
 	expect(referenceFileError("poyo", { ...webp, size: 0 })).not.toBeNull();
