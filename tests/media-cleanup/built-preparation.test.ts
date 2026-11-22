@@ -165,6 +165,38 @@ test("the built route stages a large image and keeps 512 KiB on other routes", a
 	expect(studio.output()).not.toContain(descriptor.handle);
 }, 60_000);
 
+test("draft discard requires the owner session, this origin and a valid draft", async () => {
+	const studio = await launch(await owner());
+	const session = await signIn(studio);
+	const staged = await (await stage(session, await largePng())).json();
+	const discard = (headers: Record<string, string>, draft: string = staged.draft) =>
+		fetch(`${session.origin}/image/files/${draft}`, { method: "DELETE", headers });
+	const preview = async () => {
+		const response = await fetch(`${session.origin}/image/files/${staged.draft}/${staged.handle}`, {
+			headers: { cookie: session.cookie },
+		});
+		await response.body?.cancel();
+		return response.status;
+	};
+	expect((await discard({ origin: session.origin })).status).toBe(401);
+	expect((await discard({ cookie: session.cookie })).status).toBe(403);
+	expect((await discard({ origin: "http://evil.example", cookie: session.cookie })).status).toBe(
+		403,
+	);
+	const signedIn = { origin: session.origin, cookie: session.cookie };
+	expect((await discard(signedIn, "not-a-draft")).status).toBe(404);
+	expect(await preview()).toBe(200);
+	expect((await discard(signedIn)).status).toBe(204);
+	expect(await preview()).toBe(404);
+	// The single-copy discard route is gone.
+	const removed = await fetch(`${session.origin}/image/files/${staged.draft}/${staged.handle}`, {
+		method: "POST",
+		headers: signedIn,
+	});
+	expect(removed.status).toBe(405);
+	expect(await studio.stop()).toBe(0);
+}, 60_000);
+
 test("sign-out retires an open preview and removes its scratch file", async () => {
 	const directory = await owner();
 	const studio = await launch(directory);
