@@ -17,6 +17,10 @@ if (process.platform === "win32") {
 			`/out:${join(output, `${name}.exe`)}`,
 			join(native, `${name}.cs`),
 		]);
-		if (result.exitCode !== 0) throw new Error("Could not build a Windows owner helper.");
+		if (result.exitCode !== 0) {
+			process.stderr.write(result.stdout);
+			process.stderr.write(result.stderr);
+			throw new Error(`Could not build the Windows ${name} helper.`);
+		}
 	}
 }
