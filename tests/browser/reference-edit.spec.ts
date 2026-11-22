@@ -48,6 +48,15 @@ function edit(provider: SeedreamProvider, urls: readonly string[] = [signedRefer
 	};
 }
 
+function editOperationKey(provider: SeedreamProvider) {
+	return {
+		provider,
+		model: provider === "poyo" ? "seedream-5.5" : "doubao-seedream-5-5",
+		route: provider === "poyo" ? "POST /api/generate/submit" : "POST /v1/images/generations",
+		operation: "reference-image-edit",
+	};
+}
+
 function providerPayload(provider: SeedreamProvider, urls = [signedReference], text = prompt) {
 	const output = { background: "auto", output_format: "png" };
 	return provider === "poyo"
@@ -521,6 +530,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 				const reordered = [secondSignedReference, signedReference];
 				const browserDraft = (urls: string[]) => ({
 					...edit(provider, urls),
+					operationKey: editOperationKey(provider),
 					draft: {
 						...createSeedreamDraft(provider, "edit"),
 						prompt,
@@ -628,7 +638,14 @@ test("direct edit guards reject invalid scope and stale authorization before any
 				quote: { status: "known", perRequest: "5.6" },
 			});
 			const click = { ...input, token: review.token, acceptUnknown: true };
+			const key = editOperationKey("toapis");
 			const invalidScopes = [
+				{ ...click, operationKey: { ...key, operation: "text-to-image" } },
+				{ ...click, operationKey: { ...key, operation: "image-layer-decomposition" } },
+				{
+					...click,
+					operationKey: { ...key, route: "POST https://toapis.cn/v1/images/generations" },
+				},
 				{ ...click, layer_decomposition: true },
 				...[
 					"https://images.example.test/reference.png",

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { toapisRates } from "../../../../../tests/fixtures/toapis-feed";
@@ -9,6 +10,7 @@ import { pricingMaxAgeMs } from "../../../shared/pricing/feed";
 import { pricingSourceDate } from "../../../shared/pricing/feeds";
 import { decodeToapisPricingFeed } from "../../../shared/pricing/toapis-feed";
 import { type Installation, openInstallation } from "../../db/installation";
+import { providerKeyFilename } from "../../db/provider-key";
 import { providerStore } from "../../db/provider-store";
 import { loadBundledPricing } from "../pricing/local-feed";
 import { createProviderConnections } from "../providers/connections";
@@ -66,6 +68,41 @@ beforeEach(async () => {
 afterEach(async () => {
 	await db.close();
 	await rm(dir, { recursive: true, force: true });
+});
+
+test("a legacy generation body with ignored fields can replay only an authenticated existing claim", async () => {
+	const api = await queue();
+	const input = makeInput();
+	const reviewed = await api.review("owner", input);
+	if (!("token" in reviewed)) throw new Error("Expected generation Review");
+	const draft = createSeedreamDraft("poyo");
+	const body = {
+		draft: {
+			...draft,
+			prompt,
+			displayName: "ignored",
+			options: { ...draft.options, colorLabel: "ignored" },
+		},
+		count: 1,
+		retryLimit: 0,
+		acceptUnknown: true,
+		token: reviewed.token,
+	};
+	expect(parseQueueRequest(body)).toBeNull();
+	const replay = parseQueueRequest(body, "submit");
+	if (!replay) throw new Error("Expected legacy replay normalization");
+	expect(await api.submit("owner", replay)).toEqual({ error: "invalid" });
+	expect(posted).toBeEmpty();
+	const accepted = await api.submit("owner", {
+		...input,
+		token: reviewed.token,
+		acceptUnknown: true,
+	});
+	expect(accepted).toHaveProperty("jobId");
+	expect(await api.submit("other", replay)).toEqual({ error: "invalid" });
+	expect(await api.submit("owner", replay)).toEqual(accepted);
+	expect(posted).toHaveLength(1);
+	expect(parseQueueRequest({ ...body, operationKey: input.entry.key }, "submit")).toBeNull();
 });
 
 test.each(["poyo", "toapis"] as const)(
@@ -526,5 +563,93 @@ test.each(["generate", "edit"] as const)(
 			await api.submit("owner", { ...input, token: expired.token, acceptUnknown: true }),
 		).toHaveProperty("jobId");
 		expect(posted).toHaveLength(1);
+	},
+);
+
+test("the ordered-edit release's encrypted keys, unused token and durable claim survive the registry upgrade", async () => {
+	// Captured with synthetic keys, empty pricing feeds and a local dispatch stub at 3a2432b.
+	const terms = "069d582975eb60730f949c8373ebb2469a906e95dac320cf7e0768addcdfb0d8";
+	const claimed = "8ae41568-2837-4ec9-b983-dc1a71635208";
+	const unused = "f9e639ec-76c7-4ccb-8d22-3ca07d84fd22";
+	const originalToken = `${claimed}.${terms}.27509e9726bcdc42f292b3e1af72c9ca5341b0c6916ce27e3ebdd81609680606`;
+	const unusedToken = `${unused}.${terms}.0b8a9de8ca4dab2ac90e4c06b9e949d9102399e6b01de93c6736745af59f9dc5`;
+	await writeFile(join(dir, providerKeyFilename), Buffer.alloc(32, 24));
+	await db.use(async (conn) => {
+		await conn.run(sql`UPDATE image_review_key SET secret=${"15".repeat(32)}`);
+		await conn.run(sql`UPDATE provider_credential SET revision=1, verified_at=456, seedream=1,
+			ciphertext='Nb+iQW0snBXH0Uop0LL+AborL1XtMX4aZE8vvLd1VWlN643LFkuWMfv++qo=' WHERE provider='poyo'`);
+		await conn.run(sql`UPDATE provider_credential SET revision=1, verified_at=123, seedream=1,
+			ciphertext='3h6COr+RkzokBPV9MXpLCyBRHHTmR5AaDtk7xClcsEDy5lX8iYmydXb6zNeabBhumT8syQ==' WHERE provider='toapis'`);
+		await conn.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,accepted_unknown,state,created_at,model,poll_deadline)
+			VALUES(${claimed},'fc00a5c1397eb184f9aa09aaa345b0e771ae75e46a99deef3aa84429b5f0e873','toapis',1,'{"status":"unknown","reason":"missing-feed","maxAttempts":1}',1,'submitting',1000,'doubao-seedream-5-5',121000)`);
+	});
+	await db.close();
+	db = await openInstallation(dir);
+	expect(await providerStore(db).credential("poyo")).toEqual({
+		key: "fixture-poyo-key",
+		revision: 1,
+	});
+	const draft = createSeedreamDraft("toapis", "edit");
+	draft.prompt = "Make a study in red";
+	draft.references = ["second", "first"].map((name) => ({
+		kind: "url",
+		url: `https://images.example.org/${name}.png`,
+		hostname: "images.example.org",
+	}));
+	const live = parseQueueRequest({ draft, count: 1, retryLimit: 0, acceptUnknown: true });
+	if (!live) throw new Error("Expected the pre-registry draft to resolve.");
+	const api = await queue();
+	expect(await api.submit("owner", { ...live, token: unusedToken })).toEqual({ jobId: unused });
+	expect(posted).toEqual(["fixture-global-image-key"]);
+	await providerStore(db).remove("toapis");
+	expect(await api.submit("owner", { ...live, token: originalToken })).toEqual({ jobId: claimed });
+	expect(posted).toEqual(["fixture-global-image-key"]);
+});
+
+test.each(["poyo", "toapis"] as const)(
+	"a readable %s credential cannot override missing or conflicting filtering evidence",
+	async (provider) => {
+		const api = await queue();
+		const input = makeInput(provider);
+		const approved = await api.review("owner", input);
+		if (!("token" in approved)) throw new Error("Expected a compatible contract");
+		for (const evidence of [
+			{ d4: "unknown", catalogD4: "unknown" },
+			{ d4: "conflict", catalogD4: "declared" },
+			{ d4: "declared", catalogD4: "conflict" },
+		] as const) {
+			const blocked = { ...input, entry: { ...input.entry, evidence } };
+			expect(await api.review("owner", blocked)).toEqual({ error: "invalid" });
+			expect(
+				await api.submit("owner", { ...blocked, token: approved.token, acceptUnknown: true }),
+			).toEqual({ error: "invalid" });
+		}
+		expect(posted).toBeEmpty();
+	},
+);
+
+test.each(["poyo", "toapis"] as const)(
+	"a %s credential losing access blocks new claims independently of the other route",
+	async (provider) => {
+		const api = await queue();
+		const input = makeInput(provider, referenceUrl);
+		const terms = await api.review("owner", input);
+		if (!("token" in terms)) throw new Error("Expected eligible credential.");
+		if (provider === "toapis") {
+			// The replacement key was accepted, but the global image list omitted this model.
+			await providerStore(db).save("toapis", "restricted-fixture-key", 124, false, 1);
+		} else {
+			await db.use((conn) =>
+				conn.run(sql`UPDATE provider_credential SET ciphertext='unreadable' WHERE provider='poyo'`),
+			);
+		}
+		expect(await api.review("owner", input)).toEqual({ error: "stale" });
+		expect(
+			await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true }),
+		).toEqual({ error: "stale" });
+		expect(
+			await api.review("owner", makeInput(provider === "poyo" ? "toapis" : "poyo")),
+		).toHaveProperty("token");
+		expect(posted).toBeEmpty();
 	},
 );

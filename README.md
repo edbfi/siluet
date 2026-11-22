@@ -80,6 +80,8 @@ prek run --all-files --hook-stage manual
 
 On a Linux runner that needs Chromium system libraries, pass `--with-deps` to the Playwright install command.
 
+For dated model and operation coverage by provider, run `bun scripts/media-catalog/coverage.ts`. The [media catalog](docs/SPEC-media-catalog.md) defines the counts and the limits of each released operation.
+
 See the [ground-floor spec](docs/SPEC.md), [product decisions](docs/decisions.md) and [contributor instructions](AGENTS.md).
 
 ## License

@@ -1,0 +1,3694 @@
+{
+	"version": 1,
+	"observedOn": "2026-11-22",
+	"supportBaselineCommit": "3a2432bd896c74cc6f76ff02bb2a16df5addc3b4",
+	"defaults": {
+		"keyAccess": "unknown",
+		"optionContract": "unknown-until-reviewed",
+		"d4": "unknown",
+		"support": "inventory"
+	},
+	"supportProfiles": {
+		"seedream-generate": {
+			"review": "ordinary options, including batch and retry estimate",
+			"queue": "one reviewed ordinary image request, zero retries",
+			"optionCoverage": "partial"
+		},
+		"seedream-edit": {
+			"review": "ordinary options, up to ten ordered staged files or URLs, batch and retry estimate",
+			"queue": "1–10 ordered public HTTP(S) image URLs, one reviewed request, zero retries",
+			"optionCoverage": "partial"
+		}
+	},
+	"families": [
+		{
+			"id": "seedream",
+			"label": "ByteDance / Seedream",
+			"models": [
+				{
+					"id": "seedream-5.5",
+					"label": "Seedream 5.5",
+					"poyo": ["seedream-5.5", "seedream-5.5-layerize"],
+					"toapis": ["doubao-seedream-5-5"]
+				}
+			]
+		},
+		{
+			"id": "qwen",
+			"label": "Alibaba / Qwen",
+			"models": [
+				{
+					"id": "qwen-image-3.0",
+					"label": "Qwen Image 3.0",
+					"poyo": ["qwen-image-3"],
+					"toapis": ["qwen-image-3.0"]
+				},
+				{
+					"id": "qwen-image-3.0-pro",
+					"label": "Qwen Image 3.0 Pro",
+					"poyo": ["qwen-image-3-pro"],
+					"toapis": ["qwen-image-3.0-pro"]
+				}
+			]
+		},
+		{
+			"id": "seedance",
+			"label": "ByteDance / Seedance",
+			"models": [
+				{
+					"id": "seedance-2.5",
+					"label": "Seedance 2.5",
+					"poyo": ["seedance-2.5"],
+					"toapis": ["seedance-2-5"]
+				}
+			]
+		},
+		{
+			"id": "hailuo",
+			"label": "MiniMax / Hailuo",
+			"models": [
+				{
+					"id": "h3-max",
+					"label": "H3 Max",
+					"poyo": ["h3-max"],
+					"toapis": ["MiniMax-H3-Max"]
+				}
+			]
+		}
+	],
+	"providers": {
+		"poyo": {
+			"discovery": {
+				"snapshot": {
+					"source": "catalog",
+					"revision": "747e5d75319585d66396a3c05bd1b97d9390ce74",
+					"publishedAt": "2026-11-19T13:42:30Z",
+					"schemaVersion": "v1-c89a8585107f",
+					"sha256": "eebbc67cb1f6cc25d75f93518b0b390c5fb6c0b9abfb12241d7219d9215cd945",
+					"rows": 252
+				},
+				"index": "index",
+				"keyContract": null,
+				"license": "../pricing/v1/LICENSE.poyo",
+				"excludedCatalogRowsByCategory": {
+					"3d": 15,
+					"audio": 10,
+					"audio2audio": 11,
+					"chat": 42,
+					"moderation": 1,
+					"text2audio": 11
+				},
+				"docsOnlyIds": ["ideogram-v4.6", "ideogram-v4.6-edit"],
+				"catalogDocs": "capability"
+			},
+			"lifecycleSources": ["status", "uploads", "imageStatus", "videoStatus", "musicResult"],
+			"d4": {
+				"field": "input.enable_safety_checker",
+				"value": false
+			},
+			"history": [
+				{
+					"ids": [
+						"sora-2",
+						"sora-2-pro",
+						"sora-2-stable",
+						"sora-2-official",
+						"sora-2-pro-official"
+					],
+					"status": "provider-reported-unavailable",
+					"sources": ["sora-removed", "sora-official"]
+				},
+				{
+					"ids": ["sora-2-private", "sora-2-pro-private"],
+					"status": "deprecated-doc-only",
+					"sources": ["soraSchema", "soraProSchema"]
+				},
+				{
+					"ids": ["sora-2-beta"],
+					"status": "availability-unknown-legacy-doc",
+					"sources": ["soraBetaSchema", "sora-official"]
+				}
+			],
+			"sources": {
+				"capability": "https://docs.poyo.ai/integrations/catalog",
+				"catalog": "https://raw.githubusercontent.com/PoyoAPI/poyo-devtools/747e5d75319585d66396a3c05bd1b97d9390ce74/artifacts/capability-catalog.json",
+				"flux-2": "https://docs.poyo.ai/api-manual/image-series/flux-2.md",
+				"flux-3": "https://docs.poyo.ai/api-manual/video-series/flux-3.md",
+				"flux-3-klein": "https://docs.poyo.ai/api-manual/image-series/flux-3-klein.md",
+				"flux-3-max": "https://docs.poyo.ai/api-manual/video-series/flux-3-max.md",
+				"flux-dev": "https://docs.poyo.ai/api-manual/image-series/flux-dev.md",
+				"flux-kontext": "https://docs.poyo.ai/api-manual/image-series/flux-kontext.md",
+				"flux-schnell": "https://docs.poyo.ai/api-manual/image-series/flux-schnell.md",
+				"gemini-omni-1.1-flash": "https://docs.poyo.ai/api-manual/video-series/gemini-omni-1.1-flash.md",
+				"gemini-omni-1.2-flash": "https://docs.poyo.ai/api-manual/video-series/gemini-omni-1.2-flash.md",
+				"gpt-4o-image": "https://docs.poyo.ai/api-manual/image-series/gpt-4o-image.md",
+				"gpt-image-1.5": "https://docs.poyo.ai/api-manual/image-series/gpt-image-1.5.md",
+				"gpt-image-2": "https://docs.poyo.ai/api-manual/image-series/gpt-image-2.md",
+				"gpt-image-2-5-fixed": "https://docs.poyo.ai/api-manual/image-series/gpt-image-2-5-fixed.md",
+				"gpt-image-2-5-flare": "https://docs.poyo.ai/api-manual/image-series/gpt-image-2-5-flare.md",
+				"gpt-image-2-5-sunburst": "https://docs.poyo.ai/api-manual/image-series/gpt-image-2-5-sunburst.md",
+				"gpt-image-2-6-fixed": "https://docs.poyo.ai/api-manual/image-series/gpt-image-2-6-fixed.md",
+				"gpt-image-2-6-flare": "https://docs.poyo.ai/api-manual/image-series/gpt-image-2-6-flare.md",
+				"gpt-image-2-6-sunburst": "https://docs.poyo.ai/api-manual/image-series/gpt-image-2-6-sunburst.md",
+				"gpt1-market": "https://poyo.ai/models/gpt-image-1-official",
+				"gpt15-market": "https://poyo.ai/models/gpt-image-1-5-official",
+				"grok-imagine": "https://docs.poyo.ai/api-manual/video-series/grok-imagine.md",
+				"grok-imagine-image": "https://docs.poyo.ai/api-manual/image-series/grok-imagine-image.md",
+				"grok-imagine-image-2-0": "https://docs.poyo.ai/api-manual/image-series/grok-imagine-image-2-0.md",
+				"grok-imagine-image-quality": "https://docs.poyo.ai/api-manual/image-series/grok-imagine-image-quality.md",
+				"grok-imagine-video-1-5": "https://docs.poyo.ai/api-manual/video-series/grok-imagine-video-1-5.md",
+				"h3-max": "https://docs.poyo.ai/api-manual/video-series/h3-max.md",
+				"h3-max-turbo": "https://docs.poyo.ai/api-manual/video-series/h3-max-turbo.md",
+				"hailuo-02": "https://docs.poyo.ai/api-manual/video-series/hailuo-02.md",
+				"hailuo-03": "https://docs.poyo.ai/api-manual/video-series/hailuo-03.md",
+				"hailuo-2-3": "https://docs.poyo.ai/api-manual/video-series/hailuo-2-3.md",
+				"happy-horse": "https://docs.poyo.ai/api-manual/video-series/happy-horse.md",
+				"happy-horse-1-1": "https://docs.poyo.ai/api-manual/video-series/happy-horse-1-1.md",
+				"heygen-avatar-6": "https://docs.poyo.ai/api-manual/video-series/heygen-avatar-6.md",
+				"heygen-avatars": "https://docs.poyo.ai/api-manual/video-series/heygen-avatar-6-avatars.md",
+				"ideogram-v4-5": "https://docs.poyo.ai/api-manual/image-series/ideogram-v4-5.md",
+				"ideogram-v4-6": "https://docs.poyo.ai/api-manual/image-series/ideogram-v4-6.md",
+				"ideogram-v4-6-edit": "https://docs.poyo.ai/api-manual/image-series/ideogram-v4-6-edit.md",
+				"ideogram-vector-1-0": "https://docs.poyo.ai/api-manual/image-series/ideogram-vector-1-0.md",
+				"image-translator": "https://docs.poyo.ai/api-manual/tools-series/image-translator.md",
+				"imageStatus": "https://docs.poyo.ai/api-manual/task-management/image-status",
+				"index": "https://docs.poyo.ai/llms.txt",
+				"kling-1-6": "https://docs.poyo.ai/api-manual/video-series/kling-1-6.md",
+				"kling-2-1": "https://docs.poyo.ai/api-manual/video-series/kling-2-1.md",
+				"kling-2-5-turbo-pro": "https://docs.poyo.ai/api-manual/video-series/kling-2-5-turbo-pro.md",
+				"kling-2-6": "https://docs.poyo.ai/api-manual/video-series/kling-2-6.md",
+				"kling-2.6-motion-control": "https://docs.poyo.ai/api-manual/video-series/kling-2.6-motion-control.md",
+				"kling-3-0": "https://docs.poyo.ai/api-manual/video-series/kling-3-0.md",
+				"kling-3-0-4k": "https://docs.poyo.ai/api-manual/video-series/kling-3-0-4k.md",
+				"kling-3-0-motion-control": "https://docs.poyo.ai/api-manual/video-series/kling-3-0-motion-control.md",
+				"kling-3-0-turbo": "https://docs.poyo.ai/api-manual/video-series/kling-3-0-turbo.md",
+				"kling-4-0": "https://docs.poyo.ai/api-manual/video-series/kling-4-0.md",
+				"kling-4-0-flash": "https://docs.poyo.ai/api-manual/video-series/kling-4-0-flash.md",
+				"kling-4-0-image": "https://docs.poyo.ai/api-manual/image-series/kling-4-0-image.md",
+				"kling-4-0-long-image": "https://docs.poyo.ai/api-manual/image-series/kling-4-0-long-image.md",
+				"kling-avatar-2-0": "https://docs.poyo.ai/api-manual/video-series/kling-avatar-2-0.md",
+				"kling-o1": "https://docs.poyo.ai/api-manual/image-series/kling-o1.md",
+				"kling-o3": "https://docs.poyo.ai/api-manual/image-series/kling-o3.md",
+				"kling-o3-4k": "https://docs.poyo.ai/api-manual/video-series/kling-o3-4k.md",
+				"mai-image-2-6": "https://docs.poyo.ai/api-manual/image-series/mai-image-2-6.md",
+				"mai-image-2-6-flash": "https://docs.poyo.ai/api-manual/image-series/mai-image-2-6-flash.md",
+				"mai-image-2-7": "https://docs.poyo.ai/api-manual/image-series/mai-image-2-7.md",
+				"mai-image-2-7-flash": "https://docs.poyo.ai/api-manual/image-series/mai-image-2-7-flash.md",
+				"minimax-h3-image": "https://docs.poyo.ai/api-manual/image-series/minimax-h3-image.md",
+				"musicCover": "https://docs.poyo.ai/api-manual/music-series/generate-music-cover",
+				"musicResult": "https://docs.poyo.ai/api-manual/music-series/query-music-detail",
+				"musicVideo": "https://docs.poyo.ai/api-manual/music-series/create-music-video",
+				"nano-banana": "https://docs.poyo.ai/api-manual/image-series/nano-banana.md",
+				"nano-banana-2": "https://docs.poyo.ai/api-manual/image-series/nano-banana-2.md",
+				"nano-banana-2-1": "https://docs.poyo.ai/api-manual/image-series/nano-banana-2-1.md",
+				"nano-banana-2-lite": "https://docs.poyo.ai/api-manual/image-series/nano-banana-2-lite.md",
+				"nano-banana-2-new": "https://docs.poyo.ai/api-manual/image-series/nano-banana-2-new.md",
+				"omni-flash": "https://docs.poyo.ai/api-manual/video-series/omni-flash.md",
+				"omnihuman-2-0": "https://docs.poyo.ai/api-manual/video-series/omnihuman-2-0.md",
+				"pixverse-v6-max": "https://docs.poyo.ai/api-manual/video-series/pixverse-v6-max.md",
+				"qwen-image-2-1": "https://docs.poyo.ai/api-manual/image-series/qwen-image-2-1.md",
+				"qwen-image-3": "https://docs.poyo.ai/api-manual/image-series/qwen-image-3.md",
+				"runway-gen-4-5": "https://docs.poyo.ai/api-manual/video-series/runway-gen-4-5.md",
+				"seedance-1-5-pro": "https://docs.poyo.ai/api-manual/video-series/seedance-1-5-pro.md",
+				"seedance-1.0-pro": "https://docs.poyo.ai/api-manual/video-series/seedance-1.0-pro.md",
+				"seedance-2": "https://docs.poyo.ai/api-manual/video-series/seedance-2.md",
+				"seedance-2-5-flash": "https://docs.poyo.ai/api-manual/video-series/seedance-2-5-flash.md",
+				"seedance-2-mini": "https://docs.poyo.ai/api-manual/video-series/seedance-2-mini.md",
+				"seedance-2.5": "https://docs.poyo.ai/api-manual/video-series/seedance-2.5.md",
+				"seedream-4": "https://docs.poyo.ai/api-manual/image-series/seedream-4.md",
+				"seedream-4-5": "https://docs.poyo.ai/api-manual/image-series/seedream-4-5.md",
+				"seedream-5-0-flash": "https://docs.poyo.ai/api-manual/image-series/seedream-5-0-flash.md",
+				"seedream-5-0-lite": "https://docs.poyo.ai/api-manual/image-series/seedream-5-0-lite.md",
+				"seedream-5-0-pro": "https://docs.poyo.ai/api-manual/image-series/seedream-5-0-pro.md",
+				"seedream-5-5": "https://docs.poyo.ai/api-manual/image-series/seedream-5-5.md",
+				"seedream-5-5-layerize": "https://docs.poyo.ai/api-manual/image-series/seedream-5-5-layerize.md",
+				"sora-official": "https://poyo.ai/models/sora-2-official",
+				"sora-removed": "https://poyo.ai/models/sora-2-pro",
+				"soraBetaSchema": "https://docs.poyo.ai/api-manual/video-series/sora-2-beta.json",
+				"soraProSchema": "https://docs.poyo.ai/api-manual/video-series/sora-2-pro.json",
+				"soraSchema": "https://docs.poyo.ai/api-manual/video-series/sora-2.json",
+				"status": "https://docs.poyo.ai/api-manual/task-management/status.md",
+				"uploads": "https://docs.poyo.ai/api-manual/file-series/upload-url.md",
+				"veo-3-1": "https://docs.poyo.ai/api-manual/video-series/veo-3-1.md",
+				"veo-3-1-official": "https://docs.poyo.ai/api-manual/video-series/veo-3-1-official.md",
+				"veo-market": "https://poyo.ai/models/veo-3-1-official",
+				"video-background-removal": "https://docs.poyo.ai/api-manual/tools-series/video-background-removal.md",
+				"video-series-kling-o3": "https://docs.poyo.ai/api-manual/video-series/kling-o3.md",
+				"video-translator": "https://docs.poyo.ai/api-manual/tools-series/video-translator.md",
+				"video-upscaler": "https://docs.poyo.ai/api-manual/tools-series/video-upscaler.md",
+				"videoStatus": "https://docs.poyo.ai/api-manual/task-management/video-status",
+				"vidu-q4": "https://docs.poyo.ai/api-manual/video-series/vidu-q4.md",
+				"wan-2-6": "https://docs.poyo.ai/api-manual/video-series/wan-2-6.md",
+				"wan-2-7-image": "https://docs.poyo.ai/api-manual/image-series/wan-2-7-image.md",
+				"wan-2-7-image-pro": "https://docs.poyo.ai/api-manual/image-series/wan-2-7-image-pro.md",
+				"wan-2-7-video": "https://docs.poyo.ai/api-manual/video-series/wan-2-7-video.md",
+				"wan-3-0-video": "https://docs.poyo.ai/api-manual/video-series/wan-3-0-video.md",
+				"wan-3-0-video-prime": "https://docs.poyo.ai/api-manual/video-series/wan-3-0-video-prime.md",
+				"wan-animate": "https://docs.poyo.ai/api-manual/video-series/wan-animate.md",
+				"wan2.2-image-to-video-fast": "https://docs.poyo.ai/api-manual/video-series/wan2.2-image-to-video-fast.md",
+				"wan2.2-text-to-video-fast": "https://docs.poyo.ai/api-manual/video-series/wan2.2-text-to-video-fast.md",
+				"wan2.5-image-to-video": "https://docs.poyo.ai/api-manual/video-series/wan2.5-image-to-video.md",
+				"wan2.5-text-to-video": "https://docs.poyo.ai/api-manual/video-series/wan2.5-text-to-video.md",
+				"z-image": "https://docs.poyo.ai/api-manual/image-series/z-image.md"
+			},
+			"rows": [
+				{
+					"ids": ["flux-2-flex", "flux-2-pro"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["flux-2"],
+					"catalogCategory": "text2img"
+				},
+				{
+					"ids": ["flux-2-flex-edit", "flux-2-pro-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["flux-2"],
+					"catalogCategory": "img2img"
+				},
+				{
+					"ids": ["flux-3-klein"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["flux-3-klein"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["flux-3-klein-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["flux-3-klein"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["flux-dev"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["flux-dev"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["flux-kontext-max", "flux-kontext-pro"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["flux-kontext"],
+					"catalogCategory": "text2img"
+				},
+				{
+					"ids": ["flux-kontext-max-edit", "flux-kontext-pro-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["flux-kontext"],
+					"catalogCategory": "image_tools"
+				},
+				{
+					"ids": ["flux-schnell"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["flux-schnell"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["generate-music-cover"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["music-task-to-cover-image"],
+					"contract": "documented",
+					"sources": ["musicCover", "musicResult"],
+					"catalogCategory": "text2audio",
+					"variant": "Requires a completed music task ID. Query Music Detail documents generate_cover[].file_url.",
+					"gaps": [
+						"The submit guide's usage prose describes an audio cover, while its summary and result contract describe cover images."
+					],
+					"requires": {
+						"music-task-to-cover-image": {
+							"kind": "completed-music-task",
+							"upstreamOperationInScope": false
+						}
+					}
+				},
+				{
+					"ids": ["gpt-4o-image"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt-4o-image"],
+					"catalogCategory": "text2img"
+				},
+				{
+					"ids": ["gpt-4o-image-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit", "mask-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt-4o-image"],
+					"catalogCategory": "image_tools"
+				},
+				{
+					"ids": ["gpt-image-1-edit-official"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"advertisedOperations": ["reference-image-edit"],
+					"contract": "advertised",
+					"sources": ["gpt1-market"],
+					"catalogCategory": "image",
+					"variant": "The model page reports model not found for the family landing ID while its description advertises both IDs. The catalog exposes mask_url, while the marketplace says masks are unsupported. Mask behavior and current availability are unresolved.",
+					"gaps": ["Exact public REST request and result contract unverified."]
+				},
+				{
+					"ids": ["gpt-image-1-official"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"advertisedOperations": ["text-to-image"],
+					"contract": "advertised",
+					"sources": ["gpt1-market"],
+					"catalogCategory": "image",
+					"variant": "The model page reports model not found for the family landing ID while its description advertises both IDs. The catalog exposes mask_url, while the marketplace says masks are unsupported. Mask behavior and current availability are unresolved.",
+					"gaps": ["Exact public REST request and result contract unverified."]
+				},
+				{
+					"ids": ["gpt-image-1.5"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt-image-1.5"],
+					"catalogCategory": "text2img"
+				},
+				{
+					"ids": ["gpt-image-1.5-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit", "mask-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt-image-1.5"],
+					"catalogCategory": "img2img"
+				},
+				{
+					"ids": ["gpt-image-1.5-edit-official"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"advertisedOperations": ["reference-image-edit", "mask-image-edit"],
+					"contract": "advertised",
+					"sources": ["gpt15-market"],
+					"catalogCategory": "image",
+					"variant": "Marketplace uses mask_image_url for the edit variant while the catalog exposes mask_url. The marketplace restricts masks to the edit variant. The accepted field and actual validation are unresolved.",
+					"gaps": ["Exact public REST request and result contract unverified."]
+				},
+				{
+					"ids": ["gpt-image-1.5-official"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"advertisedOperations": ["text-to-image"],
+					"contract": "advertised",
+					"sources": ["gpt15-market"],
+					"catalogCategory": "image",
+					"variant": "Marketplace uses mask_image_url for the edit variant while the catalog exposes mask_url. The marketplace restricts masks to the edit variant. The accepted field and actual validation are unresolved.",
+					"gaps": ["Exact public REST request and result contract unverified."]
+				},
+				{
+					"ids": ["gpt-image-2"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["gpt-image-2"],
+					"catalogCategory": "img2img"
+				},
+				{
+					"ids": ["gpt-image-2-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt-image-2"],
+					"catalogCategory": "img2img"
+				},
+				{
+					"ids": ["gpt-image-2.5-fixed"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt-image-2-5-fixed"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["gpt-image-2.5-flare"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit", "mask-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt-image-2-5-flare"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["gpt-image-2.5-sunburst"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit", "mask-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt-image-2-5-sunburst"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["gpt-image-2.6-fixed"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt-image-2-6-fixed"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["gpt-image-2.6-flare"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit", "mask-image-edit", "text-to-gif"],
+					"contract": "documented",
+					"sources": ["gpt-image-2-6-flare"],
+					"catalogCategory": "image",
+					"d4": "conflict",
+					"variant": "The REST schema lists string moderation (auto or low), which does not supply the D4 boolean field. output_format: gif is prompt-only with fixed frame geometry."
+				},
+				{
+					"ids": ["gpt-image-2.6-sunburst"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit", "mask-image-edit", "text-to-gif"],
+					"contract": "documented",
+					"sources": ["gpt-image-2-6-sunburst"],
+					"catalogCategory": "image",
+					"d4": "conflict",
+					"variant": "The REST schema lists string moderation (auto or low), which does not supply the D4 boolean field. output_format: gif is prompt-only with fixed frame geometry."
+				},
+				{
+					"ids": ["grok-imagine-image"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["grok-imagine-image"],
+					"catalogCategory": "text2img"
+				},
+				{
+					"ids": ["grok-imagine-image-2.0"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["grok-imagine-image-2-0"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["grok-imagine-image-quality"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["grok-imagine-image-quality"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["ideogram-v4.5"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["ideogram-v4-5"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["ideogram-v4.5-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit", "mask-image-edit"],
+					"contract": "documented",
+					"sources": ["ideogram-v4-5"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["ideogram-v4.6"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["ideogram-v4-6"],
+					"d4": "conflict"
+				},
+				{
+					"ids": ["ideogram-v4.6-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit", "mask-image-edit", "localized-mask-image-edit"],
+					"contract": "documented",
+					"sources": ["ideogram-v4-6-edit"],
+					"d4": "conflict",
+					"variant": "Localized mode requires edit_precision: high, context_window: auto and mask_url."
+				},
+				{
+					"ids": ["ideogram-vector-1.0/image-to-vector"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["image-to-svg"],
+					"contract": "documented",
+					"sources": ["ideogram-vector-1-0"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["ideogram-vector-1.0/text-to-vector"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-svg", "reference-guided-text-to-svg"],
+					"contract": "documented",
+					"sources": ["ideogram-vector-1-0"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["kling-4.0-image"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit", "sequential-image-set"],
+					"contract": "documented",
+					"sources": ["kling-4-0-image"],
+					"catalogCategory": "image",
+					"d4": "conflict",
+					"variant": "enable_sequential: true selects a coherent ordered image series."
+				},
+				{
+					"ids": ["kling-4.0-long-image"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-long-image", "reference-guided-long-image-generation"],
+					"contract": "documented",
+					"sources": ["kling-4-0-long-image"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["kling-o1-image-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["kling-o1"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["kling-o3-image"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["kling-o3"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["kling-o3-image-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["kling-o3"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["mai-image-2.6"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["mai-image-2-6"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["mai-image-2.6-flash"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["mai-image-2-6-flash"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["mai-image-2.7"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["mai-image-2-7"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["mai-image-2.7-flash"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["mai-image-2-7-flash"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["minimax-h3-image"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["minimax-h3-image"],
+					"catalogCategory": "image",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["nano-banana"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["nano-banana"],
+					"catalogCategory": "text2img"
+				},
+				{
+					"ids": ["nano-banana-2"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["nano-banana-2"],
+					"catalogCategory": "img2img"
+				},
+				{
+					"ids": ["nano-banana-2-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["nano-banana-2"],
+					"catalogCategory": "img2img"
+				},
+				{
+					"ids": ["nano-banana-2-lite"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["nano-banana-2-lite"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["nano-banana-2-lite-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["nano-banana-2-lite"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["nano-banana-2-new"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["nano-banana-2-new"],
+					"catalogCategory": "img2img"
+				},
+				{
+					"ids": ["nano-banana-2-new-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["nano-banana-2-new"],
+					"catalogCategory": "img2img"
+				},
+				{
+					"ids": ["nano-banana-2-official"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["nano-banana-2-new"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["nano-banana-2-official-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["nano-banana-2-new"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["nano-banana-2.1"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["nano-banana-2-1"],
+					"catalogCategory": "img2img",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["nano-banana-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["nano-banana"],
+					"catalogCategory": "img2img"
+				},
+				{
+					"ids": ["nano-banana-pro"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["nano-banana-2"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["nano-banana-pro-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["nano-banana-2"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["poyo-ai/image-translator"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["image-translation"],
+					"contract": "documented",
+					"sources": ["image-translator"],
+					"catalogCategory": "translate",
+					"d4": "conflict",
+					"catalogD4": "unknown"
+				},
+				{
+					"ids": ["qwen-image-2.1"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit", "mask-image-edit"],
+					"contract": "documented",
+					"sources": ["qwen-image-2-1"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["qwen-image-3", "qwen-image-3-pro"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["qwen-image-3"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["seedream-4"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["seedream-4"],
+					"catalogCategory": "text2img"
+				},
+				{
+					"ids": ["seedream-4-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["seedream-4"],
+					"catalogCategory": "image_tools"
+				},
+				{
+					"ids": ["seedream-4.5"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["seedream-4-5"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["seedream-4.5-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["seedream-4-5"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["seedream-5.0-flash"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["seedream-5-0-flash"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["seedream-5.0-flash-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["seedream-5-0-flash"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["seedream-5.0-lite"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["seedream-5-0-lite"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["seedream-5.0-lite-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["seedream-5-0-lite"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["seedream-5.0-pro"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["seedream-5-0-pro"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["seedream-5.0-pro-edit"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-image-edit"],
+					"contract": "documented",
+					"sources": ["seedream-5-0-pro"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["seedream-5.5"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["seedream-5-5"],
+					"catalogCategory": "image",
+					"d4": "declared",
+					"support": {
+						"text-to-image": "seedream-generate",
+						"reference-image-edit": "seedream-edit"
+					}
+				},
+				{
+					"ids": ["seedream-5.5-layerize"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["image-layer-decomposition"],
+					"contract": "documented",
+					"sources": ["seedream-5-5-layerize"],
+					"catalogCategory": "image",
+					"d4": "declared"
+				},
+				{
+					"ids": ["wan-2.7-image"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["wan-2-7-image"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["wan-2.7-image-pro"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["wan-2-7-image-pro"],
+					"catalogCategory": "image"
+				},
+				{
+					"ids": ["z-image"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["z-image"],
+					"catalogCategory": "text2img",
+					"d4": "declared"
+				},
+				{
+					"ids": ["create-music-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["music-track-to-video"],
+					"contract": "documented",
+					"sources": ["musicVideo", "musicResult"],
+					"catalogCategory": "text2audio",
+					"variant": "Requires a completed music task ID and its audio ID. Query Music Detail returns video_url.",
+					"requires": {
+						"music-track-to-video": {
+							"kind": "completed-music-task-and-track",
+							"upstreamOperationInScope": false
+						}
+					}
+				},
+				{
+					"ids": ["flux-3-max/image-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["flux-3-max"],
+					"catalogCategory": "video",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["flux-3-max/keyframes-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["positioned-keyframes-to-video"],
+					"contract": "documented",
+					"sources": ["flux-3-max"],
+					"catalogCategory": "video",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["flux-3-max/text-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video"],
+					"contract": "documented",
+					"sources": ["flux-3-max"],
+					"catalogCategory": "video",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["flux-3/extend-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["video-extension"],
+					"contract": "documented",
+					"sources": ["flux-3"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["flux-3/first-last-frame-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["flux-3"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["flux-3/image-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["flux-3"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["flux-3/keyframes-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["positioned-keyframes-to-video"],
+					"contract": "documented",
+					"sources": ["flux-3"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["flux-3/text-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video"],
+					"contract": "documented",
+					"sources": ["flux-3"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["gemini-omni-1.1-flash"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["gemini-omni-1.1-flash"],
+					"catalogCategory": "video",
+					"catalogD4": "conflict",
+					"variant": "The pinned catalog closes the input schema without this field. Its REST OpenAPI lacks the field and leaves unknown properties unspecified."
+				},
+				{
+					"ids": ["gemini-omni-1.2-flash"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video",
+						"video-edit"
+					],
+					"contract": "documented",
+					"sources": ["gemini-omni-1.2-flash"],
+					"catalogCategory": "video",
+					"catalogD4": "conflict",
+					"variant": "The pinned catalog closes the input schema without this field. Its REST OpenAPI lacks the field and leaves unknown properties unspecified."
+				},
+				{
+					"ids": ["grok-imagine"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["grok-imagine"],
+					"catalogCategory": "img2vid"
+				},
+				{
+					"ids": ["grok-imagine-video-1.5"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video", "reference-to-video"],
+					"contract": "documented",
+					"sources": ["grok-imagine-video-1-5"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["h3-max"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["h3-max"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				},
+				{
+					"ids": ["h3-max-turbo"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["h3-max-turbo"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				},
+				{
+					"ids": ["hailuo-02", "hailuo-02-pro"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["hailuo-02"],
+					"catalogCategory": "img2vid"
+				},
+				{
+					"ids": ["hailuo-03"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["hailuo-03"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["hailuo-2.3"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["hailuo-2-3"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["happy-horse"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"reference-to-video",
+						"video-edit"
+					],
+					"contract": "documented",
+					"sources": ["happy-horse"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				},
+				{
+					"ids": ["happy-horse-1.1"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video", "reference-to-video"],
+					"contract": "documented",
+					"sources": ["happy-horse-1-1"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				},
+				{
+					"ids": ["heygen-avatar-6", "heygen-avatar-6-turbo"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"image-and-driving-audio-to-avatar-video",
+						"character-video-and-driving-audio-to-avatar-video",
+						"public-avatar-and-driving-audio-to-video",
+						"public-avatar-and-text-to-video"
+					],
+					"contract": "documented",
+					"sources": ["heygen-avatar-6", "heygen-avatars"],
+					"catalogCategory": "video",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["kling-1.6/pro"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["kling-1-6"],
+					"catalogCategory": "video",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["kling-1.6/standard"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["kling-1-6"],
+					"catalogCategory": "video",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["kling-2.1/pro"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["kling-2-1"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["kling-2.1/standard"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["kling-2-1"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["kling-2.5-turbo-pro"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"last-frame-to-video"
+					],
+					"contract": "documented",
+					"sources": ["kling-2-5-turbo-pro"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["kling-2.6"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["kling-2-6"],
+					"catalogCategory": "img2vid"
+				},
+				{
+					"ids": ["kling-2.6-motion-control"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["image-and-motion-video-to-video"],
+					"contract": "documented",
+					"sources": ["kling-2.6-motion-control"],
+					"catalogCategory": "video2video"
+				},
+				{
+					"ids": ["kling-3.0-motion-control"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["image-and-motion-video-to-video"],
+					"contract": "documented",
+					"sources": ["kling-3-0-motion-control"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["kling-3.0-turbo/pro", "kling-3.0-turbo/standard"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video", "multi-shot-video-generation"],
+					"contract": "documented",
+					"sources": ["kling-3-0-turbo"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["kling-3.0/4K"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"multi-shot-video-generation"
+					],
+					"contract": "documented",
+					"sources": ["kling-3-0-4k"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["kling-3.0/pro", "kling-3.0/standard"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"multi-shot-video-generation"
+					],
+					"contract": "documented",
+					"sources": ["kling-3-0"],
+					"catalogCategory": "img2vid"
+				},
+				{
+					"ids": ["kling-4.0"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video",
+						"video-edit",
+						"multi-shot-video-generation"
+					],
+					"contract": "documented",
+					"sources": ["kling-4-0"],
+					"catalogCategory": "video",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["kling-4.0-flash"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"reference-to-video",
+						"video-edit"
+					],
+					"contract": "documented",
+					"sources": ["kling-4-0-flash"],
+					"catalogCategory": "video",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["kling-avatar-2.0/pro", "kling-avatar-2.0/standard"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["image-and-driving-audio-to-avatar-video"],
+					"contract": "documented",
+					"sources": ["kling-avatar-2-0"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["kling-o3/4K"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video",
+						"multi-shot-video-generation"
+					],
+					"contract": "documented",
+					"sources": ["kling-o3-4k"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["kling-o3/pro", "kling-o3/standard"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"image-reference-to-video",
+						"multi-shot-video-generation"
+					],
+					"contract": "documented",
+					"sources": ["video-series-kling-o3"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["omni-flash"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"reference-to-video",
+						"video-to-video"
+					],
+					"contract": "documented",
+					"sources": ["omni-flash"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["omnihuman-2.0"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["image-and-driving-audio-to-avatar-video"],
+					"contract": "documented",
+					"sources": ["omnihuman-2-0"],
+					"catalogCategory": "video",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["pixverse-v6-max"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["pixverse-v6-max"],
+					"catalogCategory": "video",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["poyo-ai/video-background-removal"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["video-background-removal"],
+					"contract": "documented",
+					"sources": ["video-background-removal"],
+					"catalogCategory": "video",
+					"d4": "conflict",
+					"catalogD4": "unknown"
+				},
+				{
+					"ids": ["poyo-ai/video-translator"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["video-dubbing-and-subtitle-translation"],
+					"contract": "documented",
+					"sources": ["video-translator"],
+					"catalogCategory": "translate",
+					"d4": "conflict",
+					"catalogD4": "unknown"
+				},
+				{
+					"ids": ["poyo-ai/video-upscaler"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["video-upscaling"],
+					"contract": "documented",
+					"sources": ["video-upscaler"],
+					"catalogCategory": "video",
+					"d4": "conflict",
+					"catalogD4": "unknown"
+				},
+				{
+					"ids": ["runway-gen-4.5"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["runway-gen-4-5"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["seedance-1.0-pro"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["seedance-1.0-pro"],
+					"catalogCategory": "img2vid"
+				},
+				{
+					"ids": ["seedance-1.5-pro"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["seedance-1-5-pro"],
+					"catalogCategory": "img2vid"
+				},
+				{
+					"ids": ["seedance-2", "seedance-2-fast"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["seedance-2"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["seedance-2-mini"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["seedance-2-mini"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["seedance-2.5"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["seedance-2.5"],
+					"catalogCategory": "video",
+					"d4": "conflict",
+					"variant": "image_urls selects frames. Separate reference_image_urls, reference_video_urls and reference_audio_urls select reference generation. Audio references require image or video input."
+				},
+				{
+					"ids": ["seedance-2.5-flash"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["seedance-2-5-flash"],
+					"catalogCategory": "video",
+					"d4": "conflict"
+				},
+				{
+					"ids": ["veo3.1-extend"],
+					"media": "video",
+					"route": null,
+					"operations": [],
+					"advertisedOperations": ["video-extension"],
+					"contract": "advertised",
+					"sources": ["veo-market"],
+					"catalogCategory": "video",
+					"variant": "Marketplace describes the extension mode. The linked VEO 3.1 Official REST contract enumerates only the three generation IDs.",
+					"gaps": ["Exact public REST request and result contract unverified."]
+				},
+				{
+					"ids": ["veo3.1-fast"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["veo-3-1"],
+					"catalogCategory": "img2vid"
+				},
+				{
+					"ids": ["veo3.1-fast-official", "veo3.1-quality-official"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["veo-3-1-official"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["veo3.1-lite"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video"],
+					"contract": "documented",
+					"sources": ["veo-3-1"],
+					"catalogCategory": "img2vid"
+				},
+				{
+					"ids": ["veo3.1-lite-official"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["veo-3-1-official"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["veo3.1-quality"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["veo-3-1"],
+					"catalogCategory": "img2vid"
+				},
+				{
+					"ids": ["vidu-q4"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-frame-to-video", "reference-to-video"],
+					"contract": "documented",
+					"sources": ["vidu-q4"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				},
+				{
+					"ids": ["wan-animate-move"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["image-and-motion-video-to-video"],
+					"contract": "documented",
+					"sources": ["wan-animate"],
+					"catalogCategory": "video2video"
+				},
+				{
+					"ids": ["wan-animate-replace"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["video-character-replacement"],
+					"contract": "documented",
+					"sources": ["wan-animate"],
+					"catalogCategory": "video2video"
+				},
+				{
+					"ids": ["wan2.2-image-to-video-fast"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["wan2.2-image-to-video-fast"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["wan2.2-text-to-video-fast"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video"],
+					"contract": "documented",
+					"sources": ["wan2.2-text-to-video-fast"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["wan2.5-image-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["wan2.5-image-to-video"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["wan2.5-text-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video"],
+					"contract": "documented",
+					"sources": ["wan2.5-text-to-video"],
+					"catalogCategory": "video"
+				},
+				{
+					"ids": ["wan2.6-image-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["wan-2-6"],
+					"catalogCategory": "img2vid",
+					"variant": "The multi_shots boolean controls shot composition within this operation."
+				},
+				{
+					"ids": ["wan2.6-text-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video"],
+					"contract": "documented",
+					"sources": ["wan-2-6"],
+					"catalogCategory": "text2vid",
+					"variant": "The multi_shots boolean controls shot composition within this operation."
+				},
+				{
+					"ids": ["wan2.6-video-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["video-edit"],
+					"contract": "documented",
+					"sources": ["wan-2-6"],
+					"catalogCategory": "video2video",
+					"variant": "The multi_shots boolean controls shot composition within this operation."
+				},
+				{
+					"ids": ["wan2.7-edit-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["video-edit"],
+					"contract": "documented",
+					"sources": ["wan-2-7-video"],
+					"catalogCategory": "video",
+					"d4": "declared",
+					"variant": "Optional multi_shots selects multi-shot composition."
+				},
+				{
+					"ids": ["wan2.7-image-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["wan-2-7-video"],
+					"catalogCategory": "video",
+					"d4": "declared",
+					"variant": "Optional multi_shots selects multi-shot composition."
+				},
+				{
+					"ids": ["wan2.7-reference-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-to-video"],
+					"contract": "documented",
+					"sources": ["wan-2-7-video"],
+					"catalogCategory": "video",
+					"d4": "declared",
+					"variant": "Optional multi_shots selects multi-shot composition."
+				},
+				{
+					"ids": ["wan2.7-text-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video"],
+					"contract": "documented",
+					"sources": ["wan-2-7-video"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				},
+				{
+					"ids": ["wan3.0-image-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["wan-3-0-video"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				},
+				{
+					"ids": ["wan3.0-prime-image-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["wan-3-0-video-prime"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				},
+				{
+					"ids": ["wan3.0-prime-reference-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-to-video"],
+					"contract": "documented",
+					"sources": ["wan-3-0-video-prime"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				},
+				{
+					"ids": ["wan3.0-prime-text-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video"],
+					"contract": "documented",
+					"sources": ["wan-3-0-video-prime"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				},
+				{
+					"ids": ["wan3.0-reference-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["reference-to-video"],
+					"contract": "documented",
+					"sources": ["wan-3-0-video"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				},
+				{
+					"ids": ["wan3.0-text-to-video"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-video"],
+					"contract": "documented",
+					"sources": ["wan-3-0-video"],
+					"catalogCategory": "video",
+					"d4": "declared"
+				}
+			]
+		},
+		"toapis": {
+			"discovery": {
+				"snapshot": {
+					"source": "snapshot",
+					"sameRows": ["snapshotCN"],
+					"checkedOn": "2026-11-10",
+					"imageRows": 43,
+					"videoRows": 54,
+					"textRowsWithImageTag": 2
+				},
+				"current": {
+					"sources": [
+						"guide",
+						"market",
+						"marketGlobal",
+						"marketCN",
+						"marketCn",
+						"pricing",
+						"pricingCN"
+					],
+					"observedOn": "2026-11-22",
+					"imageIds": {
+						"global": 42,
+						"cn": 42
+					},
+					"videoIds": {
+						"global": 51,
+						"cn": 49
+					}
+				},
+				"earlierGuide": {
+					"source": "earlierGuide",
+					"observedOn": "2026-11-22",
+					"captureDate": null
+				},
+				"labelsWithoutExactRequestIds": [
+					{
+						"label": "gemini_omni_flash",
+						"source": "https://toapis.com/model-guide/gemini_omni_flash",
+						"status": "Older guide index displayed label Video; detail page is family hub for Omni Standard/VIP. No evidence underscore label is a request model."
+					},
+					{
+						"label": "gemini_omni",
+						"source": "https://toapis.com/model-guide/gemini_omni",
+						"status": "Older guide index displayed label Video; conventional detail URL returns guide-not-found and no exact request ID was found."
+					}
+				],
+				"keyContract": "keyList",
+				"modelDocsIndex": "index"
+			},
+			"lifecycleSources": [
+				"imageStatus",
+				"videoStatus",
+				"upload",
+				"errors",
+				"uploadVideos",
+				"uploadAudio",
+				"mj:query"
+			],
+			"d4": {
+				"field": "disable_nsfw",
+				"value": false,
+				"effect": "Fallback eligibility can depend on account, channel and sales region. Confirm per operation."
+			},
+			"outOfScope": [
+				{
+					"id": "midjourney",
+					"operation": "describe",
+					"output": "text",
+					"source": "mj:describe"
+				}
+			],
+			"sources": {
+				"banana21": "https://docs.toapis.com/docs/en/api-reference/images/gemini-nano-banana-2.1/generation",
+				"banana21o": "https://docs.toapis.com/docs/en/api-reference/images/gemini-nano-banana-2.1-official/generation",
+				"doubao-seedance": "https://docs.toapis.com/docs/en/api-reference/videos/doubao-seedance/generation",
+				"doubao-seedance-1-5": "https://docs.toapis.com/docs/en/api-reference/videos/doubao-seedance-1-5/generation",
+				"earlierGuide": "https://toapis.com/en/model-guide",
+				"errors": "https://docs.toapis.com/docs/en/api-reference/errors",
+				"flux2": "https://docs.toapis.com/docs/en/api-reference/images/flux-2/generation",
+				"gem25": "https://docs.toapis.com/docs/en/api-reference/images/gemini-2.5-flash/generation",
+				"gem25o": "https://docs.toapis.com/docs/en/api-reference/images/gemini-2.5-flash-official/generation",
+				"gem3": "https://docs.toapis.com/docs/en/api-reference/images/gemini-3-pro-image/generation",
+				"gem31": "https://docs.toapis.com/docs/en/api-reference/images/gemini-3.1-flash/generation",
+				"gem31o": "https://docs.toapis.com/docs/en/api-reference/images/gemini-3.1-flash-official/generation",
+				"gem31v": "https://docs.toapis.com/docs/en/api-reference/images/gemini-3.1-flash-vip/generation",
+				"gem3o": "https://docs.toapis.com/docs/en/api-reference/images/gemini-3-pro-image-official/generation",
+				"gem3v": "https://docs.toapis.com/docs/en/api-reference/images/gemini-3-pro-image-vip/generation",
+				"gemini-omni-1.1-flash-preview-official": "https://docs.toapis.com/docs/en/api-reference/videos/gemini-omni-1.1-flash-preview-official/generation",
+				"gemini-omni-flash-preview-official": "https://docs.toapis.com/docs/en/api-reference/videos/gemini-omni-flash-preview-official/generation",
+				"gpt2": "https://docs.toapis.com/docs/en/api-reference/images/gpt-image-2/generation",
+				"gpt25": "https://docs.toapis.com/docs/en/api-reference/images/gpt-image-2.5/generation",
+				"gpt25-official": "https://docs.toapis.com/docs/en/api-reference/images/gpt-image-2.5-official/generation",
+				"gpt25vipMissing": "https://docs.toapis.com/docs/en/api-reference/images/gpt-image-2.5-vip/generation",
+				"gpt26": "https://docs.toapis.com/docs/en/api-reference/images/gpt-image-2.6/generation",
+				"gpt26-official": "https://docs.toapis.com/docs/en/api-reference/images/gpt-image-2.6-official/generation",
+				"gpt2o": "https://docs.toapis.com/docs/en/api-reference/images/gpt-image-2/official",
+				"gpt2v": "https://docs.toapis.com/docs/en/api-reference/images/gpt-image-2-vip/generation",
+				"gpt4o": "https://docs.toapis.com/docs/en/api-reference/images/gpt-4o/generation",
+				"grok-imagine-1.0-video": "https://docs.toapis.com/docs/en/api-reference/videos/grok-imagine-1.0-video/generation",
+				"grok-video": "https://docs.toapis.com/docs/en/api-reference/videos/grok-video/generation",
+				"grok-video-1.5": "https://docs.toapis.com/docs/en/api-reference/videos/grok-video-1.5/generation",
+				"grokExtend": "https://docs.toapis.com/docs/en/api-reference/videos/grok-video/extend",
+				"grokimg": "https://docs.toapis.com/docs/en/api-reference/images/grok-image/generation",
+				"grokOfficialExtend": "https://docs.toapis.com/docs/en/api-reference/videos/grok-imagine-video-official/extend",
+				"grokRemix": "https://docs.toapis.com/docs/en/api-reference/videos/grok-video/remix",
+				"guide": "https://toapis.com/model-guide",
+				"guide-seedance-2-5-global": "https://toapis.com/model-guide/seedance-2-5-global",
+				"guide-seedance-2-fast-global": "https://toapis.com/model-guide/seedance-2-fast-global",
+				"guide-seedance-2-global": "https://toapis.com/model-guide/seedance-2-global",
+				"guide-seedance-2-mini-global": "https://toapis.com/model-guide/seedance-2-mini-global",
+				"guide:doubao-seedream-5-0-lite": "https://toapis.com/model-guide/doubao-seedream-5-0-lite",
+				"guide:doubao-seedream-5-0-pro-global": "https://toapis.com/model-guide/doubao-seedream-5-0-pro-global",
+				"guide:doubao-seedream-5-5": "https://toapis.com/model-guide/doubao-seedream-5-5",
+				"guide:gemini-3.1-flash-lite-image-official": "https://toapis.com/model-guide/gemini-3-1-flash-lite-image-official",
+				"guide:gemini-3.1-pro": "https://toapis.com/model-guide/gemini-3-1-pro",
+				"guide:gemini-3.5-thinking": "https://toapis.com/model-guide/gemini-3-5-thinking",
+				"guide:grok-imagine-video-1.5-official": "https://toapis.com/model-guide/grok-imagine-video-1-5-official",
+				"guide:grok-imagine-video-official": "https://toapis.com/model-guide/grok-imagine-video-official",
+				"h3img": "https://docs.toapis.com/docs/en/api-reference/images/minimax-h3-image/generation",
+				"happyhorse": "https://docs.toapis.com/docs/en/api-reference/videos/happyhorse/generation",
+				"imageStatus": "https://docs.toapis.com/docs/en/api-reference/tasks/image-status",
+				"index": "https://docs.toapis.com/docs/en",
+				"keyList": "https://docs.toapis.com/docs/en/api-reference/chat/list-models",
+				"kling-2-6": "https://docs.toapis.com/docs/en/api-reference/videos/kling-2-6/generation",
+				"kling-3.0-turbo": "https://docs.toapis.com/docs/en/api-reference/videos/kling-3.0-turbo/generation",
+				"kling-4.0": "https://docs.toapis.com/docs/en/api-reference/videos/kling-4.0/generation",
+				"kling-4.0-flash": "https://docs.toapis.com/docs/en/api-reference/videos/kling-4.0-flash/generation",
+				"kling-v3": "https://docs.toapis.com/docs/en/api-reference/videos/kling-v3/generation",
+				"kling-v3-omni": "https://docs.toapis.com/docs/en/api-reference/videos/kling-v3-omni/generation",
+				"kling-video-o1": "https://docs.toapis.com/docs/en/api-reference/videos/kling-video-o1/generation",
+				"klingimg": "https://docs.toapis.com/docs/en/api-reference/images/kling-image-4.0/generation",
+				"klinglong": "https://docs.toapis.com/docs/en/api-reference/images/kling-image-4.0-long/generation",
+				"kontext": "https://docs.toapis.com/docs/en/api-reference/images/flux-kontext/generation",
+				"market": "https://toapis.com/market?type=image",
+				"marketCn": "https://toapis.cn/en/model?type=video",
+				"marketCN": "https://toapis.cn/en/model?type=image",
+				"marketGlobal": "https://toapis.com/market?type=video",
+				"minimax-h3": "https://docs.toapis.com/docs/en/api-reference/videos/minimax-h3/generation",
+				"minimax-hailuo": "https://docs.toapis.com/docs/en/api-reference/videos/minimax-hailuo/generation",
+				"minimax-hailuo-2.3": "https://docs.toapis.com/docs/en/api-reference/videos/minimax-hailuo-2.3/generation",
+				"mj:blend": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/blend",
+				"mj:describe": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/describe",
+				"mj:edits": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/edits",
+				"mj:high-variation": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/high-variation",
+				"mj:imagine": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/imagine",
+				"mj:inpaint": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/inpaint",
+				"mj:low-variation": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/low-variation",
+				"mj:modal": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/modal",
+				"mj:pan": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/pan",
+				"mj:query": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/query",
+				"mj:remix-strong": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/remix",
+				"mj:remix-subtle": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/remix",
+				"mj:reroll": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/reroll",
+				"mj:upscale": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/upscale",
+				"mj:variation": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/variation",
+				"mj:video": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/video",
+				"mj:zoom": "https://docs.toapis.com/docs/en/api-reference/images/midjourney/zoom",
+				"omni11": "https://docs.toapis.com/docs/en/api-reference/videos/gemini-omni-flash/generation-1-1",
+				"omni12": "https://docs.toapis.com/docs/en/api-reference/videos/gemini-omni-flash/generation-1-2",
+				"omniVip": "https://docs.toapis.com/docs/en/api-reference/videos/gemini-omni-flash/generation-1-1-vip",
+				"pricing": "https://toapis.com/pricing",
+				"pricingCN": "https://toapis.cn/en/pricing",
+				"qwenimg": "https://docs.toapis.com/docs/en/api-reference/images/qwen-image-3.0/generation",
+				"seed40": "https://docs.toapis.com/docs/en/api-reference/images/seedream-4.0/generation",
+				"seed45": "https://docs.toapis.com/docs/en/api-reference/images/seedream-4.5/generation",
+				"seed50": "https://docs.toapis.com/docs/en/api-reference/images/seedream-5.0/generation",
+				"seed50pro": "https://docs.toapis.com/docs/en/api-reference/images/seedream-5.0-pro/generation",
+				"seed55": "https://docs.toapis.com/docs/en/api-reference/images/seedream-5.5/generation",
+				"seedance-2": "https://docs.toapis.com/docs/en/api-reference/videos/seedance-2/generation",
+				"seedance-2-5": "https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation",
+				"seedance-2-5-ext": "https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5-ext/generation",
+				"seedance-2-5-flash": "https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5-flash/generation",
+				"seedance-2-ext": "https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-ext/generation",
+				"seedance-2-fast-ext": "https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-fast-ext/generation",
+				"seedanceDraft": "https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/draft",
+				"snapshot": "https://docs.toapis.com/docs/en/api-reference/models",
+				"snapshotCN": "https://docs.toapis.cn/docs/en/api-reference/models",
+				"sora2": "https://docs.toapis.com/docs/en/api-reference/videos/sora2/generation",
+				"soraPersona": "https://docs.toapis.com/docs/en/api-reference/videos/sora2/create-persona",
+				"soraPersonaStatus": "https://docs.toapis.com/docs/en/api-reference/videos/sora2/get-personas",
+				"upload": "https://docs.toapis.com/docs/en/api-reference/uploads/images",
+				"uploadAudio": "https://docs.toapis.com/docs/en/api-reference/uploads/audio",
+				"uploadVideos": "https://docs.toapis.com/docs/en/api-reference/uploads/videos",
+				"veo3": "https://docs.toapis.com/docs/en/api-reference/videos/veo3/generation",
+				"veo3-official": "https://docs.toapis.com/docs/en/api-reference/videos/veo3-official/generation",
+				"video:grok-imagine-video-1.5-official": "https://docs.toapis.com/docs/en/api-reference/videos/grok-imagine-video-1.5-official/generation",
+				"video:grok-imagine-video-official": "https://docs.toapis.com/docs/en/api-reference/videos/grok-imagine-video-official/generation",
+				"videoStatus": "https://docs.toapis.com/docs/en/api-reference/tasks/video-status",
+				"vidu-ali": "https://docs.toapis.com/docs/en/api-reference/videos/vidu-ali/generation",
+				"viduimg": "https://docs.toapis.com/docs/en/api-reference/images/vidu-image/generation",
+				"viduq3": "https://docs.toapis.com/docs/en/api-reference/videos/viduq3/generation",
+				"viduq4-preview": "https://docs.toapis.com/docs/en/api-reference/videos/viduq4-preview/generation",
+				"wan2.6": "https://docs.toapis.com/docs/en/api-reference/videos/wan2.6/generation",
+				"wan2.6-flash": "https://docs.toapis.com/docs/en/api-reference/videos/wan2.6-flash/generation",
+				"wan3.0": "https://docs.toapis.com/docs/en/api-reference/videos/wan3.0/generation",
+				"soraRemix": "https://docs.toapis.com/docs/en/api-reference/videos/sora2/remix"
+			},
+			"listings": [
+				{
+					"ids": [
+						"doubao-seedream-4-0",
+						"doubao-seedream-4-5",
+						"flux-2-flex",
+						"flux-2-pro",
+						"flux-kontext-max",
+						"flux-kontext-pro",
+						"gemini-2.5-flash-image-preview",
+						"gemini-3-pro-image-preview",
+						"gemini-3.1-flash-image-preview",
+						"gpt-image-2",
+						"gpt-image-2.5-flare",
+						"gpt-image-2.5-sunburst",
+						"midjourney"
+					],
+					"snapshotSection": "image",
+					"snapshotEndpoints": ["image-generation", "openai-video"],
+					"guideMedia": "image",
+					"regions": ["cn", "global"],
+					"currentEndpoints": ["image-generation", "openai-video"]
+				},
+				{
+					"ids": [
+						"doubao-seedream-5-0",
+						"doubao-seedream-5-0-lite",
+						"doubao-seedream-5-0-pro",
+						"gemini-2.5-flash-image-official",
+						"gemini-3-pro-image-official",
+						"gemini-3.1-flash-image-official",
+						"gemini-3.1-flash-lite-image-official",
+						"gemini-nano-banana-2.1",
+						"gemini-nano-banana-2.1-official",
+						"gpt-image-2-official",
+						"gpt-image-2-vip",
+						"gpt-image-2.6-flare",
+						"gpt-image-2.6-sunburst",
+						"kling-image-4.0",
+						"kling-image-4.0-long",
+						"qwen-image-3.0",
+						"qwen-image-3.0-pro",
+						"vidu-image",
+						"viduq2-fast",
+						"viduq2-pro",
+						"viduq3-fast"
+					],
+					"snapshotSection": "image",
+					"snapshotEndpoints": ["image-generation"],
+					"guideMedia": "image",
+					"regions": ["cn", "global"],
+					"currentEndpoints": ["image-generation"]
+				},
+				{
+					"ids": ["doubao-seedream-5-0-pro-global"],
+					"snapshotSection": "image",
+					"snapshotEndpoints": ["image-generation"]
+				},
+				{
+					"ids": ["doubao-seedream-5-5", "minimax-h3-image"],
+					"guideMedia": "image",
+					"regions": ["cn", "global"],
+					"currentEndpoints": ["image-generation"]
+				},
+				{
+					"ids": [
+						"gemini-2.5-flash-image-preview-vip",
+						"gpt-image-2.5-flare-vip",
+						"gpt-image-2.5-sunburst-vip",
+						"grok-imagine-1.0",
+						"grok-imagine-1.0-edit",
+						"nano_banana",
+						"nano_banana_2",
+						"nano_banana_pro"
+					],
+					"indexedGuide": "image"
+				},
+				{
+					"ids": ["gemini-3.1-pro"],
+					"snapshotSection": "text",
+					"snapshotEndpoints": ["gemini", "image-generation", "openai"],
+					"guideMedia": "chat",
+					"regions": ["cn", "global"],
+					"currentEndpoints": ["gemini", "image-generation", "openai"]
+				},
+				{
+					"ids": ["gemini-3.5-thinking"],
+					"snapshotSection": "text",
+					"snapshotEndpoints": ["image-generation"],
+					"guideMedia": "chat",
+					"regions": ["cn", "global"],
+					"currentEndpoints": ["image-generation"]
+				},
+				{
+					"ids": [
+						"gpt-image-2.5-flare-official",
+						"gpt-image-2.5-sunburst-official",
+						"grok-image",
+						"grok-image-2.0"
+					],
+					"snapshotSection": "image",
+					"snapshotEndpoints": ["image-generation"],
+					"guideMedia": "image",
+					"regions": ["cn", "global"],
+					"currentEndpoints": ["image-generation", "openai"]
+				},
+				{
+					"ids": ["gpt-image-2.6-flare-official", "gpt-image-2.6-sunburst-official"],
+					"snapshotSection": "image",
+					"snapshotEndpoints": ["image-generation", "openai-video"],
+					"guideMedia": "image",
+					"regions": ["cn", "global"],
+					"currentEndpoints": ["image-generation", "openai", "openai-video"]
+				},
+				{
+					"ids": ["grok-imagine-video-1.5-official", "grok-imagine-video-official"],
+					"snapshotSection": "image",
+					"snapshotEndpoints": ["image-generation", "openai-video"],
+					"guideMedia": "video",
+					"regions": ["cn", "global"],
+					"currentEndpoints": ["image-generation", "openai-video"]
+				},
+				{
+					"ids": [
+						"MiniMax-H3",
+						"MiniMax-H3-Max",
+						"MiniMax-Hailuo-02",
+						"MiniMax-Hailuo-2.3",
+						"MiniMax-Hailuo-2.3-Fast",
+						"Veo3.1-fast-official",
+						"Veo3.1-lite-official",
+						"Veo3.1-quality-official",
+						"doubao-seedance-1-0-pro-fast",
+						"doubao-seedance-1-0-pro-quality",
+						"doubao-seedance-1-5-pro",
+						"gemini-omni-1.1-flash-preview",
+						"gemini-omni-1.1-flash-preview-official",
+						"gemini-omni-1.1-flash-preview-vip",
+						"gemini-omni-1.2-flash-preview",
+						"gemini-omni-flash-preview-official",
+						"grok-video-1.0",
+						"grok-video-1.5",
+						"happyhorse-1.1",
+						"kling-3.0-turbo",
+						"kling-4.0",
+						"kling-4.0-flash",
+						"kling-v2-6",
+						"kling-v3",
+						"kling-v3-omni",
+						"kling-video-o1",
+						"seedance-2",
+						"seedance-2-5",
+						"seedance-2-5-flash",
+						"seedance-2-fast",
+						"seedance-2-fast-ext",
+						"seedance-2-mini",
+						"seedance-2.5-ext",
+						"veo3.1-fast",
+						"veo3.1-lite",
+						"viduq3",
+						"viduq3-pro",
+						"viduq3-turbo",
+						"viduq4-preview"
+					],
+					"snapshotSection": "video",
+					"snapshotEndpoints": ["openai-video"],
+					"guideMedia": "video",
+					"regions": ["cn", "global"]
+				},
+				{
+					"ids": ["MiniMax-H3-Highspeed", "MiniMax-H3-Lite"],
+					"snapshotSection": "video",
+					"snapshotEndpoints": ["openai-video"],
+					"guideMedia": "video",
+					"regions": ["global"]
+				},
+				{
+					"ids": [
+						"MiniMax-H3-Max-Turbo",
+						"gemini-3-pro-image-preview-vip",
+						"gemini-3.1-flash-image-preview-vip",
+						"gpt-4o-image",
+						"grok-imagine-1.0-video",
+						"sora-2",
+						"sora-2-pro",
+						"sora-2-vvip"
+					],
+					"docsOnly": true
+				},
+				{
+					"ids": [
+						"seedance-2-5-global",
+						"seedance-2-ext",
+						"seedance-2-fast-global",
+						"seedance-2-global",
+						"seedance-2-mini-global"
+					],
+					"snapshotSection": "video",
+					"snapshotEndpoints": ["openai-video"]
+				},
+				{
+					"ids": ["sora-2-official", "veo3.1-quality"],
+					"indexedGuide": "video"
+				},
+				{
+					"ids": [
+						"viduq3-ad",
+						"viduq3-drama",
+						"viduq3-mix",
+						"viduq3-pro-fast",
+						"wan2.6",
+						"wan2.6-flash",
+						"wan3.0-video",
+						"wan3.0-video-prime"
+					],
+					"snapshotSection": "video",
+					"snapshotEndpoints": ["openai", "openai-video"],
+					"guideMedia": "video",
+					"regions": ["cn", "global"]
+				}
+			],
+			"rows": [
+				{
+					"ids": ["doubao-seedream-4-0"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit", "sequential-image-set"],
+					"contract": "documented",
+					"sources": ["seed40"],
+					"gaps": [
+						"Image output via the advertised openai-video compatibility family is unverified."
+					]
+				},
+				{
+					"ids": ["doubao-seedream-4-5"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit", "sequential-image-set"],
+					"contract": "documented",
+					"sources": ["seed45"],
+					"gaps": [
+						"Image output via the advertised openai-video compatibility family is unverified."
+					]
+				},
+				{
+					"ids": ["doubao-seedream-5-0"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit", "sequential-image-set"],
+					"contract": "documented",
+					"sources": ["seed50"]
+				},
+				{
+					"ids": ["doubao-seedream-5-0-lite"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["guide:doubao-seedream-5-0-lite", "seed50"],
+					"advertisedOperations": ["text-to-image", "reference-image-edit"],
+					"variant": "Public guide advertises generation and references; similarly named 5.0 Lite API reference specifies doubao-seedream-5-0.",
+					"gaps": [
+						"Exact alias relationship, request field names and limits, sequential mode and web search for this ID."
+					]
+				},
+				{
+					"ids": ["doubao-seedream-5-0-pro"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": [
+						"text-to-image",
+						"reference-image-edit",
+						"sequential-image-set",
+						"image-layer-decomposition"
+					],
+					"contract": "documented",
+					"sources": ["seed50pro"]
+				},
+				{
+					"ids": ["doubao-seedream-5-0-pro-global"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["guide:doubao-seedream-5-0-pro-global", "seed50pro"],
+					"advertisedOperations": ["text-to-image", "reference-image-edit"],
+					"variant": "Dated snapshot and standalone image guide; regional suffix is part of the exact ID.",
+					"gaps": [
+						"Current catalog/key eligibility, alias relationship to 5.0 Pro, layer and sequential options for this ID."
+					]
+				},
+				{
+					"ids": ["doubao-seedream-5-5"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit", "image-layer-decomposition"],
+					"contract": "documented",
+					"sources": ["seed55", "guide:doubao-seedream-5-5"],
+					"d4": "declared",
+					"gaps": [
+						"Eligibility on a specific account and region, fallback route operation-level coverage (including layer mode), fallback pricing and upstream behavior."
+					],
+					"support": {
+						"text-to-image": "seedream-generate",
+						"reference-image-edit": "seedream-edit"
+					},
+					"variant": "Ordinary generation and reference edit share the same ID. layer_decomposition:true selects a separate one-reference operation with layered results."
+				},
+				{
+					"ids": ["flux-2-flex", "flux-2-pro"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["flux2"],
+					"gaps": [
+						"Image output via the advertised openai-video compatibility family is unverified."
+					]
+				},
+				{
+					"ids": ["flux-kontext-max", "flux-kontext-pro"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["kontext"],
+					"gaps": [
+						"Image output via the advertised openai-video compatibility family is unverified."
+					]
+				},
+				{
+					"ids": ["gemini-2.5-flash-image-official"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gem25o"]
+				},
+				{
+					"ids": ["gemini-2.5-flash-image-preview"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gem25"],
+					"gaps": [
+						"Image output via the advertised openai-video compatibility family is unverified."
+					]
+				},
+				{
+					"ids": ["gemini-2.5-flash-image-preview-vip"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["earlierGuide"],
+					"variant": "Earlier guide advertised an image VIP tier.",
+					"gaps": [
+						"Current availability, operation, aliases, accepted payload and output contract."
+					]
+				},
+				{
+					"ids": ["gemini-3-pro-image-official"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gem3o"]
+				},
+				{
+					"ids": ["gemini-3-pro-image-preview"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gem3"],
+					"gaps": [
+						"Image output via the advertised openai-video compatibility family is unverified."
+					]
+				},
+				{
+					"ids": ["gemini-3-pro-image-preview-vip"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gem3v"]
+				},
+				{
+					"ids": ["gemini-3.1-flash-image-official"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gem31o"]
+				},
+				{
+					"ids": ["gemini-3.1-flash-image-preview"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gem31"],
+					"gaps": [
+						"Image output via the advertised openai-video compatibility family is unverified."
+					]
+				},
+				{
+					"ids": ["gemini-3.1-flash-image-preview-vip"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gem31v"]
+				},
+				{
+					"ids": ["gemini-3.1-flash-lite-image-official"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["guide:gemini-3.1-flash-lite-image-official"],
+					"advertisedOperations": ["text-to-image", "reference-image-edit"],
+					"variant": "Official Lite guide advertises prompt and reference workflows, aspect ratio, resolution, temperature and TopP.",
+					"gaps": ["Exact request, response, reference limit and upload/transport contract."]
+				},
+				{
+					"ids": ["gemini-3.1-pro"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "unresolved",
+					"sources": ["guide:gemini-3.1-pro"],
+					"variant": "Snapshot Text section and web model_type 1, with image-generation endpoint tag. Current guide demonstrates chat. Image output is unverified.",
+					"gaps": ["Image-producing request schema, route, operation and output shape."]
+				},
+				{
+					"ids": ["gemini-3.5-thinking"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "unresolved",
+					"sources": ["guide:gemini-3.5-thinking"],
+					"variant": "Snapshot Text section and web model_type 1, with image-generation endpoint tag. Current guide demonstrates chat. Image output is unverified.",
+					"gaps": ["Image-producing request schema, route, operation and output shape."]
+				},
+				{
+					"ids": ["gemini-nano-banana-2.1"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["banana21"]
+				},
+				{
+					"ids": ["gemini-nano-banana-2.1-official"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["banana21o"]
+				},
+				{
+					"ids": ["gpt-4o-image"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit", "mask-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt4o"]
+				},
+				{
+					"ids": ["gpt-image-2"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt2"],
+					"gaps": [
+						"Image output via the advertised openai-video compatibility family is unverified."
+					]
+				},
+				{
+					"ids": ["gpt-image-2-official"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit", "mask-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt2o"]
+				},
+				{
+					"ids": ["gpt-image-2-vip"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt2v"]
+				},
+				{
+					"ids": ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt25"],
+					"gaps": [
+						"Image output via the advertised openai-video compatibility family is unverified."
+					]
+				},
+				{
+					"ids": ["gpt-image-2.5-flare-official", "gpt-image-2.5-sunburst-official"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["gpt25-official"]
+				},
+				{
+					"ids": ["gpt-image-2.5-flare-vip"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["earlierGuide", "gpt26-official", "gpt25vipMissing"],
+					"variant": "Earlier guide advertised GPT Image 2.5 Flare VIP. Current official GPT Image 2.6 docs link a missing GPT Image 2.5 VIP page.",
+					"gaps": [
+						"Current availability, operation, aliases, accepted payload and output contract."
+					]
+				},
+				{
+					"ids": ["gpt-image-2.5-sunburst-vip"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["earlierGuide", "gpt26-official", "gpt25vipMissing"],
+					"variant": "Earlier guide advertised GPT Image 2.5 Sunburst VIP. Current official GPT Image 2.6 docs link a missing GPT Image 2.5 VIP page.",
+					"gaps": [
+						"Current availability, operation, aliases, accepted payload and output contract."
+					]
+				},
+				{
+					"ids": ["gpt-image-2.6-flare"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": [
+						"text-to-image",
+						"reference-image-edit",
+						"text-to-gif",
+						"image-to-gif",
+						"text-to-svg"
+					],
+					"contract": "documented",
+					"sources": ["gpt26"],
+					"variant": "Standard resolution-priced, fixed high quality channel, Flare model ID. Up to 10 URL references; GIF frame controls; Text-to-SVG is demonstrated with no extra SVG field; reference-to-SVG acceptance is unknown. Uses explicit ratio to match references and defaults to 1:1.",
+					"gaps": ["Reference-to-SVG acceptance."]
+				},
+				{
+					"ids": ["gpt-image-2.6-flare-official"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": [
+						"text-to-image",
+						"reference-image-edit",
+						"mask-image-edit",
+						"markup-guided-image-edit",
+						"text-to-gif",
+						"image-to-gif",
+						"text-to-svg"
+					],
+					"contract": "documented",
+					"sources": ["gpt26-official"],
+					"variant": "Official token-billed channel with R2 delivery, Flare model ID. PNG/JPEG/WebP, up to 16 URL references; mask and markup are mutually exclusive. GIF 2–16 frames, pixel size or omit; SVG requires svg.model and n=1, text-only.",
+					"gaps": [
+						"Image output via the advertised openai-video compatibility family is unverified."
+					]
+				},
+				{
+					"ids": ["gpt-image-2.6-sunburst"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": [
+						"text-to-image",
+						"reference-image-edit",
+						"text-to-gif",
+						"image-to-gif",
+						"text-to-svg"
+					],
+					"contract": "documented",
+					"sources": ["gpt26"],
+					"variant": "Standard resolution-priced, fixed high quality channel, Sunburst model ID. Up to 10 URL references; GIF frame controls; Text-to-SVG is demonstrated with no extra SVG field; reference-to-SVG acceptance is unknown. Uses explicit ratio to match references and defaults to 1:1.",
+					"gaps": ["Reference-to-SVG acceptance."]
+				},
+				{
+					"ids": ["gpt-image-2.6-sunburst-official"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": [
+						"text-to-image",
+						"reference-image-edit",
+						"mask-image-edit",
+						"markup-guided-image-edit",
+						"text-to-gif",
+						"image-to-gif",
+						"text-to-svg"
+					],
+					"contract": "documented",
+					"sources": ["gpt26-official"],
+					"variant": "Official token-billed channel with R2 delivery, Sunburst model ID. PNG/JPEG/WebP, up to 16 URL references; mask and markup are mutually exclusive. GIF 2–16 frames, pixel size or omit; SVG requires svg.model and n=1, text-only.",
+					"gaps": [
+						"Image output via the advertised openai-video compatibility family is unverified."
+					]
+				},
+				{
+					"ids": ["grok-image"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["grokimg"],
+					"variant": "Standard tier, 1k, single output per contract; pricing artifact advertises up to 2 refs and n=1–5 while shared docs give up to 5 refs and n=1."
+				},
+				{
+					"ids": ["grok-image-2.0"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["grokimg"]
+				},
+				{
+					"ids": ["grok-imagine-1.0"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["earlierGuide"],
+					"variant": "Earlier guide image ID; relationship to grok-image is unverified.",
+					"gaps": [
+						"Current availability, operation, aliases, accepted payload and output contract."
+					]
+				},
+				{
+					"ids": ["grok-imagine-1.0-edit"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["earlierGuide"],
+					"variant": "Earlier guide image ID with edit suffix; exact transport/semantics unverified.",
+					"gaps": [
+						"Current availability, operation, aliases, accepted payload and output contract."
+					]
+				},
+				{
+					"ids": ["grok-imagine-video-1.5-official"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "unresolved",
+					"sources": [
+						"video:grok-imagine-video-1.5-official",
+						"guide:grok-imagine-video-1.5-official"
+					],
+					"variant": "Snapshot files under Image with an image-generation tag; current web catalogs type 3 and API docs/guide demonstrate video output. A separate image-producing operation is unverified.",
+					"gaps": ["Image-producing request schema, route, operation and output shape."]
+				},
+				{
+					"ids": ["grok-imagine-video-official"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "unresolved",
+					"sources": ["video:grok-imagine-video-official", "guide:grok-imagine-video-official"],
+					"variant": "Snapshot files under Image with an image-generation tag; current web catalogs type 3 and API docs/guide demonstrate video output. A separate image-producing operation is unverified.",
+					"gaps": ["Image-producing request schema, route, operation and output shape."]
+				},
+				{
+					"ids": ["kling-image-4.0"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["klingimg"]
+				},
+				{
+					"ids": ["kling-image-4.0-long"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": [
+						"text-to-webpage-image",
+						"reference-guided-webpage-image",
+						"reference-guided-ecommerce-image"
+					],
+					"contract": "documented",
+					"sources": ["klinglong"],
+					"variant": "One tall 1K/2K image. webpage can be prompt-only or use style/subject URLs; ecommerce uses 1–3 ordered product URLs with @image_N and short/medium/long length."
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/imagine",
+					"operations": ["imagine"],
+					"contract": "documented",
+					"sources": ["mj:imagine"],
+					"variant": "Prompt creates a grid; optional references and generation controls; bare generations path aliases imagine.",
+					"aliases": ["POST /v1/midjourney/generations"]
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/blend",
+					"operations": ["blend"],
+					"contract": "documented",
+					"sources": ["mj:blend"],
+					"variant": "Two to four public image URLs."
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/edits",
+					"operations": ["edits"],
+					"contract": "documented",
+					"sources": ["mj:edits"],
+					"variant": "Prompt and public reference URLs."
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/upscale",
+					"operations": ["upscale"],
+					"contract": "documented",
+					"sources": ["mj:upscale"],
+					"variant": "Parent task; index 1–4 or returned custom_id.",
+					"requires": {
+						"upscale": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/variation",
+					"operations": ["variation"],
+					"contract": "documented",
+					"sources": ["mj:variation"],
+					"variant": "Parent task and grid index or custom_id.",
+					"requires": {
+						"variation": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/high-variation",
+					"operations": ["high-variation"],
+					"contract": "documented",
+					"sources": ["mj:high-variation"],
+					"variant": "Strong variation, normally after upscale; index or custom_id.",
+					"requires": {
+						"high-variation": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/low-variation",
+					"operations": ["low-variation"],
+					"contract": "documented",
+					"sources": ["mj:low-variation"],
+					"variant": "Subtle variation, normally after upscale; index or custom_id.",
+					"requires": {
+						"low-variation": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/reroll",
+					"operations": ["reroll"],
+					"contract": "documented",
+					"sources": ["mj:reroll"],
+					"variant": "Successful task and original prompt; optional custom_id/speed; no index required.",
+					"requires": {
+						"reroll": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/zoom",
+					"operations": ["zoom"],
+					"contract": "documented",
+					"sources": ["mj:zoom"],
+					"variant": "Upscaled parent, 1.5x or 2x.",
+					"requires": {
+						"zoom": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/pan",
+					"operations": ["pan"],
+					"contract": "documented",
+					"sources": ["mj:pan"],
+					"variant": "Parent task; left/right/up/down.",
+					"requires": {
+						"pan": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/inpaint",
+					"operations": ["mask-inpainting"],
+					"contract": "documented",
+					"sources": ["mj:inpaint", "mj:modal"],
+					"variant": "Start inpainting an upscaled parent task. When it reaches MODAL, continue the same mask-inpainting operation by posting a public mask URL and optional prompt to /v1/midjourney/generations/modal.",
+					"requires": {
+						"mask-inpainting": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/remix-strong",
+					"operations": ["remix-strong"],
+					"contract": "documented",
+					"sources": ["mj:remix-strong"],
+					"variant": "Successful v8.1/v8.2 parent and index; optional changed prompt.",
+					"requires": {
+						"remix-strong": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "image",
+					"route": "POST /v1/midjourney/generations/remix-subtle",
+					"operations": ["remix-subtle"],
+					"contract": "documented",
+					"sources": ["mj:remix-subtle"],
+					"variant": "Same prerequisites as strong remix, subtle strength.",
+					"requires": {
+						"remix-subtle": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["minimax-h3-image"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["h3img"],
+					"variant": "Single SKU for token-billed T2I and URL edits, resolution/aspect_ratio or explicit size, PNG/JPEG/WebP URL output; partial success exposes image_index. Public artifacts include it despite snapshot availability caveat. Prompt enhancement may be disabled only in text-only mode and requires fixed ratio or pixels. Snapshot warns that regional/account availability is unconfirmed."
+				},
+				{
+					"ids": ["nano_banana", "nano_banana_2", "nano_banana_pro"],
+					"media": "image",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["earlierGuide"],
+					"variant": "Earlier guide image ID; exact mapping to current Gemini IDs unverified.",
+					"gaps": [
+						"Current availability, operation, aliases, accepted payload and output contract."
+					]
+				},
+				{
+					"ids": ["qwen-image-3.0", "qwen-image-3.0-pro"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["qwenimg"]
+				},
+				{
+					"ids": ["vidu-image", "viduq2-fast", "viduq2-pro", "viduq3-fast"],
+					"media": "image",
+					"route": "POST /v1/images/generations",
+					"operations": ["text-to-image", "reference-image-edit"],
+					"contract": "documented",
+					"sources": ["viduimg"]
+				},
+				{
+					"ids": ["doubao-seedance-1-0-pro-fast"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video", "image-reference-to-video"],
+					"contract": "documented",
+					"sources": ["doubao-seedance"],
+					"variant": "Fast channel. Supports first frame or single reference; explicit last_frame is quality-only."
+				},
+				{
+					"ids": ["doubao-seedance-1-0-pro-quality"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"image-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["doubao-seedance"],
+					"variant": "Quality channel. Explicit last_frame available; up to one first frame and one last frame."
+				},
+				{
+					"ids": ["doubao-seedance-1-5-pro"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["doubao-seedance-1-5"],
+					"variant": "Synced audio option. Two compatibility image URLs mean first and last frame. Reference-image mode explicitly unsupported."
+				},
+				{
+					"ids": ["gemini-omni-1.1-flash-preview"],
+					"media": "video",
+					"route": "POST /v1/videos",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"image-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["omni11"],
+					"variant": "Standard 1.1 fixed 10s, 720p/1080p, up to five image refs or first/last frame fields, no video input. Explicit resolution needed for 1080p."
+				},
+				{
+					"ids": ["gemini-omni-1.1-flash-preview-official"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"multimodal-reference-to-video",
+						"video-edit",
+						"video-extension"
+					],
+					"contract": "documented",
+					"sources": ["gemini-omni-1.1-flash-preview-official"],
+					"variant": "Official 1.1 Interactions channel. metadata.task selects five operations; 3–10s, 360p/720p/1080p/4K, max 10 images/3 videos. Edit and extend need video_list and omit ratio; extend disallows previous_interaction_id and duration means continuation length."
+				},
+				{
+					"ids": ["gemini-omni-1.1-flash-preview-vip"],
+					"media": "video",
+					"route": "POST /v1/videos",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"image-reference-to-video",
+						"video-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["omniVip"],
+					"variant": "VIP frame mode uses one image; reference mode one or three images; no two-frame input. At most one video URL; omit duration/seconds with it. 4/6/8/10s otherwise, 360p/720p/1080p/4k."
+				},
+				{
+					"ids": ["gemini-omni-1.2-flash-preview"],
+					"media": "video",
+					"route": "POST /v1/videos",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"image-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["omni12"],
+					"variant": "Standard 1.2 4–15s, 720p, up to five image refs or first/last frame fields. Video input explicitly unsupported.",
+					"gaps": [
+						"Web marketplace description mentions editing but the model-specific contract excludes video input."
+					]
+				},
+				{
+					"ids": ["gemini-omni-flash-preview-official"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"multimodal-reference-to-video",
+						"video-edit",
+						"video-extension"
+					],
+					"contract": "documented",
+					"sources": ["gemini-omni-flash-preview-official"],
+					"variant": "Official Interactions channel. metadata.task can select five operations; up to 10 images/3 videos, 720p only, maximum 10s. Extend requires source video with no previous_interaction_id, and ratio is omitted for edit/extend."
+				},
+				{
+					"ids": ["grok-imagine-1.0-video"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "image-to-video"],
+					"contract": "documented",
+					"sources": ["grok-imagine-1.0-video"],
+					"variant": "Documentation-only ID; image_urls up to seven, duration integer 6–30s, quality 480p or 720p."
+				},
+				{
+					"ids": ["grok-imagine-video-1.5-official"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["video:grok-imagine-video-1.5-official", "grokimg"],
+					"variant": "Requires image first-frame URL, up to 1080p and 1–15s. Extension explicitly unsupported.",
+					"gaps": [
+						"Scope of additional reference_images unknown. Page says exactly one input image, yet lists additional refs and seven total; preserve contradiction. Exact image-generation contract unknown despite catalog label."
+					]
+				},
+				{
+					"ids": ["grok-imagine-video-official"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video", "image-reference-to-video"],
+					"contract": "documented",
+					"sources": ["video:grok-imagine-video-official", "grokOfficialExtend", "grokimg"],
+					"variant": "Official channel, up to seven total image inputs, 480p/720p and 1–15s for generation. Extend targets task ID.",
+					"gaps": [
+						"Dated catalog also assigns image-generation, but Grok Image reference only lists grok-image and grok-image-2.0; exact image request contract unknown."
+					]
+				},
+				{
+					"ids": ["grok-imagine-video-official"],
+					"media": "video",
+					"route": "POST /v1/videos/{video_id}/extend",
+					"operations": ["video-extension"],
+					"contract": "documented",
+					"sources": ["video:grok-imagine-video-official", "grokOfficialExtend", "grokimg"],
+					"variant": "Official channel, up to seven total image inputs, 480p/720p and 1–15s for generation. Extend targets task ID.",
+					"gaps": [
+						"Dated catalog also assigns image-generation, but Grok Image reference only lists grok-image and grok-image-2.0; exact image request contract unknown."
+					],
+					"requires": {
+						"video-extension": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["grok-imagine-video-official"],
+					"media": "video",
+					"route": "POST /v1/videos/extend",
+					"operations": ["video-extension"],
+					"contract": "documented",
+					"sources": ["grokOfficialExtend"],
+					"variant": "The source is an accessible video URL supplied through video_urls."
+				},
+				{
+					"ids": ["grok-video-1.0"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["grok-video", "grokExtend", "grokRemix"],
+					"variant": "Generate via unified route; extend and remix target original video task ID."
+				},
+				{
+					"ids": ["grok-video-1.0"],
+					"media": "video",
+					"route": "POST /v1/videos/{video_id}/extend",
+					"operations": ["video-extension"],
+					"contract": "documented",
+					"sources": ["grok-video", "grokExtend", "grokRemix"],
+					"variant": "Generate via unified route; extend and remix target original video task ID.",
+					"requires": {
+						"video-extension": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["grok-video-1.0"],
+					"media": "video",
+					"route": "POST /v1/videos/{video_id}/remix",
+					"operations": ["video-remix"],
+					"contract": "documented",
+					"sources": ["grok-video", "grokExtend", "grokRemix"],
+					"variant": "Generate via unified route; extend and remix target original video task ID.",
+					"requires": {
+						"video-remix": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["grok-video-1.5"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video", "image-reference-to-video"],
+					"contract": "documented",
+					"sources": ["grok-video-1.5"],
+					"variant": "video_generation_mode=text_to_video/first_frame_image_to_video/reference_images_to_video. Explicit reference mode distinguishes one reference from legacy first frame; 1–7 refs. Channel compatibility can weaken first-frame enforcement or reject mode/transport.",
+					"gaps": [
+						"Marketplace mentions voice reference but no voice-reference request field is documented. Extend/remix contract unknown for this ID."
+					]
+				},
+				{
+					"ids": ["happyhorse-1.1"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"image-reference-to-video",
+						"video-edit"
+					],
+					"contract": "documented",
+					"sources": ["happyhorse"],
+					"variant": "action=text-to-video/image-to-video/reference-to-video/video-edit. Omitted action detects first-frame vs text; explicit edit takes url plus optional up to five image refs and audio_setting auto/origin. Reference mode needs 1–9 images."
+				},
+				{
+					"ids": ["kling-3.0-turbo"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["kling-3.0-turbo"],
+					"variant": "Turbo only uses the first reference_images entry as first frame."
+				},
+				{
+					"ids": ["kling-4.0"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"image-reference-to-video",
+						"video-reference-to-video",
+						"image-and-video-reference-to-video",
+						"keyframes-to-video"
+					],
+					"contract": "documented",
+					"sources": ["kling-4.0"],
+					"variant": "720p/1080p; up to 10 images and five videos in reference mode. Keyframe mode supports first, middle and last roles separately or combined, max min(duration+1,10) and mutually exclusive with references. Legacy Kling mode/audio/Omni fields unsupported."
+				},
+				{
+					"ids": ["kling-4.0-flash"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"image-reference-to-video",
+						"video-reference-to-video",
+						"image-and-video-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["kling-4.0-flash"],
+					"variant": "Reference mode up to 10 images and five videos. Frame mode exactly one first_frame, no middle/last frame. Frames and refs mutually exclusive; legacy Kling/Omni controls unsupported. Duration 3–20s."
+				},
+				{
+					"ids": ["kling-v2-6"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"image-reference-to-video",
+						"frame-and-image-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["kling-2-6"],
+					"variant": "mode=std 720P silent / pro 1080P with optional audio. Explicit frame roles; reference_images positions do not infer last frame."
+				},
+				{
+					"ids": ["kling-v3"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"image-reference-to-video",
+						"frame-and-image-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["kling-v3"],
+					"variant": "mode=std 720P / pro 1080P, audio supported. Explicit last-frame role. Marketplace advertises multi-shot storytelling; no distinct multi-shot request selector on this reference."
+				},
+				{
+					"ids": ["kling-v3-omni"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"image-reference-to-video",
+						"video-reference-to-video",
+						"video-edit",
+						"subject-and-motion-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["kling-v3-omni"],
+					"variant": "Omni placeholder syntax for asset references. video_list refer_type=base is source edit, feature is motion/feature guide. Second frame role is end_frame and requires first_frame. mode std/pro."
+				},
+				{
+					"ids": ["kling-video-o1"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"image-reference-to-video",
+						"video-reference-to-video",
+						"video-edit",
+						"subject-and-motion-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["kling-video-o1"],
+					"variant": "Omni placeholder syntax for asset references. video_list refer_type=base is source edit, feature is motion/feature guide. Second frame role is end_frame and requires first_frame. mode std/pro."
+				},
+				{
+					"ids": ["midjourney"],
+					"media": "video",
+					"route": "POST /v1/midjourney/generations/video",
+					"operations": ["image-to-video", "parent-task-image-to-video"],
+					"contract": "documented",
+					"sources": ["mj:video", "mj:query", "mj:imagine"],
+					"variant": "One image_urls item or successful parent task_id plus index. batch_size 1/2/4. Video docs show route-specific request without a model field. Query video_urls; image workflow separately emits images.",
+					"requires": {
+						"parent-task-image-to-video": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["MiniMax-H3", "MiniMax-H3-Highspeed", "MiniMax-H3-Lite", "MiniMax-H3-Max"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"multimodal-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["minimax-h3"],
+					"d4": "declared",
+					"variant": "Multimodal image/video/audio refs. Lite requires specific ratio on multimodal input; other variants default to adaptive there; frame tasks set adaptive. Catalog and guide list all four; current China artifacts only include standard and Max. Standard offers 2K/768p. Highspeed, Lite and Max list 480P/768P. Standard, Highspeed and Lite run 4–15s, Max 5–15s.",
+					"gaps": [
+						"Shared response section says model always MiniMax-H3 despite exact request variant IDs. Preserve submitted model independently. Max with disable_nsfw=true also disables prompt expansion."
+					]
+				},
+				{
+					"ids": ["MiniMax-H3-Max-Turbo"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["minimax-h3"],
+					"d4": "declared",
+					"variant": "Documentation-only request ID in current sources. No multimodal reference variant. With disable_nsfw=true prompt expansion is disabled. 480P/768P and 5–15s. Provider deprecation is documented; ToAPIs recommends H3 Lite for new uses."
+				},
+				{
+					"ids": ["MiniMax-Hailuo-02"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["minimax-hailuo"],
+					"variant": "First image via image_urls, last via metadata. Resolution/duration combinations depend on mode; camera directives."
+				},
+				{
+					"ids": ["MiniMax-Hailuo-2.3"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["minimax-hailuo-2.3"],
+					"variant": "Standard supports T2V/I2V; 768P/1080P, 6s/10s subject to combination limits, camera directives."
+				},
+				{
+					"ids": ["MiniMax-Hailuo-2.3-Fast"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["minimax-hailuo-2.3"],
+					"variant": "Fast requires a first frame via image_urls. No text-only mode."
+				},
+				{
+					"ids": ["seedance-2", "seedance-2-fast", "seedance-2-mini"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"multimodal-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["seedance-2"],
+					"d4": "declared",
+					"variant": "Standard: 480p/720p/1080p/4k. Fast and Mini: 480p/720p. All 4–15s, Standard/Fast also auto. Nine image refs; routed limits for standard/fast video and audio, Mini up to three of each and exactly one output. Audio reference requires visual input. Frame and reference modes are exclusive. Supports generated audio and optional last-frame image. Web search is text-only."
+				},
+				{
+					"ids": ["seedance-2-5"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"multimodal-reference-to-video",
+						"video-edit",
+						"video-extension",
+						"draft-video-generation"
+					],
+					"contract": "documented",
+					"sources": ["seedance-2-5", "seedanceDraft"],
+					"d4": "declared",
+					"variant": "video_operation: generate, edit or extend. Draft uses draft:true. Final uses draft_task_id, omits prompt and media, and is separately billed.",
+					"gaps": [
+						"Standard and draft-stage parameters document D4; acceptance or effect of disable_nsfw on the final draft_task_id request is unknown."
+					]
+				},
+				{
+					"ids": ["seedance-2-5"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["draft-to-final-video"],
+					"contract": "documented",
+					"sources": ["seedance-2-5", "seedanceDraft"],
+					"variant": "video_operation: generate, edit or extend. Draft uses draft:true. Final uses draft_task_id, omits prompt and media, and is separately billed.",
+					"gaps": [
+						"Standard and draft-stage parameters document D4; acceptance or effect of disable_nsfw on the final draft_task_id request is unknown."
+					],
+					"requires": {
+						"draft-to-final-video": {
+							"kind": "draft-video-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["seedance-2-5-flash"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"multimodal-reference-to-video",
+						"video-edit",
+						"video-extension"
+					],
+					"contract": "documented",
+					"sources": ["seedance-2-5-flash"],
+					"d4": "declared",
+					"variant": "Same video_operation forms and adaptive ratio/duration rules as 2.5. Faster/lower-cost 480p/720p option, up to 10 image/5 video/5 audio refs; audio-only reference allowed. Draft explicitly unsupported."
+				},
+				{
+					"ids": ["seedance-2-5-global"],
+					"media": "video",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["guide-seedance-2-5-global"],
+					"advertisedOperations": [
+						"text-to-video",
+						"image-to-video",
+						"video-reference-to-video",
+						"video-edit"
+					],
+					"variant": "Global variant. Direct guide identifies exact ID and advertises generation, reference and editing. Base model documentation does not enumerate this ID.",
+					"gaps": [
+						"Do not inherit base-model edit, duration, resolution, D4 or region availability. Standard/Mini guide examples use the exact global ID while FAQ prose tells readers to use the base ID. The 2.5 global guide links the Seedance 2 family page, which has no global IDs."
+					]
+				},
+				{
+					"ids": ["seedance-2-ext"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "image-reference-to-video"],
+					"contract": "documented",
+					"sources": ["seedance-2-ext"],
+					"variant": "Up to nine reference images. Separate promo channel, no keyframes, video or audio refs, or video editing."
+				},
+				{
+					"ids": ["seedance-2-fast-ext"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "image-reference-to-video"],
+					"contract": "documented",
+					"sources": ["seedance-2-fast-ext"],
+					"variant": "Up to nine reference images, 480p/720p/1080p. Separate promo channel, no keyframes, video or audio refs, or video editing."
+				},
+				{
+					"ids": ["seedance-2-fast-global"],
+					"media": "video",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["guide-seedance-2-fast-global"],
+					"advertisedOperations": [
+						"text-to-video",
+						"image-to-video",
+						"video-reference-to-video",
+						"video-edit"
+					],
+					"variant": "Global variant. Direct guide identifies exact ID and advertises generation, reference and editing. Base model documentation does not enumerate this ID.",
+					"gaps": [
+						"Do not inherit base-model edit, duration, resolution, D4 or region availability. Standard/Mini guide examples use the exact global ID while FAQ prose tells readers to use the base ID. The 2.5 global guide links the Seedance 2 family page, which has no global IDs."
+					]
+				},
+				{
+					"ids": ["seedance-2-global"],
+					"media": "video",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["guide-seedance-2-global"],
+					"advertisedOperations": [
+						"text-to-video",
+						"image-to-video",
+						"video-reference-to-video",
+						"video-edit"
+					],
+					"variant": "Global variant. Direct guide identifies exact ID and advertises generation, reference and editing. Base model documentation does not enumerate this ID.",
+					"gaps": [
+						"Do not inherit base-model edit, duration, resolution, D4 or region availability. Standard/Mini guide examples use the exact global ID while FAQ prose tells readers to use the base ID. The 2.5 global guide links the Seedance 2 family page, which has no global IDs."
+					]
+				},
+				{
+					"ids": ["seedance-2-mini-global"],
+					"media": "video",
+					"route": null,
+					"operations": [],
+					"contract": "advertised",
+					"sources": ["guide-seedance-2-mini-global"],
+					"advertisedOperations": [
+						"text-to-video",
+						"image-to-video",
+						"video-reference-to-video",
+						"video-edit"
+					],
+					"variant": "Global variant. Direct guide identifies exact ID and advertises generation, reference and editing. Base model documentation does not enumerate this ID.",
+					"gaps": [
+						"Do not inherit base-model edit, duration, resolution, D4 or region availability. Standard/Mini guide examples use the exact global ID while FAQ prose tells readers to use the base ID. The 2.5 global guide links the Seedance 2 family page, which has no global IDs."
+					]
+				},
+				{
+					"ids": ["seedance-2.5-ext"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"image-reference-to-video",
+						"multimodal-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["seedance-2-5-ext"],
+					"variant": "Exact ID uses a dot. Up to 30 image refs, 11–30 disallow 15s; video/audio reference mode disallows 15s, audio requires a visual input. First/last-frame, edit and extend explicitly unsupported."
+				},
+				{
+					"ids": ["sora-2", "sora-2-pro"],
+					"media": "video",
+					"route": "POST /v1/videos/{video_id}/remix",
+					"operations": ["video-remix"],
+					"contract": "documented",
+					"sources": ["sora2", "soraPersona", "soraPersonaStatus", "soraRemix"],
+					"variant": "Remix takes a prior provider video task ID. Character creation and polling are ancillary to persona-referenced generation.",
+					"gaps": [
+						"The current generation page enumerates only sora-2-vvip. Confirm ongoing access and which variants can create or use a persona."
+					],
+					"requires": {
+						"video-remix": {
+							"kind": "parent-media-task",
+							"upstreamOperationInScope": true
+						}
+					}
+				},
+				{
+					"ids": ["sora-2-official", "veo3.1-quality"],
+					"media": "video",
+					"route": null,
+					"operations": [],
+					"contract": "unresolved",
+					"sources": ["earlierGuide"],
+					"variant": "These exact names appeared in an indexed older guide result, but were absent in directly fetched guide index and marketplace/pricing artifacts. Tested conventional detail slugs return a guide-not-found page. Current API docs use different exact IDs."
+				},
+				{
+					"ids": ["sora-2-vvip"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video", "character-reference-to-video"],
+					"contract": "documented",
+					"sources": ["sora2"],
+					"variant": "VVIP generation with discrete duration tiers and character references, optional storyboard/character generation settings. Remix page enumerates standard/pro only. Duration tiers are 4, 8 and 12 seconds."
+				},
+				{
+					"ids": ["veo3.1-fast", "veo3.1-lite"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"image-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["veo3"],
+					"variant": "Fixed 8s. metadata.generation_type frame/reference or inferred from two/three images. Lite additionally documents 1080p; fast 720p."
+				},
+				{
+					"ids": ["Veo3.1-fast-official", "Veo3.1-lite-official", "Veo3.1-quality-official"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"image-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["veo3-official"],
+					"variant": "Case-sensitive official IDs. First-frame image_urls and style/asset referenceImages compete, first-frame input wins. metadata.lastFrame for interpolation; native metadata controls include personGeneration, generateAudio and seed. 4/6/8s. Official lite listed as 720p.",
+					"gaps": [
+						"Shared page does not resolve compatible resolutions or reference modes for every official variant. Person-generation safety setting is distinct from D4."
+					]
+				},
+				{
+					"ids": ["viduq3"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["image-reference-to-video", "subjects-to-video"],
+					"contract": "documented",
+					"sources": ["viduq3"],
+					"variant": "Multi-reference or structured Subjects mode, images required up to seven; 3–16s."
+				},
+				{
+					"ids": ["viduq3-ad", "viduq3-drama", "viduq3-mix"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["subject-and-media-reference-to-video"],
+					"contract": "documented",
+					"sources": ["vidu-ali"],
+					"variant": "Structured subject references. Provider recommends at least one video and one image for reference-based generation.",
+					"gaps": [
+						"Minimum valid combinations and whether an image-only or video-only request is accepted remain unclear."
+					]
+				},
+				{
+					"ids": ["viduq3-pro", "viduq3-turbo"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
+					"contract": "documented",
+					"sources": ["viduq3"],
+					"variant": "Pro quality/audio/storyboard vs Turbo speed/scene switching; zero, one or two images, 540p/720p/1080p, 1–16s."
+				},
+				{
+					"ids": ["viduq3-pro-fast"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["first-frame-to-video"],
+					"contract": "documented",
+					"sources": ["vidu-ali"],
+					"variant": "Ali-routed Vidu Q3. Requires image; only first is used. 720P/1080P; audio defaults true."
+				},
+				{
+					"ids": ["viduq4-preview"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"first-frame-to-video",
+						"image-reference-to-video",
+						"image-and-audio-reference-to-video"
+					],
+					"contract": "documented",
+					"sources": ["viduq4-preview"],
+					"variant": "First frame by default with one image_urls item; explicit reference_images_to_video or multi-image/reference_images/sounds inputs select reference. Up to 15 images and three sounds in reference mode. Duration 3–16s; resolution request field enumerates 720p/1080p/4K.",
+					"gaps": [
+						"Billing description additionally mentions 540p/2K but omits them from request values. Acceptance on this variant remains unknown."
+					]
+				},
+				{
+					"ids": ["wan2.6"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["text-to-video", "first-frame-to-video", "video-reference-to-video"],
+					"contract": "documented",
+					"sources": ["wan2.6"],
+					"variant": "Route inferred from prompt, image_urls or metadata.reference_urls, respectively; shot_type single/multi."
+				},
+				{
+					"ids": ["wan2.6-flash"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": ["first-frame-to-video", "video-reference-to-video"],
+					"contract": "documented",
+					"sources": ["wan2.6-flash"],
+					"variant": "Flash routes image_urls to i2v-flash, metadata.reference_urls to r2v-flash; silent/audio may bill differently. Text-only route undocumented."
+				},
+				{
+					"ids": ["wan3.0-video", "wan3.0-video-prime"],
+					"media": "video",
+					"route": "POST /v1/videos/generations",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"multimodal-reference-to-video",
+						"file-reference-to-video",
+						"webpage-reference-to-video",
+						"video-edit",
+						"video-extension"
+					],
+					"contract": "documented",
+					"sources": ["wan3.0"],
+					"d4": "declared",
+					"variant": "Standard and Prime share the All-in-One interface. File vs webpage exclusive and neither can combine with frames. Frame and reference media mutually exclusive. Source-video edit uses intent and adaptive ratio/duration=-1; extension uses intent and total duration <=30 or -1.",
+					"gaps": [
+						"Explicit JSON false enables fallback only when eligible. Mainland China users and China sales regions always keep fallback disabled. This is an eligibility condition, not field rejection."
+					]
+				}
+			]
+		}
+	}
+}

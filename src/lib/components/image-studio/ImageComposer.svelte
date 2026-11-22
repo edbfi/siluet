@@ -11,13 +11,16 @@ import {
 	type SeedreamOperation,
 	type SeedreamProvider,
 	seedreamBackgrounds,
-	seedreamOperations,
 	seedreamOutputFormats,
 	seedreamProviderNames,
-	seedreamProviders,
 	switchSeedreamDraft,
 	type validateSeedreamDraft,
 } from "#lib/shared/image-studio/seedream.ts";
+import {
+	releasedOperations,
+	releasedProviders,
+	seedreamModel,
+} from "#lib/shared/media-catalog/registry.ts";
 import { css } from "#styled-system/css";
 import { studioPanel } from "#styled-system/recipes";
 import { createReferenceDraft, type ReferenceDraft, referenceLabel } from "./draft-context.ts";
@@ -88,6 +91,7 @@ const providerRadio = css({
 
 let {
 	eligibleProviders,
+	unavailableProviders,
 	settingsHref = "/settings/providers",
 	reviewHref,
 	reviewPanel,
@@ -97,6 +101,7 @@ let {
 	validation,
 }: {
 	eligibleProviders: readonly SeedreamProvider[];
+	unavailableProviders: readonly string[];
 	settingsHref?: string;
 	reviewHref: string;
 	reviewPanel: Snippet;
@@ -108,7 +113,12 @@ let {
 
 const id = $props.id();
 let connectedProviders = $derived(
-	seedreamProviders.filter((provider) => eligibleProviders.includes(provider)),
+	releasedProviders.filter((provider) => eligibleProviders.includes(provider)),
+);
+const operations = $derived(
+	releasedOperations.filter(
+		(entry) => entry.key.provider === (draft.provider ?? releasedProviders[0]),
+	),
 );
 const rememberedOptions = new Map<string, SeedreamDraft["options"]>();
 let previewIndex = $state(0);
@@ -296,12 +306,12 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 				<div class={fieldHeading}>
 					<label for={`${id}-model`}>Model</label>
 					<span class={css({ color: "muted", fontWeight: 500 })} id={`${id}-family`}
-						>ByteDance / Seedream</span
+						>{seedreamModel.family}</span
 					>
 				</div>
 				<select class={requestControl} id={`${id}-model`} aria-describedby={`${id}-family`}>
-					<optgroup label="ByteDance / Seedream">
-						<option value="seedream-5.5">Seedream 5.5</option>
+					<optgroup label={seedreamModel.family}>
+						<option value={seedreamModel.id}>{seedreamModel.label}</option>
 					</optgroup>
 				</select>
 			</div>
@@ -334,8 +344,11 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 								</label>
 							{/each}
 						</div>
-					{:else}
-						<p class={requestHelp}>Connect a provider to prepare a request.</p>
+					{/if}
+					{#each unavailableProviders as reason (reason)}
+						<p class={requestHelp}>{reason}</p>
+					{/each}
+					{#if !connectedProviders.length}
 						<a class={css(requestLink)} href={settingsHref}>Open Settings</a>
 					{/if}
 				</fieldset>
@@ -346,11 +359,15 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 						class={requestControl}
 						id={`${id}-operation`}
 						value={draft.operation}
-						onchange={(event) =>
-							select(draft.provider, event.currentTarget.value === "edit" ? "edit" : "generate")}
+						onchange={(event) => {
+							const value = event.currentTarget.value;
+							const entry = operations.find(({ mode }) => mode === value);
+							if (entry) select(draft.provider, entry.mode);
+						}}
 					>
-						<option value="generate">{seedreamOperations.generate}</option>
-						<option value="edit">{seedreamOperations.edit}</option>
+						{#each operations as entry (entry.key.operation)}
+							<option value={entry.mode}>{entry.label}</option>
+						{/each}
 					</select>
 				</div>
 			</div>

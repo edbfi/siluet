@@ -149,3 +149,48 @@ test.each([
 	const references = [{ kind: "url", url, hostname: "images.example.org" }];
 	expect(parseQueueRequest({ ...request, draft: { ...editDraft, references } })).toBeNull();
 });
+
+test.each(["poyo", "toapis"] as const)(
+	"resolve %s catalog keys exactly before accepting ordinary options",
+	(provider) => {
+		const route = provider === "poyo" ? "POST /api/generate/submit" : "POST /v1/images/generations";
+		const model = provider === "poyo" ? "seedream-5.5" : "doubao-seedream-5-5";
+		for (const current of [draft, editDraft]) {
+			const operationKey = {
+				provider,
+				model,
+				route,
+				operation: current.operation === "generate" ? "text-to-image" : "reference-image-edit",
+			} as const;
+			const input = { ...request, draft: { ...current, provider }, operationKey };
+			const parsed = parseQueueRequest(input);
+			expect(parsed?.entry.key).toEqual(operationKey);
+			expect(parsed?.request).toEqual(
+				parseQueueRequest({ ...request, draft: input.draft })?.request,
+			);
+			for (const key of [
+				null,
+				{},
+				{ ...operationKey, provider: "other" },
+				{ ...operationKey, model: model.toUpperCase() },
+				{ ...operationKey, route: `${route}/` },
+				{ ...operationKey, model: "seedream-5.5-layerize" },
+				{ ...operationKey, operation: "image-layer-decomposition" },
+				{
+					...operationKey,
+					operation: current.operation === "edit" ? "text-to-image" : "reference-image-edit",
+				},
+			]) {
+				expect(parseQueueRequest({ ...input, operationKey: key })).toBeNull();
+			}
+			for (const field of ["layer_decomposition", "output_count", "image_urls"]) {
+				expect(
+					parseQueueRequest({
+						...input,
+						draft: { ...input.draft, options: { ...current.options, [field]: true } },
+					}),
+				).toBeNull();
+			}
+		}
+	},
+);

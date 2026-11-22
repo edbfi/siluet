@@ -9,10 +9,10 @@ import {
 	poyoAspectRatios,
 	seedreamBackgrounds,
 	seedreamOutputFormats,
-	seedreamProviders,
 	seedreamResolutions,
 	validateSeedreamDraft,
 } from "../../../shared/image-studio/seedream";
+import { releasedProviders, resolveOperationKey } from "../../../shared/media-catalog/registry";
 
 function record(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object" && !Array.isArray(value);
@@ -38,14 +38,15 @@ const optionFields = [
 	"watermark",
 ];
 
-export function parseQueueRequest(value: unknown) {
+export function parseQueueRequest(value: unknown, action: "review" | "submit" = "review") {
 	if (
 		!record(value) ||
 		value.count !== 1 ||
 		value.retryLimit !== 0 ||
 		typeof value.acceptUnknown !== "boolean" ||
 		Object.keys(value).some(
-			(key) => !["draft", "count", "retryLimit", "acceptUnknown", "token"].includes(key),
+			(key) =>
+				!["draft", "operationKey", "count", "retryLimit", "acceptUnknown", "token"].includes(key),
 		)
 	)
 		return null;
@@ -53,7 +54,7 @@ export function parseQueueRequest(value: unknown) {
 	if (
 		!record(draft) ||
 		(draft.operation !== "generate" && draft.operation !== "edit") ||
-		!member(draft.provider, seedreamProviders) ||
+		!member(draft.provider, releasedProviders) ||
 		typeof draft.prompt !== "string" ||
 		!Array.isArray(draft.references)
 	)
@@ -69,15 +70,21 @@ export function parseQueueRequest(value: unknown) {
 		typeof options.watermark !== "boolean"
 	)
 		return null;
+	// Before operation keys, generation discarded unrecognized draft and option fields.
+	const replayOnly =
+		Object.keys(draft).some((key) => !draftFields.includes(key)) ||
+		Object.keys(options).some((key) => !optionFields.includes(key));
+	if (
+		replayOnly &&
+		(action !== "submit" ||
+			draft.operation !== "generate" ||
+			"operationKey" in value ||
+			typeof value.token !== "string")
+	)
+		return null;
 	const references: RemoteReference[] = [];
 	if (draft.operation === "edit") {
-		if (
-			draft.references.length < 1 ||
-			draft.references.length > maxSeedreamReferences ||
-			Object.keys(draft).some((key) => !draftFields.includes(key)) ||
-			Object.keys(options).some((key) => !optionFields.includes(key))
-		)
-			return null;
+		if (draft.references.length < 1 || draft.references.length > maxSeedreamReferences) return null;
 		for (const reference of draft.references as unknown[]) {
 			if (
 				!record(reference) ||
@@ -116,8 +123,12 @@ export function parseQueueRequest(value: unknown) {
 		},
 	});
 	if (!validation.ok) return null;
-	const input = validation.input;
+	const { entry, input } = validation;
+	// Older Reviews carry only the Seedream provider and draft mode.
+	if ("operationKey" in value && resolveOperationKey(value.operationKey) !== entry) return null;
 	return {
+		replayOnly,
+		entry,
 		input,
 		request: buildSeedreamRequest(input, (reference) => {
 			if (reference.kind !== "url") throw new Error("Live edits require a URL reference.");

@@ -145,6 +145,9 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(providers).toHaveCount(1);
 			await expect(poyo).toBeChecked();
 			await expect(toapis).toHaveCount(0);
+			await expect(request).toContainText("ToAPIs did not list Seedream 5.5 for this key.");
+			await expect(facts).toContainText("Access to this model is unconfirmed.");
+			await expect(facts).toContainText("input.enable_safety_checker: false");
 
 			await settingsLink.press("Enter");
 			await toapisLink.press("Enter");
@@ -207,7 +210,14 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			const reviews: boolean[] = [];
 			const queued: { token: string; acceptUnknown: boolean }[] = [];
 			await page.route("**/image/review", (route) => {
-				reviews.push(route.request().postDataJSON().acceptUnknown);
+				const body = route.request().postDataJSON();
+				expect(body.operationKey).toEqual({
+					provider: "toapis",
+					model: "doubao-seedream-5-5",
+					route: "POST /v1/images/generations",
+					operation: "text-to-image",
+				});
+				reviews.push(body.acceptUnknown);
 				return route.fulfill({
 					json: {
 						token: `review-${reviews.length}`,
