@@ -910,3 +910,33 @@ test("unknown Poyo job raises no Settings warning; active and unsaved H3 jobs do
 	);
 	expect(await store.needsCredential("poyo")).toBe(true);
 });
+
+test("unresolved Poyo spend marks a new wallet overlap", async () => {
+	const read: CheckFetch = async (url, request) => {
+		if (url.endsWith("/user/balance"))
+			return Response.json({ code: 200, data: { credits_amount: 50 } });
+		if (request.method === "POST") return Response.json({ code: 200, data: { task_id: taskId } });
+		return Response.json({ code: 200, data: { task_id: taskId, status: "finished" } });
+	};
+	// A Poyo H3 claim interrupted before dispatch: restart leaves it uncertain with no open wallet.
+	await insertH3("lost");
+	const jobs = makeTracking(read);
+	await jobs.resume();
+	expect(await imageJobStore(installation).get("lost")).toMatchObject({
+		state: "unknown",
+		wallet_open: 0,
+	});
+	// A later interval on a replacement key still cannot attribute the movement.
+	await providerStore(installation).save("poyo", credential, now, true, 1);
+	await insert("next", "poyo", "seedream-5.5", 2);
+	await dispatch("poyo", "next");
+	now += 2_000;
+	await jobs.refresh("next");
+	expect(await latest("next")).toMatchObject({
+		state: "completed",
+		wallet: { status: "unavailable", reason: "overlap" },
+	});
+	expect(await latest("lost")).toMatchObject({
+		wallet: { status: "unavailable", reason: "uncertain" },
+	});
+});
