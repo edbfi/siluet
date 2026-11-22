@@ -40,7 +40,7 @@ Amended by the owner on 2026-11-22. D2 targets every documented image and video 
 
 It also gets one built-app journey that ends in a verified Save and reopens the result offline from the Gallery. Each input class is tested once per family. A capability unique to one model gets its own slice.
 
-Other models are **contract-covered**. They are validated mechanically against the pinned Poyo.ai catalog or a curated ToAPIs descriptor with a drift check. They Queue only when all of these hold:
+Another operation in a verified family becomes **contract-covered** once it passes mechanical validation against the pinned Poyo.ai catalog or a curated ToAPIs descriptor with a drift check. Rows that fail it stay pending or unknown. A contract-covered operation can Queue only when all of these hold:
 
 - D4 allows the operation.
 - The price is known, or the creator accepts an unknown one.
