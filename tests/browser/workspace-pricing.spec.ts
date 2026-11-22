@@ -7,7 +7,7 @@ import { exportWorkspace } from "../../design/workspace/export";
 import type { PricingFeed } from "../../src/lib/shared/pricing/feed";
 import { decodeToapisPricingFeed } from "../../src/lib/shared/pricing/toapis-feed";
 import { toapisRates } from "../fixtures/toapis-feed";
-import { reloadTest } from "./file-reload";
+import { reloadTest, reloadUrl } from "./workspace-reload";
 
 const workspace = new URL("../../design/workspace/", import.meta.url);
 // https://github.com/PoyoAPI/poyo-devtools/blob/747e5d75319585d66396a3c05bd1b97d9390ce74/artifacts/capability-catalog.json
@@ -156,7 +156,7 @@ test("an expired Image Studio quote returns to Review before Queue can create a 
 reloadTest(
 	"Jobs keeps the reviewed estimate through an automatic retry, expiry, and reload",
 	async ({ page }) => {
-		await page.goto(`${sourceEntry.href}#image`);
+		await page.goto(`${reloadUrl(sourceEntry)}#image`);
 		await page.getByLabel("Prompt", { exact: true }).fill("Tide over black basalt");
 		await page.getByRole("tab", { name: "Batch" }).click();
 		await page.getByText("Simulation controls", { exact: true }).click();
@@ -251,7 +251,7 @@ for (const filename of ["index.html", "workspace.html"]) {
 reloadTest(
 	"Jobs retains an advertised ToAPIs estimate and source across automatic retries and reload",
 	async ({ page }) => {
-		await page.goto(`${sourceEntry.href}#image`);
+		await page.goto(`${reloadUrl(sourceEntry)}#image`);
 		const title = "Tide over black basalt";
 		await page.getByLabel("Model", { exact: true }).selectOption("seedream-5.5");
 		await page.getByRole("radio", { name: "ToAPIs", exact: true }).check();

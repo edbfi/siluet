@@ -6,7 +6,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { exportWorkspace } from "../../design/workspace/export";
 import { loadBundledPricing } from "../../scripts/pricing/local-feed";
-import { reloadTest } from "./file-reload";
+import { reloadOrigin, reloadTest, reloadUrl } from "./workspace-reload";
 
 const workspace = new URL("../../design/workspace/", import.meta.url);
 const time = new Date("2026-11-21T12:00:00Z");
@@ -34,10 +34,10 @@ test.afterAll(async () => {
 	await rm(portableDirectory, { recursive: true, force: true });
 });
 
-async function openStudio(page: Page, filename = "index.html") {
+async function openStudio(page: Page, filename = "index.html", reloadable = false) {
 	await page.clock.install({ time });
 	const entry = filename === "workspace.html" ? portableEntry : sourceEntry;
-	await page.goto(`${entry.href}#image`);
+	await page.goto(`${reloadable ? reloadUrl(entry) : entry.href}#image`);
 	const setup = page.getByRole("dialog", { name: "Choose your demo providers" });
 	await setup.getByRole("checkbox", { name: /Poyo.ai/ }).check();
 	await setup.getByRole("button", { name: "Continue" }).click();
@@ -72,11 +72,12 @@ for (const filename of ["index.html", "workspace.html"]) {
 	reloadTest(`${filename} shows one wallet interval for a completed batch`, async ({ page }) => {
 		const requests: string[] = [];
 		await page.route(/^https?:/, (route) => {
+			if (route.request().url().startsWith(`${reloadOrigin}/`)) return route.fallback();
 			requests.push(route.request().url());
 			return route.abort();
 		});
 		if (filename === "workspace.html") await page.setViewportSize({ width: 320, height: 720 });
-		await openStudio(page, filename);
+		await openStudio(page, filename, true);
 		await queue(page, "Light falling across the bay", 2);
 		await page.clock.runFor(1500);
 		await jobs(page);
@@ -154,7 +155,7 @@ test("an automatic retry keeps its original wallet window open", async ({ page }
 });
 
 reloadTest("manual retry wallet readings survive reload", async ({ page }) => {
-	await openStudio(page);
+	await openStudio(page, "index.html", true);
 	await page.getByRole("tab", { name: "Batch" }).click();
 	await page.getByText("Simulation controls", { exact: true }).click();
 	await page.getByLabel("Simulated outcome").selectOption("failure");
