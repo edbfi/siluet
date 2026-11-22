@@ -114,3 +114,59 @@ test("a primary body can finish after its header deadline within the total budge
 		await rm(dir, { recursive: true, force: true });
 	}
 });
+
+test.each(["header deadline", "total budget"])(
+	"a stalled primary request respects the %s",
+	async (expires) => {
+		const dir = await mkdtemp(join(tmpdir(), "video-deadline-"));
+		const primary = new AbortController();
+		const budget = new AbortController();
+		const deadlines = spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+			if (ms === 30_000) return primary.signal;
+			expect(ms).toBe(60_000);
+			return budget.signal;
+		});
+		const calls: string[] = [];
+		const waiting = Promise.withResolvers<void>();
+		const primaryResponse = Promise.withResolvers<Response>();
+		let primaryAborted = false;
+		try {
+			const file = join(dir, "video");
+			const saved = downloadVideo(source, file, {
+				resolve: async () => "",
+				request: async (url, init) => {
+					calls.push(url.pathname);
+					if (url.pathname === "/fallback") return new Response("fallback");
+					init.signal?.addEventListener(
+						"abort",
+						() => {
+							primaryAborted = true;
+							primaryResponse.reject(new Error("primary request aborted"));
+						},
+						{ once: true },
+					);
+					waiting.resolve();
+					return primaryResponse.promise;
+				},
+			});
+			await waiting.promise;
+			const expired = expires === "header deadline" ? primary : budget;
+			expired.abort();
+			// Settle a request that missed cancellation so a regression fails immediately.
+			primaryResponse.resolve(new Response("late primary"));
+			if (expires === "header deadline") {
+				expect(await saved).toMatchObject({ size: 8 });
+				expect(await readFile(file, "utf8")).toBe("fallback");
+				expect(calls).toEqual(["/primary", "/fallback"]);
+			} else {
+				await expect(saved).rejects.toThrow();
+				expect(calls).toEqual(["/primary"]);
+			}
+			expect(primaryAborted).toBe(true);
+		} finally {
+			budget.abort();
+			deadlines.mockRestore();
+			await rm(dir, { recursive: true, force: true });
+		}
+	},
+);
