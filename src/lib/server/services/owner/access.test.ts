@@ -85,9 +85,11 @@ test("an active session expires after 30 days and sign-in throttling is temporar
 		time += 86400000;
 		expect(await auth.session(session)).toBe(day === 30 ? null : "owner");
 	}
-	// An over-long password fails before Argon2 runs, so the throttle is tested without ten hashes.
+	// The right password with the wrong username fails. The other nine attempts use an
+	// over-long password, which fails before Argon2 runs but still counts.
+	await expect(auth.signIn("unknown", password)).rejects.toThrow("Check your username");
 	const oversized = "x".repeat(1025);
-	for (let i = 0; i < 10; i++)
+	for (let i = 1; i < 10; i++)
 		await expect(auth.signIn("owner", oversized)).rejects.toThrow("Check your username");
 	await expect(auth.signIn("owner", password)).rejects.toThrow("Try again");
 	time += 300000;
