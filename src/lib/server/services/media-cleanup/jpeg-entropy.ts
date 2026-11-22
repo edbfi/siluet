@@ -16,9 +16,16 @@ export type EntropyReader = ReturnType<typeof entropyReader>;
 /** Read the entropy-coded data in `bytes[start, end)`, where `end` is the marker that follows it. */
 export function entropyReader(bytes: Buffer, start: number, end: number) {
 	let position = start;
-	// The data a decoder reads, without fill bytes before restart markers.
-	const kept: Buffer[] = [];
+	// The data a decoder reads, without fill bytes before restart markers. A scan
+	// with fill is compacted into one buffer no larger than the scan, so hostile
+	// fill cannot multiply allocations.
+	let compact: Buffer | undefined;
+	let written = 0;
 	let from = start;
+	const keep = (until: number) => {
+		compact ??= Buffer.allocUnsafe(end - start);
+		written += bytes.copy(compact, written, from, until);
+	};
 	// At most 15 unread bits stay buffered between reads; `last` is where the
 	// newest buffered byte starts, so an unused byte can be given back.
 	let last = start;
@@ -81,20 +88,21 @@ export function entropyReader(bytes: Buffer, start: number, end: number) {
 			while (bytes[code] === 0xff) code++;
 			if (bytes[code] !== marker) refuseJpeg("invalid");
 			if (code - 1 > position) {
-				kept.push(bytes.subarray(from, position));
+				keep(position);
 				from = code - 1;
 			}
 			position = code + 1;
 		},
 		/**
 		 * End the scan: padding, then the next marker with no byte in between.
-		 * Returns the data read, in one slice unless fill was omitted.
+		 * Returns the data read: the source slice, or one compacted copy if fill was omitted.
 		 */
 		finish() {
 			align();
 			if (position !== end) refuseJpeg("trailer");
-			kept.push(bytes.subarray(from, end));
-			return kept;
+			if (!compact) return [bytes.subarray(start, end)];
+			keep(end);
+			return [compact.subarray(0, written)];
 		},
 	};
 }

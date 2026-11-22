@@ -43,6 +43,8 @@ export function finishTables(state: ScanState) {
 
 // B.2.4.1: Pq and Tq, then 64 elements of 8 or 16 bits.
 export function defineQuantization(state: ScanState, data: Buffer) {
+	// An empty segment defines nothing, so it is unused coded data.
+	if (!data.length) refuseJpeg("unsupported");
 	for (let i = 0; i < data.length; ) {
 		const size = 1 + 64 * ((data[i] >> 4) + 1);
 		if (data[i] >> 4 > 1 || (data[i] & 15) > 3 || i + size > data.length) refuseJpeg("invalid");
@@ -54,6 +56,8 @@ export function defineQuantization(state: ScanState, data: Buffer) {
 
 // B.2.4.2 and C: canonical codes, refusing tables libjpeg refuses.
 export function defineHuffman(state: ScanState, data: Buffer) {
+	// An empty segment defines nothing, so it is unused coded data.
+	if (!data.length) refuseJpeg("unsupported");
 	for (let i = 0; i < data.length; ) {
 		if (i + 17 > data.length || data[i] >> 4 > 1 || (data[i] & 15) > 3) refuseJpeg("invalid");
 		const counts = data.subarray(i + 1, i + 17);

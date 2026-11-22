@@ -346,6 +346,15 @@ describe("fill bytes before markers", () => {
 		}
 	});
 
+	test("keeps one compacted slice per scan however many restarts carry fill", () => {
+		for (const source of [restartJpeg([...restarts, 0x3f]), progressiveJpeg()]) {
+			const filled = fillBefore(source, restartCodes);
+			const { image } = readJpeg(filled);
+			expect(image.length).toBe(readJpeg(source).image.length);
+			expect(Buffer.concat(image)).toEqual(Buffer.concat(readJpeg(source).image));
+		}
+	});
+
 	test("still refuses a wrong restart marker after fill", () => {
 		const data = [0x3f, 0xff, 0xff, 0xd1, ...restarts.slice(3), 0x3f];
 		refuses(restartJpeg(data), "invalid");
@@ -398,6 +407,11 @@ describe("coding tables", () => {
 			single([...segment(0xdb, 0, ...Array(63).fill(1)), ...zeroTables.slice(quantization.length)]),
 			"invalid",
 		);
+	});
+
+	test("refuses an empty table segment", () => {
+		refuses(single([...segment(0xdb), ...zeroTables]), "unsupported");
+		refuses(single([...segment(0xc4), ...zeroTables]), "unsupported");
 	});
 
 	test("refuses a restart interval no scan uses", () => {
