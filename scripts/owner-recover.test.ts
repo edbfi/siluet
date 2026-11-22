@@ -32,11 +32,7 @@ function command(directory: string) {
 		},
 	});
 	const prior = term.localFlags;
-	const args =
-		process.platform === "win32"
-			? ["tests/fixtures/windows-recovery-console.ts"]
-			: ["run", "owner:recover"];
-	const child = Bun.spawn([process.execPath, ...args], {
+	const child = Bun.spawn([process.execPath, "run", "owner:recover"], {
 		terminal: term,
 		env: { ...process.env, SILUET_DATA_DIR: directory },
 	});
@@ -135,8 +131,6 @@ test.each(["missing", "unsafe"])(
 				for (const name of await readdir(source)) {
 					if (name !== key) await copyFile(join(source, name), join(directory, name));
 				}
-			} else if (process.platform === "win32") {
-				expect(Bun.spawnSync(["icacls.exe", path, "/grant", "*S-1-5-32-545:R"]).exitCode).toBe(0);
 			} else await chmod(path, 0o644);
 			install = await openInstallation(directory);
 			active = true;

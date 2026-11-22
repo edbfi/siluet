@@ -3,7 +3,6 @@ import {
 	UnsupportedPlatformError,
 	unsupportedPlatformMessage,
 } from "../src/lib/server/platform";
-import { consoleMode } from "./windows-console-mode";
 
 async function main() {
 	// Refuse before loading storage and its native bindings.
@@ -28,14 +27,6 @@ async function main() {
 	};
 	const ensureActive = () => {
 		if (cancelled) throw new Error("Recovery cancelled.");
-	};
-	let savedMode: number | undefined;
-	const restore = () => {
-		try {
-			input.setRawMode(raw);
-		} finally {
-			if (savedMode !== undefined) consoleMode(savedMode);
-		}
 	};
 	const pending: string[] = [];
 	let line = "",
@@ -94,12 +85,7 @@ async function main() {
 	}
 	try {
 		for (const signal of signals) process.on(signal, abort);
-		output.write(
-			process.platform === "win32"
-				? "If forcibly terminated, open a new terminal to restore input echo.\n"
-				: "If forcibly terminated, type stty sane and press Enter to restore input echo.\n",
-		);
-		if (process.platform === "win32") savedMode = consoleMode();
+		output.write("If forcibly terminated, type stty sane and press Enter to restore input echo.\n");
 		input.setRawMode(true);
 		input.setEncoding("utf8");
 		input.on("data", receive);
@@ -116,7 +102,7 @@ async function main() {
 		input.off("data", receive);
 		input.pause();
 		try {
-			restore();
+			input.setRawMode(raw);
 		} finally {
 			for (const signal of signals) process.off(signal, abort);
 			await installation.close();

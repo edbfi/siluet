@@ -24,8 +24,8 @@ async function availablePort(hostname: string) {
 }
 
 async function startProcess(env: Listener) {
-	// Isolate console signals. Forward each stop over IPC, including on Windows
-	// where killing the child would skip the Bun adapter's graceful shutdown.
+	// Isolate console signals. Forward each stop over IPC so the server runs the
+	// Bun adapter's graceful shutdown once, whichever signal reached the launcher.
 	const child = fork(import.meta.path, ["--serve"], {
 		execPath: process.execPath,
 		execArgv: [],
