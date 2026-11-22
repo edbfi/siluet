@@ -18,11 +18,17 @@ import { AccessError } from "./access-error";
 import { ownerDirectory } from "./data-directory";
 import { studioOrigin } from "./origin";
 
+// Vite re-runs the server init hook in the same process after a server-module
+// edit. Module state is re-evaluated, so the previous dev runtime is kept here.
+const devRuntime = Symbol.for("siluet.dev-runtime");
+const host = process as typeof process & { [devRuntime]?: () => Promise<void> };
+
 export async function initializeOwner(dev: boolean) {
 	const origin = studioOrigin(process.env, dev);
 	const lifecycle: EventEmitter = process;
 	if (!dev && !lifecycle.listenerCount("siluet:ready"))
 		throw new Error("Start Siluet with bun run start.");
+	if (dev) await host[devRuntime]?.();
 	const installation = await openRuntimeInstallation(ownerDirectory(dev));
 	try {
 		// Only this runtime holds the registry entry and Turso's lock, so leftovers
@@ -91,8 +97,10 @@ export async function initializeOwner(dev: boolean) {
 			})();
 			return closing;
 		}
-		if (dev) await announce();
-		else {
+		if (dev) {
+			host[devRuntime] = close;
+			await announce();
+		} else {
 			// The launcher emits siluet:stopping before the adapter drains requests.
 			lifecycle.once("siluet:stopping", () => shutdown.abort());
 			lifecycle.once("sveltekit:shutdown", () => {
