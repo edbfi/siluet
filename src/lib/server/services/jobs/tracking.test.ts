@@ -940,3 +940,87 @@ test("unresolved Poyo spend marks a new wallet overlap", async () => {
 		wallet: { status: "unavailable", reason: "uncertain" },
 	});
 });
+
+const h3Target = {
+	provider: "poyo",
+	body: {
+		model: "h3-max",
+		input: {
+			prompt,
+			duration: 5,
+			resolution: "768p",
+			aspect_ratio: "16:9",
+			enable_safety_checker: false,
+		},
+	},
+} as const;
+
+test.each(["image", "video"] as const)(
+	"a job starting during a %s after-read withholds both comparisons",
+	async (first) => {
+		let hold: PromiseWithResolvers<void> | undefined;
+		const reading = Promise.withResolvers<void>();
+		const jobs = makeTracking(async (url, request) => {
+			if (url.endsWith("/user/balance")) {
+				if (hold) {
+					reading.resolve();
+					await hold.promise;
+				}
+				return Response.json({ code: 200, data: { credits_amount: 40 } });
+			}
+			if (request.method === "POST") {
+				const body = JSON.parse(String(request.body));
+				return Response.json({ code: 200, data: { task_id: body.model.replace(/\W/g, "_") } });
+			}
+			const id = url.split("/").at(-1);
+			return Response.json({
+				code: 200,
+				data: { task_id: id, status: "finished", credits_amount: 1 },
+			});
+		});
+		await insert("image", "poyo");
+		await insertH3("video");
+		const start = async (kind: "image" | "video") =>
+			kind === "image"
+				? dispatch("poyo", "image")
+				: jobs.dispatchVideo("video", credential, h3Target);
+		const second = first === "image" ? "video" : "image";
+		await start(first);
+		now += 2_000;
+		hold = Promise.withResolvers<void>();
+		const afterRead = jobs.refresh(first);
+		await reading.promise;
+		const release = hold;
+		hold = undefined;
+		await start(second);
+		release.resolve();
+		await afterRead;
+		now += 2_000;
+		await jobs.refresh(second);
+		for (const id of ["image", "video"])
+			expect(await latest(id)).toMatchObject({
+				state: "completed",
+				wallet: { status: "unavailable", reason: "overlap" },
+			});
+	},
+);
+
+test("a key replaced after the claim leaves the H3 job unsent with no POST", async () => {
+	let posts = 0;
+	const jobs = makeTracking(async (url, request) => {
+		if (url.endsWith("/user/balance")) {
+			await providerStore(installation).save("poyo", "replacement", now, true, 1);
+			return Response.json({ code: 200, data: { credits_amount: 40 } });
+		}
+		if (request.method === "POST") posts++;
+		return Response.json({ code: 200, data: { task_id: "x" } });
+	});
+	await insertH3("video");
+	await jobs.dispatchVideo("video", credential, h3Target);
+	expect(posts).toBe(0);
+	expect(await latest("video")).toMatchObject({
+		state: "unsent",
+		skipped: "interrupted",
+		wallet: null,
+	});
+});

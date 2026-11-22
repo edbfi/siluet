@@ -85,12 +85,13 @@ test("one durable claim binds the eligible key, exact terms and transient draft 
 	const queue = await createVideoQueue(
 		db,
 		access,
-		async (id, key, body, business) => {
+		async (id, key, send) => {
 			calls++;
 			expect(key).toBe("video-only");
-			expect(body.prompt).toBe("Rotate https://private.test/?secret");
+			if (send.provider !== "toapis") throw new Error("Expected a ToAPIs target.");
+			expect(send.body.prompt).toBe("Rotate https://private.test/?secret");
 			expect(await imageJobStore(db).get(id)).toMatchObject({
-				business_id: business,
+				business_id: send.business,
 				operation: seedanceOperation.key.operation,
 			});
 		},
@@ -301,14 +302,15 @@ test.each(["before-dispatch", "same-ack", "conflicting-ack"] as const)(
 		const api = await createVideoQueue(
 			db,
 			access,
-			async (job, key, body, correlation) => {
+			async (job, key, send) => {
 				id = job;
-				business = correlation;
+				if (send.provider !== "toapis") throw new Error("Expected a ToAPIs target.");
+				business = send.business;
 				if (point === "before-dispatch") {
 					accepted.resolve();
 					return;
 				}
-				await server.dispatchVideo(job, key, body, business);
+				await server.dispatchVideo(job, key, send);
 			},
 			undefined,
 			() => now,

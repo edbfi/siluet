@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
 import type { ProviderId } from "../../../shared/providers/connections";
-import type { SeedanceBody } from "../../../shared/video-studio/seedance";
 import { type BatchStop, imageBatchStore, retryStillSupported } from "../../db/image-batch-store";
 import {
 	hasCorrelation,
@@ -17,10 +16,12 @@ import type { providerStore } from "../../db/provider-store";
 import type { CheckFetch } from "../../providers/connection-check";
 import { type ReviewedImageRequest, statusTimeoutMs } from "../../providers/image-job";
 import { createPoyoImage } from "../../providers/poyo/image";
+import { createPoyoVideo } from "../../providers/poyo/video";
 import { createToapisImage } from "../../providers/toapis/image";
 import { createToapisVideo } from "../../providers/toapis/video";
 import { type BatchAuthorization, dispatchBatch } from "../queue/batch-dispatch";
 import { createSubmitGate } from "../queue/submit-gate";
+import type { VideoTarget } from "../queue/video";
 import type { VideoDelivery } from "../video-media/download";
 import { batchHistory } from "./batch-history";
 import { retryEvidence, statusUpdate } from "./observation";
@@ -70,6 +71,7 @@ export function createJobTracking(
 	const gatedSend = createSubmitGate(installation, now, random);
 	const video = createToapisVideo(read);
 	const poyo = createPoyoImage(read);
+	const poyoVideo = createPoyoVideo(read);
 	const adapters = { poyo, toapis: createToapisImage(read) };
 	// Recovery may return a short-lived completed result before the next status read is allowed.
 	// Keep its URL only in this runtime and require the durable observation to still match.
@@ -175,7 +177,11 @@ export function createJobTracking(
 		const videoRead =
 			correlation === null ? null : await video.status(key, correlation, reserved.task_id);
 		const observation =
-			videoRead ?? (await adapters[job.provider].status(key, reserved.task_id ?? ""));
+			videoRead ??
+			(await (isVideoJob(reserved) ? poyoVideo : adapters[job.provider]).status(
+				key,
+				reserved.task_id ?? "",
+			));
 		const finished = now();
 		const interval =
 			initialWait[job.provider] + Math.floor(random() * (intervalJitter[job.provider] + 1));
@@ -310,27 +316,43 @@ export function createJobTracking(
 	}
 
 	return {
-		async dispatchVideo(id: string, key: string, body: SeedanceBody, business: string) {
-			if (closed || !(await store.beginDispatch(id, "toapis", now()))) return;
+		async dispatchVideo(id: string, key: string, target: VideoTarget) {
+			const { provider } = target;
+			if (closed || !(await store.beginDispatch(id, provider, now()))) return;
+			// A Poyo wallet interval opens with a before-read on the claimed key.
+			if (provider === "poyo") await store.recordBefore(id, await poyo.balance(key), now());
 			const response = await gatedSend(
-				"toapis",
+				provider,
 				Infinity,
 				1,
-				() => video.submit(key, body, business),
+				() =>
+					target.provider === "poyo"
+						? poyoVideo.submit(key, target.body)
+						: video.submit(key, target.body, target.business),
 				{
 					allowed: async (tx) =>
 						!closed &&
 						!!(await tx.get(
 							sql`SELECT 1 FROM image_job j JOIN provider_credential c ON c.provider=j.provider AND c.revision=j.revision WHERE j.id=${id} AND j.state='submitting' AND c.ciphertext IS NOT NULL AND j.submission_recorded_at IS NULL`,
 						)),
+					// An unsent job closes its wallet interval without an after-read.
 					blocked: (tx, reason, until) => skipImageSend(tx, id, reason, now(), until),
 				},
 			);
 			if ("blocked" in response) return;
 			const { result } = response;
-			const job = await store.recordSubmission(id, result, now(), 5000, response.retryAt);
-			if (job) schedule(job);
-			else if (result.kind === "accepted") await store.identityConflict(id, result.taskId);
+			const job = await store.recordSubmission(
+				id,
+				result,
+				now(),
+				initialWait[provider],
+				response.retryAt,
+			);
+			if (job) {
+				if (job.state === "rejected") await finishBalance(job);
+				schedule(job);
+			} else if (provider === "toapis" && result.kind === "accepted")
+				await store.identityConflict(id, result.taskId);
 		},
 		async lookup(id: string) {
 			await readStatus(id, false, true);
