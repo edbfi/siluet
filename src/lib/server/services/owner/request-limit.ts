@@ -1,4 +1,4 @@
-import { readBounded } from "../media-cleanup/preparation-bytes";
+import { readBounded } from "../../http/read-bounded";
 
 export async function ordinaryRequest(request: Request) {
 	const limit = 512 * 1024;

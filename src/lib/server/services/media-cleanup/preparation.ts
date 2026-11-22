@@ -2,15 +2,10 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 import type { PreparedStageMedia } from "../../../shared/media-staging/descriptor";
 import { type RuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
+import { BodyLimitError, readBounded } from "../../http/read-bounded";
 import { cleanJpeg, JpegCleanupError } from "./jpeg";
 import { cleanPng, PngCleanupError } from "./png";
-import {
-	failure,
-	maxPreparationBytes,
-	mediaMime,
-	PreparationError,
-	readBounded,
-} from "./preparation-bytes";
+import { failure, maxPreparationBytes, mediaMime, PreparationError } from "./preparation-bytes";
 
 // libvips' operation cache would retain decoded pixels between requests. Disable it
 // for the whole server process, which also covers Gallery verification.
@@ -144,7 +139,9 @@ export function createMediaPreparation(
 					: // A cancelled request body may never settle its pending read. It holds no
 						// native work, so the slot does not wait for it.
 						await Promise.race([
-							readBounded(source, maxPreparationBytes, check, stopped),
+							readBounded(source, maxPreparationBytes, check, stopped).catch((error) => {
+								throw error instanceof BodyLimitError ? failure("limit") : error;
+							}),
 							interrupted,
 						]);
 			check();
