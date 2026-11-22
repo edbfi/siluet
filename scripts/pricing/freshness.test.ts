@@ -2,12 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import bundledV1 from "../../pricing/v1/feed.json";
 import {
 	decodeToapisPricingFeed,
 	toapisFeedExpiryMs,
 } from "../../src/lib/shared/pricing/toapis-feed";
-import { poyoV2Feed, sizedPoyoV2Feed } from "../../tests/fixtures/poyo-v2-feed";
+import { poyoV1Feed, poyoV2Feed, sizedPoyoV2Feed } from "../../tests/fixtures/poyo-v2-feed";
 import { toapisRates } from "../../tests/fixtures/toapis-feed";
 import { checkPricingFreshness, readFreshnessArgs } from "./freshness";
 
@@ -20,7 +19,7 @@ const path = (name: string) => resolve(directory, name);
 beforeEach(() => {
 	directory = mkdtempSync(resolve(tmpdir(), "siluet-freshness-"));
 	writeFileSync(path("v2.json"), JSON.stringify(poyoV2Feed));
-	writeFileSync(path("v1.json"), JSON.stringify(bundledV1));
+	writeFileSync(path("v1.json"), JSON.stringify(poyoV1Feed));
 	writeFileSync(path("toapis.json"), JSON.stringify(toapisRates));
 });
 
@@ -67,7 +66,7 @@ describe("published PoYo freshness", () => {
 	test.each([
 		["missing", "absent.json", undefined],
 		["invalid", "bad.json", "{"],
-		["v1-shaped", "bad.json", JSON.stringify(bundledV1)],
+		["v1-shaped", "bad.json", JSON.stringify(poyoV1Feed)],
 		[
 			"confirmed after the clock",
 			"future.json",
@@ -101,7 +100,7 @@ describe("publication size limits", () => {
 	});
 
 	test.each([
-		["poyoV1", bundledV1, "Published PoYo v1 rates"],
+		["poyoV1", poyoV1Feed, "Published PoYo v1 rates"],
 		["toapis", toapisRates, "Published ToAPIs rates"],
 	] as const)(
 		"a published %s feed may be 4096 bytes including its LF",
