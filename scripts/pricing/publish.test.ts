@@ -2,12 +2,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import bundledV1 from "../../pricing/v1/feed.json";
-import bundledV2 from "../../pricing/v2/poyo.json";
+import shippedV1 from "../../pricing/v1/feed.json";
+import shippedV2 from "../../pricing/v2/poyo.json";
 import { decodePricingFeed } from "../../src/lib/shared/pricing/feed.ts";
 import { decodePoyoV2Feed } from "../../src/lib/shared/pricing/poyo-feed.ts";
 import h3Fixture from "../../tests/fixtures/h3-rate.v2.json";
-import { sizedPoyoV2Feed } from "../../tests/fixtures/poyo-v2-feed.ts";
+import {
+	poyoV1Feed as bundledV1,
+	poyoV2Feed as bundledV2,
+	sizedPoyoV2Feed,
+} from "../../tests/fixtures/poyo-v2-feed.ts";
 import { refreshPricingFeed } from "./refresh.ts";
 
 const v1Path = "pricing/v1/feed.json";
@@ -19,12 +23,17 @@ const license = resolve(import.meta.dir, "../../", v1LicensePath);
 const ref = "refs/heads/pricing-data";
 const day = 86_400;
 
-// Confirmations must be current, so they are derived from the real clock.
-const nowSeconds = Math.floor(Date.now() / 1000);
+// Confirmations must be current, so they are derived from the real clock. The publication
+// tests use a fixed v1 and v2 pair, so they do not move with the shipped bundles.
+let nowSeconds = Math.floor(Date.now() / 1000);
+if (nowSeconds % day === 0) {
+	// At 00:00:00 UTC no earlier second exists on the same day.
+	await Bun.sleep(1000);
+	nowSeconds += 1;
+}
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString().replace(".000Z", "Z");
-const secondsToday = nowSeconds % day;
-// Two confirmations on the current UTC day.
-const earlierToday = iso(nowSeconds - Math.min(60, secondsToday));
+// Two distinct confirmations on the current UTC day.
+const earlierToday = iso(nowSeconds - Math.min(60, nowSeconds % day));
 const now = iso(nowSeconds);
 const yesterday = iso(nowSeconds - day);
 
@@ -133,8 +142,8 @@ function seedV2(feed: unknown, v1 = bundledV1) {
 }
 
 test("bundles snapshots accepted by the shared feed decoders", () => {
-	expect(JSON.stringify(decodePricingFeed(bundledV1))).toBe(JSON.stringify(bundledV1));
-	expect(JSON.stringify(decodePoyoV2Feed(bundledV2))).toBe(JSON.stringify(bundledV2));
+	expect(JSON.stringify(decodePricingFeed(shippedV1))).toBe(JSON.stringify(shippedV1));
+	expect(JSON.stringify(decodePoyoV2Feed(shippedV2))).toBe(JSON.stringify(shippedV2));
 });
 
 describe("PoYo v2 publication", () => {
@@ -222,13 +231,17 @@ describe("PoYo v2 publication", () => {
 		const published = head();
 		const rejected: [unknown, RegExp][] = [
 			[
-				{ ...v2, revision: newRevision, sourceDate: newSource, confirmedAt: earlierToday },
+				// An older confirmation, whether or not it falls on the same UTC day.
+				{ ...v2, revision: newRevision, sourceDate: newSource, confirmedAt: iso(nowSeconds - 60) },
 				/older confirmation/,
 			],
 			[{ ...v2, revision: newRevision }, /newer source date/],
 			[{ ...v2, confirmedAt: iso(nowSeconds + 120) }, /future/],
 			[{ ...v2, confirmedAt: iso(nowSeconds - 2 * 3600) }, /one hour/],
-			[{ ...v2, confirmedAt: bundledV2.sourceDate }, /expired|one hour/],
+			[
+				{ ...v2, sourceDate: iso(nowSeconds - 30 * day), confirmedAt: iso(nowSeconds - 30 * day) },
+				/expired/,
+			],
 			[{ ...v2, rates: { ...v2.rates, "seedream-5.5": { kind: "unavailable" } } }, /changed/],
 			[
 				{ ...v2, rates: { "z-image": v2.rates["z-image"], extra: { kind: "unavailable" } } },
@@ -281,6 +294,22 @@ describe("PoYo v2 publication", () => {
 		expect(publish(changed).err).toMatch(/changed/);
 	});
 
+	test.each([
+		["an unfamiliar", h3Fixture.rates["h3-max"]],
+		["the z-image", bundledV2.rates["z-image"]],
+	])("projects %s kind at seedream-5.5 as unavailable in v1", (_, rate) => {
+		const candidate = { ...v2, rates: { ...v2.rates, "seedream-5.5": rate } };
+		const result = publish(candidate);
+		if (!result.success) throw new Error(result.err);
+		expect(JSON.parse(show(v2Path))).toEqual(candidate);
+		const v1 = JSON.parse(show(v1Path));
+		expect(v1.rates).toEqual({
+			"z-image": v2.rates["z-image"],
+			"seedream-5.5": { kind: "unavailable" },
+		});
+		expect(decodePricingFeed(v1)).toEqual(v1);
+	});
+
 	test("rejects a branch with unexpected contents", () => {
 		seed({ [v1Path]: `${JSON.stringify(bundledV1)}\n`, [v1LicensePath]: licenseText, extra: "x" });
 		expect(publish(v2).err).toContain("Unexpected contents");
@@ -311,7 +340,10 @@ describe("PoYo v2 publication", () => {
 		expect(new TextEncoder().encode(body).byteLength).toBe(65_536);
 		expect(publish(largest).out).toContain("PoYo pricing is unchanged.");
 		const client = mkdtempSync(resolve(sandbox, "client-"));
-		writeFileSync(resolve(client, "bundled-v2.json"), JSON.stringify(bundledV2));
+		writeFileSync(
+			resolve(client, "bundled-v2.json"),
+			JSON.stringify({ ...bundledV2, confirmedAt: bundledV2.sourceDate }),
+		);
 		const refreshed = await refreshPricingFeed({
 			bundledPath: resolve(client, "bundled-v1.json"),
 			cachePath: resolve(client, "v1.json"),
