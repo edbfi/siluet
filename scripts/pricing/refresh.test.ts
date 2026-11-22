@@ -499,6 +499,23 @@ describe("confirmed PoYo v2 refresh", () => {
 		expect(await loadLocalPricing(v2Now, poyoPaths())).toEqual(confirmed);
 	});
 
+	test("reports a published feed in sorted key order as unchanged", async () => {
+		const sorted = (value: unknown): unknown =>
+			value && typeof value === "object"
+				? Object.fromEntries(
+						Object.entries(value)
+							.sort(([a], [b]) => (a < b ? -1 : 1))
+							.map(([key, field]) => [key, sorted(field)]),
+					)
+				: value;
+		const published = sorted(bundledV2);
+		expect(JSON.stringify(published)).not.toBe(JSON.stringify(bundledV2));
+		expect(await refreshV2(published).result).toMatchObject({
+			status: "unchanged",
+			feed: bundledV2,
+		});
+	});
+
 	test("falls back to the v1 feed only when the v2 feed is not found", async () => {
 		const { result } = refreshV2(new Response("error", { status: 503 }));
 		await expect(result).rejects.toThrow(/HTTP 503/);

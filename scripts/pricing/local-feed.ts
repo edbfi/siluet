@@ -10,6 +10,7 @@ import type { PricingProvider } from "../../src/lib/shared/pricing/feeds";
 
 export {
 	type CachedPricingFeed,
+	canonicalJson,
 	decodePricingFile,
 	type PricingFile,
 	type PricingPaths,

@@ -12,6 +12,7 @@ import { poyoConfirmationMs, poyoFeedExpiryMs } from "../../src/lib/shared/prici
 import { toapisFeedExpiryMs } from "../../src/lib/shared/pricing/toapis-feed";
 import {
 	type CachedPricingFeed,
+	canonicalJson,
 	decodePricingFile,
 	type PricingFile,
 	type PricingPaths,
@@ -186,7 +187,7 @@ async function saveFeed(
 			if (conflict) throw new Error(`Pricing feed rejected due to ${conflict}.`);
 		}
 		const previous = cache?.feed ?? bundled;
-		const status = JSON.stringify(feed) === JSON.stringify(previous) ? "unchanged" : "updated";
+		const status = canonicalJson(feed) === canonicalJson(previous) ? "unchanged" : "updated";
 		const checkedAt = new Date(nowMs).toISOString();
 		await replaceCache(cachePath, encodeCacheEntry(file, { checkedAt, feed }));
 		return { status, checkedAt, feed, cachePath };
