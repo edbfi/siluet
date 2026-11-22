@@ -25,3 +25,34 @@ export const requestControl = css({
 const helpText = { fontSize: "0.8rem", fontWeight: 400 };
 export const requestHelp = css(helpText, { color: "muted" });
 export const requestError = css(helpText, { color: "danger" });
+
+export const fieldHeading = css({
+	display: "flex",
+	flexWrap: "wrap",
+	alignItems: "baseline",
+	justifyContent: "space-between",
+	gap: "0 0.5rem",
+});
+
+export const requestLink = {
+	color: "accent",
+	fontSize: "0.85rem",
+	fontWeight: 650,
+	textDecoration: "underline",
+	textUnderlineOffset: "0.16em",
+} as const;
+
+export const referenceAction = css({
+	minHeight: "44px",
+	width: "fit-content",
+	font: "inherit",
+	fontWeight: 650,
+	color: "accent",
+	cursor: "pointer",
+	border: 0,
+	background: "transparent",
+	paddingInline: 0,
+	textDecoration: "underline",
+	textUnderlineOffset: "0.16em",
+	_disabled: { color: "muted", cursor: "default", textDecoration: "none" },
+});

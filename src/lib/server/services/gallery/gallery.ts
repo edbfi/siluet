@@ -1,7 +1,7 @@
 import type { Installation } from "../../db/installation";
 import { downloadImage } from "./download";
 import { galleryStorage } from "./storage";
-import { verifyImage } from "./verify-image";
+import { UnsupportedGalleryImage, verifyImage } from "./verify-image";
 
 export function createGallery(
 	installation: Installation,
@@ -17,7 +17,9 @@ export function createGallery(
 			if (!url) return false;
 			const bytes = await download(url);
 			return await storage.publish(id, bytes, await verifyImage(bytes));
-		} catch {
+		} catch (error) {
+			if (error instanceof UnsupportedGalleryImage)
+				await storage.markUnsupported(id).catch(() => {});
 			return false;
 		}
 	}

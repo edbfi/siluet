@@ -451,10 +451,15 @@ for (const provider of ["poyo", "toapis"] as const) {
 				await page.getByRole("button", { name: "Remove reference image 3" }).press("Enter");
 				const menu = page.getByRole("button", { name: "Menu", exact: true });
 				const navigation = page.getByRole("dialog");
-				await menu.press("Enter");
+				const openMenu = async () => {
+					await menu.press("Enter");
+					await expect(navigation.getByRole("button", { name: "Close menu" })).toBeFocused();
+				};
+				await openMenu();
 				await navigation.getByRole("link", { name: "Settings", exact: true }).press("Enter");
-				await expect(page).toHaveURL(/\/settings\/providers/);
-				await menu.press("Enter");
+				await expect(navigation).toHaveCount(0);
+				await expect(page.getByRole("heading", { name: "Provider connections" })).toBeVisible();
+				await openMenu();
 				await navigation.getByRole("link", { name: "Image Studio", exact: true }).press("Enter");
 				await expect(page).toHaveURL(`${origin}/image`);
 				for (const [index, label] of ["A", "B"].entries()) {

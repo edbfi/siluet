@@ -39,6 +39,8 @@ function oneImage(files: unknown) {
 function rejection(status: number, body: unknown): Rejection | null {
 	if (status >= 500 || status === 408 || status === 429) return null;
 	const code = isRecord(body) ? body.code : null;
+	if (status !== 200 && code != null && status !== code) return null;
+	if (isRecord(body) && isRecord(body.data) && Object.hasOwn(body.data, "status")) return null;
 	const error = isRecord(body) && isRecord(body.error) ? body.error.type : null;
 	if (
 		code === 400 &&
@@ -49,16 +51,13 @@ function rejection(status: number, body: unknown): Rejection | null {
 	)
 		return "validation";
 	if (code === 400 && error === "content_moderation_error") return "filtering";
-	const consistentStatus = code == null || code === status;
-	if (
-		(code === 402 && error === "insufficient_credits_error") ||
-		(consistentStatus && status === 402)
-	)
+	const httpRejection = error == null && (code == null || code === status);
+	if ((code === 402 && error === "insufficient_credits_error") || (httpRejection && status === 402))
 		return "quota";
 	if (
 		(code === 401 && error === "authentication_error") ||
 		(code === 403 && error === "permission_denied_error") ||
-		(consistentStatus && (status === 401 || status === 403))
+		(httpRejection && (status === 401 || status === 403))
 	)
 		return "authorization";
 	return null;
@@ -67,12 +66,13 @@ function rejection(status: number, body: unknown): Rejection | null {
 export function createPoyoImage(read: CheckFetch = fetch) {
 	return {
 		// https://docs.poyo.ai/api-manual/image-series/seedream-5-5
+		// https://docs.poyo.ai/api-manual/image-series/z-image
 		// https://docs.poyo.ai/api-manual/error-codes
 		async submit(key: string, request: ReviewedImageRequest): Promise<Submission> {
 			if (request.url !== submitUrl) return { kind: "unknown" };
 			const { ok, status, body } = await requestImageJson(read, submitUrl, key, request);
 			if (isRecord(body) && isRecord(body.data) && Object.hasOwn(body.data, "task_id"))
-				return ok && body.code === 200 && !body.error && isTaskId(body.data.task_id)
+				return ok && body.code === 200 && body.error == null && isTaskId(body.data.task_id)
 					? { kind: "accepted", taskId: body.data.task_id }
 					: { kind: "unknown" };
 			const reason = rejection(status, body);

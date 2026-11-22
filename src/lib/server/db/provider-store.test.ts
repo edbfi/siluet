@@ -89,17 +89,23 @@ test("readable Seedream revisions follow ciphertext and key changes between Jobs
 	const store = providerStore(installation);
 	await saveCurrent(store, "poyo", poyoKey, 123, true);
 	await saveCurrent(store, "toapis", toapisKey, 456, false);
-	expect(await store.readableRevisions()).toEqual(new Map([["poyo", 1]]));
+	const poyo = { provider: "poyo", model: "seedream-5.5", revision: 1 } as const;
+	const toapis = { provider: "toapis", model: "doubao-seedream-5-5", revision: 1 } as const;
+	let readable = await store.jobReadability();
+	expect(readable(poyo)).toBe(true);
+	expect(readable(toapis)).toBe(false);
 	await saveCurrent(store, "poyo", poyoKey, 124, true);
-	expect(await store.readableRevisions()).toEqual(new Map([["poyo", 2]]));
+	readable = await store.jobReadability();
+	expect(readable(poyo)).toBe(false);
+	expect(readable({ ...poyo, revision: 2 })).toBe(true);
 	await installation.use((db) =>
 		db.run(sql`UPDATE provider_credential SET ciphertext='corrupt' WHERE provider='poyo'`),
 	);
-	expect(await store.readableRevisions()).toEqual(new Map());
+	expect((await store.jobReadability())({ ...poyo, revision: 2 })).toBe(false);
 	await saveCurrent(store, "toapis", toapisKey, 457, true);
-	expect(await store.readableRevisions()).toEqual(new Map([["toapis", 2]]));
+	expect((await store.jobReadability())({ ...toapis, revision: 2 })).toBe(true);
 	await writeFile(keyPath(), Buffer.alloc(32, 42));
-	expect(await store.readableRevisions()).toEqual(new Map());
+	expect((await store.jobReadability())({ ...toapis, revision: 2 })).toBe(false);
 });
 
 test.each(["missing", "malformed", "unmatched"])(
@@ -331,10 +337,7 @@ test("independent installations save simultaneous provider checks with a single 
 			]),
 		).toEqual(["connected", "connected"]);
 		expect(reads).toBe(2);
-		expect((await firstService.seedreamAvailability()).eligibleProviders).toEqual([
-			"poyo",
-			"toapis",
-		]);
+		expect((await firstService.imageAvailability()).eligibleProviders).toEqual(["poyo", "toapis"]);
 		expect((await readdir(directory)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
 	} finally {
 		await second.close();
@@ -417,7 +420,7 @@ test.skipIf(process.platform === "win32")(
 		} finally {
 			await chmod(keyPath(), 0o600);
 		}
-		expect((await service.seedreamAvailability()).eligibleProviders).toEqual(["poyo"]);
+		expect((await service.imageAvailability()).eligibleProviders).toEqual(["poyo"]);
 		expect(await service.connect("toapis", toapisKey)).toBe("connected");
 		expect(reads).toBe(1);
 	},
@@ -432,4 +435,22 @@ test("dispatch opens an eligible credential only at the requested revision", asy
 	expect(await store.credential("poyo")).toBeNull();
 	await store.remove("poyo");
 	expect(await store.credential("poyo", 1)).toBeNull();
+});
+
+test("Poyo balance access follows the readable revision independently of Seedream permission", async () => {
+	const store = providerStore(installation);
+	await saveCurrent(store, "poyo", poyoKey, 123, false);
+	await saveCurrent(store, "toapis", toapisKey, 123, true);
+	expect(await store.credential("poyo", 1, "poyo-balance")).toEqual({ revision: 1, key: poyoKey });
+	expect(await store.credential("toapis", 1, "poyo-balance")).toBeNull();
+	expect(await store.credential("poyo", 1)).toBeNull();
+	const readable = await store.jobReadability();
+	expect(readable({ provider: "poyo", model: "z-image", revision: 1 })).toBe(true);
+	expect(readable({ provider: "poyo", model: "seedream-5.5", revision: 1 })).toBe(false);
+	expect(readable({ provider: "toapis", model: "doubao-seedream-5-5", revision: 1 })).toBe(true);
+	await saveCurrent(store, "poyo", "another-fixture-key", 124, true);
+	expect(await store.credential("poyo", 1, "poyo-balance")).toBeNull();
+	expect(await store.credential("poyo", 2, "poyo-balance")).toMatchObject({ revision: 2 });
+	await store.remove("poyo");
+	expect(await store.credential("poyo", 2, "poyo-balance")).toBeNull();
 });

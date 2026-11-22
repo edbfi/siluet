@@ -1,6 +1,7 @@
 <script lang="ts">
 import { reviewPriceReason } from "#lib/shared/image-studio/review-price.ts";
 import { seedreamProviderNames } from "#lib/shared/image-studio/seedream.ts";
+import { releasedModels, releasedOperations } from "#lib/shared/media-catalog/registry.ts";
 import { enhance, type SubmitFunction } from "$app/forms";
 import { invalidate } from "$app/navigation";
 import type { PageProps } from "./$types";
@@ -78,18 +79,34 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 	<p class={styles.intro}>Track image requests and save completed images to Gallery.</p>
 	<div class={styles.list}>
 		{#each data.jobs as job (job.id)}
+			{@const entry = releasedOperations.find(
+				(entry) =>
+					entry.key.provider === job.provider &&
+					entry.key.model === job.model &&
+					(!job.operation || entry.key.operation === job.operation),
+			)}
 			{@const provider = seedreamProviderNames[job.provider]}
 			{@const saved = data.saved.includes(job.id)}
 			{@const cooldown = job.nextReadAt && job.nextReadAt > data.now ? job.nextReadAt : null}
 			<article class={styles.job} aria-labelledby={`job-${job.id}-title`} id={`job-${job.id}`}>
 				<header>
 					<div class={styles.header}>
-						<h2 class={styles.heading} id={`job-${job.id}-title`}>Seedream 5.5 · {provider}</h2>
+						<h2 class={styles.heading} id={`job-${job.id}-title`}>
+							{releasedModels.find((model) => model.id === entry?.modelId)?.label ?? job.model} ·
+							{provider}
+						</h2>
 						<span class={styles.state} data-state={job.state} aria-live="polite"
-							>{states[job.state]}</span
+							>{job.galleryReason === "unsupported-image"
+								? "Completed · unsupported image for Gallery"
+								: states[job.state]}</span
 						>
 					</div>
-					<p class={styles.meta}>Created {@render date(job.createdAt)}</p>
+					<p class={styles.meta}>
+						{#if job.operation && entry}
+							{entry.label} ·
+						{/if}
+						Created {@render date(job.createdAt)}
+					</p>
 				</header>
 				{#if job.message}
 					<p class={styles.note}>

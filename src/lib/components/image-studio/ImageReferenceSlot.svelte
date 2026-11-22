@@ -10,7 +10,7 @@ import {
 import type { SeedreamProvider } from "#lib/shared/image-studio/seedream.ts";
 import { css } from "#styled-system/css";
 import { type ReferenceSlotDraft, referenceLabel } from "./draft-context.ts";
-import { requestControl, requestField, requestLabel } from "./request-styles.ts";
+import { referenceAction, requestControl, requestField, requestLabel } from "./request-styles.ts";
 
 const slot = css({ display: "grid", gap: "0.3rem", minWidth: 0, paddingBlock: "0.75rem" });
 const fileName = css({ minWidth: 0, overflowWrap: "anywhere" });
@@ -21,20 +21,6 @@ const actionRow = css({
 	gap: "0 0.75rem",
 });
 const referenceDetail = css({ color: "muted", fontSize: "0.82rem" });
-const referenceAction = css({
-	minHeight: "44px",
-	width: "fit-content",
-	font: "inherit",
-	fontWeight: 650,
-	color: "accent",
-	cursor: "pointer",
-	border: 0,
-	background: "transparent",
-	paddingInline: 0,
-	textDecoration: "underline",
-	textUnderlineOffset: "0.16em",
-	_disabled: { color: "muted", cursor: "default", textDecoration: "none" },
-});
 
 let {
 	provider,

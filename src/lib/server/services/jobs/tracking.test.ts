@@ -2,16 +2,23 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
+import { referencePng } from "../../../../../tests/fixtures/reference-image";
 import {
 	buildSeedreamRequest,
 	createSeedreamDraft,
 	validateSeedreamDraft,
 } from "../../../shared/image-studio/seedream";
+import {
+	buildZImageRequest,
+	createZImageDraft,
+	validateZImageDraft,
+} from "../../../shared/image-studio/z-image";
 import type { ProviderId } from "../../../shared/providers/connections";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
 import type { CheckFetch } from "../../providers/connection-check";
+import { createGallery } from "../gallery/gallery";
 import { createJobTracking } from "./tracking";
 
 const start = 1_799_000_000_000;
@@ -43,11 +50,16 @@ afterEach(async () => {
 });
 
 const latest = async (id = "job") => (await tracker?.list())?.find((job) => job.id === id);
-const insert = (id = "job", provider: ProviderId = "toapis") =>
+const insert = (
+	id = "job",
+	provider: ProviderId = "toapis",
+	model = provider === "poyo" ? "seedream-5.5" : "doubao-seedream-5-5",
+	revision = 1,
+) =>
 	installation.use((db) =>
 		db.run(sql`INSERT INTO image_job (id,binding,provider,revision,quote,state,created_at,model,poll_deadline)
-			VALUES (${id},'binding',${provider},1,${JSON.stringify(quote)},'submitting',${now},
-				${provider === "poyo" ? "seedream-5.5" : "doubao-seedream-5-5"},${now + imageJobPollingWindowMs})`),
+			VALUES (${id},'binding',${provider},${revision},${JSON.stringify(quote)},'submitting',${now},
+				${model},${now + imageJobPollingWindowMs})`),
 	);
 
 function makeTracking(read: CheckFetch) {
@@ -703,3 +715,81 @@ test("a second startup preserves a terminal job's in-flight wallet interval", as
 		await second.close();
 	}
 });
+
+test.each(["generate", "edit"] as const)(
+	"Z-Image %s retries a failed Save on the same task after an unresolved Seedream submission",
+	async (operation) => {
+		const posts: unknown[] = [];
+		const statusUrls: string[] = [];
+		const read: CheckFetch = async (url, init) => {
+			if (url.endsWith("/user/balance"))
+				return Response.json({ code: 200, data: { credits_amount: 61 - posts.length } });
+			if (init.method === "POST") {
+				posts.push(JSON.parse(String(init.body)));
+				return posts.length === 1
+					? new Response(null, { status: 502 })
+					: Response.json({ code: 200, data: { task_id: taskId } });
+			}
+			statusUrls.push(url);
+			return Response.json({
+				code: 200,
+				data: {
+					task_id: taskId,
+					status: "finished",
+					credits_amount: 2,
+					files: [{ file_type: "image", file_url: signedUrl }],
+				},
+			});
+		};
+		const jobs = makeTracking(read);
+		await insert("uncertain", "poyo");
+		await dispatch("poyo", "uncertain");
+		expect(await latest("uncertain")).toMatchObject({ state: "unknown" });
+		await providerStore(installation).save("poyo", "replacement-key", now, false, 1);
+		await insert("z-job", "poyo", "z-image", 2);
+		const validated = validateZImageDraft({
+			...createZImageDraft(operation, prompt),
+			references: operation === "edit" ? [{ kind: "url", url: referenceUrl }] : [],
+		});
+		if (!validated.ok) throw new Error("Invalid fixture");
+		const request = buildZImageRequest(validated.input);
+		await Promise.all([
+			jobs.dispatch("z-job", "poyo", "replacement-key", request),
+			jobs.dispatch("z-job", "poyo", "replacement-key", request),
+		]);
+		now += 2000;
+		await jobs.refresh("z-job");
+		expect(await latest("z-job")).toMatchObject({
+			state: "completed",
+			model: "z-image",
+			billing: { status: "reported", credits: "2" },
+			wallet: { status: "unavailable", reason: "overlap" },
+		});
+		expect(await jobs.needsCredential("poyo")).toBe(true);
+		expect(await providerStore(installation).remove("poyo", true)).toBe("job-warning");
+		const downloads: string[] = [];
+		const gallery = createGallery(installation, jobs.resultUrl, async (url) => {
+			downloads.push(url);
+			if (downloads.length === 1) throw new Error("Expired link");
+			return referencePng;
+		});
+		now += 2000;
+		expect(await gallery.save("z-job")).toBe(false);
+		expect(await latest("z-job")).toMatchObject({ state: "completed", canSave: true });
+		now += 2000;
+		expect(await gallery.save("z-job")).toBe(true);
+		expect(downloads).toEqual([signedUrl, signedUrl]);
+		expect(statusUrls).toEqual(Array(3).fill(`https://api.poyo.ai/api/generate/status/${taskId}`));
+		const restarted = await reopen(read);
+		await restarted.resume();
+		await providerStore(installation).remove("poyo");
+		expect((await createGallery(installation, restarted.resultUrl).read("z-job"))?.bytes).toEqual(
+			referencePng,
+		);
+		expect(posts).toHaveLength(2);
+		expect(posts[1]).toEqual(request.body);
+		const rows = await installation.use((db) => db.all(sql`SELECT * FROM image_job`));
+		for (const value of [prompt, referenceUrl, signedUrl, credential, "replacement-key"])
+			expect(JSON.stringify(rows)).not.toContain(value);
+	},
+);

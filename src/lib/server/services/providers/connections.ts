@@ -1,5 +1,6 @@
 import type { ProviderId } from "#lib/shared/providers/connections.ts";
 import { seedreamProviderNames } from "../../../shared/image-studio/seedream";
+import { zImageEligible } from "../../../shared/image-studio/z-image";
 import { ProviderKeyPolicyError } from "../../db/provider-key";
 import type { providerStore } from "../../db/provider-store";
 import type { ConnectionCheck } from "../../providers/connection-check";
@@ -18,7 +19,7 @@ type MutationOutcome =
 	| "storage-unavailable";
 
 export function createProviderConnections(
-	store: Omit<ReturnType<typeof providerStore>, "credential" | "readableRevisions">,
+	store: Omit<ReturnType<typeof providerStore>, "credential" | "jobReadability">,
 	checks: Record<ProviderId, ConnectionCheck>,
 	elapsed = () => performance.now(),
 ) {
@@ -28,10 +29,11 @@ export function createProviderConnections(
 
 	return {
 		statuses,
-		async seedreamAvailability() {
+		async imageAvailability() {
 			const eligibleProviders: ProviderId[] = [];
 			const unavailableProviders: string[] = [];
-			for (const status of await statuses()) {
+			const connections = await statuses();
+			for (const status of connections) {
 				if (status.state === "connected" && status.seedream) {
 					eligibleProviders.push(status.id);
 					continue;
@@ -45,7 +47,11 @@ export function createProviderConnections(
 					unavailableProviders.push(`Check the ${name} connection in Settings.`);
 				}
 			}
-			return { eligibleProviders, unavailableProviders };
+			return {
+				eligibleProviders,
+				unavailableProviders,
+				zImageConnected: connections.some(zImageEligible),
+			};
 		},
 		async connect(
 			provider: ProviderId,

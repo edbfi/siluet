@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/tursodatabase/wasm-migrator";
 import { gallerySchema } from "./gallery-schema";
+import { imageJobOperationMigration } from "./image-job-operation-migration";
 import { imageJobSchema } from "./image-job-schema";
 
 export const ownerMigrations = {
@@ -44,6 +45,7 @@ export const installationMigrations = {
 	"20261122000549_seedream_reference_failure": `ALTER TABLE image_job ADD COLUMN failure_reason TEXT
 		CHECK (failure_reason IS NULL OR (failure_reason='reference_media_unreadable'
 			AND provider='toapis' AND state='failed'))`,
+	"20261122030400_image_job_operation": imageJobOperationMigration,
 };
 
 export async function migrateInstallation(

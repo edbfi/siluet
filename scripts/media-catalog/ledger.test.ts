@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import ledger from "../../docs/media-catalog.v1.json";
 import { maxSeedreamReferences } from "../../src/lib/shared/image-studio/references";
-import { releasedOperations, seedreamModel } from "../../src/lib/shared/media-catalog/registry";
+import { releasedModels, releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import { catalogCoverage, documentedRoutes } from "./coverage";
 
 const { poyo, toapis } = ledger.providers;
@@ -121,6 +121,7 @@ test("aliases name exact discovered provider IDs and each member belongs to one 
 		}
 	}
 	expect(Object.fromEntries(members)).toEqual({
+		"poyo:z-image": "z-image/z-image",
 		"poyo:seedream-5.5": "seedream/seedream-5.5",
 		"poyo:seedream-5.5-layerize": "seedream/seedream-5.5",
 		"toapis:doubao-seedream-5-5": "seedream/seedream-5.5",
@@ -133,10 +134,14 @@ test("aliases name exact discovered provider IDs and each member belongs to one 
 		"poyo:h3-max": "hailuo/h3-max",
 		"toapis:MiniMax-H3-Max": "hailuo/h3-max",
 	});
-	const family = ledger.families.find((family) => family.label === seedreamModel.family);
-	const model = family?.models.find((model) => model.id === seedreamModel.id);
-	expect(model?.label).toBe(seedreamModel.label);
-	for (const { key } of releasedOperations) expect(model?.[key.provider]).toContain(key.model);
+	for (const released of releasedModels) {
+		const family = ledger.families.find((family) => family.label === released.family);
+		const model = family?.models.find((model) => model.id === released.id);
+		expect(model?.label).toBe(released.label);
+		for (const { key, modelId } of releasedOperations) {
+			if (modelId === released.id) expect(model?.[key.provider]).toContain(key.model);
+		}
+	}
 });
 
 test.each(providers)("%s documents each route, alias and operation once", (provider) => {
@@ -177,7 +182,7 @@ test.each(providers)("%s documents each route, alias and operation once", (provi
 });
 
 test.each(providers)(
-	"%s reconciles its shipped Seedream operations and partial option coverage",
+	"%s reconciles its shipped image operations and partial option coverage",
 	(provider) => {
 		const shipped = [];
 		for (const row of ledger.providers[provider].rows) {
@@ -202,16 +207,17 @@ test.each(providers)(
 		expect(shipped).toEqual(
 			releasedOperations
 				.filter((entry) => entry.key.provider === provider)
-				.map(({ key, mode, evidence }) => ({ key, profile: `seedream-${mode}`, evidence })),
+				.map(({ key, profile, evidence }) => ({ key, profile, evidence })),
 		);
 		expect(catalogCoverage(provider)).toEqual({
 			discoveredIds: provider === "poyo" ? 164 : 119,
 			unresolvedIds: provider === "poyo" ? 5 : 21,
 			documentedOperations: provider === "poyo" ? 317 : 331,
 			prerequisiteBound: provider === "poyo" ? 2 : 17,
-			review: 2,
-			queue: 2,
-			partialOptions: 2,
+			review: provider === "poyo" ? 4 : 2,
+			queue: provider === "poyo" ? 4 : 2,
+			partialOptions: provider === "poyo" ? 4 : 2,
+			addedSinceBaseline: provider === "poyo" ? 2 : 0,
 		});
 	},
 );

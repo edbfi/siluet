@@ -38,7 +38,7 @@ test("a failed initial migration rolls back its schema and history", async () =>
 	}
 });
 
-test("adding the bounded failure reason preserves previously installed jobs and Gallery entries", async () => {
+test("upgrading saved jobs preserves Gallery entries and accepts bounded operation identifiers", async () => {
 	const client = await connect(":memory:");
 	try {
 		const db = drizzle({ client });
@@ -57,7 +57,7 @@ test("adding the bounded failure reason preserves previously installed jobs and 
 		);
 		await migrateInstallation(db, false, installationMigrations);
 		const jobs = await db.all(
-			sql`SELECT binding, state, revision, task_id, failure_reason FROM image_job ORDER BY id`,
+			sql`SELECT binding, state, revision, task_id, operation, gallery_reason, failure_reason FROM image_job ORDER BY id`,
 		);
 		expect(jobs).toEqual([
 			{
@@ -66,6 +66,8 @@ test("adding the bounded failure reason preserves previously installed jobs and 
 				revision: 3,
 				task_id: "task-first",
 				failure_reason: null,
+				operation: null,
+				gallery_reason: null,
 			},
 			{
 				binding: "second-binding",
@@ -73,12 +75,42 @@ test("adding the bounded failure reason preserves previously installed jobs and 
 				revision: 7,
 				task_id: "task-second",
 				failure_reason: null,
+				operation: null,
+				gallery_reason: null,
 			},
 		]);
 		expect(await db.get(sql`SELECT job_id, state FROM gallery_image`)).toEqual({
 			job_id: "saved-job",
 			state: "saved",
 		});
+		// A later adapter can store its registered operation without a second column migration.
+		for (const operation of [
+			"text-to-image",
+			"image-layer-decomposition",
+			"v2-edit",
+			"a".repeat(64),
+		]) {
+			await db.run(sql`UPDATE image_job SET operation=${operation} WHERE id='saved-job'`);
+			expect(await db.get(sql`SELECT operation FROM image_job WHERE id='saved-job'`)).toEqual({
+				operation,
+			});
+		}
+		for (const operation of [
+			"",
+			"a".repeat(65),
+			"Text-to-image",
+			"a_b",
+			"a/b",
+			"-edit",
+			"edit-",
+			"a--b",
+			"a\0b",
+			"é",
+		]) {
+			await expect(
+				db.run(sql`UPDATE image_job SET operation=${operation} WHERE id='saved-job'`).execute(),
+			).rejects.toThrow();
+		}
 		await expect(
 			db
 				.run(sql`UPDATE image_job SET failure_reason='raw-provider-detail' WHERE id='failed-job'`)
@@ -89,6 +121,14 @@ test("adding the bounded failure reason preserves previously installed jobs and 
 				.run(
 					sql`UPDATE image_job SET failure_reason='reference_media_unreadable' WHERE id='saved-job'`,
 				)
+				.execute(),
+		).rejects.toThrow();
+		await expect(
+			db.run(sql`UPDATE image_job SET gallery_reason='raw-detail' WHERE id='saved-job'`).execute(),
+		).rejects.toThrow();
+		await expect(
+			db
+				.run(sql`UPDATE image_job SET gallery_reason='unsupported-image' WHERE id='failed-job'`)
 				.execute(),
 		).rejects.toThrow();
 	} finally {

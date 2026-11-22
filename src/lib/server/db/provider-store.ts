@@ -5,6 +5,7 @@ import {
 	type ProviderId,
 	providerIds,
 } from "../../shared/providers/connections";
+import { type CredentialAccess, imageCredentialAccess } from "./image-credential-access";
 import { jobsNeedCredential } from "./image-job-store";
 import type { Installation } from "./installation";
 import { ProviderKeyPolicyError, prepareProviderKey, readProviderKey } from "./provider-key";
@@ -45,13 +46,20 @@ function decrypt(key: Buffer, encoded: string, data: Buffer) {
 	}
 }
 
+function allowsCredential(access: CredentialAccess, provider: ProviderId, seedream: boolean) {
+	return access === "poyo-balance" ? provider === "poyo" : seedream;
+}
+
 export function providerStore(installation: Installation) {
 	const { directory, use } = installation;
 	const revisionQuery = (id: ProviderId) =>
 		sql`SELECT revision FROM provider_credential WHERE provider=${id}`;
 	const verified = new Map<ProviderId, string>();
 	async function inspectConnections() {
-		const revisions = new Map<ProviderId, number>();
+		const revisions = {
+			seedream: new Map<ProviderId, number>(),
+			"poyo-balance": new Map<ProviderId, number>(),
+		};
 		const rows = await use((db) =>
 			db.all<{
 				provider: ProviderId;
@@ -93,7 +101,8 @@ export function providerStore(installation: Installation) {
 						decrypt(key, row.ciphertext, data).fill(0);
 						verified.set(id, fingerprint);
 					}
-					if (seedream) revisions.set(id, row.revision);
+					if (seedream) revisions.seedream.set(id, row.revision);
+					if (id === "poyo") revisions["poyo-balance"].set(id, row.revision);
 					return { id, state: "connected", verifiedAt, seedream };
 				}
 			} catch {
@@ -112,14 +121,22 @@ export function providerStore(installation: Installation) {
 				return row.revision;
 			});
 		},
-		async credential(id: ProviderId, expectedRevision?: number) {
+		async credential(
+			id: ProviderId,
+			expectedRevision?: number,
+			access: CredentialAccess = "seedream",
+		) {
 			const row = await use((db) =>
-				db.get<{ revision: number; verified_at: number; ciphertext: string }>(
-					sql`SELECT revision, verified_at,ciphertext FROM provider_credential
-				    WHERE provider=${id} AND seedream=1 AND ciphertext IS NOT NULL`,
+				db.get<{ revision: number; verified_at: number; ciphertext: string; seedream: number }>(
+					sql`SELECT revision, verified_at, ciphertext, seedream FROM provider_credential
+				    WHERE provider=${id} AND ciphertext IS NOT NULL`,
 				),
 			);
-			if (!row || (expectedRevision !== undefined && expectedRevision !== row.revision))
+			if (
+				!row ||
+				!allowsCredential(access, id, row.seedream === 1) ||
+				(expectedRevision !== undefined && expectedRevision !== row.revision)
+			)
 				return null;
 			try {
 				const key = await readProviderKey(directory);
@@ -127,7 +144,7 @@ export function providerStore(installation: Installation) {
 				const clear = decrypt(
 					key,
 					row.ciphertext,
-					associatedData(id, row.revision, row.verified_at, true),
+					associatedData(id, row.revision, row.verified_at, row.seedream === 1),
 				);
 				try {
 					return { revision: row.revision, key: clear.toString("utf8") };
@@ -144,8 +161,17 @@ export function providerStore(installation: Installation) {
 		async statuses() {
 			return (await inspectConnections()).statuses;
 		},
-		async readableRevisions() {
-			return (await inspectConnections()).revisions;
+		async jobReadability() {
+			const { revisions } = await inspectConnections();
+			return ({
+				provider,
+				model,
+				revision,
+			}: {
+				provider: ProviderId;
+				model: string;
+				revision: number;
+			}) => revisions[imageCredentialAccess(provider, model)].get(provider) === revision;
 		},
 		async save(
 			id: ProviderId,

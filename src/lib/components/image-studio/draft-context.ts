@@ -1,11 +1,17 @@
 import { createContext } from "svelte";
 import type { SeedreamDraft } from "#lib/shared/image-studio/seedream.ts";
 
+import type { ZImageDraft } from "#lib/shared/image-studio/z-image.ts";
+
 export type ReferenceSlotDraft = { key: number; identity: number; privateName: string };
 export type ReferenceDraft = { slots: ReferenceSlotDraft[]; nextIdentity: number };
 
+export type ComposerDraft =
+	| { model: "seedream-5.5"; request: SeedreamDraft; references: ReferenceDraft }
+	| { model: "z-image"; request: ZImageDraft; privateName: string };
+
 export type ImageDraftMemory = {
-	draft?: { request: SeedreamDraft; references: ReferenceDraft };
+	draft?: ComposerDraft;
 };
 
 export function createReferenceDraft(): ReferenceDraft {

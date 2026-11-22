@@ -17,12 +17,15 @@ export function catalogCoverage(provider: Provider) {
 	let review = 0;
 	let queue = 0;
 	let partialOptions = 0;
+	let addedSinceBaseline = 0;
 	for (const row of rows) {
 		const routeIds = documentedRoutes(row).length * row.ids.length;
 		documentedOperations += routeIds * row.operations.length;
 		prerequisiteBound += routeIds * Object.keys(row.requires ?? {}).length;
 		for (const name of Object.values(row.support ?? {})) {
 			const profile = ledger.supportProfiles[name as keyof typeof ledger.supportProfiles];
+			if ("addedSinceBaseline" in profile && profile.addedSinceBaseline)
+				addedSinceBaseline += row.ids.length;
 			if (profile.review) review += row.ids.length;
 			if (profile.queue) queue += row.ids.length;
 			if (profile.optionCoverage === "partial") partialOptions += row.ids.length;
@@ -36,12 +39,13 @@ export function catalogCoverage(provider: Provider) {
 		review,
 		queue,
 		partialOptions,
+		addedSinceBaseline,
 	};
 }
 
 if (import.meta.main) {
 	console.log(
-		`Catalog observed ${ledger.observedOn}, support baseline ${ledger.supportBaselineCommit.slice(0, 7)}`,
+		`Catalog observed ${ledger.observedOn}. Current checkout coverage includes operations added since the audited release ${ledger.supportBaselineCommit.slice(0, 7)}.`,
 	);
 	console.table({ poyo: catalogCoverage("poyo"), toapis: catalogCoverage("toapis") });
 }

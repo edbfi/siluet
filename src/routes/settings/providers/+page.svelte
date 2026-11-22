@@ -99,7 +99,7 @@ function save(
 		<header>
 			<h2 class={styles.panelHeading} id="providers-title">Provider connections</h2>
 			<p class={cx(styles.paragraph, styles.intro)}>
-				Connect either provider or both to use Seedream 5.5 in Image Studio.
+				Connect Poyo.ai for Z-Image. Seedream 5.5 is available through either provider.
 			</p>
 		</header>
 		<nav class={styles.providerLinks} aria-label="Provider connections">

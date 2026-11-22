@@ -12,6 +12,8 @@ export type JobSummary = {
 	id: string;
 	provider: ProviderId;
 	model: string;
+	operation: ImageJob["operation"];
+	galleryReason: ImageJob["gallery_reason"];
 	state: JobState;
 	createdAt: number;
 	updatedAt: number;
@@ -120,6 +122,8 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		id: job.id,
 		provider: job.provider,
 		model: job.model,
+		operation: job.operation,
+		galleryReason: job.gallery_reason,
 		state: job.state,
 		createdAt: job.created_at,
 		updatedAt: job.updated_at ?? job.created_at,

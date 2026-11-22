@@ -6,6 +6,7 @@ import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { toapisRates } from "../../../../../tests/fixtures/toapis-feed";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
+import { zImageDisclosure } from "../../../shared/image-studio/z-image";
 import { pricingMaxAgeMs } from "../../../shared/pricing/feed";
 import { pricingSourceDate } from "../../../shared/pricing/feeds";
 import { decodeToapisPricingFeed } from "../../../shared/pricing/toapis-feed";
@@ -651,5 +652,118 @@ test.each(["poyo", "toapis"] as const)(
 			await api.review("owner", makeInput(provider === "poyo" ? "toapis" : "poyo")),
 		).toHaveProperty("token");
 		expect(posted).toBeEmpty();
+	},
+);
+
+test.each(["generate", "edit"] as const)(
+	"Z-Image %s binds one accepted balance-only revision and replays after restart",
+	async (operation) => {
+		await providerStore(db).save("poyo", "balance-only", 234, false, 1);
+		const edit = operation === "edit";
+		const operationKey = {
+			provider: "poyo",
+			model: "z-image",
+			route: "POST /api/generate/submit",
+			operation: edit ? "reference-image-edit" : "text-to-image",
+		};
+		const draft = {
+			provider: "poyo",
+			operation,
+			prompt,
+			options: edit ? {} : { size: "9:16" },
+			references: edit ? [{ kind: "url", url: referenceUrl }] : [],
+		};
+		const raw = { operationKey, draft, count: 1, retryLimit: 0, acceptUnknown: false };
+		const live = parseQueueRequest(raw);
+		if (!live) throw new Error("Expected registered Z-Image request");
+		for (const change of [
+			{ operationKey: undefined },
+			{
+				operationKey: {
+					...operationKey,
+					operation: edit ? "text-to-image" : "reference-image-edit",
+				},
+			},
+			{ draft: { ...draft, references: [{ kind: "file", file: {} }] } },
+			{ draft: { ...draft, options: { ...draft.options, watermark: false } } },
+		])
+			expect(parseQueueRequest({ ...raw, ...change })).toBeNull();
+		const bundled = await loadBundledPricing("poyo");
+		if (bundled?.provider !== "poyo") throw new Error("Expected bundled Poyo rates");
+		let now = Date.parse(bundled.sourceDate);
+		let disclosure = zImageDisclosure(operation);
+		const api = await createSubmissionQueue(
+			db,
+			providerStore(db).credential,
+			async (_id, _provider, key) => {
+				posted.push(key);
+			},
+			async () => ({ poyo: bundled }),
+			() => now,
+			undefined,
+			() => disclosure,
+		);
+		const original = await api.review("owner", live);
+		if ("error" in original) throw new Error("Expected known price");
+		expect(original.quote).toMatchObject({ status: "known", perRequest: "2" });
+		for (const evidence of [
+			{ d4: "unknown", catalogD4: "unknown" },
+			{ d4: "declared", catalogD4: "conflict" },
+		] as const) {
+			const blocked = { ...live, entry: { ...live.entry, evidence } };
+			expect(await api.review("owner", blocked)).toEqual({ error: "invalid" });
+			expect(await api.submit("owner", { ...blocked, token: original.token })).toEqual({
+				error: "invalid",
+			});
+		}
+		disclosure = [...disclosure, "Updated fixture terms"];
+		expect(await api.submit("owner", { ...live, token: original.token })).toMatchObject({
+			error: "stale",
+		});
+		disclosure = zImageDisclosure(operation);
+		now += pricingMaxAgeMs;
+		expect(await api.submit("owner", { ...live, token: original.token })).toMatchObject({
+			error: "stale",
+			review: { quote: { reason: "expired-feed" }, requiresConsent: true },
+		});
+		const beforeRotation = await api.review("owner", live);
+		if ("error" in beforeRotation) throw new Error("Expected expired Review");
+		await providerStore(db).save("poyo", "renewed-balance-only", 235, false, 2);
+		expect(
+			await api.submit("owner", { ...live, token: beforeRotation.token, acceptUnknown: true }),
+		).toMatchObject({ error: "stale" });
+		expect(posted).toBeEmpty();
+		const review = await api.review("owner", live);
+		if ("error" in review) throw new Error("Expected balance-accepted key");
+		expect(review).toMatchObject({
+			requiresConsent: true,
+			disclosure: zImageDisclosure(operation),
+		});
+		const click = { ...live, token: review.token };
+		expect(await api.submit("owner", click)).toEqual({ error: "invalid" });
+		click.acceptUnknown = true;
+		for (const change of [
+			{ options: { size: "16:9" } },
+			...(edit ? [{ references: [{ kind: "url", url: secondReferenceUrl }] }] : []),
+		]) {
+			const changed = parseQueueRequest({ ...raw, draft: { ...draft, ...change } });
+			if (!changed) throw new Error("Expected valid changed request");
+			expect(
+				await api.submit("owner", { ...changed, token: review.token, acceptUnknown: true }),
+			).toEqual({ error: "invalid" });
+		}
+		const results = await Promise.all([api.submit("owner", click), api.submit("owner", click)]);
+		expect(results[0]).toHaveProperty("jobId");
+		expect(results[1]).toEqual(results[0]);
+		expect(posted).toEqual(["renewed-balance-only"]);
+		const row = await db.use((conn) => conn.get(sql`SELECT * FROM image_job`));
+		expect(row).toMatchObject({ revision: 3, model: "z-image", operation: operationKey.operation });
+		for (const privateValue of [prompt, referenceUrl, "balance-only"])
+			expect(JSON.stringify(row)).not.toContain(privateValue);
+		await providerStore(db).remove("poyo");
+		await db.close();
+		db = await openInstallation(dir);
+		expect(await (await queue()).submit("owner", click)).toEqual(results[0]);
+		expect(posted).toHaveLength(1);
 	},
 );

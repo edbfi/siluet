@@ -8,6 +8,13 @@ export const seedreamModel = {
 	family: "ByteDance / Seedream",
 } as const;
 
+export const zImageModel = {
+	id: "z-image",
+	label: "Z-Image",
+	family: "Alibaba / Z-Image",
+} as const;
+export const releasedModels = [seedreamModel, zImageModel] as const;
+
 export const seedreamRoutes = {
 	poyo: {
 		model: "seedream-5.5",
@@ -44,10 +51,24 @@ export function queueEvidenceProblem({ d4, catalogD4 }: FilteringEvidence) {
 function seedreamEntry(provider: ProviderId, operation: keyof typeof ordinaryOperations) {
 	const { model, path } = seedreamRoutes[provider];
 	return {
+		modelId: seedreamModel.id,
+		profile: `seedream-${ordinaryOperations[operation].mode}`,
 		key: { provider, model, route: `POST ${path}`, operation },
 		...ordinaryOperations[operation],
 		evidence: seedreamEvidence,
 	};
+}
+
+const zImageEvidence: FilteringEvidence = { d4: "declared", catalogD4: "unknown" };
+
+function zImageEntry(operation: keyof typeof ordinaryOperations) {
+	return {
+		modelId: zImageModel.id,
+		profile: `z-image-${ordinaryOperations[operation].mode}`,
+		key: { provider: "poyo", model: zImageModel.id, route: "POST /api/generate/submit", operation },
+		...ordinaryOperations[operation],
+		evidence: zImageEvidence,
+	} as const;
 }
 
 export const releasedOperations = [
@@ -55,6 +76,8 @@ export const releasedOperations = [
 	seedreamEntry("poyo", "reference-image-edit"),
 	seedreamEntry("toapis", "text-to-image"),
 	seedreamEntry("toapis", "reference-image-edit"),
+	zImageEntry("text-to-image"),
+	zImageEntry("reference-image-edit"),
 ];
 export const releasedProviders = [
 	...new Set(releasedOperations.map((entry) => entry.key.provider)),
@@ -81,5 +104,8 @@ export type ReleasedOperation = (typeof releasedOperations)[number];
 export type SeedreamOperation = ReleasedOperation["mode"];
 
 export function seedreamOperation(provider: ProviderId, mode: SeedreamOperation) {
-	return releasedOperations.find((entry) => entry.key.provider === provider && entry.mode === mode);
+	return releasedOperations.find(
+		(entry) =>
+			entry.modelId === seedreamModel.id && entry.key.provider === provider && entry.mode === mode,
+	);
 }

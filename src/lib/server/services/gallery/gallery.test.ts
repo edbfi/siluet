@@ -3,7 +3,7 @@ import { readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
-import { referencePng } from "../../../../../tests/fixtures/reference-image";
+import { referenceGif, referencePng } from "../../../../../tests/fixtures/reference-image";
 import { type Installation, openInstallation } from "../../db/installation";
 import { createGallery } from "./gallery";
 
@@ -102,4 +102,39 @@ test("startup cleans a partial replacement of an unavailable file and preserves 
 	await gallery.recover();
 	expect(await galleryFiles()).toEqual([]);
 	expect(await gallery.list()).toMatchObject([{ jobId, available: false }]);
+});
+
+test("a complete unsupported result survives restart until publication succeeds", async () => {
+	await installation.use((db) =>
+		db.run(sql`INSERT INTO image_job
+		(id,binding,provider,revision,quote,state,model,created_at,poll_deadline)
+		VALUES (${jobId},'binding','poyo',1,'{}','completed','z-image',0,120000)`),
+	);
+	const reason = () =>
+		installation.use((db) =>
+			db.get(sql`SELECT gallery_reason, state FROM image_job WHERE id=${jobId}`),
+		);
+	remote = referencePng.subarray(0, -12);
+	expect(await gallery.save(jobId)).toBe(false);
+	expect(await reason()).toEqual({ gallery_reason: null, state: "completed" });
+	expect(await gallery.list()).toEqual([]);
+	remote = referenceGif;
+	await installation.use((db) =>
+		db.run(sql`CREATE TRIGGER refuse_reason BEFORE UPDATE OF gallery_reason ON image_job
+			BEGIN SELECT RAISE(ABORT, 'fixture write refusal'); END`),
+	);
+	expect(await gallery.save(jobId)).toBe(false);
+	expect(await reason()).toEqual({ gallery_reason: null, state: "completed" });
+	await installation.use((db) => db.run(sql`DROP TRIGGER refuse_reason`));
+	expect(await gallery.save(jobId)).toBe(false);
+	await installation.close();
+	installation = await openInstallation(directory);
+	expect(await reason()).toEqual({ gallery_reason: "unsupported-image", state: "completed" });
+	const reopened = createGallery(
+		installation,
+		async (id) => (id === jobId ? "fixture" : null),
+		async () => referencePng,
+	);
+	expect(await reopened.save(jobId)).toBe(true);
+	expect(await reason()).toEqual({ gallery_reason: null, state: "completed" });
 });
