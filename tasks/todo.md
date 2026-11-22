@@ -17,3 +17,10 @@
 - [x] Verify private Save, Range playback and removal across restart in the built studio.
 - [x] Run local checks on glibc Linux ARM64 and verify offline playback in the built studio.
 - [x] Review the implementation with council and verify the registry and Z-Image have landed.
+
+## Owner authenticator and host recovery
+
+- [x] Enroll, replace and disable an authenticator. Verify single-use recovery codes, two-step sign-in and recovery from exhausted attempt limits.
+- [x] Rotate the owner session after a Security change. Clear reviewed drafts in sibling Image Studio and Video Studio tabs while the Security tab displays the new recovery codes.
+- [x] Exercise stopped-service recovery through a terminal. Verify exclusive access, hidden password entry and reopening after interruption.
+- [x] Upgrade an existing video installation and recover the owner. Reopen the saved PNG and MP4 and verify that provider model access survived.
