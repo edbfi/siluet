@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,6 +67,50 @@ test("only pre-body availability failures can use a second delivery URL", async 
 		await expect(work).rejects.toThrow();
 		expect(contacted).toBe(0);
 	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("a primary body can finish after its header deadline within the total budget", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "video-budget-"));
+	const primary = new AbortController();
+	const budget = new AbortController();
+	const deadlines = spyOn(AbortSignal, "timeout").mockImplementation((ms) =>
+		ms === 30_000 ? primary.signal : budget.signal,
+	);
+	try {
+		const ready = Promise.withResolvers<void>();
+		let body!: ReadableStreamDefaultController<Uint8Array>;
+		let requestSignal: AbortSignal | null | undefined;
+		const file = join(dir, "video");
+		const saved = downloadVideo(source, file, {
+			resolve: async () => "",
+			request: async (url, init) => {
+				expect(url.pathname).toBe("/primary");
+				requestSignal = init.signal;
+				return new Response(
+					new ReadableStream<Uint8Array>(
+						{
+							start(controller) {
+								body = controller;
+							},
+							pull() {
+								ready.resolve();
+							},
+						},
+						{ highWaterMark: 0 },
+					),
+				);
+			},
+		});
+		await ready.promise;
+		primary.abort();
+		body.enqueue(new Uint8Array([1, 2, 3]));
+		body.close();
+		expect(await saved).toMatchObject({ size: 3 });
+		expect(requestSignal?.aborted).toBe(false);
+	} finally {
+		deadlines.mockRestore();
 		await rm(dir, { recursive: true, force: true });
 	}
 });

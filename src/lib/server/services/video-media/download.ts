@@ -22,15 +22,27 @@ async function headers(url: string, transport: typeof direct, signal: AbortSigna
 }
 export async function downloadVideo(source: VideoDelivery, path: string, transport = direct) {
 	const budget = AbortSignal.timeout(60_000);
-	const primary = source.fallback ? AbortSignal.any([budget, AbortSignal.timeout(30_000)]) : budget;
-	let signal = primary;
 	let response: Response;
-	try {
-		response = await headers(source.url, transport, primary);
-	} catch (error) {
-		if (!(error instanceof DeliveryUnavailable) || !source.fallback) throw error;
-		signal = budget;
-		response = await headers(source.fallback, transport, budget);
+	if (source.fallback) {
+		const deadline = AbortSignal.timeout(30_000);
+		const headerController = new AbortController();
+		const stop = () => headerController.abort();
+		deadline.addEventListener("abort", stop, { once: true });
+		try {
+			response = await headers(
+				source.url,
+				transport,
+				AbortSignal.any([budget, headerController.signal]),
+			);
+		} catch (error) {
+			if (!(error instanceof DeliveryUnavailable)) throw error;
+			budget.throwIfAborted();
+			response = await headers(source.fallback, transport, budget);
+		} finally {
+			deadline.removeEventListener("abort", stop);
+		}
+	} else {
+		response = await headers(source.url, transport, budget);
 	}
 	const length = response.headers.get("content-length");
 	const encoding = response.headers.get("content-encoding");
@@ -40,7 +52,7 @@ export async function downloadVideo(source: VideoDelivery, path: string, transpo
 	const abort = () => {
 		void reader.cancel().catch(() => {});
 	};
-	signal.addEventListener("abort", abort, { once: true });
+	budget.addEventListener("abort", abort, { once: true });
 	try {
 		ensure(
 			response.status === 200 &&
@@ -53,7 +65,7 @@ export async function downloadVideo(source: VideoDelivery, path: string, transpo
 		const digest = createHash("sha256");
 		try {
 			for (;;) {
-				signal.throwIfAborted();
+				budget.throwIfAborted();
 				const part = await reader.read();
 				if (part.done) break;
 				size += part.value.length;
@@ -61,7 +73,7 @@ export async function downloadVideo(source: VideoDelivery, path: string, transpo
 				digest.update(part.value);
 				await file.writeFile(part.value);
 			}
-			signal.throwIfAborted();
+			budget.throwIfAborted();
 			ensure(size > 0 && (length === null || size === Number(length)));
 			await file.sync();
 			return { size, digest: digest.digest("hex") };
@@ -69,7 +81,7 @@ export async function downloadVideo(source: VideoDelivery, path: string, transpo
 			await file.close();
 		}
 	} finally {
-		signal.removeEventListener("abort", abort);
+		budget.removeEventListener("abort", abort);
 		await reader.cancel();
 	}
 }
