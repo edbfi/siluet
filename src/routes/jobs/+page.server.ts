@@ -1,4 +1,5 @@
 import { error, fail, type RequestEvent } from "@sveltejs/kit";
+import { qualifiedVerifier } from "#lib/server/services/video-media/native.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, depends }) => {
@@ -9,6 +10,9 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 	]);
 	return {
 		...history,
+		videoVerifier:
+			!history.jobs.some((j) => j.canSave && j.model === "seedance-2-5") ||
+			!!(await qualifiedVerifier()),
 		saved: entries.filter((entry) => entry.available).map((entry) => entry.jobId),
 		now: Date.now(),
 	};
@@ -21,6 +25,11 @@ async function jobId({ request }: RequestEvent) {
 }
 
 export const actions = {
+	lookup: async (event) => {
+		const id = await jobId(event);
+		await event.locals.studio.jobs.lookup(id);
+		return { id, message: "Submission check finished. See the current job status." };
+	},
 	refresh: async (event) => {
 		const id = await jobId(event);
 		await event.locals.studio.jobs.refresh(id);
@@ -28,6 +37,12 @@ export const actions = {
 	},
 	save: async (event) => {
 		const id = await jobId(event);
+		if (await event.locals.studio.jobs.isVideo(id)) {
+			const message = await event.locals.studio.gallery.saveVideo(id, () =>
+				event.locals.studio.jobs.videoResult(id),
+			);
+			return { id, message };
+		}
 		if (await event.locals.studio.gallery.save(id)) return { id, message: "Saved to Gallery." };
 		return fail(409, {
 			id,

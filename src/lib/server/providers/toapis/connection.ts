@@ -1,12 +1,15 @@
-import { seedreamRoutes } from "../../../shared/media-catalog/registry";
+import { seedanceOperation, seedreamRoutes } from "../../../shared/media-catalog/registry";
 import {
 	type CheckFetch,
-	type ConnectionCheckResult,
+	type ConnectionCheck,
 	createConnectionCheck,
 	isRecord,
 } from "../connection-check";
 
-function interpretImageModels(body: unknown): ConnectionCheckResult {
+function interpretModels(
+	body: unknown,
+	id: string,
+): { outcome: "accepted"; listed: boolean } | { outcome: "unavailable" } {
 	if (
 		!isRecord(body) ||
 		body.success !== true ||
@@ -24,14 +27,28 @@ function interpretImageModels(body: unknown): ConnectionCheckResult {
 		return { outcome: "unavailable" };
 	return {
 		outcome: "accepted",
-		seedream: models.some((model) => model.id === seedreamRoutes.toapis.model),
+		listed: models.some((model) => model.id === id),
 	};
 }
 
-export function checkToapisConnection(read: CheckFetch = fetch) {
-	return createConnectionCheck(
+export function checkToapisConnection(read: CheckFetch = fetch): ConnectionCheck {
+	const check = createConnectionCheck<{ outcome: "accepted"; listed: boolean }>(
 		`${seedreamRoutes.toapis.origin}/v1/models?type=image`,
-		interpretImageModels,
+		(body) => interpretModels(body, seedreamRoutes.toapis.model),
+		read,
+	);
+	return async (key) => {
+		const result = await check(key);
+		return result.outcome === "accepted"
+			? { outcome: "accepted", seedream: result.listed }
+			: result;
+	};
+}
+
+export function checkVideoInventory(read: CheckFetch = fetch) {
+	return createConnectionCheck<{ outcome: "accepted"; listed: boolean }>(
+		"https://toapis.com/v1/models?type=video",
+		(body) => interpretModels(body, seedanceOperation.key.model),
 		read,
 	);
 }

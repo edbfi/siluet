@@ -19,6 +19,8 @@ export function mergeBilling(
 	last: TaskBilling | null,
 	current: TaskBilling | null,
 ): TaskBilling | null {
+	if (current?.status === "pending" && (last?.status === "settled" || last?.status === "refunded"))
+		return last;
 	if (!current || current.status === "unknown") return last ?? current;
 	if (last?.status === "conflicting") return last;
 	const a = completeAmount(last);

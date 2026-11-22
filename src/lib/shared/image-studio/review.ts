@@ -59,6 +59,8 @@ const closingWrapper = new Map([
 const ipv6Authority = /^(?:(?:[a-z][a-z\d+.-]*:)?\/\/(?:[^/?#]*@)?)?\[[a-f\d:.%]+\]/iu;
 const linkStart = new RegExp(`(?:${schemeOrSlashes.source}|${bareHost.source})`, "iu");
 
+export const redactPrompt = (prompt: string) => prompt.replace(/\S+/gu, redactLink);
+
 function redactLink(token: string): string {
 	let start = token.search(linkStart);
 	const closingPunctuation = start < 0 ? authorityPunctuation : sentencePunctuation;
@@ -110,7 +112,7 @@ export function createImageReview(
 	const { prompt, image_urls: urls, ...options } = fields;
 	const safeFields: ImageFields = {
 		...fields,
-		prompt: prompt.replace(/\S+/gu, redactLink),
+		prompt: redactPrompt(prompt),
 		...(urls && {
 			image_urls: urls.map((_, index) =>
 				references[index]?.kind === "file" ? "[local image]" : "[remote URL hidden]",

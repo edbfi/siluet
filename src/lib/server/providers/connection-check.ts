@@ -32,11 +32,12 @@ async function readJson(response: Response): Promise<unknown> {
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
 	value !== null && typeof value === "object" && !Array.isArray(value);
 
-export function createConnectionCheck(
+type FailedCheck = Extract<ConnectionCheckResult, { outcome: "rejected" | "unavailable" }>;
+export function createConnectionCheck<T extends { outcome: "accepted" }>(
 	url: string,
-	interpret: (value: unknown) => ConnectionCheckResult,
+	interpret: (value: unknown) => T | FailedCheck,
 	read: CheckFetch,
-): ConnectionCheck {
+): (key: string) => Promise<T | FailedCheck> {
 	return async (key) => {
 		try {
 			const response = await read(url, {

@@ -10,7 +10,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			neededByJobs: await locals.studio.jobs.needsCredential(connection.id),
 		})),
 	);
-	return { providers };
+	return { providers, videoAccess: await locals.studio.videoAccess.display() };
 };
 
 const messages = {
@@ -72,6 +72,11 @@ async function changeConnection(
 }
 
 export const actions = {
+	video: async ({ locals }) => ({
+		provider: "toapis" as const,
+		outcome: "video-checked" as const,
+		...(await locals.studio.videoAccess.check()),
+	}),
 	connect: (event) => changeConnection(event, "connect"),
 	remove: (event) => changeConnection(event, "remove"),
 } satisfies Actions;

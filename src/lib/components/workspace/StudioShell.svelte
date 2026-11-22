@@ -26,13 +26,15 @@ const gallery = $derived(pathname === "/gallery" || pathname.startsWith("/galler
 const destination = $derived(
 	settings
 		? "Providers"
-		: image
-			? "Image Studio"
-			: jobs
-				? "Jobs"
-				: gallery
-					? "Gallery"
-					: "Studio home",
+		: pathname === "/video"
+			? "Video Studio"
+			: image
+				? "Image Studio"
+				: jobs
+					? "Jobs"
+					: gallery
+						? "Gallery"
+						: "Studio home",
 );
 const imageDraftMemory = $state<ImageDraftMemory>({});
 setImageDraftContext(imageDraftMemory);
@@ -87,6 +89,17 @@ onMount(() =>
 			</svg>
 			Image Studio
 		</a>
+		<a
+			class={shell.navLink}
+			href="/video"
+			aria-current={pathname === "/video" ? "page" : undefined}
+			onclick={() => (menuOpen = false)}
+			><svg class={shell.icon} viewBox="0 0 24 24" aria-hidden="true">
+				<rect x="2" y="5" width="14" height="14" rx="2" />
+				<path d="m16 9 6-3v12l-6-3z" />
+			</svg
+			>Video Studio</a
+		>
 		<a
 			class={shell.navLink}
 			href="/jobs"

@@ -19,6 +19,7 @@ onMount(() => {
 {#if data.username &&
 	(page.url.pathname === "/" ||
 		page.url.pathname === "/image" ||
+		page.url.pathname === "/video" ||
 		page.url.pathname === "/jobs" ||
 		page.url.pathname === "/gallery" ||
 		page.url.pathname.startsWith("/gallery/") ||

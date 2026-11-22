@@ -4,7 +4,7 @@ import type { Actions } from "./$types";
 export const actions = {
 	default: async ({ locals, request, params }) => {
 		if ((await request.formData()).get("confirm") !== "remove")
-			return fail(400, { message: "Confirm removal of this image." });
+			return fail(400, { message: "Confirm removal of this item." });
 		try {
 			await locals.studio.gallery.remove(params.jobId);
 		} catch {

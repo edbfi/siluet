@@ -1,5 +1,5 @@
 import {
-	type ReleasedOperation,
+	type ReleasedImageOperation,
 	releasedProviders,
 	type SeedreamOperation,
 	seedreamOperation,
@@ -81,7 +81,7 @@ type DraftErrors = Partial<
 	Record<"provider" | "prompt" | "size" | "outputFormat" | "references", string>
 >;
 type DraftValidation =
-	| { ok: true; input: SeedreamReviewInput; entry: ReleasedOperation }
+	| { ok: true; input: SeedreamReviewInput; entry: ReleasedImageOperation }
 	| { ok: false; errors: DraftErrors };
 
 export function createSeedreamDraft(

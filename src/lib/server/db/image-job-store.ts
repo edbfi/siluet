@@ -14,9 +14,15 @@ import { credentialPermitsImage } from "./image-credential-access";
 import { imageJobPollingWindowMs } from "./image-job-schema";
 import type { Installation, InstallationTransaction } from "./installation";
 import { nextProviderStart, recordProviderStart } from "./provider-gate";
+import { videoJobPollingWindowMs } from "./video-schema";
 
 export type JobState = "submitting" | "unknown" | "rejected" | TaskState;
-export type StatusNote = StatusPause | "credential-changed" | "temporary" | "result-unavailable";
+export type StatusNote =
+	| StatusPause
+	| "credential-changed"
+	| "temporary"
+	| "result-unavailable"
+	| "unsupported-video-result";
 
 export type ImageJob = {
 	batch_id: string | null;
@@ -38,6 +44,11 @@ export type ImageJob = {
 	gallery_reason: "unsupported-image" | null;
 	created_at: number;
 	poll_deadline: number;
+	business_id: string | null;
+	video_poll_deadline: number | null;
+	video_progress: number | null;
+	video_observation_id: string | null;
+	read_token: string | null;
 	updated_at: number | null;
 	task_id: string | null;
 	next_read_at: number | null;
@@ -61,6 +72,9 @@ type StatusUpdate = {
 	transientFailure: ImageJob["transient_failure"];
 	retry: { state: ImageJob["retry_state"]; at: number | null } | null;
 	queryAfter: number;
+	progress?: number | null;
+	recoveredTask?: string;
+	lookup?: boolean;
 	state: JobState;
 	nextReadAt: number;
 	failures: number;
@@ -75,7 +89,7 @@ const walletFinishWindowMs = 2 * statusTimeoutMs;
 
 const currentCredential = sql`EXISTS (
 		SELECT 1 FROM provider_credential c WHERE c.provider=image_job.provider
-			AND c.revision=image_job.revision AND c.ciphertext IS NOT NULL AND ${credentialPermitsImage(sql`image_job.model`)}
+			AND c.revision=image_job.revision AND c.ciphertext IS NOT NULL AND (${credentialPermitsImage(sql`image_job.model`)} OR (c.provider='toapis' AND image_job.business_id IS NOT NULL))
 	)`;
 
 export const jobsNeedCredential = (provider: ProviderId) => sql`(EXISTS (
@@ -83,7 +97,7 @@ export const jobsNeedCredential = (provider: ProviderId) => sql`(EXISTS (
 	WHERE b.provider=${provider} AND b.closed_reason IS NULL AND c.ciphertext IS NOT NULL
 ) OR EXISTS (
 	SELECT 1 FROM image_job WHERE provider=${provider} AND ${currentCredential}
-	AND (state IN ('submitting','waiting','running') OR (
+	AND (state IN ('submitting','waiting','running') OR (state='unknown' AND business_id IS NOT NULL) OR (
 		state='completed' AND NOT EXISTS (
 			SELECT 1 FROM gallery_image WHERE job_id=image_job.id AND state='saved'
 		)
@@ -98,7 +112,7 @@ export async function skipImageSend(
 	until: number | null,
 ) {
 	await tx.run(sql`UPDATE image_job SET state='rejected',skipped=${reason},updated_at=${now},retry_at=${until},
-		submission_recorded_at=${now},wallet_open=0,retry_state=NULL WHERE id=${id} AND submission_recorded_at IS NULL`);
+		submission_recorded_at=${now},wallet_open=0,retry_state=NULL WHERE id=${id} AND state='submitting' AND submission_recorded_at IS NULL`);
 }
 
 export function imageJobStore({ use }: Installation) {
@@ -184,7 +198,8 @@ export function imageJobStore({ use }: Installation) {
 							await tx.run(sql`UPDATE image_batch SET closed_reason='rejection', closed_at=${now}
 					WHERE id=${job.batch_id} AND closed_reason IS NULL`);
 						return tx.get<ImageJob>(sql`UPDATE image_job SET state=${state}, task_id=${taskId},
-					rejection=${rejection}, next_read_at=${taskId ? now + initialWait : null},
+					rejection=${rejection}, next_read_at=CASE WHEN business_id IS NOT NULL THEN MAX(COALESCE(next_read_at,0),${now + initialWait}) ELSE ${taskId ? now + initialWait : null} END,
+				video_poll_deadline=CASE WHEN business_id IS NOT NULL AND ${taskId} IS NOT NULL THEN ${now + videoJobPollingWindowMs} END,
 					updated_at=${now}, submission_recorded_at=${now}, throttle=${Number(result.kind === "throttled")},
 					retry_state=CASE WHEN ${taskId} IS NOT NULL THEN retry_state WHEN batch_id IS NOT NULL AND ${result.kind}='throttled' THEN 'ready' END,
 					retry_at=${throttleUntil || null},
@@ -210,7 +225,7 @@ export function imageJobStore({ use }: Installation) {
 		recordMissingCredential(id: string) {
 			return use((db) =>
 				db.run(sql`UPDATE image_job SET pause_reason='credential-changed'
-				WHERE id=${id} AND task_id IS NOT NULL`),
+				WHERE id=${id} AND (task_id IS NOT NULL OR business_id IS NOT NULL)`),
 			);
 		},
 
@@ -220,6 +235,7 @@ export function imageJobStore({ use }: Installation) {
 			clock: () => number,
 			holdMs: number,
 			automatic: boolean,
+			lookup?: ImageJob,
 		) {
 			return use((db) =>
 				db.transaction(
@@ -227,7 +243,7 @@ export function imageJobStore({ use }: Installation) {
 						const now = clock();
 						const holdUntil = now + holdMs;
 						const automaticGuard = automatic
-							? sql`AND poll_deadline>${now} AND ((state IN ('waiting','running') AND (pause_reason IS NULL OR pause_reason='temporary')) OR (retry_state IN ('settlement','watch')
+							? sql`AND COALESCE(video_poll_deadline,poll_deadline)>${now} AND ((state IN ('waiting','running') AND (pause_reason IS NULL OR pause_reason='temporary')) OR (retry_state IN ('settlement','watch')
 					AND EXISTS (SELECT 1 FROM image_batch WHERE id=image_job.batch_id AND closed_reason IS NULL AND deadline>${now})))
 					AND pause_reason IS NOT 'credential-changed'`
 							: sql``;
@@ -236,13 +252,16 @@ export function imageJobStore({ use }: Installation) {
 						const until = await nextProviderStart(tx, job.provider, "query", now);
 						if (until > now) {
 							await tx.run(
-								sql`UPDATE image_job SET next_read_at=MAX(next_read_at,${until}) WHERE id=${id}`,
+								sql`UPDATE image_job SET next_read_at=MAX(COALESCE(next_read_at,created_at+5000),${until}) WHERE id=${id}`,
 							);
 							return;
 						}
+						const identity = lookup
+							? sql`business_id=${lookup.business_id} AND revision=${lookup.revision} AND state='unknown' AND task_id IS NULL`
+							: sql`task_id IS NOT NULL`;
 						const reserved =
 							await tx.get<ImageJob>(sql`UPDATE image_job SET read_token=${token}, next_read_at=${holdUntil}
-				WHERE id=${id} AND task_id IS NOT NULL AND next_read_at<=${now}
+				WHERE id=${id} AND ${identity} AND COALESCE(next_read_at,created_at+5000)<=${now}
 					AND ${currentCredential} ${automaticGuard} RETURNING *`);
 						if (reserved) await recordProviderStart(tx, job.provider, "query", now);
 						return reserved;
@@ -252,6 +271,13 @@ export function imageJobStore({ use }: Installation) {
 			);
 		},
 
+		async identityConflict(id: string, taskId: string) {
+			await use((db) =>
+				db.run(
+					sql`UPDATE image_job SET pause_reason='unknown-status' WHERE id=${id} AND business_id IS NOT NULL AND task_id IS NOT NULL AND task_id<>${taskId}`,
+				),
+			);
+		},
 		releaseUnread(id: string, token: string, nextReadAt: number) {
 			return use((db) =>
 				db.run(sql`UPDATE image_job SET read_token=NULL, next_read_at=${nextReadAt}
@@ -259,7 +285,7 @@ export function imageJobStore({ use }: Installation) {
 			);
 		},
 
-		recordStatus(id: string, token: string, now: number, update: StatusUpdate) {
+		recordStatus({ id, provider }: ImageJob, token: string, now: number, update: StatusUpdate) {
 			const retry = update.retry
 				? sql`retry_state=CASE WHEN EXISTS(SELECT 1 FROM image_batch WHERE id=image_job.batch_id AND deadline>${now} AND closed_reason IS NULL)
 					THEN ${update.retry.state} END, retry_at=${update.retry.at},`
@@ -268,6 +294,12 @@ export function imageJobStore({ use }: Installation) {
 				db.transaction(
 					async (tx) => {
 						const saved = await tx.get<ImageJob>(sql`UPDATE image_job SET state=${update.state},
+				task_id=COALESCE(task_id,${update.recoveredTask ?? null}),
+				submission_recorded_at=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now} ELSE submission_recorded_at END,
+				poll_deadline=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now + imageJobPollingWindowMs} ELSE poll_deadline END,
+				video_poll_deadline=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now + videoJobPollingWindowMs} ELSE video_poll_deadline END,
+				video_observation_id=CASE WHEN business_id IS NOT NULL THEN ${token} END,
+				video_progress=COALESCE(${update.progress ?? null},video_progress),
 				next_read_at=${update.nextReadAt}, read_token=NULL, read_failures=${update.failures},
 				completion_seen=MAX(completion_seen,${Number(update.completedObservation)}),
 				${retry} pause_reason=${update.note}, billing=${update.billing && JSON.stringify(update.billing)},
@@ -275,10 +307,10 @@ export function imageJobStore({ use }: Installation) {
 				expires_at=${update.expiresAt}, updated_at=${now},
 				wallet_finish_by=CASE WHEN batch_id IS NULL AND wallet_open=1 AND state IN ('waiting','running')
 					AND ${update.state} IN ('completed','failed') THEN ${now + walletFinishWindowMs} ELSE wallet_finish_by END
-				WHERE id=${id} AND read_token=${token} RETURNING *`);
-						if (saved && update.queryAfter > now)
+				WHERE id=${id} AND read_token=${token} AND (business_id IS NULL OR ${currentCredential}) AND (${!update.lookup ? 1 : 0} OR (state='unknown' AND task_id IS NULL) OR task_id=${update.recoveredTask ?? null}) RETURNING *`);
+						if (update.queryAfter > now)
 							await tx.run(
-								sql`UPDATE provider_gate SET query_after=MAX(query_after,${update.queryAfter}) WHERE provider=${saved.provider}`,
+								sql`UPDATE provider_gate SET query_after=MAX(query_after,${update.queryAfter}) WHERE provider=${provider}`,
 							);
 						return saved;
 					},

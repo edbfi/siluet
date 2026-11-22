@@ -803,7 +803,7 @@ for (const [provider, outcome, state, message] of [
 					fixtures.requests.filter(({ path }) => path.includes("/status/")).map(({ path }) => path);
 				expect(statusPaths()).toEqual(outcome === "failed" ? fixtures.statusPaths : []);
 				await page.goto(`${origin}/gallery`);
-				await expect(page.getByText(/No saved images yet/)).toBeVisible();
+				await expect(page.getByText(/No saved media yet/)).toBeVisible();
 				await assertPrivate();
 				await restart();
 				const replay = await post("/image/queue", click);

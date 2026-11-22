@@ -191,7 +191,7 @@ test.each(providers)("%s documents each route, alias and operation once", (provi
 });
 
 test.each(providers)(
-	"%s reconciles its shipped image operations and partial option coverage",
+	"%s reconciles its shipped media operations and partial option coverage",
 	(provider) => {
 		const shipped = [];
 		for (const row of ledger.providers[provider].rows) {
@@ -223,10 +223,10 @@ test.each(providers)(
 			unresolvedIds: provider === "poyo" ? 5 : 21,
 			documentedOperations: provider === "poyo" ? 317 : 331,
 			prerequisiteBound: provider === "poyo" ? 2 : 17,
-			review: provider === "poyo" ? 4 : 2,
-			queue: provider === "poyo" ? 4 : 2,
-			partialOptions: provider === "poyo" ? 4 : 2,
-			addedSinceBaseline: provider === "poyo" ? 2 : 0,
+			review: provider === "poyo" ? 4 : 3,
+			queue: provider === "poyo" ? 4 : 3,
+			partialOptions: provider === "poyo" ? 4 : 3,
+			addedSinceBaseline: provider === "poyo" ? 2 : 1,
 		});
 	},
 );

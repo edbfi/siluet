@@ -1,5 +1,8 @@
-# Foundation plan
+# First saved video
 
-The [ground-floor spec](../docs/SPEC.md) defines the deliverable. Install project-local skills and establish the repository rules while developing the local application. Configure checks against the same commands contributors run locally. Test the built server before filing the foundation PR.
+Deliver one ordinary ToAPIs prompt-only clip from the reviewed Video Studio draft through offline Gallery.
 
-GitHub can require a check once it has run. Land the checks first, then configure the main ruleset and verify its settings before enabling dependency auto-merge and central maintenance access. The [task list](todo.md) tracks the work still in flight.
+1. Qualify the bounded MP4 reader and trusted native decode. Test full sample accounting, edit-list presentation and finite resource limits for both audio and video. Add authenticated single-range playback and a built offline save/seek/download/remove fixture; preserve existing image media.
+2. Introduce revision-scoped model access outside credential authenticated data, including the video-only key fixture. Implement exact provider submission, identity-checked status and reserved read-only recovery through a local business ID. Preserve pending settlement and avoid duplicate POSTs.
+3. Wire the registry, accessible Video Studio review and exact consent terms through durable Jobs and explicit Save. Distinguish unsavable paid clips, uncertain dispatch and expired results. Verify before any platform can Queue. Keep release gated on prior registry and first additional image model.
+4. Run complete local and target-platform checks with fixture providers, use code council, file and merge the reviewed slice, then retire the plan.

@@ -17,7 +17,7 @@ import {
 	type validateSeedreamDraft,
 } from "#lib/shared/image-studio/seedream.ts";
 import {
-	releasedOperations,
+	releasedImageOperations,
 	releasedProviders,
 	seedreamModel,
 } from "#lib/shared/media-catalog/registry.ts";
@@ -102,7 +102,7 @@ let connectedProviders = $derived(
 	releasedProviders.filter((provider) => eligibleProviders.includes(provider)),
 );
 const operations = $derived(
-	releasedOperations.filter(
+	releasedImageOperations.filter(
 		(entry) =>
 			entry.modelId === seedreamModel.id &&
 			entry.key.provider === (draft.provider ?? releasedProviders[0]),

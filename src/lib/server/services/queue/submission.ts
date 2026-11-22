@@ -14,10 +14,10 @@ import { loadStudioPricingFeeds } from "../pricing/local-feed";
 import type { BatchAuthorization } from "./batch-dispatch";
 import type { LiveRequest } from "./request";
 import { batchDisclosureVersion, reviewBinding } from "./review-binding";
+import { reviewSigner, tokenFormat } from "./review-signature";
 
 const invalid = { error: "invalid" } as const;
 const stale = { error: "stale" } as const;
-const tokenFormat = /^([a-f0-9-]{36})\.([a-f0-9]{64})\.([a-f0-9]{64})$/;
 
 type SingleDispatch = (
 	id: string,
@@ -41,13 +41,8 @@ export async function createSubmissionQueue(
 		typeof dispatcher === "function"
 			? { dispatch: dispatcher, dispatchBatch: undefined }
 			: dispatcher;
-	const stored = await installation.use((db) =>
-		db.get<{ secret: string }>(sql`SELECT secret FROM image_review_key WHERE singleton=1`),
-	);
-	if (!stored || !/^[0-9a-f]{64}$/i.test(stored.secret))
-		throw new Error("Review signing key unavailable.");
 	const { signature, reviewTerms, digest } = reviewBinding(
-		stored.secret,
+		await reviewSigner(installation),
 		discloseEdit,
 		discloseZImage,
 	);

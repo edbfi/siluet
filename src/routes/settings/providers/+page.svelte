@@ -42,6 +42,7 @@ const feedback = $derived(
 		? (feedbackByProvider[provider.id] ?? (form?.provider === provider.id ? form : null))
 		: null,
 );
+const videoFeedback = $derived(feedback?.outcome === "video-checked" ? feedback : null);
 const isSuccess = $derived(feedback?.outcome === "connected" || feedback?.outcome === "removed");
 const pendingMessages = { connect: "Checking key…", remove: "Removing key…" };
 
@@ -128,6 +129,24 @@ function save(
 								>{dateFormat.format(provider.verifiedAt)} UTC</time
 							>
 						</p>
+						{#if provider.id === "toapis"}
+							<p
+								class={cx(
+									styles.notice,
+									videoFeedback && !videoFeedback.eligible && styles.warning,
+								)}
+								role={videoFeedback ? (videoFeedback.eligible ? "status" : "alert") : undefined}
+							>
+								{videoFeedback?.message ?? data.videoAccess.message}
+								{(!videoFeedback || videoFeedback.message === data.videoAccess.message) &&
+								data.videoAccess.checkedAt
+									? `${dateFormat.format(data.videoAccess.checkedAt)} UTC`
+									: ""}
+							</p>
+							<form method="POST" action="?/video&provider=toapis">
+								<button type="submit" class={styles.action}>Check video access</button>
+							</form>
+						{/if}
 						{#if !provider.seedream}
 							<p class={cx(styles.warning, styles.notice)}>Seedream 5.5 access unavailable.</p>
 						{/if}
@@ -220,7 +239,9 @@ function save(
 						{pending ? pendingMessages[pending] : isSuccess ? feedback?.message : ""}
 					</p>
 					<p class={cx(styles.feedback, styles.warning, styles.notice)} role="alert">
-						{feedback && !isSuccess ? feedback.message : ""}
+						{feedback && !isSuccess && (!videoFeedback || provider.state !== "connected")
+							? feedback.message
+							: ""}
 					</p>
 				</div>
 			{/key}
