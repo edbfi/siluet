@@ -9,7 +9,25 @@ import { styles } from "./jobs-styles.ts";
 
 let { data, form }: PageProps = $props();
 let pending = $state<Record<string, "refresh" | "save" | undefined>>({});
+const outcomeLabels = {
+	unsent: "Not submitted",
+	pending: "Pending",
+	uncertain: "May have been submitted",
+	successful: "Successful",
+	paused: "Tracking paused",
+	failed: "Failed",
+	rejected: "Rejected",
+};
+const stopReasons = {
+	finished: "Dispatch finished.",
+	expired: "The two-minute authorization expired.",
+	terms: "Reviewed terms or credential changed.",
+	rejection: "The provider rejected this payload.",
+	interrupted: "Dispatch was interrupted.",
+	cooldown: "The provider cooldown exceeded the dispatch window.",
+};
 const states = {
+	unsent: "Not submitted",
 	submitting: "Submitting",
 	unknown: "May have been submitted",
 	rejected: "Submission rejected",
@@ -36,8 +54,11 @@ const clock = new Intl.DateTimeFormat("en", {
 // This reloads local history. Only the server schedules provider status reads.
 $effect(() => {
 	const { jobs, now } = data;
-	let delay = Infinity;
-	for (const job of jobs) {
+	const attempts = data.batches.flatMap((batch) =>
+		batch.requests.flatMap((request) => request.attempts),
+	);
+	let delay = data.batches.some((batch) => !batch.reason) ? 2000 : Infinity;
+	for (const job of [...jobs, ...attempts]) {
 		if (job.tracking === "automatic" || job.state === "submitting") delay = Math.min(delay, 2000);
 		else if (job.nextReadAt && job.nextReadAt > now)
 			delay = Math.min(delay, job.nextReadAt - now + 50);
@@ -74,160 +95,236 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 	<time datetime={new Date(time).toISOString()}>{clock.format(time)} UTC</time>
 {/snippet}
 
+{#snippet jobRow(job: PageProps["data"]["jobs"][number])}
+	{#if job}
+		{@const entry = releasedOperations.find(
+			(entry) =>
+				entry.key.provider === job.provider &&
+				entry.key.model === job.model &&
+				(!job.operation || entry.key.operation === job.operation),
+		)}
+		{@const provider = seedreamProviderNames[job.provider]}
+		{@const saved = data.saved.includes(job.id)}
+		{@const cooldown = job.nextReadAt && job.nextReadAt > data.now ? job.nextReadAt : null}
+		<article class={styles.job} aria-labelledby={`job-${job.id}-title`} id={`job-${job.id}`}>
+			<header>
+				<div class={styles.header}>
+					<svelte:element
+						this={job.batchId ? "h4" : "h2"}
+						class={styles.heading}
+						id={`job-${job.id}-title`}
+					>
+						{job.batchId
+							? `Attempt ${job.attempt}`
+							: `${releasedModels.find((model) => model.id === entry?.modelId)?.label ?? job.model} · ${provider}`}
+					</svelte:element>
+					<span class={styles.state} data-state={job.state} aria-live="polite"
+						>{job.galleryReason === "unsupported-image"
+							? "Completed · unsupported image for Gallery"
+							: job.throttled && job.batchId
+								? "Not admitted · throttled"
+								: states[job.state]}</span
+					>
+				</div>
+				<p class={styles.meta}>
+					{#if job.operation && entry}
+						{entry.label} ·
+					{/if}
+					Created {@render date(job.createdAt)}
+					{job.taskId && job.batchId ? ` · Task ${job.taskId}` : ""}
+				</p>
+			</header>
+			{#if job.message}
+				<p class={styles.note}>
+					{job.tracking === "paused" ? "Tracking paused. " : ""}{job.message}
+				</p>
+			{/if}
+			{#if job.tracking === "manual"}
+				<p class={styles.note}>
+					Automatic tracking has ended. Refresh status to check the same task.
+				</p>
+			{/if}
+			<dl class={styles.billing} aria-label="Billing">
+				<div>
+					<dt>Accepted estimate{job.provider === "toapis" ? " · standard route" : ""}</dt>
+					<dd>
+						{#if job.quote.status === "known"}
+							{job.quote.perRequest} {provider} credits
+							<span class={styles.meta}>(rates dated {job.quote.sourceDate.slice(0, 10)})</span>
+						{:else}
+							Unknown. {reviewPriceReason(job.quote)}
+						{/if}
+						{#if job.provider === "toapis"}
+							<p class={styles.meta}>Fallback pricing unknown.</p>
+						{/if}
+					</dd>
+				</div>
+				<div>
+					{#if job.billing?.status === "reported"}
+						<dt>Provider-reported task credits</dt>
+						<dd>{job.billing.credits} {provider} credits. Settlement unverified.</dd>
+					{:else if job.billing?.status === "settled" || job.billing?.status === "refunded"}
+						<dt>{job.billing.status === "refunded" ? "Confirmed refund" : "Settled charge"}</dt>
+						<dd>
+							{#if job.billing.credits != null}
+								{job.billing.credits} {provider} credits
+							{/if}
+							{#if job.billing.credits != null && job.billing.usd != null}
+								·
+							{/if}
+							{#if job.billing.usd != null}
+								${job.billing.usd} USD
+							{/if}
+							{#if job.billing.credits == null && job.billing.usd == null}
+								Amount unknown
+							{/if}
+						</dd>
+					{:else}
+						<dt>
+							{job.provider === "poyo" ? "Provider-reported task credits" : "Settled charge"}
+						</dt>
+						<dd>Unknown</dd>
+					{/if}
+				</div>
+				{#if job.wallet && !job.batchId}
+					<div>
+						<dt>Account-wide wallet change</dt>
+						<dd>
+							{#if job.wallet.status === "observed"}
+								{job.wallet.delta} credits ({job.wallet.before} before, {job.wallet.after} after).
+								<p class={styles.meta}>
+									Top-ups, reservations and other account activity can affect this balance.
+								</p>
+							{:else}
+								Unavailable. {walletReasons[job.wallet.reason]}
+							{/if}
+						</dd>
+					</div>
+				{/if}
+			</dl>
+			{#if !saved && job.state === "completed"}
+				<p class={styles.note}>
+					{#if job.expiresAt}
+						Provider result expires {@render date(job.expiresAt)}.
+					{:else}
+						The provider keeps this result for a limited time. Save it promptly.
+					{/if}
+				</p>
+			{/if}
+			{#if cooldown && (job.canRefresh || job.tracking === "automatic")}
+				<p class={styles.meta}>Next status check available {@render date(cooldown)}.</p>
+			{/if}
+			{#if saved || job.canSave || job.canRefresh || job.state === "unknown"}
+				<div class={styles.actions}>
+					{#if saved}
+						<a class={styles.link} href={`/gallery/${encodeURIComponent(job.id)}`}
+							>Open saved image</a
+						>
+					{:else if job.canSave}
+						<form method="POST" action="?/save" use:enhance={submit(job.id, "save")}>
+							<input type="hidden" name="id" value={job.id}>
+							<button
+								class={styles.button}
+								disabled={!!pending[job.id] || cooldown !== null}
+								type="submit"
+							>
+								{pending[job.id] === "save" ? "Saving…" : "Save to Gallery"}
+							</button>
+						</form>
+					{/if}
+					{#if job.canRefresh}
+						<form method="POST" action="?/refresh" use:enhance={submit(job.id, "refresh")}>
+							<input type="hidden" name="id" value={job.id}>
+							<button
+								class={styles.button}
+								disabled={!!pending[job.id] || cooldown !== null}
+								type="submit"
+							>
+								{pending[job.id] === "refresh" ? "Checking…" : "Refresh status"}
+							</button>
+						</form>
+					{/if}
+					{#if job.state === "unknown"}
+						<a class={styles.link} href="/image">Review a new request</a>
+					{/if}
+				</div>
+			{/if}
+			{#if form && form.id === job.id && form.message}
+				<p role="status" class={styles.note}>{form.message}</p>
+			{/if}
+		</article>
+	{/if}
+{/snippet}
+
 <div class={styles.page}>
 	<h1>Jobs</h1>
 	<p class={styles.intro}>Track image requests and save completed images to Gallery.</p>
 	<div class={styles.list}>
-		{#each data.jobs as job (job.id)}
-			{@const entry = releasedOperations.find(
-				(entry) =>
-					entry.key.provider === job.provider &&
-					entry.key.model === job.model &&
-					(!job.operation || entry.key.operation === job.operation),
-			)}
-			{@const provider = seedreamProviderNames[job.provider]}
-			{@const saved = data.saved.includes(job.id)}
-			{@const cooldown = job.nextReadAt && job.nextReadAt > data.now ? job.nextReadAt : null}
-			<article class={styles.job} aria-labelledby={`job-${job.id}-title`} id={`job-${job.id}`}>
-				<header>
-					<div class={styles.header}>
-						<h2 class={styles.heading} id={`job-${job.id}-title`}>
-							{releasedModels.find((model) => model.id === entry?.modelId)?.label ?? job.model} ·
-							{provider}
-						</h2>
-						<span class={styles.state} data-state={job.state} aria-live="polite"
-							>{job.galleryReason === "unsupported-image"
-								? "Completed · unsupported image for Gallery"
-								: states[job.state]}</span
-						>
-					</div>
-					<p class={styles.meta}>
-						{#if job.operation && entry}
-							{entry.label} ·
-						{/if}
-						Created {@render date(job.createdAt)}
-					</p>
-				</header>
-				{#if job.message}
-					<p class={styles.note}>
-						{job.tracking === "paused" ? "Tracking paused. " : ""}{job.message}
-					</p>
-				{/if}
-				{#if job.tracking === "manual"}
-					<p class={styles.note}>
-						Automatic tracking has ended. Refresh status to check the same task.
-					</p>
-				{/if}
-				<dl class={styles.billing} aria-label="Billing">
-					<div>
-						<dt>Accepted estimate{job.provider === "toapis" ? " · standard route" : ""}</dt>
-						<dd>
-							{#if job.quote.status === "known"}
-								{job.quote.perRequest} {provider} credits
-								<span class={styles.meta}>(rates dated {job.quote.sourceDate.slice(0, 10)})</span>
-							{:else}
-								Unknown. {reviewPriceReason(job.quote)}
-							{/if}
-							{#if job.provider === "toapis"}
-								<p class={styles.meta}>Fallback pricing unknown.</p>
-							{/if}
-						</dd>
-					</div>
-					<div>
-						{#if job.billing?.status === "reported"}
-							<dt>Provider-reported task credits</dt>
-							<dd>{job.billing.credits} {provider} credits. Settlement unverified.</dd>
-						{:else if job.billing?.status === "settled" || job.billing?.status === "refunded"}
-							<dt>{job.billing.status === "refunded" ? "Confirmed refund" : "Settled charge"}</dt>
-							<dd>
-								{#if job.billing.credits != null}
-									{job.billing.credits} {provider} credits
-								{/if}
-								{#if job.billing.credits != null && job.billing.usd != null}
-									·
-								{/if}
-								{#if job.billing.usd != null}
-									${job.billing.usd} USD
-								{/if}
-								{#if job.billing.credits == null && job.billing.usd == null}
-									Amount unknown
-								{/if}
-							</dd>
-						{:else}
-							<dt>
-								{job.provider === "poyo" ? "Provider-reported task credits" : "Settled charge"}
-							</dt>
-							<dd>Unknown</dd>
-						{/if}
-					</div>
-					{#if job.wallet}
-						<div>
-							<dt>Account-wide wallet change</dt>
-							<dd>
-								{#if job.wallet.status === "observed"}
-									{job.wallet.delta} credits ({job.wallet.before} before, {job.wallet.after} after).
-									<p class={styles.meta}>
-										Top-ups, reservations and other account activity can affect this balance.
-									</p>
-								{:else}
-									Unavailable. {walletReasons[job.wallet.reason]}
-								{/if}
-							</dd>
-						</div>
+		{#each data.batches as batch (batch.id)}
+			<section class={styles.job} id={`job-${batch.id}`} aria-label="Image batch">
+				<h2 class={styles.heading}>Seedream 5.5 batch · {seedreamProviderNames[batch.provider]}</h2>
+				<p>{batch.requests.length} requests · {batch.retryLimit} extra attempts per request</p>
+				<p>
+					{batch.reason ? stopReasons[batch.reason] : "Dispatch authorized until"}
+					{#if !batch.reason}
+						{@render date(batch.deadline)}
 					{/if}
-				</dl>
-				{#if !saved && job.state === "completed"}
-					<p class={styles.note}>
-						{#if job.expiresAt}
-							Provider result expires {@render date(job.expiresAt)}.
+				</p>
+				<p>
+					Accepted initial estimate ·
+					{batch.quote.status === "known" ? `${batch.quote.batch} credits` : "Unknown"}
+				</p>
+				{#if batch.reason}
+					<p>
+						{batch.counts.successful} successful · {batch.counts.failed} failed ·
+						{batch.counts.rejected} rejected · {batch.counts.uncertain} uncertain ·
+						{batch.counts.unsent} unsent · {batch.counts.pending} pending ·
+						{batch.counts.paused} paused
+					</p>
+				{/if}
+				{#if batch.wallet}
+					<p>
+						Account balance movement ·
+						{#if batch.wallet.status === "observed"}
+							{batch.wallet.delta} credits ({batch.wallet.before} at
+							{@render date(batch.wallet.beforeAt)}, {batch.wallet.after} at
+							{@render date(batch.wallet.afterAt)}). Top-ups, reservations and other account
+							activity can affect this balance.
 						{:else}
-							The provider keeps this result for a limited time. Save it promptly.
+							Unavailable. {walletReasons[batch.wallet.reason]}
 						{/if}
 					</p>
 				{/if}
-				{#if cooldown && (job.canRefresh || job.tracking === "automatic")}
-					<p class={styles.meta}>Next status check available {@render date(cooldown)}.</p>
-				{/if}
-				{#if saved || job.canSave || job.canRefresh || job.state === "unknown"}
-					<div class={styles.actions}>
-						{#if saved}
-							<a class={styles.link} href={`/gallery/${encodeURIComponent(job.id)}`}
-								>Open saved image</a
-							>
-						{:else if job.canSave}
-							<form method="POST" action="?/save" use:enhance={submit(job.id, "save")}>
-								<input type="hidden" name="id" value={job.id}>
-								<button
-									class={styles.button}
-									disabled={!!pending[job.id] || cooldown !== null}
-									type="submit"
-								>
-									{pending[job.id] === "save" ? "Saving…" : "Save to Gallery"}
-								</button>
-							</form>
+				{#if batch.settlement}
+					<p>
+						{#if batch.settlement.credits === null}
+							Total unknown
+						{:else}
+							{batch.settlement.complete ? "Confirmed total" : "Total unknown · known subtotal"} ·
+							{batch.settlement.credits} credits · ${batch.settlement.usd} USD
 						{/if}
-						{#if job.canRefresh}
-							<form method="POST" action="?/refresh" use:enhance={submit(job.id, "refresh")}>
-								<input type="hidden" name="id" value={job.id}>
-								<button
-									class={styles.button}
-									disabled={!!pending[job.id] || cooldown !== null}
-									type="submit"
-								>
-									{pending[job.id] === "refresh" ? "Checking…" : "Refresh status"}
-								</button>
-							</form>
-						{/if}
-						{#if job.state === "unknown"}
-							<a class={styles.link} href="/image">Review a new request</a>
-						{/if}
-					</div>
+					</p>
 				{/if}
-				{#if form && form.id === job.id && form.message}
-					<p role="status" class={styles.note}>{form.message}</p>
-				{/if}
-			</article>
-		{:else}
+				{#each batch.requests as request (request.slot)}
+					<section aria-label={`Request ${request.slot}`}>
+						<h3>Request {request.slot} · {outcomeLabels[request.outcome]}</h3>
+						<p>
+							{request.used} of {1 + batch.retryLimit} attempts used{batch.reason &&
+							request.used < 1 + batch.retryLimit
+								? " · remaining attempts skipped"
+								: ""}
+						</p>
+						{#each request.attempts as job (job.id)}
+							{@render jobRow(job)}
+						{/each}
+					</section>
+				{/each}
+			</section>
+		{/each}
+		{#each data.jobs as job (job.id)}
+			{@render jobRow(job)}
+		{/each}
+		{#if !data.jobs.length && !data.batches.length}
 			<div class={styles.job}>
 				<h2 class={styles.heading}>No jobs yet</h2>
 				<p class={styles.note}>
@@ -235,6 +332,6 @@ function submit(id: string, action: "refresh" | "save"): SubmitFunction {
 				</p>
 				<a class={styles.link} href="/image">Open Image Studio</a>
 			</div>
-		{/each}
+		{/if}
 	</div>
 </div>

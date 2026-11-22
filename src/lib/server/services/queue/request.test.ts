@@ -8,8 +8,10 @@ const request = { draft, count: 1, retryLimit: 0, acceptUnknown: false };
 test("live submission strictly validates one text generation before building its provider body", () => {
 	expect(parseQueueRequest(request)?.input.prompt).toBe(draft.prompt);
 	for (const change of [
-		{ count: 2 },
-		{ retryLimit: 1 },
+		{ count: 6 },
+		{ count: 2.2 },
+		{ retryLimit: -1 },
+		{ retryLimit: 4 },
 		{ acceptUnknown: "true" },
 		{ quote: { status: "known" } },
 		{ draft: { ...draft, operation: "edit" } },
@@ -108,9 +110,11 @@ test("live edit rejects unsupported attempts, output controls, and reference sha
 	const file = { kind: "file", file: { name: "local.png", size: 90, type: "image/png" } };
 	for (const overrides of [
 		{ count: 0 },
-		{ count: 2 },
+		{ count: 6 },
+		{ count: 2.2 },
 		{ count: "1" },
-		{ retryLimit: 1 },
+		{ retryLimit: -1 },
+		{ retryLimit: 4 },
 		{ retryLimit: "0" },
 		{ editDisclosure: ["forged terms"] },
 		{ draft: { ...editDraft, layer_decomposition: true } },
@@ -194,3 +198,9 @@ test.each(["poyo", "toapis"] as const)(
 		}
 	},
 );
+test("live Review accepts the maximum batch and preserves its explicit extra-attempt budget", () => {
+	expect(parseQueueRequest({ ...request, count: 5, retryLimit: 3 })).toMatchObject({
+		count: 5,
+		retryLimit: 3,
+	});
+});

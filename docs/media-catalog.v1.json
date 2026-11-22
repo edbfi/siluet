@@ -23,12 +23,12 @@
 		},
 		"seedream-generate": {
 			"review": "ordinary options, including batch and retry estimate",
-			"queue": "one reviewed ordinary image request, zero retries",
+			"queue": "1–5 requests, 0–3 authorized retries per request, maximum 20 generation POSTs",
 			"optionCoverage": "partial"
 		},
 		"seedream-edit": {
 			"review": "ordinary options, up to ten ordered staged files or URLs, batch and retry estimate",
-			"queue": "1–10 ordered public HTTP(S) image URLs, one reviewed request, zero retries",
+			"queue": "1–10 ordered public HTTP(S) image URLs, 1–5 requests, 0–3 authorized retries per request, maximum 20 generation POSTs",
 			"optionCoverage": "partial"
 		}
 	},

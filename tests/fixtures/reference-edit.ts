@@ -38,7 +38,14 @@ export const editedPng = Buffer.from(
 	"base64",
 );
 
-type Outcome = "completed" | "download-fails-once" | "rejected" | "failed" | "timeout";
+type Outcome =
+	| "crash-after-acceptance"
+	| "mixed-batch"
+	| "completed"
+	| "download-fails-once"
+	| "rejected"
+	| "failed"
+	| "timeout";
 
 export function referenceEditFixtures(
 	provider: SeedreamProvider,
@@ -65,6 +72,11 @@ export function referenceEditFixtures(
 						})
 					: Response.json({ error: { code: "invalid_image", message: echo } }, { status: 400 });
 			}
+			if (outcome === "crash-after-acceptance" && submissions.length === 2)
+				return Response.json(
+					{ id: "never-recorded" },
+					{ headers: { "x-siluet-fixture-exit": "yes" } },
+				);
 			const taskId = `${provider}-reference-edit-fixture-${submissions.length}`;
 			statusPaths.push(`/${provider}/status/${taskId}`);
 			return provider === "poyo"
@@ -73,7 +85,7 @@ export function referenceEditFixtures(
 		}
 		if (statusPaths.includes(path)) {
 			const taskId = path.split("/").at(-1);
-			if (outcome === "failed") {
+			if (outcome === "failed" || (outcome === "mixed-batch" && path === statusPaths[0])) {
 				const message = `${providerEchoMarker} ${secondSignedReference}`;
 				if (provider === "poyo") {
 					return Response.json({
@@ -118,7 +130,7 @@ export function referenceEditFixtures(
 				request.headers.has("cookie")
 			)
 				return new Response(null, { status: 403 });
-			if (downloads === 1 && outcome === "download-fails-once")
+			if (downloads === 1 && (outcome === "download-fails-once" || outcome === "mixed-batch"))
 				return new Response(`${providerEchoMarker} ${secondSignedReference}`, { status: 502 });
 			return new Response(editedPng, { headers: { "content-type": "image/png" } });
 		}

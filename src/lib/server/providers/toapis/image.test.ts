@@ -162,3 +162,17 @@ test("ToAPIs exposes only the bounded reason from a matching failed task", async
 	);
 	expect(await running.status(key, taskId)).toEqual({ kind: "temporary", retryAfter: null });
 });
+
+test("only the async submit limiter without acceptance evidence is retryable", async () => {
+	const body = { error: { code: "rate_limit_exceeded" } };
+	const submit = (category: string, extra: object) =>
+		createToapisImage(async () =>
+			Response.json(
+				{ ...body, ...extra },
+				{ status: 429, headers: { "X-RateLimit-Category": category } },
+			),
+		).submit(key, request);
+	expect(await submit("async_submit", {})).toEqual({ kind: "throttled", retryAfter: null });
+	expect(await submit("async_query", {})).toEqual({ kind: "unknown" });
+	expect(await submit("async_submit", { task_id: taskId })).toEqual({ kind: "unknown" });
+});

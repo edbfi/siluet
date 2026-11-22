@@ -70,11 +70,29 @@ export function createPoyoImage(read: CheckFetch = fetch) {
 		// https://docs.poyo.ai/api-manual/error-codes
 		async submit(key: string, request: ReviewedImageRequest): Promise<Submission> {
 			if (request.url !== submitUrl) return { kind: "unknown" };
-			const { ok, status, body } = await requestImageJson(read, submitUrl, key, request);
+			const { ok, status, body, retryAfter } = await requestImageJson(
+				read,
+				submitUrl,
+				key,
+				request,
+			);
 			if (isRecord(body) && isRecord(body.data) && Object.hasOwn(body.data, "task_id"))
 				return ok && body.code === 200 && body.error == null && isTaskId(body.data.task_id)
 					? { kind: "accepted", taskId: body.data.task_id }
 					: { kind: "unknown" };
+			if (
+				status === 429 &&
+				isRecord(body) &&
+				body.code === 429 &&
+				isRecord(body.error) &&
+				body.error.type === "rate_limit_error" &&
+				Object.keys(body.error).every((key) =>
+					["type", "message", "code", "param"].includes(key),
+				) &&
+				Object.keys(body).every((key) => ["code", "error", "message", "data"].includes(key)) &&
+				(body.data == null || (isRecord(body.data) && !Object.keys(body.data).length))
+			)
+				return { kind: "throttled", retryAfter };
 			const reason = rejection(status, body);
 			return reason ? { kind: "rejected", reason } : { kind: "unknown" };
 		},

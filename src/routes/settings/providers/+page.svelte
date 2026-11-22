@@ -139,7 +139,8 @@ function save(
 					{#if provider.neededByJobs}
 						<p class={cx(styles.warning, styles.notice)} id="job-key-warning">
 							Jobs still need this key. Replacing or removing it pauses status checks and prevents
-							saving their unsaved results.
+							saving their unsaved results. It also stops future submissions in any open batch,
+							including batches waiting for cooldown or settlement.
 						</p>
 					{/if}
 					{#if provider.state === "repair"}

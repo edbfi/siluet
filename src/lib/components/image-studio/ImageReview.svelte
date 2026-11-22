@@ -19,6 +19,7 @@ import {
 	type ReleasedOperation,
 	zImageModel,
 } from "#lib/shared/media-catalog/registry.ts";
+import { sumAmounts } from "#lib/shared/pricing/decimal.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
 import type { PricingFeeds, PricingProvider } from "#lib/shared/pricing/feeds.ts";
 import { goto } from "$app/navigation";
@@ -86,8 +87,8 @@ const unavailable = $derived.by(() => {
 	const evidenceProblem = entry && queueEvidenceProblem(entry.evidence);
 	if (evidenceProblem) return evidenceProblem;
 	if (isEdit && duplicateWarning) return duplicateWarning;
-	if (count !== 1 || retryLimit !== 0)
-		return "Queue supports one request and zero additional attempts.";
+	if (modelId === zImageModel.id && (count !== 1 || retryLimit !== 0))
+		return "Z-Image Queue supports one request and zero additional attempts.";
 	if (modelId === zImageModel.id && isEdit && draft.references.length !== 1)
 		return "Add one public image URL to review this edit.";
 	if (
@@ -210,7 +211,9 @@ async function queue() {
 			acceptUnknown: acceptedToken === current.token,
 		});
 		if (response.status === 409 || response.status === 400) {
-			const result: { review?: ReviewTerms } | null = await response.json().catch(() => null);
+			const result: { review?: ReviewTerms; until?: number } | null = await response
+				.json()
+				.catch(() => null);
 			if (!mounted || input !== request) return;
 			const fresh = result?.review;
 			authorized = null;
@@ -218,9 +221,11 @@ async function queue() {
 			if (!fresh || applyTerms(input, fresh)) {
 				feedback = {
 					request: input,
-					message: fresh
-						? "The terms changed. Check the updated Review before queuing."
-						: "Review is unavailable for these terms. Check the provider connection and review again.",
+					message: result?.until
+						? `The provider is cooling down. Review and click Queue again after ${new Date(result.until).toISOString()}.`
+						: fresh
+							? "The terms changed. Check the updated Review before queuing."
+							: "Review is unavailable for these terms. Check the provider connection and review again.",
 				};
 			}
 			tabValue = "review";
@@ -362,8 +367,14 @@ $effect(() => {
 							{#if quote.unit === "toapis_credit"}
 								<p>Standard-route estimate ${quote.usd.perRequest} USD.</p>
 							{/if}
-							{#if !current}
+							{#if !current || count > 1 || retryLimit > 0}
 								<p>Estimated {quote.batch} {providerName} credits for the initial batch</p>
+							{/if}
+							{#if count > 1 || retryLimit > 0}
+								<p>
+									Estimated {sumAmounts([quote.perRequest], maxAttempts)} {providerName} credits if
+									all {maxAttempts} submissions are charged at this rate.
+								</p>
 							{/if}
 							{@render rateDates(quote.sourceDate, quote.expiresAt)}
 						{:else if quote?.status === "unknown"}
@@ -381,6 +392,19 @@ $effect(() => {
 					</dd>
 				</div>
 			</dl>
+			{#if modelId !== zImageModel.id && (count > 1 || retryLimit > 0)}
+				<p class={styles.note}>
+					{count} requests · {retryLimit} extra attempts per request · up to
+					{maxAttempts} potentially charged submissions. Queue authorizes these retries. Each
+					attempt sends the same prompt, options{isEdit ? " and full ordered reference URLs" : ""}
+					and can incur a new charge. Dispatch can continue for two minutes if you leave this page.
+				</p>
+				<p class={styles.note}>
+					{selectedProvider === "toapis"
+						? "Maximum spend including fallback is unknown."
+						: "The provider does not enforce the estimated spend as a cap."}
+				</p>
+			{/if}
 			{#if disclosure}
 				<h3 class={styles.disclosureHeading} id={`${headingId}-disclosure`}>Provider disclosure</h3>
 				<ul class={styles.disclosure} aria-labelledby={`${headingId}-disclosure`}>
@@ -411,7 +435,9 @@ $effect(() => {
 				</label>
 			</div>
 			<p class={styles.note}>
-				Each request runs independently. Initial batch estimates exclude retries.
+				{modelId === zImageModel.id
+					? "Z-Image batches are available for offline estimates. Queue supports one request with zero retries."
+					: "Each request runs independently. Initial batch estimates exclude retries."}
 			</p>
 		</Tabs.Content>
 
@@ -452,11 +478,13 @@ $effect(() => {
 				onchange={(event) =>
 					(acceptedToken = event.currentTarget.checked ? (current?.token ?? null) : null)}
 			>
-			{selectedProvider !== "toapis"
-				? "I accept the unknown cost of this request."
-				: current.quote.status === "known"
-					? "I accept the unknown cost if ToAPIs uses a fallback."
-					: "I accept the unknown cost on the standard route or a fallback."}
+			{count > 1 || retryLimit > 0
+				? "I accept unknown costs for this batch, including authorized retries and any applicable fallback."
+				: selectedProvider !== "toapis"
+					? "I accept the unknown cost of this request."
+					: current.quote.status === "known"
+						? "I accept the unknown cost if ToAPIs uses a fallback."
+						: "I accept the unknown cost on the standard route or a fallback."}
 		</label>
 	{/if}
 	<div class={styles.actions}>

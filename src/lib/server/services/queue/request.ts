@@ -39,7 +39,15 @@ const optionFields = [
 	"watermark",
 ];
 
+function within(value: unknown, minimum: number, maximum: number): value is number {
+	return (
+		typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum
+	);
+}
+
 export type LiveRequest = {
+	count: number;
+	retryLimit: number;
 	replayOnly: boolean;
 	entry: NonNullable<ReturnType<typeof resolveOperationKey>>;
 	input: Parameters<typeof buildSeedreamRequest>[0] | Parameters<typeof buildZImageRequest>[0];
@@ -54,8 +62,8 @@ export function parseQueueRequest(
 ): LiveRequest | null {
 	if (
 		!record(value) ||
-		value.count !== 1 ||
-		value.retryLimit !== 0 ||
+		!within(value.count, 1, 5) ||
+		!within(value.retryLimit, 0, 3) ||
 		typeof value.acceptUnknown !== "boolean" ||
 		Object.keys(value).some(
 			(key) =>
@@ -66,9 +74,12 @@ export function parseQueueRequest(
 	const draft = value.draft;
 	const selected = resolveOperationKey(value.operationKey);
 	if (selected?.modelId === "z-image") {
+		if (value.count !== 1 || value.retryLimit !== 0) return null;
 		const result = validateZImageDraft(draft);
 		if (!result.ok || result.input.operation !== selected.mode) return null;
 		return {
+			count: 1,
+			retryLimit: 0,
 			replayOnly: false,
 			entry: selected,
 			input: result.input,
@@ -102,7 +113,9 @@ export function parseQueueRequest(
 		Object.keys(options).some((key) => !optionFields.includes(key));
 	if (
 		replayOnly &&
-		(action !== "submit" ||
+		(value.count !== 1 ||
+			value.retryLimit !== 0 ||
+			action !== "submit" ||
 			draft.operation !== "generate" ||
 			"operationKey" in value ||
 			typeof value.token !== "string")
@@ -160,6 +173,8 @@ export function parseQueueRequest(
 			if (reference.kind !== "url") throw new Error("Live edits require a URL reference.");
 			return reference.url;
 		}),
+		count: value.count,
+		retryLimit: value.retryLimit,
 		acceptUnknown: value.acceptUnknown,
 		token: value.token,
 	};

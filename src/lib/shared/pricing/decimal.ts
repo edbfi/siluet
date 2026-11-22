@@ -19,3 +19,18 @@ export function formatCredits(units: bigint): string {
 	const whole = `${negative ? "-" : ""}${magnitude / scale}`;
 	return fraction ? `${whole}.${fraction}` : whole;
 }
+
+// Provider settlement amounts can carry more precision than the published rates.
+export function sumAmounts(amounts: readonly string[], multiplier = 1): string {
+	const parts = amounts.map((amount) => amount.split("."));
+	const places = parts.reduce((max, [, fraction = ""]) => Math.max(max, fraction.length), 0);
+	const total =
+		parts.reduce(
+			(sum, [whole, fraction = ""]) => sum + BigInt(whole + fraction.padEnd(places, "0")),
+			0n,
+		) * BigInt(multiplier);
+	const digits = total.toString().padStart(places + 1, "0");
+	if (!places) return digits;
+	const fraction = digits.slice(-places).replace(/0+$/, "");
+	return digits.slice(0, -places) + (fraction ? `.${fraction}` : "");
+}

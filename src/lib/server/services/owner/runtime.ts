@@ -33,9 +33,7 @@ export async function initializeOwner(dev: boolean) {
 	});
 	const jobs = createJobTracking(installation, store);
 	const gallery = createGallery(installation, (id) => jobs.resultUrl(id));
-	const queue = await createSubmissionQueue(installation, store.credential, (...args) =>
-		jobs.dispatch(...args),
-	);
+	const queue = await createSubmissionQueue(installation, store.credential, jobs);
 	await gallery.recover();
 	await jobs.resume();
 	let rotation: ReturnType<typeof setTimeout> | undefined;

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/tursodatabase/wasm-migrator";
 import { gallerySchema } from "./gallery-schema";
+import { imageBatchSchema } from "./image-batch-schema";
 import { imageJobOperationMigration } from "./image-job-operation-migration";
 import { imageJobSchema } from "./image-job-schema";
 
@@ -46,6 +47,7 @@ export const installationMigrations = {
 		CHECK (failure_reason IS NULL OR (failure_reason='reference_media_unreadable'
 			AND provider='toapis' AND state='failed'))`,
 	"20261122030400_image_job_operation": imageJobOperationMigration,
+	"20261122120000_live_image_batches": imageBatchSchema,
 };
 
 export async function migrateInstallation(
