@@ -98,8 +98,9 @@ export async function initializeOwner(dev: boolean) {
 			return closing;
 		}
 		if (dev) {
-			host[devRuntime] = close;
+			// Register only a runtime that started; a failed start is closed below.
 			await announce();
+			host[devRuntime] = close;
 		} else {
 			// The launcher emits siluet:stopping before the adapter drains requests.
 			lifecycle.once("siluet:stopping", () => shutdown.abort());
