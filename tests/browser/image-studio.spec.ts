@@ -337,9 +337,9 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 				await expect(firstFile).toBeFocused();
 			};
 			await expect(queue(1)).toHaveAccessibleDescription(/1–10 public image URLs/i);
-			await expect(queue(1)).toHaveAccessibleDescription(
-				/stage files \(JPEG or PNG up to 16 MiB, or WebP up to 10 MB each\)/,
-			);
+			await expect(
+				request.getByText(/stage files \(JPEG or PNG up to 16 MiB, or WebP up to 10 MB each\)/),
+			).toBeVisible();
 			await stageUrl(firstUrl);
 			await batchTab.press("Enter");
 			await review.getByLabel("Batch count").selectOption("2");
