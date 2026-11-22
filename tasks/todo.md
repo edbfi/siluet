@@ -40,4 +40,4 @@
 - [x] Hold one preparation slot per installation from admission through the stage write. Reserve staged copies in the shared 128 MiB scratch pool.
 - [x] Retire staged copies with their sessions, and reclaim scratch only under the installation lock.
 - [x] Prepare and preview one local copy in Review while Queue stays URL-only.
-- [ ] Pass the hosted media-cleanup matrix on Linux x64 and ARM64, macOS and Windows.
+- [ ] Pass the hosted media-cleanup matrix on Linux x64 and ARM64 and macOS.
