@@ -1,4 +1,5 @@
 <script lang="ts">
+import { untrack } from "svelte";
 import * as style from "#lib/components/image-studio/image-review-styles.ts";
 import {
 	requestControl,
@@ -8,15 +9,53 @@ import {
 	requestLabel,
 	requestLegend,
 } from "#lib/components/image-studio/request-styles.ts";
-import { reviewPriceReason } from "#lib/shared/image-studio/review-price.ts";
-import { seedanceOperation } from "#lib/shared/media-catalog/registry.ts";
+import {
+	reviewPriceExpiry,
+	reviewPriceReason,
+	watchReviewExpiry,
+} from "#lib/shared/image-studio/review-price.ts";
+import { releasedModels, releasedVideoOperations } from "#lib/shared/media-catalog/registry.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
 import { videoDefaults, videoRatios } from "#lib/shared/video-studio/seedance.ts";
 import { css, cx } from "#styled-system/css";
 import { studioButton } from "#styled-system/recipes";
 import { goto } from "$app/navigation";
+import type { PageProps } from "./$types";
 
-let draft = $state({ ...videoDefaults });
+let { data }: PageProps = $props();
+type Operation = (typeof releasedVideoOperations)[number];
+const find = (model: string) => releasedVideoOperations.find((entry) => entry.key.model === model);
+const range = (min: number, max: number) =>
+	Array.from({ length: max - min + 1 }, (_, index) => min + index);
+
+// A Poyo descriptor lists its reviewed inputs. Seedance keeps its own controls and audio.
+function controls(operation: Operation) {
+	if (!("descriptor" in operation))
+		return {
+			durations: range(4, 10),
+			resolutions: ["480p", "720p"],
+			ratios: [...videoRatios] as string[],
+			defaults: videoDefaults as Record<string, string | number | boolean>,
+			audio: true,
+		};
+	const { duration, resolution, aspect_ratio } = operation.descriptor.fields;
+	return {
+		durations: range(duration.min, duration.max),
+		resolutions: [...resolution.values] as string[],
+		ratios: [...aspect_ratio.values] as string[],
+		defaults: operation.descriptor.defaults as Record<string, string | number | boolean>,
+		audio: false,
+	};
+}
+
+let operation = $state(untrack(() => find(data.initialModel) ?? releasedVideoOperations[0]));
+const current = $derived(controls(operation));
+const poyo = $derived(operation.key.provider === "poyo");
+const model = $derived(releasedModels.find((entry) => entry.id === operation.modelId));
+const title = $derived(`${model?.label} · ${poyo ? "Poyo.ai" : "ToAPIs"}`);
+let draft = $state(
+	untrack(() => ({ ...videoDefaults, ...controls(operation).defaults, prompt: "" })),
+);
 let reviewed = $state<{
 	token: string;
 	quote: PriceEstimate;
@@ -37,6 +76,50 @@ function edit() {
 	acceptTerms = false;
 	notice = "";
 }
+// Keep the prompt and any compatible setting. Apply the target's defaults to the rest.
+function switchModel(model: string) {
+	const target = find(model);
+	if (!target || target === operation) return;
+	operation = target;
+	const next = controls(target);
+	draft = {
+		prompt: draft.prompt,
+		aspect_ratio: next.ratios.includes(draft.aspect_ratio)
+			? draft.aspect_ratio
+			: String(next.defaults.aspect_ratio),
+		duration: next.durations.includes(draft.duration)
+			? draft.duration
+			: Number(next.defaults.duration),
+		resolution: next.resolutions.includes(draft.resolution)
+			? draft.resolution
+			: String(next.defaults.resolution),
+		generate_audio: videoDefaults.generate_audio,
+	};
+	edit();
+}
+function requestDraft() {
+	if (current.audio) return draft;
+	const { prompt, duration, resolution, aspect_ratio } = draft;
+	return { prompt, duration, resolution, aspect_ratio };
+}
+// An expired estimate withdraws consent and needs a fresh Review.
+$effect(() => {
+	const expiresAt = reviewPriceExpiry(reviewed?.quote);
+	if (!reviewed || expiresAt === undefined) return;
+	const watch = watchReviewExpiry(expiresAt, (time) => {
+		if (time < expiresAt) return;
+		reviewed = null;
+		acceptTerms = false;
+		notice = "The reviewed rates expired. Review the request again before queuing.";
+	});
+	window.addEventListener("focus", watch.refresh);
+	document.addEventListener("visibilitychange", watch.refresh);
+	return () => {
+		watch.stop();
+		window.removeEventListener("focus", watch.refresh);
+		document.removeEventListener("visibilitychange", watch.refresh);
+	};
+});
 async function act(queue: boolean) {
 	if (pending || promptError || (queue && (!reviewed || !acceptTerms))) return;
 	pending = true;
@@ -45,8 +128,8 @@ async function act(queue: boolean) {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
-				draft,
-				operationKey: seedanceOperation.key,
+				draft: requestDraft(),
+				operationKey: operation.key,
 				count: 1,
 				retryLimit: 0,
 				acceptTerms,
@@ -112,8 +195,27 @@ const frame = css({
 		}}
 	>
 		<header>
-			<p class={style.note}>ByteDance / Seedance</p>
-			<h2 class={style.heading}>Seedance 2.5 · ToAPIs</h2>
+			<label class={requestField}
+				><span class={requestLabel}>Video model and provider</span>
+				<select
+					class={requestControl}
+					value={operation.key.model}
+					disabled={pending}
+					onchange={(event) => switchModel(event.currentTarget.value)}
+				>
+					{#each data.routes as family (family.label)}
+						<optgroup label={family.label}>
+							{#each family.routes as route (route.id)}
+								<option value={route.id} disabled={!!route.reason}>
+									{route.label}{route.reason ? ` (${route.reason})` : ""}
+								</option>
+							{/each}
+						</optgroup>
+					{/each}
+				</select></label
+			>
+			<p class={style.note}>{model?.family}</p>
+			<h2 class={style.heading}>{title}</h2>
 			<p>Create video</p>
 		</header>
 		<fieldset disabled={pending} class={cx(requestFieldset, css({ display: "grid", gap: "1rem" }))}>
@@ -133,7 +235,7 @@ const frame = css({
 			<fieldset class={requestFieldset}>
 				<legend class={requestLegend}>Aspect ratio</legend>
 				<div class={style.actions}>
-					{#each videoRatios as ratio (ratio)}
+					{#each current.ratios as ratio (ratio)}
 						<label
 							><input type="radio" name="ratio" value={ratio} bind:group={draft.aspect_ratio}>
 							{ratio}</label
@@ -151,22 +253,25 @@ const frame = css({
 			<div class={requestFields}>
 				<label class={requestField}
 					>Duration (seconds)<select class={requestControl} bind:value={draft.duration}>
-						{#each [4, 5, 6, 7, 8, 9, 10] as s (s)}
+						{#each current.durations as s (s)}
 							<option value={s}>{s}</option>
 						{/each}
 					</select></label
 				>
 				<label class={requestField}
 					>Resolution<select class={requestControl} bind:value={draft.resolution}>
-						<option>480p</option>
-						<option>720p</option>
+						{#each current.resolutions as resolution (resolution)}
+							<option>{resolution}</option>
+						{/each}
 					</select></label
 				>
 			</div>
-			<details>
-				<summary>Advanced options</summary>
-				<label><input type="checkbox" bind:checked={draft.generate_audio}> Generate audio</label>
-			</details>
+			{#if current.audio}
+				<details>
+					<summary>Advanced options</summary>
+					<label><input type="checkbox" bind:checked={draft.generate_audio}> Generate audio</label>
+				</details>
+			{/if}
 			<button
 				type="submit"
 				class={studioButton()}
@@ -181,9 +286,22 @@ const frame = css({
 		<h2 class={style.heading} id="video-review">Review</h2>
 		<p role="status">{notice}</p>
 		{#if reviewed}
-			<p>Create video · Seedance 2.5 · ToAPIs · MP4</p>
+			<p>Create video · {title}{poyo ? "" : " · MP4"}</p>
 			<p>1 potentially billable submission</p>
-			{#if reviewed.quote.status === "unknown"}
+			{#if reviewed.quote.status === "known" && reviewed.quote.unit === "poyo_credit"}
+				<p>
+					Estimated {reviewed.quote.perRequest} Poyo.ai credits ·
+					<a
+						href={`https://github.com/PoyoAPI/poyo-devtools/blob/${reviewed.quote.revision}/artifacts/capability-catalog.json`}
+						rel="noreferrer"
+						>Public catalog, {reviewed.quote.sourceDate.slice(0, 10)}</a
+					>
+				</p>
+				<p class={style.note}>
+					Public list rates can differ from the charge on your account. Task credits and wallet
+					changes appear in Jobs.
+				</p>
+			{:else if reviewed.quote.status === "unknown"}
 				<p>Total unknown. {reviewPriceReason(reviewed.quote)}</p>
 				{#if reviewed.quote.advertisedUnitRate}
 					{@const rate = reviewed.quote.advertisedUnitRate}
@@ -195,7 +313,7 @@ const frame = css({
 			{/if}
 			<details>
 				<summary>Outgoing request</summary>
-				<p>POST /v1/videos/generations</p>
+				<p>{operation.key.route}</p>
 				<pre class={cx(style.json, style.wire)}>{JSON.stringify(reviewed.preview, null, 2)}</pre>
 			</details>
 			<ul class={style.disclosure}>
@@ -208,8 +326,12 @@ const frame = css({
 					<p>{blocker}</p>
 				{/each}
 				<label
-					><input type="checkbox" disabled={pending} bind:checked={acceptTerms}> I accept the
-					unknown charge, routing terms and Gallery Save limitations.</label
+					><input type="checkbox" disabled={pending} bind:checked={acceptTerms}>
+					{poyo
+						? reviewed.quote.status === "known"
+							? "I accept the estimate and Gallery Save limitations."
+							: "I accept the unknown price and Gallery Save limitations."
+						: "I accept the unknown charge, routing terms and Gallery Save limitations."}</label
 				>
 			</div>
 			<button
@@ -225,8 +347,12 @@ const frame = css({
 			<p>Review the prompt and settings before queuing one request.</p>
 		{/if}
 		<p class={style.note}>
-			Poyo.ai Seedance 2.5 cannot accept the studio’s fixed filtering setting.
-			<a href="/settings/providers?provider=toapis">ToAPIs settings</a>
+			{poyo
+				? "Poyo.ai confirms account access through your balance check. H3 Max access for this key is unverified until Poyo.ai accepts a request."
+				: "Poyo.ai Seedance 2.5 cannot accept the studio’s fixed filtering setting."}
+			<a href={`/settings/providers?provider=${operation.key.provider}`}
+				>{poyo ? "Poyo.ai" : "ToAPIs"} settings</a
+			>
 		</p>
 	</section>
 </div>
