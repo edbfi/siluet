@@ -1,3 +1,4 @@
+import { seedreamRoutes } from "../../../shared/media-catalog/registry";
 import {
 	type CheckFetch,
 	type ConnectionCheckResult,
@@ -19,5 +20,9 @@ function interpretBalance(body: unknown): ConnectionCheckResult {
 }
 
 export function checkPoyoConnection(read: CheckFetch = fetch) {
-	return createConnectionCheck("https://api.poyo.ai/api/user/balance", interpretBalance, read);
+	return createConnectionCheck(
+		`${seedreamRoutes.poyo.origin}/api/user/balance`,
+		interpretBalance,
+		read,
+	);
 }

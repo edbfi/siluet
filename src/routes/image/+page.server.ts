@@ -3,9 +3,9 @@ import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const pricingNowMs = Date.now();
-	const [eligibleProviders, pricingFeeds] = await Promise.all([
-		locals.studio.providers.eligibleSeedreamProviders(),
+	const [availability, pricingFeeds] = await Promise.all([
+		locals.studio.providers.seedreamAvailability(),
 		loadStudioPricingFeeds(pricingNowMs),
 	]);
-	return { eligibleProviders, pricingFeeds, pricingNowMs };
+	return { ...availability, pricingFeeds, pricingNowMs };
 };

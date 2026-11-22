@@ -1,3 +1,4 @@
+import { seedreamRoutes } from "../../../shared/media-catalog/registry";
 import {
 	type CheckFetch,
 	type ConnectionCheckResult,
@@ -23,13 +24,13 @@ function interpretImageModels(body: unknown): ConnectionCheckResult {
 		return { outcome: "unavailable" };
 	return {
 		outcome: "accepted",
-		seedream: models.some((model) => model.id === "doubao-seedream-5-5"),
+		seedream: models.some((model) => model.id === seedreamRoutes.toapis.model),
 	};
 }
 
 export function checkToapisConnection(read: CheckFetch = fetch) {
 	return createConnectionCheck(
-		"https://toapis.com/v1/models?type=image",
+		`${seedreamRoutes.toapis.origin}/v1/models?type=image`,
 		interpretImageModels,
 		read,
 	);

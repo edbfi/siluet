@@ -59,6 +59,7 @@ $effect(() => {
 <svelte:head><title>Image Studio · Siluet</title></svelte:head>
 <ImageComposer
 	eligibleProviders={data.eligibleProviders}
+	unavailableProviders={data.unavailableProviders}
 	bind:draft={composer.request}
 	bind:referenceDraft={composer.references}
 	{validation}
@@ -67,6 +68,7 @@ $effect(() => {
 >
 	{#snippet reviewPanel()}
 		<ImageReview
+			entry={validation.ok ? validation.entry : null}
 			{review}
 			draft={composer.request}
 			{referenceLabels}

@@ -1,4 +1,5 @@
 import type { ProviderId } from "#lib/shared/providers/connections.ts";
+import { seedreamProviderNames } from "../../../shared/image-studio/seedream";
 import { ProviderKeyPolicyError } from "../../db/provider-key";
 import type { providerStore } from "../../db/provider-store";
 import type { ConnectionCheck } from "../../providers/connection-check";
@@ -27,10 +28,24 @@ export function createProviderConnections(
 
 	return {
 		statuses,
-		async eligibleSeedreamProviders() {
-			return (await statuses())
-				.filter((status) => status.state === "connected" && status.seedream)
-				.map(({ id }) => id);
+		async seedreamAvailability() {
+			const eligibleProviders: ProviderId[] = [];
+			const unavailableProviders: string[] = [];
+			for (const status of await statuses()) {
+				if (status.state === "connected" && status.seedream) {
+					eligibleProviders.push(status.id);
+					continue;
+				}
+				const name = seedreamProviderNames[status.id];
+				if (status.state === "connected" && status.id === "toapis") {
+					unavailableProviders.push("ToAPIs did not list Seedream 5.5 for this key.");
+				} else if (status.state === "disconnected") {
+					unavailableProviders.push(`${name} is disconnected.`);
+				} else {
+					unavailableProviders.push(`Check the ${name} connection in Settings.`);
+				}
+			}
+			return { eligibleProviders, unavailableProviders };
 		},
 		async connect(
 			provider: ProviderId,

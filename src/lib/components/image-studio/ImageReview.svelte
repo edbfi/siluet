@@ -13,6 +13,10 @@ import {
 	watchReviewExpiry,
 } from "#lib/shared/image-studio/review-price.ts";
 import type { SeedreamDraft } from "#lib/shared/image-studio/seedream.ts";
+import {
+	queueEvidenceProblem,
+	type ReleasedOperation,
+} from "#lib/shared/media-catalog/registry.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
 import type { PricingFeeds, PricingProvider } from "#lib/shared/pricing/feeds.ts";
 import { goto } from "$app/navigation";
@@ -20,6 +24,7 @@ import ImageReferenceGuidance from "./ImageReferenceGuidance.svelte";
 import * as styles from "./image-review-styles.ts";
 
 let {
+	entry,
 	review,
 	draft,
 	referenceLabels,
@@ -30,6 +35,7 @@ let {
 	operation = "generate",
 	headingId = "studio-review-title",
 }: {
+	entry: ReleasedOperation | null;
 	review: ImageReviewData | null;
 	draft: SeedreamDraft;
 	referenceLabels: readonly string[];
@@ -56,7 +62,12 @@ const maxAttempts = $derived(maximumReviewAttempts(batch));
 const selectedProvider = $derived(review?.pricing.provider ?? provider);
 const providerName = $derived(selectedProvider && providerNames[selectedProvider]);
 const isEdit = $derived((review?.pricing.operation ?? operation) === "edit");
-type QueueInput = { draft: SeedreamDraft; count: number; retryLimit: number };
+type QueueInput = {
+	operationKey: ReleasedOperation["key"];
+	draft: SeedreamDraft;
+	count: number;
+	retryLimit: number;
+};
 type ReviewTerms = {
 	token: string;
 	quote: PriceEstimate;
@@ -64,6 +75,8 @@ type ReviewTerms = {
 	editDisclosure?: readonly string[];
 };
 const unavailable = $derived.by(() => {
+	const evidenceProblem = entry && queueEvidenceProblem(entry.evidence);
+	if (evidenceProblem) return evidenceProblem;
 	if (isEdit && duplicateWarning) return duplicateWarning;
 	if (count !== 1 || retryLimit !== 0)
 		return "Queue supports one request and zero additional attempts.";
@@ -78,7 +91,9 @@ const unavailable = $derived.by(() => {
 	return null;
 });
 const request = $derived(
-	review && !unavailable ? { draft: $state.snapshot(draft), count, retryLimit } : null,
+	review && entry && !unavailable
+		? { operationKey: entry.key, draft: $state.snapshot(draft), count, retryLimit }
+		: null,
 );
 let authorized = $state.raw<{ request: QueueInput; terms: ReviewTerms } | null>(null);
 let pending = $state<"review" | "queue" | null>(null);
@@ -272,6 +287,23 @@ $effect(() => {
 					<dt class={styles.term}>API provider</dt>
 					<dd class={styles.detail}>{providerName ?? "None connected"}</dd>
 				</div>
+				{#if entry}
+					<div class={styles.fact}>
+						<dt class={styles.term}>Route evidence</dt>
+						<dd class={styles.detail}>
+							{entry.key.provider === "poyo"
+								? "The balance check accepted this key. Access to this model is unconfirmed."
+								: "The global image model list included this model for this key."}
+							{#if !queueEvidenceProblem(entry.evidence)}
+								The model contract declares
+								<code
+									>{entry.key.provider === "poyo" ? "input.enable_safety_checker" : "disable_nsfw"}:
+									false</code
+								>.
+							{/if}
+						</dd>
+					</div>
+				{/if}
 				<div class={styles.fact}>
 					<dt class={styles.term}>Operation</dt>
 					<dd class={styles.detail}>{isEdit ? "Reference-guided image edit" : "Text to image"}</dd>

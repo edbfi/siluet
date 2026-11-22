@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { editDisclosure } from "../../../shared/image-studio/edit-disclosure";
 import { createImageReview } from "../../../shared/image-studio/review";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
+import { queueEvidenceProblem } from "../../../shared/media-catalog/registry";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
 import type { ProviderId } from "../../../shared/providers/connections";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
@@ -73,6 +74,7 @@ export async function createSubmissionQueue(
 		return { quote, requiresConsent, terms: digest("review-terms-v1", ...priceTerms) };
 	}
 	async function review(owner: string, live: LiveRequest) {
+		if (queueEvidenceProblem(live.entry.evidence)) return invalid;
 		const provider = live.input.provider;
 		const [saved, feeds] = await Promise.all([credential(provider), loadFeeds(now())]);
 		if (!saved) return stale;
@@ -99,6 +101,7 @@ export async function createSubmissionQueue(
 			// An accepted Review keeps its original binding when disclosures or credentials change.
 			const prior = await installation.use((db) => db.get<{ binding: string }>(existing));
 			if (prior) return replay(prior);
+			if (queueEvidenceProblem(live.entry.evidence)) return invalid;
 
 			const provider = live.input.provider;
 			const [saved, feeds] = await Promise.all([credential(provider), loadFeeds(now())]);

@@ -1,4 +1,12 @@
 import {
+	type ReleasedOperation,
+	releasedProviders,
+	type SeedreamOperation,
+	seedreamOperation,
+	seedreamRoutes,
+} from "../media-catalog/registry";
+import type { ProviderId } from "../providers/connections";
+import {
 	maxSeedreamReferences,
 	parseReferenceUrl,
 	publicReferenceUrlError,
@@ -6,15 +14,10 @@ import {
 	type SeedreamReference,
 } from "./references";
 
-export const seedreamProviders = ["poyo", "toapis"] as const;
-export type SeedreamProvider = (typeof seedreamProviders)[number];
-export type SeedreamOperation = "generate" | "edit";
+export type SeedreamProvider = ProviderId;
+export type { SeedreamOperation } from "../media-catalog/registry";
 
 export const seedreamProviderNames = { poyo: "Poyo.ai", toapis: "ToAPIs" } as const;
-export const seedreamOperations = {
-	generate: "Create image",
-	edit: "Edit image",
-} as const;
 
 export const poyoAspectRatios = [
 	"1:1",
@@ -78,7 +81,7 @@ type DraftErrors = Partial<
 	Record<"provider" | "prompt" | "size" | "outputFormat" | "references", string>
 >;
 type DraftValidation =
-	| { ok: true; input: SeedreamReviewInput }
+	| { ok: true; input: SeedreamReviewInput; entry: ReleasedOperation }
 	| { ok: false; errors: DraftErrors };
 
 export function createSeedreamDraft(
@@ -134,10 +137,11 @@ function pixelSize(width: number | undefined, height: number | undefined): Pixel
 
 export function validateSeedreamDraft(
 	draft: SeedreamDraft,
-	eligibleProviders: readonly SeedreamProvider[] = seedreamProviders,
+	eligibleProviders: readonly SeedreamProvider[] = releasedProviders,
 ): DraftValidation {
 	const { provider, operation, options } = draft;
-	if (!provider || !eligibleProviders.includes(provider)) {
+	const entry = provider && seedreamOperation(provider, operation);
+	if (!entry || !eligibleProviders.includes(provider)) {
 		return { ok: false, errors: { provider: "Connect an eligible provider in Settings." } };
 	}
 
@@ -186,10 +190,18 @@ export function validateSeedreamDraft(
 	}
 	if (!size || Object.keys(errors).length) return { ok: false, errors };
 
-	const input = { operation, prompt, references, background, outputFormat };
+	const input = { operation: entry.mode, prompt, references, background, outputFormat };
 	return provider === "poyo"
-		? { ok: true, input: { ...input, provider, model: "seedream-5.5", aspectRatio, resolution } }
-		: { ok: true, input: { ...input, provider, model: "doubao-seedream-5-5", size, watermark } };
+		? {
+				ok: true,
+				entry,
+				input: { ...input, provider, model: seedreamRoutes.poyo.model, aspectRatio, resolution },
+			}
+		: {
+				ok: true,
+				entry,
+				input: { ...input, provider, model: seedreamRoutes.toapis.model, size, watermark },
+			};
 }
 
 export function buildSeedreamRequest(
@@ -204,7 +216,7 @@ export function buildSeedreamRequest(
 	if (input.provider === "poyo") {
 		return {
 			method: "POST",
-			url: "https://api.poyo.ai/api/generate/submit",
+			url: `${seedreamRoutes.poyo.origin}${seedreamRoutes.poyo.path}`,
 			body: {
 				model,
 				input: {
@@ -221,7 +233,7 @@ export function buildSeedreamRequest(
 
 	return {
 		method: "POST",
-		url: "https://toapis.com/v1/images/generations",
+		url: `${seedreamRoutes.toapis.origin}${seedreamRoutes.toapis.path}`,
 		body: {
 			model,
 			prompt,

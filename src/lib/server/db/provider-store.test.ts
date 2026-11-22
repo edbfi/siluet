@@ -331,7 +331,10 @@ test("independent installations save simultaneous provider checks with a single 
 			]),
 		).toEqual(["connected", "connected"]);
 		expect(reads).toBe(2);
-		expect(await firstService.eligibleSeedreamProviders()).toEqual(["poyo", "toapis"]);
+		expect((await firstService.seedreamAvailability()).eligibleProviders).toEqual([
+			"poyo",
+			"toapis",
+		]);
 		expect((await readdir(directory)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
 	} finally {
 		await second.close();
@@ -414,7 +417,7 @@ test.skipIf(process.platform === "win32")(
 		} finally {
 			await chmod(keyPath(), 0o600);
 		}
-		expect(await service.eligibleSeedreamProviders()).toEqual(["poyo"]);
+		expect((await service.seedreamAvailability()).eligibleProviders).toEqual(["poyo"]);
 		expect(await service.connect("toapis", toapisKey)).toBe("connected");
 		expect(reads).toBe(1);
 	},
