@@ -36,6 +36,18 @@ Open the setup URL printed in the terminal, paste the claim token, and choose a 
 - Locked out? Stop Siluet and run `bun run owner:recover`.
 - Refresh price estimates with `bun run pricing:refresh` (add `--provider toapis` for ToAPIs) before the expiry Review shows.
 
+## Tech stack
+
+| Concern | Choice |
+| --- | --- |
+| Language | TypeScript with strict type checking |
+| Framework | Svelte 5 and SvelteKit 3 with server-side rendering |
+| Runtime | Bun, with `@sveltejs/adapter-bun` bound to loopback |
+| Database | Embedded Turso with Drizzle ORM |
+| Styling | Panda CSS and Ark UI for Svelte |
+| Media | sharp for images; FFmpeg and ffprobe for video |
+| Checks | Biome, `svelte-check`, prek, Bun's test runner and Playwright |
+
 ## Development
 
 ```sh
