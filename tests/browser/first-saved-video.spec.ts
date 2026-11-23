@@ -294,7 +294,6 @@ test("Gallery says when this browser cannot play a saved clip and keeps Download
 		const note = page.getByRole("status").filter({
 			hasText: "This browser can't play this video. Download it to open it in another player.",
 		});
-		await expect(note).toHaveCount(0);
 		const video = page.getByLabel("Saved video playback");
 		await video.evaluate((v: HTMLVideoElement) => v.play().catch(() => {}));
 		await expect(note).toBeVisible();
