@@ -215,3 +215,75 @@ test("a copy prepared again after a stale Queue shows the current mode while it 
 		expect(fixtures.uploads).toHaveLength(0);
 	});
 });
+
+test("a refused Retry keeps a newer Review and its consent", async ({ page }) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
+		const { file, inspect, consent, queue, review } = await openEdit(page, origin);
+		await file.setInputFiles(await markedFile("png"));
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+		await inspect.press("Enter");
+		await consent.press("Space");
+		// The Queue request never reaches the server, and its answer is lost.
+		let lost = true;
+		await page.route("**/image/file-queue", (route) => {
+			if (!lost) return route.fallback();
+			lost = false;
+			return route.abort();
+		});
+		await queue.press("Enter");
+		await expect(review.getByRole("status")).toContainText("Queue confirmation is unavailable");
+		await changeElsewhere(page, origin, false);
+		await shown(page);
+		await expect(file).toHaveAccessibleDescription(/File checked · Not cleaned\./);
+		await inspect.press("Enter");
+		await consent.press("Space");
+		await expect(queue).toBeEnabled();
+		const retry = review.getByRole("button", { name: "Retry", exact: true });
+		await retry.press("Enter");
+		await expect(review.getByRole("status")).toContainText("The earlier request was not queued.");
+		await expect(retry).toHaveCount(0);
+		await expect(consent).toBeChecked();
+		await expect(queue).toBeEnabled();
+		expect(fixtures.uploads).toHaveLength(0);
+		await queue.press("Enter");
+		await expect(page).toHaveURL(/\/jobs/);
+		await expect.poll(() => fixtures.uploads.length, { timeout: 20_000 }).toBe(1);
+	});
+});
+
+test("Retry after an edit resends the earlier request and says so", async ({ page }) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
+		const { file, inspect, consent, queue, review } = await openEdit(page, origin);
+		await file.setInputFiles(await markedFile("png"));
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+		await inspect.press("Enter");
+		await consent.press("Space");
+		const bodies: string[] = [];
+		await page.route("**/image/file-queue", async (route) => {
+			bodies.push(route.request().postData() ?? "");
+			const response = await route.fetch();
+			// The first answer and the first Retry's answer are lost.
+			if (bodies.length < 3) return route.abort();
+			return route.fulfill({ response });
+		});
+		await queue.press("Enter");
+		await expect(review.getByRole("status")).toContainText("Queue confirmation is unavailable");
+		const promptBox = page.getByRole("textbox", { name: "Prompt", exact: true });
+		await promptBox.fill(`${prompt} Then add a lamp.`);
+		const retry = review.getByRole("button", { name: "Retry", exact: true });
+		await expect(retry).toHaveAccessibleDescription(
+			/Retry resends the earlier reviewed request unchanged/,
+		);
+		// With no valid request in the composer, a Retry's lost answer is still reported.
+		await promptBox.fill("");
+		await retry.press("Enter");
+		await expect(review.getByRole("status")).toContainText("Queue confirmation is unavailable");
+		await retry.press("Enter");
+		await expect(page).toHaveURL(/\/jobs/);
+		expect(bodies).toHaveLength(3);
+		expect(bodies[1]).toBe(bodies[0]);
+		expect(bodies[2]).toBe(bodies[0]);
+		await expect(page.getByRole("article")).toHaveCount(1);
+		await expect.poll(() => fixtures.uploads.length, { timeout: 20_000 }).toBe(1);
+	});
+});

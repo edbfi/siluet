@@ -148,12 +148,14 @@ const request = $derived.by((): QueueInput | null => {
 		stage: fileStage,
 	};
 });
-// A file Queue whose response was lost. Retry sends exactly this body again.
+// A file Queue whose response was lost. It may already be claimed and charged, so it
+// survives edits and renewals, and Retry sends exactly this body again.
 let submitted = $state.raw<{ body: object; stage: StageDescriptor } | null>(null);
 let authorized = $state.raw<{ request: QueueInput; terms: ReviewTerms } | null>(null);
 let pending = $state<"review" | "queue" | null>(null);
 let acceptedToken = $state<string | null>(null);
-let feedback = $state.raw<{ request: QueueInput; message: string } | null>(null);
+// About `request`, or with `request: null` about the earlier request a Retry resends.
+let feedback = $state.raw<{ request: QueueInput | null; message: string } | null>(null);
 let tabValue = $state("review");
 let mounted = true;
 onDestroy(() => {
@@ -191,7 +193,7 @@ $effect(() => {
 		authorized = null;
 		acceptedToken = null;
 	}
-	if (feedback && feedback.request !== request) feedback = null;
+	if (feedback?.request && feedback.request !== request) feedback = null;
 });
 
 function post(path: string, body: object) {
@@ -300,51 +302,54 @@ async function inspect() {
 }
 
 // One file Queue POST. An answer that cannot be read keeps the body for an exact Retry.
-async function sendFile(input: QueueInput, body: object, stage: StageDescriptor) {
+// `input` is null for that Retry: its outcome concerns the earlier request, never the
+// current Review, and only a definite refusal (stale or invalid) clears it.
+async function sendFile(body: object, stage: StageDescriptor, input: QueueInput | null) {
 	pending = "queue";
 	feedback = null;
+	const tell = (message: string) => {
+		feedback = { request: input, message };
+	};
+	const refused = () => {
+		submitted = null;
+		tell("The earlier request was not queued. Nothing was sent for it.");
+	};
 	try {
 		const response = await post("/image/file-queue", body);
 		if (response.status === 503) {
-			submitted = null;
-			feedback = {
-				request: input,
-				message:
-					"Upload busy · nothing sent. Queue this Review again when another upload finishes.",
-			};
+			tell(
+				`Upload busy · nothing sent. ${input ? "Queue this Review" : "Retry"} again when another upload finishes.`,
+			);
 			return;
 		}
 		if (response.status === 413) {
-			submitted = null;
-			feedback = {
-				request: input,
-				message: fileLimitMessage(await response.json().catch(() => null)),
-			};
+			tell(fileLimitMessage(await response.json().catch(() => null)));
 			return;
 		}
 		if (response.status === 409) {
 			const result: { error?: unknown; until?: unknown } | null = await response
 				.json()
 				.catch(() => null);
-			submitted = null;
 			if (result?.error === "cooldown") {
-				authorized = null;
-				acceptedToken = null;
+				if (input) {
+					authorized = null;
+					acceptedToken = null;
+				}
 				const until = typeof result.until === "number" ? new Date(result.until) : null;
-				feedback = {
-					request: input,
-					message: `The provider is cooling down. Nothing was sent. Review again${until ? ` after ${until.toISOString().slice(0, 19).replace("T", " ")} UTC` : " shortly"}.`,
-				};
+				tell(
+					`The provider is cooling down. Nothing was sent. ${input ? "Review" : "Retry"} again${until ? ` after ${until.toISOString().slice(0, 19).replace("T", " ")} UTC` : " shortly"}.`,
+				);
 				return;
 			}
+			if (!input) return refused();
 			renewFile(input);
 			return;
 		}
 		if (response.status === 400) {
-			submitted = null;
+			if (!input) return refused();
 			authorized = null;
 			acceptedToken = null;
-			feedback = { request: input, message: "Review the file again before queuing." };
+			tell("Review the file again before queuing.");
 			return;
 		}
 		if (!response.ok) throw new Error();
@@ -354,11 +359,7 @@ async function sendFile(input: QueueInput, body: object, stage: StageDescriptor)
 		if (mounted) await goto(`/jobs#job-${encodeURIComponent(jobId)}`);
 	} catch {
 		submitted = { body, stage };
-		feedback = {
-			request: input,
-			message:
-				"Queue confirmation is unavailable. Check Jobs, or Retry to send the same request again.",
-		};
+		tell("Queue confirmation is unavailable. Check Jobs, or Retry to send the same request again.");
 	} finally {
 		pending = null;
 	}
@@ -367,7 +368,7 @@ async function sendFile(input: QueueInput, body: object, stage: StageDescriptor)
 function retrySubmitted() {
 	const lost = submitted;
 	if (!lost || pending) return;
-	void sendFile(request ?? (lost.body as QueueInput), lost.body, lost.stage);
+	void sendFile(lost.body, lost.stage, null);
 }
 
 async function queue() {
@@ -375,7 +376,6 @@ async function queue() {
 	if (!input || !current || !canQueue || pending || tabValue !== "review") return;
 	if (input.stage && current.stage) {
 		await sendFile(
-			input,
 			{
 				...input,
 				stage: current.stage,
@@ -383,6 +383,7 @@ async function queue() {
 				acceptUnknown: acceptedToken === current.token,
 			},
 			current.stage,
+			input,
 		);
 		return;
 	}
@@ -740,16 +741,25 @@ $effect(() => {
 			{pending === "queue" ? "Queuing…" : `Queue ${count} ${count === 1 ? "request" : "requests"}`}
 		</button>
 		{#if submitted}
-			<button type="button" class={styles.queue} disabled={!!pending} onclick={retrySubmitted}>
+			<button
+				type="button"
+				class={styles.queue}
+				disabled={!!pending}
+				onclick={retrySubmitted}
+				aria-describedby={`${headingId}-retry`}
+			>
 				Retry
 			</button>
+			<p id={`${headingId}-retry`} class={styles.exposure}>
+				Retry resends the earlier reviewed request unchanged, whatever this form now shows.
+			</p>
 		{/if}
 		<p id={`${headingId}-exposure`} class={styles.exposure} aria-live="polite">
 			Up to {maxAttempts} potentially billable {maxAttempts === 1 ? "submission" : "submissions"}.
 		</p>
 	</div>
 	<p id={`${headingId}-availability`} class={styles.note} role="status">
-		{#if feedback && feedback.request === request}
+		{#if feedback && (feedback.request === null || feedback.request === request)}
 			{feedback.message}
 		{:else if unavailable}
 			{unavailable}
