@@ -107,7 +107,7 @@ describe("opt-in pricing refresh", () => {
 
 	test("refuses a cache path that resolves to the bundled feed", async () => {
 		const alias = join(directory, "alias");
-		await symlink(directory, alias, "junction");
+		await symlink(directory, alias);
 		for (const collidingPath of [bundledPath, join(alias, "bundled.json")]) {
 			await expect(
 				refreshPricingFeed({

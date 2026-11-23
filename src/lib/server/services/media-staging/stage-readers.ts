@@ -7,7 +7,7 @@ export class ChangedStage extends StageError {
 		super("Staged file changed.");
 	}
 }
-const openStage = (path: string) => open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+const openStage = (path: string) => open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
 
 // A lease pins the opened inode. Revocation waits for opens already in flight, and
 // each reader closes its file only after its own reads and checks settle, before

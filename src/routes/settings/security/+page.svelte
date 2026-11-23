@@ -106,12 +106,6 @@ const choices = [
 							maxlength="6"
 						></label
 					>
-					{#if data.windows}
-						<p>
-							After a sudden power loss Windows may lose the authenticator key. Stop Siluet and run
-							<code>bun run owner:recover</code> to restore access.
-						</p>
-					{/if}
 					<button type="submit">Confirm authenticator</button>
 				</form>
 			</div>

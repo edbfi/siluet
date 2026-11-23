@@ -19,10 +19,8 @@ test("only startup initializes the sidecar and recovery excludes an open install
 		const original = await readFile(stable);
 		await expect(openInstallation(directory, "recovery")).rejects.toThrow();
 		expect(await readFile(stable)).toEqual(original);
-		if (process.platform !== "win32") {
-			await chmod(stable, 0o644);
-			await expect(openInstallation(directory)).rejects.toThrow();
-		}
+		await chmod(stable, 0o644);
+		await expect(openInstallation(directory)).rejects.toThrow();
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}

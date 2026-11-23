@@ -1,13 +1,18 @@
 import type { Handle, HandleServerError, ServerInit } from "@sveltejs/kit/hooks";
+import { requireSupportedPlatform } from "#lib/server/platform.ts";
 import { AccessError, recoverMessage } from "#lib/server/services/owner/access-error.ts";
 import { securityNotice } from "#lib/server/services/owner/cookies.ts";
 import { ordinaryRequest } from "#lib/server/services/owner/request-limit.ts";
-import { initializeOwner, type StudioRuntime } from "#lib/server/services/owner/runtime.ts";
+import type { StudioRuntime } from "#lib/server/services/owner/runtime.ts";
 import { building, dev } from "$app/env";
 
 let studio: StudioRuntime;
 export const init: ServerInit = async () => {
-	if (!building) studio = await initializeOwner(dev);
+	if (building) return;
+	// Refuse before the runtime loads its native bindings.
+	requireSupportedPlatform();
+	const { initializeOwner } = await import("#lib/server/services/owner/runtime.ts");
+	studio = await initializeOwner(dev);
 };
 export const handleError: HandleServerError = ({ event, kind }) => {
 	if (kind !== "unknown") return;

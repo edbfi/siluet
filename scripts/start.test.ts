@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
 import { once } from "node:events";
 import { watch } from "node:fs";
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, exists, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { unsupportedPlatformMessage } from "../src/lib/server/platform";
 import { launchStudio } from "./start";
 
 test("retries a dynamic port collision with a new matching origin", async () => {
@@ -34,10 +35,35 @@ test("fixed listeners keep their port and reject a mismatched origin before laun
 	expect(origins).toEqual(["http://[::1]:3000"]);
 });
 
-const terminalSignals =
-	process.platform === "win32"
-		? []
-		: (["SIGINT", "SIGHUP", "SIGKILL", "second interrupt"] as const);
+test("a foreign launcher refuses before selecting a port", async () => {
+	const root = await mkdtemp(join(tmpdir(), "siluet-foreign-launcher-"));
+	try {
+		const sentinel = join(root, "served");
+		const child = Bun.spawnSync(
+			[
+				process.execPath,
+				"--preload",
+				join(import.meta.dir, "../tests/fixtures/foreign-platform.ts"),
+				join(import.meta.dir, "start.ts"),
+			],
+			{
+				env: {
+					...process.env,
+					SILUET_SERVER_PORT: "0",
+					SILUET_TEST_PLATFORM: "freebsd",
+					SILUET_TEST_SENTINEL: sentinel,
+				},
+			},
+		);
+		expect(child.stderr.toString()).toBe(`${unsupportedPlatformMessage}\n`);
+		expect(child.exitCode).toBe(1);
+		expect(await exists(sentinel)).toBe(false);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+const terminalSignals = ["SIGINT", "SIGHUP", "SIGKILL", "second interrupt"] as const;
 test.each(terminalSignals)("the launcher delivers %s to a draining server", async (scenario) => {
 	const root = await mkdtemp(join(tmpdir(), "siluet-interrupt-"));
 	try {

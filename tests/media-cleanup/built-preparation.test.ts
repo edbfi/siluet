@@ -221,7 +221,7 @@ test("sign-out retires an open preview and removes its scratch file", async () =
 		body: "",
 	});
 	expect(signOut.status).toBeLessThan(400);
-	// Windows can delete the file only after the open preview handle closes.
+	// Sign-out removes the scratch file after it responds; wait for it.
 	await until(
 		() => readdir(scratch),
 		(names) => names.length === 0,

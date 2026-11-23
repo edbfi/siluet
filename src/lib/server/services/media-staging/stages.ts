@@ -88,7 +88,7 @@ export function createStages(
 				reservation.release();
 				return true;
 			} catch {
-				// Windows refuses to delete a file with an open handle. Retry, then keep it charged.
+				// Retry a transient removal failure such as EIO, then keep it charged.
 			}
 		}
 		leftovers.set(path, reservation);

@@ -1,5 +1,5 @@
-// A supervisor cannot send a graceful POSIX signal on Windows. Deliver the
-// terminal interrupt to the launcher in-process, then let it drain its child.
+// Let a test stop the launcher over IPC without signalling its process group.
+// Deliver the terminal interrupt in-process, then let the launcher drain its child.
 import type { EventEmitter } from "node:events";
 
 process.once("message", (command: unknown) => {

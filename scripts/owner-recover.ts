@@ -1,13 +1,22 @@
-import { recoverOwner } from "../src/lib/server/db/recover-owner";
-import { openRuntimeInstallation } from "../src/lib/server/db/runtime-installation";
-import { hashPassword } from "../src/lib/server/services/owner/credentials";
-import { ownerDirectory } from "../src/lib/server/services/owner/data-directory";
-import { consoleMode } from "./windows-console-mode";
+import {
+	requireSupportedPlatform,
+	UnsupportedPlatformError,
+	unsupportedPlatformMessage,
+} from "../src/lib/server/platform";
 
 async function main() {
+	// Refuse before loading storage and its native bindings.
+	requireSupportedPlatform();
 	const input = process.stdin,
 		output = process.stderr;
 	if (!input.isTTY || !output.isTTY) throw new Error("Run recovery from an interactive terminal.");
+	const [{ recoverOwner }, { openRuntimeInstallation }, { hashPassword }, { ownerDirectory }] =
+		await Promise.all([
+			import("../src/lib/server/db/recover-owner"),
+			import("../src/lib/server/db/runtime-installation"),
+			import("../src/lib/server/services/owner/credentials"),
+			import("../src/lib/server/services/owner/data-directory"),
+		]);
 	const installation = await openRuntimeInstallation(ownerDirectory(), process.env, "recovery");
 	const raw = !!input.isRaw;
 	const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
@@ -18,14 +27,6 @@ async function main() {
 	};
 	const ensureActive = () => {
 		if (cancelled) throw new Error("Recovery cancelled.");
-	};
-	let savedMode: number | undefined;
-	const restore = () => {
-		try {
-			input.setRawMode(raw);
-		} finally {
-			if (savedMode !== undefined) consoleMode(savedMode);
-		}
 	};
 	const pending: string[] = [];
 	let line = "",
@@ -84,12 +85,7 @@ async function main() {
 	}
 	try {
 		for (const signal of signals) process.on(signal, abort);
-		output.write(
-			process.platform === "win32"
-				? "If forcibly terminated, open a new terminal to restore input echo.\n"
-				: "If forcibly terminated, type stty sane and press Enter to restore input echo.\n",
-		);
-		if (process.platform === "win32") savedMode = consoleMode();
+		output.write("If forcibly terminated, type stty sane and press Enter to restore input echo.\n");
 		input.setRawMode(true);
 		input.setEncoding("utf8");
 		input.on("data", receive);
@@ -106,7 +102,7 @@ async function main() {
 		input.off("data", receive);
 		input.pause();
 		try {
-			restore();
+			input.setRawMode(raw);
 		} finally {
 			for (const signal of signals) process.off(signal, abort);
 			await installation.close();
@@ -129,9 +125,11 @@ if (import.meta.main)
 			"The data directory must be private.",
 		];
 		console.error(
-			allowed.some((prefix) => message.startsWith(prefix))
-				? message
-				: "Owner recovery could not finish. Verify the stopped installation and its backup.",
+			e instanceof UnsupportedPlatformError
+				? unsupportedPlatformMessage
+				: allowed.some((prefix) => message.startsWith(prefix))
+					? message
+					: "Owner recovery could not finish. Verify the stopped installation and its backup.",
 		);
 		process.exitCode = 1;
 	});

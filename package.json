@@ -6,9 +6,9 @@
 	"type": "module",
 	"packageManager": "bun@1.4.5",
 	"scripts": {
-		"prepare": "bun scripts/build-factor-helper.ts && bun --bun svelte-kit sync && bun --bun panda codegen",
+		"prepare": "bun --bun svelte-kit sync && bun --bun panda codegen",
 		"dev": "bun --bun vite dev",
-		"build": "bun --bun vite build && bun scripts/build-factor-helper.ts",
+		"build": "bun --bun vite build",
 		"start": "bun scripts/start.ts",
 		"check": "bun run prepare && bun --bun svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
 		"lint": "bun --bun biome ci",

@@ -12,7 +12,7 @@ test("public assets admit regular media and exclude linked directories and owner
 		await mkdir(assets);
 		await writeFile(join(assets, "cover.png"), "fixture");
 		expect(() => checkPublicAssets(assets)).not.toThrow();
-		await symlink(temp, join(assets, "linked"), "junction");
+		await symlink(temp, join(assets, "linked"));
 		expect(() => checkPublicAssets(assets)).toThrow("Public assets");
 		await rm(join(assets, "linked"));
 		await writeFile(join(assets, "studio.db-wal"), "fixture");

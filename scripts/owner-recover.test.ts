@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, copyFile, readdir, readFile, rm } from "node:fs/promises";
+import { chmod, copyFile, exists, readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { TOTP } from "otpauth";
@@ -7,6 +7,7 @@ import { openInstallation } from "../src/lib/server/db/installation";
 import { providerStore } from "../src/lib/server/db/provider-store";
 import { lockFilename } from "../src/lib/server/db/recovery-lock";
 import { checkedSecurity } from "../src/lib/server/db/security-state";
+import { unsupportedPlatformMessage } from "../src/lib/server/platform";
 import { galleryStorage } from "../src/lib/server/services/gallery/storage";
 import { createOwnerAccess } from "../src/lib/server/services/owner/access";
 import { createOwnerDirectory } from "../tests/fixtures/owner-directory";
@@ -31,11 +32,7 @@ function command(directory: string) {
 		},
 	});
 	const prior = term.localFlags;
-	const args =
-		process.platform === "win32"
-			? ["tests/fixtures/windows-recovery-console.ts"]
-			: ["run", "owner:recover"];
-	const child = Bun.spawn([process.execPath, ...args], {
+	const child = Bun.spawn([process.execPath, "run", "owner:recover"], {
 		terminal: term,
 		env: { ...process.env, SILUET_DATA_DIR: directory },
 	});
@@ -62,6 +59,26 @@ test("recovery requires an interactive terminal before inspecting storage", asyn
 		expect(await readdir(directory)).toEqual([]);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
+	}
+});
+test("recovery on a foreign platform refuses before storage", async () => {
+	const parent = await createOwnerDirectory();
+	try {
+		const directory = join(parent, "siluet");
+		const child = Bun.spawnSync(
+			[
+				process.execPath,
+				"--preload",
+				join(import.meta.dir, "../tests/fixtures/foreign-platform.ts"),
+				join(import.meta.dir, "owner-recover.ts"),
+			],
+			{ env: { ...process.env, SILUET_DATA_DIR: directory, SILUET_TEST_PLATFORM: "freebsd" } },
+		);
+		expect(child.stderr.toString()).toBe(`${unsupportedPlatformMessage}\n`);
+		expect(child.exitCode).toBe(1);
+		expect(await exists(directory)).toBe(false);
+	} finally {
+		await rm(parent, { recursive: true, force: true });
 	}
 });
 test.each(["missing", "unsafe"])(
@@ -114,8 +131,6 @@ test.each(["missing", "unsafe"])(
 				for (const name of await readdir(source)) {
 					if (name !== key) await copyFile(join(source, name), join(directory, name));
 				}
-			} else if (process.platform === "win32") {
-				expect(Bun.spawnSync(["icacls.exe", path, "/grant", "*S-1-5-32-545:R"]).exitCode).toBe(0);
 			} else await chmod(path, 0o644);
 			install = await openInstallation(directory);
 			active = true;

@@ -48,8 +48,6 @@ async function matchesSavedBytes(handle: FileHandle, row: Row) {
 }
 
 async function syncDirectory(path: string) {
-	// Windows does not support opening a directory for fsync via Node's fs API.
-	if (process.platform === "win32") return;
 	const handle = await open(path, "r");
 	try {
 		await handle.sync();

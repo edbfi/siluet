@@ -24,8 +24,8 @@ async function availablePort(hostname: string) {
 }
 
 async function startProcess(env: Listener) {
-	// Isolate console signals. Forward each stop over IPC, including on Windows
-	// where killing the child would skip the Bun adapter's graceful shutdown.
+	// Isolate console signals. Forward each stop over IPC so the server runs the
+	// Bun adapter's graceful shutdown once, whichever signal reached the launcher.
 	const child = fork(import.meta.path, ["--serve"], {
 		execPath: process.execPath,
 		execArgv: [],
@@ -79,6 +79,12 @@ export async function launchStudio(
 }
 
 if (import.meta.main) {
+	// Keep this check inline: tests copy start.ts alone into a temporary checkout.
+	// The message matches unsupportedPlatformMessage in src/lib/server/platform.ts.
+	if (process.platform !== "linux" && process.platform !== "darwin") {
+		console.error("Siluet runs on Linux and macOS only.");
+		process.exit(1);
+	}
 	if (process.argv[2] === "--serve") {
 		try {
 			process.chdir(fileURLToPath(new URL("../", import.meta.url)));
