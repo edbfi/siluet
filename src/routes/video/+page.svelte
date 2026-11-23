@@ -79,8 +79,8 @@ function edit() {
 	notice = "";
 }
 // Keep the prompt and any compatible setting. Apply the target's defaults to the rest.
-function switchModel(model: string) {
-	const target = find(model);
+function switchModel(id: string) {
+	const target = find(id);
 	if (!target || target === operation) return;
 	operation = target;
 	const next = controls(target);
