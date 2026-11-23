@@ -270,6 +270,45 @@ test("a backfilled batch of three waits for the read gate without counting a try
 	expect(posts).toBe(0);
 });
 
+test("a recovery read the gate blocked waits without a try even when the gate opened meanwhile", async () => {
+	await insert("image", "completed");
+	await installation.use(async (db) => {
+		await db.run(sql`UPDATE image_job SET save_due=0, next_read_at=0 WHERE id='image'`);
+		await db.run(
+			sql`INSERT INTO provider_start VALUES('poyo','query',${now}),('poyo','query',${now})`,
+		);
+	});
+	// The gate opens between the refused reservation and the outcome check.
+	const use = installation.use;
+	const gateOpens = now + 1_000;
+	let jump = true;
+	installation.use = (async (work) => {
+		const result = await use(work);
+		const row =
+			jump &&
+			(await use((db) =>
+				db.get<{ at: number }>(sql`SELECT next_read_at AS at FROM image_job WHERE id='image'`),
+			));
+		if (row && row.at === gateOpens) {
+			jump = false;
+			now = gateOpens;
+		}
+		return result;
+	}) as typeof use;
+	runtime = open();
+	await runtime.start();
+	expect(jump).toBe(false);
+	expect(reads).toEqual([]);
+	expect(await job("image")).toMatchObject({ save_hold: null, save_attempt: null, save_tries: 0 });
+	expect(await summary("image")).toMatchObject({ library: "waiting" });
+	now += 1_000;
+	runtime.autoSave.start();
+	await settle();
+	expect(reads).toEqual(["image"]);
+	expect((await summary("image"))?.library).toBe("saved");
+	expect(posts).toBe(0);
+});
+
 test("a crash after completion or after the claim recovers with one read, also inside a cooldown", async () => {
 	runtime = open();
 	await runtime.start();

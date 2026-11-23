@@ -63,6 +63,8 @@ function scheduleReadTimer(read: () => Promise<void>, delay: number) {
 }
 
 const initialWait = { poyo: 2_000, toapis: 5_000 };
+// The query gate's span: a refused read for automatic Save looks again after it.
+const saveReadRetryMs = 1_000;
 const intervalJitter = { poyo: 3_000, toapis: 5_000 };
 
 function autoTrack(job: ImageJob) {
@@ -394,9 +396,11 @@ export function createJobTracking(
 			if (closed) return { kind: "cooldown", until: now() };
 			const observed = await (sharing ?? readStatus(id, false, false, false));
 			if (observed?.delivery) return { kind: "delivered", delivery: observed.delivery };
-			const after = (await blocker()) ?? { kind: "failed" };
+			const after = await blocker();
 			// A read that ran without a usable link fails, even inside its new cooldown.
-			return observed && after.kind === "cooldown" ? { kind: "failed" } : after;
+			if (observed) return !after || after.kind === "cooldown" ? { kind: "failed" } : after;
+			// No read ran (the provider gate refused it, even if it has opened since): wait without a try.
+			return after ?? { kind: "cooldown", until: now() + saveReadRetryMs };
 		},
 		async dispatch(id: string, provider: ProviderId, key: string, request: ReviewedImageRequest) {
 			if (closed || !(await store.beginDispatch(id, provider, now()))) return;
