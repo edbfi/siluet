@@ -201,6 +201,28 @@ test("startup clears abandoned attempts and keeps their intent, tries and holds"
 	expect(await row("expiring")).toMatchObject({ save_due: null, save_hold: null });
 });
 
+test("expiry needs both the attempt's token and an expired link", async () => {
+	const saves = saveIntentStore(installation);
+	await insert(
+		"expired",
+		"completed",
+		sql`UPDATE image_job SET save_due=${now}, expires_at=${now - 1} WHERE id='expired'`,
+	);
+	await saves.claim("expired", "current", now);
+	// A stale token cannot expire a row another attempt holds.
+	expect(await saves.expire("expired", "stale", now)).toBe("fenced");
+	expect(await row("expired")).toMatchObject({ save_due: now, save_attempt: "current" });
+	await insert(
+		"live",
+		"completed",
+		sql`UPDATE image_job SET save_due=${now}, expires_at=${now + 60_000} WHERE id='live'`,
+	);
+	await saves.claim("live", "token", now);
+	// A link that has not expired keeps the intent; only the claim is given back.
+	expect(await saves.expire("live", "token", now)).toBe("fenced");
+	expect(await row("live")).toMatchObject({ save_due: now, save_attempt: null });
+});
+
 test("retry arms each eligible case and refuses the rest", async () => {
 	const saves = saveIntentStore(installation);
 	const later = now + 9_000;
