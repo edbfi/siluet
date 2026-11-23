@@ -105,7 +105,7 @@ export function createAutoSave(
 		let keep: VideoDelivery | undefined;
 		try {
 			if (expired(job)) {
-				await saves.expire(id, token);
+				await saves.expire(id, token, now());
 				return true;
 			}
 			if (!delivery) {
@@ -114,7 +114,7 @@ export function createAutoSave(
 				// A read that ran without a usable link ends in Download failed: D9 allows no further read.
 				if (read.kind === "cooldown") await saves.defer(id, token, read.until, job.save_tries);
 				else if (read.kind === "paused") await saves.release(id, token);
-				else if (read.kind === "expired") await saves.expire(id, token);
+				else if (read.kind === "expired") await saves.expire(id, token, now());
 				else if (read.kind === "failed") await saves.hold(id, token, "failed");
 				if (read.kind !== "delivered") return true;
 				delivery = read.delivery;

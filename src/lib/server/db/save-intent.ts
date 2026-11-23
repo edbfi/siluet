@@ -74,9 +74,22 @@ export function saveIntentStore({ use }: Installation) {
 				sql`save_due=NULL, save_hold=${reason}, save_tries=COALESCE(${tries ?? null},save_tries)`,
 			);
 		},
-		/** The provider's link has expired: nothing is left to download. */
-		expire(id: string, token: string) {
-			return settle(id, token, sql`save_due=NULL`);
+		/**
+		 * The provider's link has expired: nothing is left to download. Expiry is a row timestamp
+		 * that needs no key, so a replaced or removed key cannot keep the intent pending.
+		 */
+		async expire(id: string, token: string, now: number) {
+			const row = await use(async (db) => {
+				const done = await db.get(sql`UPDATE image_job SET save_attempt=NULL, save_due=NULL
+					WHERE id=${id} AND save_attempt=${token} AND save_hold IS NULL
+					AND expires_at IS NOT NULL AND expires_at<=${now} RETURNING id`);
+				if (!done)
+					await db.run(
+						sql`UPDATE image_job SET save_attempt=NULL WHERE id=${id} AND save_attempt=${token}`,
+					);
+				return done;
+			});
+			return (row ? "done" : "fenced") satisfies SaveOutcome;
 		},
 		/** Shutdown, a read pause or a replaced key: give the attempt back without counting a try. */
 		release(id: string, token: string) {

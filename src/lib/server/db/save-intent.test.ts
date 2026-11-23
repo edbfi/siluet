@@ -152,7 +152,7 @@ test("every outcome is fenced by its attempt token", async () => {
 	for (const outcome of [
 		() => saves.defer("job", "second", now + 60_000, 2),
 		() => saves.hold("job", "second", "failed"),
-		() => saves.expire("job", "second"),
+		() => saves.expire("job", "second", now),
 		() => saves.release("job", "second"),
 	])
 		expect(await outcome()).toBe("fenced");
@@ -194,10 +194,10 @@ test("startup clears abandoned attempts and keeps their intent, tries and holds"
 	await insert(
 		"expiring",
 		"completed",
-		sql`UPDATE image_job SET save_due=${now} WHERE id='expiring'`,
+		sql`UPDATE image_job SET save_due=${now}, expires_at=${now - 1} WHERE id='expiring'`,
 	);
 	await saves.claim("expiring", "token", now);
-	expect(await saves.expire("expiring", "token")).toBe("done");
+	expect(await saves.expire("expiring", "token", now)).toBe("done");
 	expect(await row("expiring")).toMatchObject({ save_due: null, save_hold: null });
 });
 

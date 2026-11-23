@@ -520,6 +520,20 @@ test("an expired pending job is cleared without any request", async () => {
 	expect([reads, transfers]).toEqual([[], []]);
 });
 
+test("an expired pending job is cleared even after its key was replaced", async () => {
+	await insert("image", "completed");
+	await installation.use((db) =>
+		db.run(sql`UPDATE image_job SET save_due=0, expires_at=${start - 1} WHERE id='image'`),
+	);
+	// Expiry needs no provider access, so the replaced key must not keep the intent pending.
+	await providerStore(installation).save("poyo", "replacement", now, true, 1);
+	runtime = open();
+	await runtime.start();
+	await settle();
+	expect(await job("image")).toMatchObject({ save_due: null, save_hold: null, save_attempt: null });
+	expect([reads, transfers]).toEqual([[], []]);
+});
+
 test("a short body without Content-Length counts a try and never holds the job", async () => {
 	media = (id) =>
 		new Response(
