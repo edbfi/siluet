@@ -154,13 +154,28 @@ async function act(queue: boolean, replay?: string) {
 				}
 			}
 			if (queue && response.status >= 500) throw new Error("Queue interrupted.");
-			// A definite refusal means the saved token was never claimed.
-			if (replay !== undefined || body === attempt) attempt = null;
+			// Only the Queue service's own refusal proves that a token was never claimed.
+			// A session, origin or size refusal comes before the token is looked up.
+			const refusal = queue ? await response.json().catch(() => null) : null;
+			const unclaimed = refusal?.error === "stale" || refusal?.error === "invalid";
 			if (replay !== undefined) {
-				// Keep any newer Review and its consent.
-				notice = "The interrupted request was never queued. Nothing was sent.";
+				if (!unclaimed) {
+					notice =
+						"The retry could not be confirmed. Sign in again if needed, then check Jobs before queuing.";
+					return;
+				}
+				attempt = null;
+				// A newer Review keeps its consent; the refused one does not.
+				if (JSON.parse(replay).token !== reviewed?.token) {
+					notice = "The interrupted request was never queued. Nothing was sent.";
+					return;
+				}
+				edit();
+				notice =
+					"The interrupted request was never queued. Nothing was sent. Review the request again before queuing.";
 				return;
 			}
+			if (unclaimed && body === attempt) attempt = null;
 			edit();
 			notice = "Review the current request and its terms again.";
 			return;

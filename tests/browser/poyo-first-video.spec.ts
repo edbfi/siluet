@@ -327,6 +327,59 @@ test("a refused retry of a request that never arrived keeps the newer Review", a
 	}
 });
 
+test("a refused retry of the displayed Review clears it, and an unauthenticated retry stays pending", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	const directory = await createOwnerDirectory();
+	const cache = await createOwnerDirectory();
+	const counts = { posts: 0 };
+	const fixture = poyoFixtures(new Uint8Array(0), counts);
+	let server: Studio | undefined;
+	try {
+		await writeReviewPricing(cache, 0, undefined, { "h3-max": h3Rate });
+		server = await startStudio(directory, "0", false, { ...fixture.env, XDG_CACHE_HOME: cache });
+		const { origin } = server.origin;
+		await signInWithPoyo(page, server);
+		await page.goto(`${origin}/video?model=h3-max`);
+		await page.getByRole("textbox", { name: "Prompt" }).fill(prompt);
+		await page.getByRole("button", { name: "Review request" }).press("Enter");
+		await page.getByRole("checkbox", { name: /I accept/ }).check();
+		let dropped = false;
+		await page.route("**/video/queue", async (route) => {
+			if (dropped) return route.continue();
+			dropped = true;
+			await route.abort("failed");
+		});
+		await page.getByRole("button", { name: "Queue 1 request" }).press("Enter");
+		await expect(page.getByText(/Queue response was interrupted/)).toBeVisible();
+		const retry = page.getByRole("button", { name: "Retry the interrupted request" });
+		// Without a session the server cannot say whether the token was claimed.
+		const cookies = await page.context().cookies();
+		await page.context().clearCookies();
+		await retry.press("Enter");
+		await expect(page.getByRole("status")).toHaveText(
+			"The retry could not be confirmed. Sign in again if needed, then check Jobs before queuing.",
+		);
+		await expect(retry).toBeVisible();
+		await page.context().addCookies(cookies);
+		// The withdrawn rate makes the unclaimed token stale; it is the displayed Review's token.
+		await writeReviewPricing(cache, 0);
+		await retry.press("Enter");
+		await expect(page.getByRole("status")).toHaveText(
+			"The interrupted request was never queued. Nothing was sent. Review the request again before queuing.",
+		);
+		await expect(retry).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "Queue 1 request" })).toHaveCount(0);
+		expect(counts.posts).toBe(0);
+	} finally {
+		await server?.stop();
+		fixture.stop();
+		await rm(directory, { recursive: true, force: true });
+		await rm(cache, { recursive: true, force: true });
+	}
+});
+
 test("an unknown H3 price needs consent naming it, and a Security change clears the H3 draft", async ({
 	page,
 	context,
