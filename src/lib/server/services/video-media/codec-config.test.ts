@@ -96,7 +96,7 @@ function sps({ profile = 100, chroma = 1, depth = 8, scaling, width, height, cro
 			w.put(vui.transfer, 8);
 			w.put(9, 8);
 		}
-		w.put(0, 5); // no chroma location, timing, HRD, picture structure or bitstream restriction
+		w.put(0, 6); // no chroma location, timing, NAL or VCL HRD, picture structure or bitstream restriction
 	}
 	const raw = w.bytes();
 	const escaped: number[] = [0x67];
