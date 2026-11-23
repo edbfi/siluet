@@ -62,6 +62,9 @@ $effect(() => {
 		if (job.tracking === "automatic" || job.state === "submitting") delay = Math.min(delay, 2000);
 		else if (job.nextReadAt && job.nextReadAt > now)
 			delay = Math.min(delay, job.nextReadAt - now + 50);
+		// Reload when a cooldown ends so its line disappears.
+		if (job.submitAfter && job.submitAfter > now)
+			delay = Math.min(delay, job.submitAfter - now + 50);
 	}
 	if (!Number.isFinite(delay)) return;
 	const timer = window.setTimeout(
