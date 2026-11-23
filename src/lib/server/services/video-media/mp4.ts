@@ -200,6 +200,7 @@ function presentation(
 	const { segment, time, rate } = edit(count - 1);
 	check(rate === 0x10000, "edit rate other than 1");
 	check(segment > 0, "empty presented edit");
+	check(time >= 0, "presented edit media time");
 	// The edit starts inside the composition timeline and ends within one movie tick of it.
 	check(time >= earliest && time < end, "edit starts outside the composition timeline");
 	const first = BigInt(time);

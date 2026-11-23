@@ -94,6 +94,18 @@ test("edits stay within the composition timeline and select samples", () => {
 	refused(twoEdits, /leading empty edit/);
 });
 
+test("the presented edit cannot be the empty-edit sentinel", () => {
+	// Signed offsets 2,049 ticks earlier start composition at -1, the sentinel's media_time.
+	let sentinel = rewrite(h264Aac(), `${stbl(video)}/ctts`, (data) => {
+		const out = Buffer.from(data);
+		out[0] = 1;
+		for (let at = 12; at < out.length; at += 8) out.writeInt32BE(out.readUInt32BE(at) - 2049, at);
+		return out;
+	});
+	sentinel = setField(sentinel, `${video}/edts/elst`, 12, 0xffffffff);
+	refused(sentinel, /presented edit media time/);
+});
+
 test("ctts must cover exactly the track's samples", () => {
 	refused(
 		rewrite(h264Aac(), `${stbl(video)}/ctts`, () => rows([25, 0])),
