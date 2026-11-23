@@ -79,8 +79,8 @@ test("the record parser refuses anything but its exact shape", () => {
 });
 
 test("the command refuses an empty or non-SHA base", async () => {
-	for (const argv of [[], [""], ["main"], ["cbf78a7"], ["a".repeat(40), "extra"]])
-		await expect(main(argv)).rejects.toThrow("Pass the base commit's full SHA.");
+	for (const argv of [[], [""], ["main"], ["abc12"], ["HEAD~1"], ["a".repeat(40), "extra"]])
+		await expect(main(argv)).rejects.toThrow("Pass the base commit SHA.");
 	const child = Bun.spawn(["bun", "scripts/db/released-append-only.ts", ""], {
 		stdout: "ignore",
 		stderr: "ignore",

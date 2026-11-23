@@ -81,8 +81,8 @@ async function show(base: string, path: string) {
 
 export async function main(argv: readonly string[]) {
 	const [base] = argv;
-	if (argv.length !== 1 || !base || !/^[0-9a-f]{40}$/.test(base))
-		throw new Error("Pass the base commit's full SHA.");
+	if (argv.length !== 1 || !base || !/^[0-9a-f]{7,40}$/.test(base))
+		throw new Error("Pass the base commit SHA.");
 	const problems = appendOnlyProblems(
 		parseReleased(await show(base, releasedPath)),
 		quotedMigrationKeys(await show(base, migrationsPath)),
