@@ -384,8 +384,10 @@ export function imageJobStore({ use }: Installation) {
 								sql`UPDATE provider_gate SET query_after=MAX(query_after,${update.queryAfter}) WHERE provider=${provider}`,
 							);
 						if (!saved || !previous) return;
+						// Computed from the values before and after this read, not from RETURNING alone.
 						const armed =
 							previous.state !== "completed" &&
+							previous.save_due === null &&
 							saved.state === "completed" &&
 							saved.save_due !== null;
 						// An earlier completion's intent is still waiting for the worker.

@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { referenceGif, referencePng } from "../../../../../tests/fixtures/reference-image";
 import { h264Aac } from "../../../../../tests/fixtures/video/mp4-boxes";
+import { providerKeyFilename } from "../../db/provider-key";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
 import { saveIntentStore } from "../../db/save-intent";
@@ -554,4 +555,16 @@ test("signed result links never reach the database, logs or summaries", async ()
 	for (const name of await readdir(directory))
 		if (name.startsWith("studio.db"))
 			expect(await Bun.file(join(directory, name)).text()).not.toContain("signed-result-sentinel");
+});
+
+test("Retry download refuses a job whose key no longer decrypts", async () => {
+	status = (id) => finished(id, null);
+	runtime = open();
+	await runtime.start();
+	await complete("image");
+	expect(await summary("image")).toMatchObject({ library: "failed", retryable: true });
+	await rm(join(directory, providerKeyFilename));
+	expect(await summary("image")).toMatchObject({ library: "failed", retryable: false });
+	expect(await runtime.autoSave.retry("image")).toBe(false);
+	expect(await job("image")).toMatchObject({ save_hold: "failed" });
 });

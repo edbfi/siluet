@@ -1,6 +1,12 @@
 import { rm } from "node:fs/promises";
 import { basename } from "node:path";
-import { type ImageJob, isReadPaused, isVideoJob, type SaveHold } from "../../db/image-job-store";
+import {
+	type ImageJob,
+	imageJobStore,
+	isReadPaused,
+	isVideoJob,
+	type SaveHold,
+} from "../../db/image-job-store";
 import type { RuntimeInstallation } from "../../db/runtime-installation";
 import { saveIntentStore, saveTryLimit } from "../../db/save-intent";
 import type { SaveRead } from "../jobs/tracking";
@@ -53,6 +59,7 @@ export function createAutoSave(
 	}: AutoSaveDependencies,
 ) {
 	const saves = saveIntentStore(installation);
+	const jobs = imageJobStore(installation);
 	const storage = galleryStorage(installation);
 	const deliveries = new Map<string, VideoDelivery>();
 	// A first completion whose read carried no usable link.
@@ -94,29 +101,31 @@ export function createAutoSave(
 		return saves.defer(job.id, token, now() + backoff[tries - 1], tries);
 	}
 
+	/** Resolves false when the intent was no longer claimable, so nothing changed. */
 	async function attempt(id: string, token: string) {
 		const job = await saves.claim(id, token, now());
-		if (!job) return;
+		if (!job) return false;
 		try {
 			if (expired(job)) {
 				deliveries.delete(id);
 				linkless.delete(id);
 				await saves.expire(id, token);
-				return;
+				return true;
 			}
 			if (linkless.delete(id)) {
 				await saves.hold(id, token, "failed");
-				return;
+				return true;
 			}
 			let delivery = deliveries.get(id);
 			if (!delivery) {
 				const read = await readForSave(id);
 				if (shutdown.signal.aborted) throw shutdown.signal.reason;
-				if (read.kind === "cooldown")
-					return void (await saves.defer(id, token, read.until, job.save_tries));
-				if (read.kind === "paused") return void (await saves.release(id, token));
-				if (read.kind === "expired") return void (await saves.expire(id, token));
-				if (read.kind === "failed") return void (await failed(job, token));
+				// Only a read that ran without a usable link counts as a failed try.
+				if (read.kind === "cooldown") await saves.defer(id, token, read.until, job.save_tries);
+				else if (read.kind === "paused") await saves.release(id, token);
+				else if (read.kind === "expired") await saves.expire(id, token);
+				else if (read.kind === "failed") await failed(job, token);
+				if (read.kind !== "delivered") return true;
 				delivery = read.delivery;
 				deliveries.set(id, delivery);
 			}
@@ -126,23 +135,27 @@ export function createAutoSave(
 			else await saves.release(id, token);
 		} catch (error) {
 			// Shutdown never counts as a failure.
-			if (shutdown.signal.aborted) return void (await saves.release(id, token).catch(() => {}));
-			const hold = refusal(error);
-			if (hold) {
-				deliveries.delete(id);
-				await saves.hold(id, token, hold);
-			} else await failed(job, token);
+			if (shutdown.signal.aborted) await saves.release(id, token).catch(() => {});
+			else {
+				const hold = refusal(error);
+				if (hold) {
+					deliveries.delete(id);
+					await saves.hold(id, token, hold);
+				} else await failed(job, token);
+			}
 		}
+		return true;
 	}
 
 	function begin(job: ImageJob) {
 		const video = isVideoJob(job);
 		const token = crypto.randomUUID();
 		const done = attempt(job.id, token)
-			.catch(() => {})
-			.finally(() => {
+			.catch(() => true)
+			.then((changed) => {
 				active.delete(job.id);
-				wake();
+				// A finished attempt frees a slot; a missed claim changed nothing to look at again.
+				if (changed) wake();
 			});
 		active.set(job.id, { video, done });
 	}
@@ -206,7 +219,10 @@ export function createAutoSave(
 		},
 		/** Retry download or Download again: one fresh status read, never a submission. */
 		async retry(id: string) {
-			if (shutdown.signal.aborted || !(await saves.retry(id, now()))) return false;
+			if (shutdown.signal.aborted) return false;
+			// The original key must still decrypt, as the Jobs retry flag requires.
+			const job = await jobs.get(id);
+			if (!job || !(await readability())(job) || !(await saves.retry(id, now()))) return false;
 			deliveries.delete(id);
 			linkless.delete(id);
 			wake();
