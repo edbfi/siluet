@@ -923,7 +923,8 @@ test.each([
 			if (request.method === "POST") return Response.json({ code: 200, data: { task_id: taskId } });
 			return Response.json({ code: 200, data: { task_id: taskId, status: "finished" } });
 		};
-		// A Poyo H3 claim interrupted before or after dispatch: restart leaves it uncertain with no open wallet.
+		// Built by hand to isolate the unresolved-spend clause: an uncertain Poyo row without its own
+		// open interval, as a later batch attempt leaves it. A lost H3 acknowledgement keeps wallet_open=1.
 		await insertH3("lost");
 		if (sent)
 			await installation.use((db) =>

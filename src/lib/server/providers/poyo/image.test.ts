@@ -125,6 +125,15 @@ test("Poyo pauses missing or unknown tasks and retries upstream status errors", 
 		kind: "temporary",
 		retryAfter: "25",
 	});
+	// The shared reader treats an error beside a success code as a temporary read failure.
+	const contradictory = createPoyoImage(async () =>
+		Response.json({
+			code: 200,
+			data: { task_id: taskId, status: "finished" },
+			error: { type: "upstream_error" },
+		}),
+	);
+	expect(await contradictory.status(key, taskId)).toMatchObject({ kind: "temporary" });
 });
 
 // https://docs.poyo.ai/#10-rate-limits-concurrency
