@@ -26,8 +26,15 @@ async function headers(url: string, transport: typeof direct, signal: AbortSigna
 		signal.removeEventListener("abort", abort);
 	}
 }
-export async function downloadVideo(source: VideoDelivery, path: string, transport = direct) {
-	const budget = AbortSignal.timeout(60_000);
+/** Download one video within 60 seconds. A caller `signal` (shutdown) aborts the transfer. */
+export async function downloadVideo(
+	source: VideoDelivery,
+	path: string,
+	transport = direct,
+	signal?: AbortSignal,
+) {
+	const timeout = AbortSignal.timeout(60_000);
+	const budget = signal ? AbortSignal.any([timeout, signal]) : timeout;
 	let response: Response;
 	if (source.fallback) {
 		const deadline = AbortSignal.timeout(30_000);

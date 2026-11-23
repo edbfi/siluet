@@ -6,7 +6,7 @@ import { DirectoryPolicyError } from "./private-directory";
 
 // Fingerprint of the non-internal DDL produced by this release's locked migrations.
 // Opening the exclusive recovery connection in the native recovery test qualifies this value.
-const currentSchema = "58a663767dac9f3d69fe68d6fd58805510c59c9305e62f8fe4a27731743866bc";
+const currentSchema = "f6855408612145ed1cfd793f667892f51d2cb9c6afcb655637ef32c67c53bd1d";
 export async function verifyRecoverySchema(db: StudioDatabase) {
 	const applied = await db.all<{ name: string }>(
 		sql`SELECT name FROM __drizzle_migrations ORDER BY id`,

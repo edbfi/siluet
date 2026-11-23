@@ -4,6 +4,7 @@ import type { ProviderId } from "../../../shared/providers/connections";
 import {
 	hasCorrelation,
 	type ImageJob,
+	isReadPaused,
 	isVideoJob,
 	type JobState,
 	jobPollDeadline,
@@ -22,6 +23,23 @@ type JobWallet =
 	  }
 	| { status: "unavailable"; reason: "missing" | "overlap" | "uncertain" };
 
+/** Where a completed result stands in the local Gallery (D9), most decisive first. */
+export type LibraryState =
+	| "saved"
+	| "unavailable"
+	| "removed"
+	| "unsupported"
+	| "webm"
+	| "failed"
+	| "expired"
+	| "needs-key"
+	| "paused"
+	| "saving"
+	| "waiting"
+	| "none";
+/** The job's Gallery row, if any. */
+export type GalleryState = "saved" | "unavailable" | "deleting" | null;
+
 export type JobSummary = {
 	batchId: string | null;
 	slot: number | null;
@@ -34,7 +52,6 @@ export type JobSummary = {
 	provider: ProviderId;
 	model: string;
 	operation: ImageJob["operation"];
-	galleryReason: ImageJob["gallery_reason"];
 	state: JobState | "unsent";
 	createdAt: number;
 	updatedAt: number;
@@ -51,7 +68,9 @@ export type JobSummary = {
 	canRefresh: boolean;
 	canLookup: boolean;
 	progress: number | null;
-	canSave: boolean;
+	library: LibraryState;
+	/** Retry download or Download again may arm this job now. */
+	retryable: boolean;
 	video: boolean;
 };
 
@@ -70,7 +89,8 @@ const statusNotes: Record<StatusNote, string> = {
 		"The provider could not find this task. Check provider history before reviewing another request.",
 	"unknown-status":
 		"The provider returned an unrecognized task status. Refresh status to check again.",
-	"credential-changed": "Status and unsaved results require the original API key for this job.",
+	"credential-changed":
+		"Status and downloads of unsaved results require the original API key for this job.",
 	temporary: "The provider status is temporarily unavailable.",
 	"unsupported-video-result":
 		"The provider returned an unsupported video result. Check provider history.",
@@ -80,10 +100,6 @@ const statusNotes: Record<StatusNote, string> = {
 
 export function isActive(job: ImageJob) {
 	return job.state === "waiting" || job.state === "running";
-}
-
-export function isReadPaused(note: StatusNote | null) {
-	return note !== null && note !== "temporary" && note !== "result-unavailable";
 }
 
 export function storedBilling(job: ImageJob): TaskBilling | null {
@@ -134,8 +150,33 @@ function walletSummary(job: ImageJob): JobWallet | null {
 		: { status: "unavailable", reason: "missing" };
 }
 
-export function summarizeJob(job: ImageJob, readable: boolean, now: number): JobSummary {
+function libraryState(
+	job: ImageJob,
+	gallery: GalleryState,
+	readable: boolean,
+	expired: boolean,
+): LibraryState {
+	if (job.state !== "completed") return "none";
+	if (gallery === "saved") return "saved";
+	if (gallery === "unavailable") return "unavailable";
+	if (job.save_hold) return job.save_hold;
+	if (expired) return "expired";
+	if (job.save_due === null) return "none";
+	if (!readable) return "needs-key";
+	// A read pause stops automatic Save until Refresh; nothing polls.
+	if (isReadPaused(job.pause_reason)) return "paused";
+	return job.save_attempt ? "saving" : "waiting";
+}
+
+export function summarizeJob(
+	job: ImageJob,
+	readable: boolean,
+	now: number,
+	gallery: GalleryState = null,
+): JobSummary {
 	const canRefresh = job.task_id !== null && readable;
+	const expired = job.expires_at !== null && job.expires_at <= now;
+	const library = libraryState(job, gallery, canRefresh, expired);
 	const lookupPending = hasCorrelation(job) && job.state === "unknown";
 	const video = isVideoJob(job);
 	const note =
@@ -149,7 +190,7 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 	if (video && note === "unknown-status")
 		message = "Task identity or status could not be verified. Check provider history.";
 	if (video && note === "result-unavailable")
-		message = "No usable video result was available. Check provider history or retry Save.";
+		message = "No usable video result was available. Check provider history or Retry download.";
 	if (job.state === "unknown") {
 		if (note === "missing-task") message = "The provider could not find this task.";
 		if (lookupPending && note === "unknown-status")
@@ -204,7 +245,6 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		provider: job.provider,
 		model: job.model,
 		operation: job.operation,
-		galleryReason: job.gallery_reason,
 		state: job.skipped ? "unsent" : job.state,
 		createdAt: job.created_at,
 		updatedAt: job.updated_at ?? job.created_at,
@@ -231,9 +271,12 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		canLookup: lookupPending && readable,
 		progress: job.video_progress ?? null,
 		video,
-		canSave:
+		library,
+		retryable:
 			canRefresh &&
-			job.state === "completed" &&
-			(!video || (!isReadPaused(note) && (job.expires_at === null || job.expires_at > now))),
+			!expired &&
+			!isReadPaused(job.pause_reason) &&
+			!job.save_attempt &&
+			(library === "failed" || library === "removed" || library === "unavailable"),
 	};
 }

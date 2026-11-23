@@ -21,8 +21,9 @@ import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
 import { videoJobPollingWindowMs } from "../../db/video-schema";
 import type { CheckFetch } from "../../providers/connection-check";
+import { createAutoSave } from "../gallery/auto-save";
 import { createGallery } from "../gallery/gallery";
-import { createJobTracking } from "./tracking";
+import { createJobTracking, type DeliveryHandoff } from "./tracking";
 
 const start = 1_799_000_000_000;
 const taskId = "task-fixture-542";
@@ -65,11 +66,12 @@ const insert = (
 				${model},${now + imageJobPollingWindowMs})`),
 	);
 
-function makeTracking(read: CheckFetch) {
+function makeTracking(read: CheckFetch, onDelivery?: DeliveryHandoff) {
 	tracker = createJobTracking(installation, providerStore(installation), {
 		fetch: read,
 		now: () => now,
 		random: () => 0,
+		onDelivery,
 	});
 	return tracker;
 }
@@ -126,7 +128,7 @@ test("startup keeps an orphaned claim uncertain and never sends its reserved att
 		state: "unknown",
 		quote,
 		canRefresh: false,
-		canSave: false,
+		library: "none",
 		message: expect.stringContaining("provider history"),
 	});
 	expect(calls).toBe(0);
@@ -160,7 +162,11 @@ test("durable acknowledgement resumes automatic reads without resubmitting", asy
 	await readArrived.promise;
 	await restarted.refresh("job");
 	expect(submits).toBe(1);
-	expect(await latest()).toMatchObject({ state: "completed", tracking: "done", canSave: true });
+	expect(await latest()).toMatchObject({
+		state: "completed",
+		tracking: "done",
+		library: "waiting",
+	});
 });
 
 test.each([
@@ -210,7 +216,11 @@ test.each([
 		await restarted.resume();
 		expect(await latest()).toMatchObject({ state, message });
 		now += 5_000;
-		if (state === "completed") expect(await restarted.resultUrl("job")).toBe(signedUrl);
+		if (state === "completed")
+			expect(await restarted.readForSave("job")).toEqual({
+				kind: "delivered",
+				delivery: { url: signedUrl, fallback: null },
+			});
 		else await restarted.refresh("job");
 		expect(await latest()).toMatchObject({ state, message });
 		expect(submits).toBe(1);
@@ -261,8 +271,12 @@ test("a successful completed status can be saved after its normal read interval"
 	now += 5_000;
 	await jobs.refresh("job");
 	expect(await latest()).toMatchObject({ state: "completed", nextReadAt: now + 5_000 });
+	expect(await jobs.readForSave("job")).toEqual({ kind: "cooldown", until: now + 5_000 });
 	now += 5_000;
-	expect(await jobs.resultUrl("job")).toBe(signedUrl);
+	expect(await jobs.readForSave("job")).toEqual({
+		kind: "delivered",
+		delivery: { url: signedUrl, fallback: null },
+	});
 });
 
 test("Retry-After survives restart, blocks Refresh and Save, and permits one shared later read", async () => {
@@ -282,21 +296,21 @@ test("Retry-After survives restart, blocks Refresh and Save, and permits one sha
 	now += 5_000;
 	await jobs.refresh("job");
 	now += 5_000;
-	expect(await jobs.resultUrl("job")).toBeNull();
+	expect(await jobs.readForSave("job")).toEqual({ kind: "failed" });
 	expect(await latest()).toMatchObject({
 		state: "completed",
 		nextReadAt: now + 180_000,
-		canSave: true,
+		library: "waiting",
 		billing: { status: "settled", credits: "1.007", usd: "0.0215" },
 	});
 	const restarted = await reopen(read);
 	await restarted.resume();
-	await Promise.all([restarted.refresh("job"), restarted.resultUrl("job")]);
+	await Promise.all([restarted.refresh("job"), restarted.readForSave("job")]);
 	expect(reads).toBe(2);
 	now += 180_000;
-	const [, url] = await Promise.all([restarted.refresh("job"), restarted.resultUrl("job")]);
+	const [, observed] = await Promise.all([restarted.refresh("job"), restarted.readForSave("job")]);
 	expect(reads).toBe(3);
-	expect(url).toBe(signedUrl);
+	expect(observed).toEqual({ kind: "delivered", delivery: { url: signedUrl, fallback: null } });
 	const rows = await installation.use((db) => db.all(sql`SELECT * FROM image_job`));
 	const serialized = JSON.stringify([rows, await restarted.list()]);
 	for (const privateValue of [credential, prompt, signedUrl])
@@ -517,8 +531,8 @@ test("completion and billing survive an expired result and a later incomplete ob
 	now += 5_000;
 	await jobs.refresh("job");
 	now += 5_000;
-	expect(await jobs.resultUrl("job")).toBeNull();
-	expect(reads).toBe(2);
+	expect(await jobs.readForSave("job")).toEqual({ kind: "expired" });
+	expect(reads).toBe(1);
 	expect(await latest()).toMatchObject({
 		state: "completed",
 		expiresAt: start,
@@ -771,24 +785,37 @@ test.each(["generate", "edit"] as const)(
 		expect(await jobs.needsCredential("poyo")).toBe(true);
 		expect(await providerStore(installation).remove("poyo", true)).toBe("job-warning");
 		const downloads: string[] = [];
-		const gallery = createGallery(installation, jobs.resultUrl, async (url) => {
-			downloads.push(url);
-			if (downloads.length === 1) throw new Error("Expired link");
-			return referencePng;
+		// No handoff here: the worker recovers the pending intent with one status read.
+		const autoSave = createAutoSave(installation, {
+			readForSave: jobs.readForSave,
+			readability: providerStore(installation).jobReadability,
+			now: () => now,
+			transferImage: async (url) => {
+				downloads.push(url);
+				if (downloads.length === 1) throw new Error("Expired link");
+				return referencePng;
+			},
 		});
-		now += 2000;
-		expect(await gallery.save("z-job")).toBe(false);
-		expect(await latest("z-job")).toMatchObject({ state: "completed", canSave: true });
-		now += 2000;
-		expect(await gallery.save("z-job")).toBe(true);
+		try {
+			now += 2000;
+			autoSave.start();
+			await Bun.sleep(5);
+			await autoSave.idle();
+			expect(await latest("z-job")).toMatchObject({ state: "completed", library: "waiting" });
+			now += 30_000;
+			autoSave.start();
+			await Bun.sleep(5);
+			await autoSave.idle();
+		} finally {
+			await autoSave.close();
+		}
+		expect(await latest("z-job")).toMatchObject({ library: "saved" });
 		expect(downloads).toEqual([signedUrl, signedUrl]);
-		expect(statusUrls).toEqual(Array(3).fill(`https://api.poyo.ai/api/generate/status/${taskId}`));
+		expect(statusUrls).toEqual(Array(2).fill(`https://api.poyo.ai/api/generate/status/${taskId}`));
 		const restarted = await reopen(read);
 		await restarted.resume();
 		await providerStore(installation).remove("poyo");
-		expect((await createGallery(installation, restarted.resultUrl).read("z-job"))?.bytes).toEqual(
-			referencePng,
-		);
+		expect((await createGallery(installation).read("z-job"))?.bytes).toEqual(referencePng);
 		expect(posts).toHaveLength(2);
 		expect(posts[1]).toEqual(request.body);
 		const rows = await installation.use((db) => db.all(sql`SELECT * FROM image_job`));
@@ -902,13 +929,13 @@ test("unknown Poyo job raises no Settings warning; active and unsaved H3 jobs do
 	await settings.save("poyo", credential, now, false, 1);
 	await insertH3("lost", 2, "unknown");
 	const store = imageJobStore(installation);
-	expect(await store.needsCredential("poyo")).toBe(false);
+	expect(await store.needsCredential("poyo", now)).toBe(false);
 	await insertH3("active", 2, "running");
-	expect(await store.needsCredential("poyo")).toBe(true);
+	expect(await store.needsCredential("poyo", now)).toBe(true);
 	await installation.use((db) =>
-		db.run(sql`UPDATE image_job SET state='completed' WHERE id='active'`),
+		db.run(sql`UPDATE image_job SET state='completed', save_due=${now} WHERE id='active'`),
 	);
-	expect(await store.needsCredential("poyo")).toBe(true);
+	expect(await store.needsCredential("poyo", now)).toBe(true);
 });
 
 test.each([
@@ -1031,4 +1058,132 @@ test("P-02: a key replaced after the claim leaves the H3 job unsent with no POST
 		skipped: "interrupted",
 		wallet: null,
 	});
+});
+
+const delivered = { kind: "delivered", delivery: { url: signedUrl, fallback: null } } as const;
+const handoffs = () => {
+	const calls: [string, unknown, boolean][] = [];
+	const onDelivery: DeliveryHandoff = (id, delivery, armed) =>
+		void calls.push([id, delivery, armed]);
+	return { calls, onDelivery };
+};
+
+test("completion during cooldown hands over the delivery with zero extra reads and zero POSTs", async () => {
+	let reads = 0;
+	let posts = 0;
+	const { calls, onDelivery } = handoffs();
+	const jobs = makeTracking(async (_url, request) => {
+		if (request.method === "POST") {
+			posts++;
+			return acceptToapis();
+		}
+		reads++;
+		return completedToapis();
+	}, onDelivery);
+	await jobs.resume();
+	await insert();
+	await dispatch("toapis");
+	now += 5_000;
+	await jobs.refresh("job");
+	await Bun.sleep(1);
+	expect(calls).toEqual([["job", { url: signedUrl, fallback: null }, true]]);
+	// The completing read left a cooldown, and nothing reads again.
+	expect(await latest()).toMatchObject({ library: "waiting", nextReadAt: now + 5_000 });
+	await Bun.sleep(5);
+	expect([reads, posts]).toEqual([1, 1]);
+});
+
+test("onDelivery cannot block readStatus", async () => {
+	let calls = 0;
+	const jobs = makeTracking(
+		async (_url, request) => (request.method === "POST" ? acceptToapis() : completedToapis()),
+		() => {
+			calls++;
+			if (calls === 1) return new Promise(() => {});
+			throw new Error("Fixture handoff failure");
+		},
+	);
+	await jobs.resume();
+	for (const id of ["one", "two"]) {
+		await insert(id);
+		await dispatch("toapis", id);
+	}
+	now += 5_000;
+	await jobs.refresh("one");
+	await jobs.refresh("two");
+	await Bun.sleep(1);
+	expect(calls).toBe(2);
+	expect(await latest("two")).toMatchObject({ state: "completed", library: "waiting" });
+});
+
+test("Refresh on a completed job calls no onDelivery unless a waiting intent resumes", async () => {
+	let response = completedToapis;
+	const { calls, onDelivery } = handoffs();
+	const jobs = makeTracking(
+		async (_url, request) => (request.method === "POST" ? acceptToapis() : response()),
+		onDelivery,
+	);
+	await jobs.resume();
+	await insert();
+	await dispatch("toapis");
+	now += 5_000;
+	await jobs.refresh("job");
+	// Saved, removed or link-less: Refresh arms and hands over nothing.
+	for (const change of [
+		sql`UPDATE image_job SET save_due=NULL WHERE id='job'`,
+		sql`UPDATE image_job SET save_hold='removed' WHERE id='job'`,
+	]) {
+		await installation.use((db) => db.run(change));
+		now += 5_000;
+		await jobs.refresh("job");
+	}
+	await installation.use((db) =>
+		db.run(sql`UPDATE image_job SET save_hold=NULL, save_due=${now} WHERE id='job'`),
+	);
+	response = () => Response.json({ id: taskId, status: "completed", result: { data: [] } });
+	now += 5_000;
+	await jobs.refresh("job");
+	await Bun.sleep(1);
+	expect(calls).toHaveLength(1);
+	// A waiting intent takes the link a Refresh brings.
+	response = completedToapis;
+	now += 5_000;
+	await jobs.refresh("job");
+	await Bun.sleep(1);
+	expect(calls).toEqual([
+		["job", { url: signedUrl, fallback: null }, true],
+		["job", { url: signedUrl, fallback: null }, false],
+	]);
+});
+
+test("readForSave reports each outcome without submitting", async () => {
+	let response: () => Response = completedToapis;
+	let posts = 0;
+	const jobs = makeTracking(async (_url, request) => {
+		if (request.method === "POST") {
+			posts++;
+			return acceptToapis();
+		}
+		return response();
+	});
+	await jobs.resume();
+	await insert();
+	await dispatch("toapis");
+	now += 5_000;
+	await jobs.refresh("job");
+	expect(await jobs.readForSave("job")).toEqual({ kind: "cooldown", until: now + 5_000 });
+	now += 5_000;
+	expect(await jobs.readForSave("job")).toEqual(delivered);
+	now += 5_000;
+	response = () => Response.json({ id: taskId, status: "completed", result: { data: [] } });
+	expect(await jobs.readForSave("job")).toEqual({ kind: "failed" });
+	now += 5_000;
+	response = () => new Response(null, { status: 401 });
+	expect(await jobs.readForSave("job")).toEqual({ kind: "paused", note: "authorization" });
+	expect(await jobs.readForSave("job")).toEqual({ kind: "paused", note: "authorization" });
+	await installation.use((db) =>
+		db.run(sql`UPDATE image_job SET pause_reason=NULL, expires_at=${now} WHERE id='job'`),
+	);
+	expect(await jobs.readForSave("job")).toEqual({ kind: "expired" });
+	expect(posts).toBe(1);
 });

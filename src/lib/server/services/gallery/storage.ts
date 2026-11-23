@@ -3,8 +3,12 @@ import { constants } from "node:fs";
 import { type FileHandle, lstat, open, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { type SQL, sql } from "drizzle-orm";
+import { currentCredential } from "../../db/image-job-store";
 import type { Installation } from "../../db/installation";
 import type { verifyImage } from "./verify-image";
+
+/** A publication either saved the result or lost its claim to Remove, a new key or restart. */
+export type Publication = "saved" | "fenced";
 
 type Update = (statement: SQL) => Promise<unknown>;
 type ImageInfo = Awaited<ReturnType<typeof verifyImage>>;
@@ -23,6 +27,10 @@ type Write = Parameters<Parameters<Connection["transaction"]>[0]>[0];
 const hash = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
 const filename = (id: string) => `gallery-${hash(id)}`;
 const rowQuery = (id: string) => sql`SELECT * FROM gallery_image WHERE job_id=${id}`;
+const scratchName = /^video-[a-f0-9-]{36}\.part$/;
+/** Log only the scratch file name; the next startup retries it. */
+export const unremovedScratch = (name: string) =>
+	console.error(`Unable to remove leftover video scratch ${name}.`);
 const absent = (error: unknown) =>
 	error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ELOOP");
 
@@ -54,6 +62,15 @@ async function syncDirectory(path: string) {
 	} finally {
 		await handle.close();
 	}
+}
+
+// Clear the claimed attempt and the intent it carried out. Remove's hold, a newer claim or a
+// replaced key make this miss, so the attempt publishes nothing.
+async function fence(tx: Write, id: string, token: string) {
+	return Boolean(
+		await tx.get(sql`UPDATE image_job SET save_attempt=NULL, save_due=NULL, save_tries=0
+			WHERE id=${id} AND save_attempt=${token} AND save_hold IS NULL AND ${currentCredential} RETURNING id`),
+	);
 }
 
 export function galleryStorage({ directory, use }: Installation) {
@@ -166,9 +183,16 @@ export function galleryStorage({ directory, use }: Installation) {
 						!published.has(file.name)
 					)
 						await rm(join(directory, file.name), { force: true });
+					// No attempt survives a restart, so every video scratch file is left over.
+					else if (scratchName.test(file.name))
+						await rm(join(directory, file.name), { force: true }).catch(() =>
+							unremovedScratch(file.name),
+						);
 				}
 			});
 		},
+		/** The private scratch path of a claimed video attempt. */
+		scratchPath: (token: string) => join(directory, `video-${token}.part`),
 		async list() {
 			const rows = await use((db) =>
 				db.all<Row>(
@@ -183,18 +207,11 @@ export function galleryStorage({ directory, use }: Installation) {
 			const row = await use((db) => db.get<Row>(rowQuery(id)));
 			return row && row.state !== "deleting" ? entry(liveUpdate, row) : null;
 		},
-		markUnsupported(id: string) {
-			return use((db) =>
-				db.run(sql`UPDATE image_job SET gallery_reason='unsupported-image'
-				WHERE id=${id} AND state='completed' AND NOT EXISTS (
-					SELECT 1 FROM gallery_image WHERE job_id=${id} AND state='saved'
-				)`),
-			);
-		},
-		publish(id: string, bytes: Buffer, info: ImageInfo) {
-			return locked(async (tx) => {
+		publish(id: string, token: string, bytes: Buffer, info: ImageInfo) {
+			return locked(async (tx): Promise<Publication> => {
+				if (!(await fence(tx, id, token))) return "fenced";
 				const existing = await existingPublication(tx, await tx.get<Row>(rowQuery(id)));
-				if (existing !== undefined) return existing;
+				if (existing !== undefined) return existing ? "saved" : "fenced";
 				const path = pathFor(id);
 				// The write transaction excludes another publisher and the startup sweep.
 				// Clear a partial write from an interrupted Save before reusing this name.
@@ -211,8 +228,7 @@ export function galleryStorage({ directory, use }: Installation) {
 					await tx.run(sql`INSERT OR REPLACE INTO gallery_image
 						(job_id,state,mime,width,height,size,digest,saved_at) VALUES
 						(${id},'saved',${info.mime},${info.width},${info.height},${bytes.length},${hash(bytes)},${Date.now()})`);
-					await tx.run(sql`UPDATE image_job SET gallery_reason=NULL WHERE id=${id}`);
-					return true;
+					return "saved";
 				} catch (error) {
 					await rm(path, { force: true });
 					throw error;
@@ -225,15 +241,10 @@ export function galleryStorage({ directory, use }: Installation) {
 			token: string,
 			info: { duration: number; width: number; height: number; size: number; digest: string },
 		) {
-			return locked(async (tx) => {
-				if (
-					!(await tx.get(
-						sql`SELECT 1 FROM video_save WHERE token=${token} AND job_id=${id} AND cancelled=0`,
-					))
-				)
-					return false;
+			return locked(async (tx): Promise<Publication> => {
+				if (!(await fence(tx, id, token))) return "fenced";
 				const existing = await existingPublication(tx, await tx.get<Row>(rowQuery(id)));
-				if (existing !== undefined) return existing;
+				if (existing !== undefined) return existing ? "saved" : "fenced";
 				const path = pathFor(id);
 				await rename(scratch, path);
 				try {
@@ -242,7 +253,7 @@ export function galleryStorage({ directory, use }: Installation) {
 					await tx.run(sql`INSERT OR REPLACE INTO gallery_image
 						(job_id,state,mime,width,height,size,digest,saved_at,duration,file_identity)
 						VALUES (${id},'saved','video/mp4',${info.width},${info.height},${info.size},${info.digest},${Date.now()},${info.duration},${signature})`);
-					return true;
+					return "saved";
 				} catch (error) {
 					await rm(path, { force: true });
 					throw error;
@@ -282,8 +293,10 @@ export function galleryStorage({ directory, use }: Installation) {
 		},
 		async remove(id: string) {
 			// Commit deletion intent before unlink. Recovery completes either remaining step.
+			// The hold keeps automatic Save from restoring the item; it fences any active attempt.
 			await locked(async (tx) => {
-				await tx.run(sql`UPDATE video_save SET cancelled=1 WHERE job_id=${id}`);
+				await tx.run(sql`UPDATE image_job SET save_hold='removed', save_due=NULL, save_attempt=NULL
+					WHERE id=${id}`);
 				await tx.run(sql`UPDATE gallery_image SET state='deleting' WHERE job_id=${id}`);
 			});
 			return locked(async (tx) => {

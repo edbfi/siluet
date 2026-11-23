@@ -42,7 +42,7 @@ type Outcome =
 	| "crash-after-acceptance"
 	| "mixed-batch"
 	| "completed"
-	| "download-fails-once"
+	| "link-missing-once"
 	| "rejected"
 	| "failed"
 	| "timeout";
@@ -55,7 +55,7 @@ export function referenceEditFixtures(
 	const submissions: unknown[] = [];
 	const statusPaths: string[] = [];
 	const result = `https://${referenceHost}/result/reference-edit.png?sig=${editedImageSignature}`;
-	let downloads = 0;
+	let completions = 0;
 	// Provider response fields follow the Seedream submit, status and error contracts.
 	const fixture = startProviderFixtures(async (request, path) => {
 		if (path === `/${provider}/submit` && request.method === "POST") {
@@ -104,6 +104,8 @@ export function referenceEditFixtures(
 					},
 				});
 			}
+			// The first completion of a link-missing fixture carries no usable result link.
+			const files = ++completions === 1 && outcome === "link-missing-once" ? [] : [{ url: result }];
 			return provider === "poyo"
 				? Response.json({
 						code: 200,
@@ -111,18 +113,17 @@ export function referenceEditFixtures(
 							task_id: taskId,
 							status: "finished",
 							credits_amount: 8.6,
-							files: [{ file_type: "image", file_url: result }],
+							files: files.map(({ url }) => ({ file_type: "image", file_url: url })),
 						},
 					})
 				: Response.json({
 						id: taskId,
 						status: "completed",
 						billing: { status: "settled", credits: "5.6", cost_usd: "0.028" },
-						result: { type: "image", data: [{ url: result }] },
+						result: { type: "image", data: files },
 					});
 		}
 		if (path === editedImagePath) {
-			downloads++;
 			const signature = new URL(request.url).searchParams.get("sig");
 			if (
 				signature !== editedImageSignature ||
@@ -130,8 +131,6 @@ export function referenceEditFixtures(
 				request.headers.has("cookie")
 			)
 				return new Response(null, { status: 403 });
-			if (downloads === 1 && (outcome === "download-fails-once" || outcome === "mixed-batch"))
-				return new Response(`${providerEchoMarker} ${secondSignedReference}`, { status: 502 });
 			return new Response(editedPng, { headers: { "content-type": "image/png" } });
 		}
 		return null;

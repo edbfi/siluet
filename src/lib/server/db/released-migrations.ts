@@ -36,6 +36,10 @@ const released = [
 		"b9c450a8ed6a1bd565f47b6ad2846ae237849b0df001d123a95d49e65d0db9fd",
 		"20261122122000_owner_authenticator",
 	],
+	[
+		"25b5c74e03f5e5062837df2543de05a0a8d5f31c6f79628f7376c792c833ff9f",
+		"20261123120000_automatic_save",
+	],
 ] as const;
 
 /** Released migration name → SQL digest. */

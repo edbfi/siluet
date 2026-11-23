@@ -1,6 +1,7 @@
 import {
 	hasCorrelation,
 	type ImageJob,
+	isReadPaused,
 	isVideoJob,
 	type StatusNote,
 } from "../../db/image-job-store";
@@ -8,7 +9,7 @@ import { retryTime } from "../../db/provider-gate";
 import type { TaskBilling, TaskFailureReason, TaskObservation } from "../../providers/image-job";
 import { retryDelay } from "../queue/submit-gate";
 import { mergeBilling } from "./settlement";
-import { isActive, isReadPaused, storedBilling } from "./summary";
+import { isActive, storedBilling } from "./summary";
 
 function automaticRetryState(
 	job: ImageJob,

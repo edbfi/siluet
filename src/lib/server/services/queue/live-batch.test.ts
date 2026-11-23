@@ -947,7 +947,9 @@ test.each([
 			boundary === "send" ? [null, null, "retry-evidence"] : [null, null],
 		);
 		expect(batch.requests[0].outcome).toBe(observation === "completed" ? "successful" : "failed");
-		expect(batch.requests[0].attempts[0].canSave).toBe(observation === "completed");
+		expect(batch.requests[0].attempts[0].library).toBe(
+			observation === "completed" ? "waiting" : "none",
+		);
 		expect(batch.requests[0].attempts[0].billing?.status).toBe("conflicting");
 		expect(batch.counts.successful).toBe(observation === "completed" ? 1 : 0);
 		expect(batch.settlement?.complete).toBe(false);

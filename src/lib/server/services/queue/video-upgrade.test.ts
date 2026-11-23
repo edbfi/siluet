@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
+import { createInstallation37 } from "../../../../../tests/fixtures/db/installation-37";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { h3MaxOperation, seedanceOperation } from "../../../shared/media-catalog/registry";
 import { parseVideo } from "../../../shared/video-studio/request";
@@ -14,7 +15,7 @@ import { reviewSigner } from "./review-signature";
 import { createVideoQueue, type VideoTarget } from "./video";
 
 // The exact inputs a released Seedance Review signs since #55 (no verifier identity), kept as
-// literals. The migration list is unchanged since #37.
+// literals. The #37 migrations stay a prefix; later ones (automatic Save) only append.
 const released = {
 	migrations: [
 		"20261121000000_owner_access",
@@ -57,6 +58,8 @@ const now = Date.parse("2026-11-22T00:00:00Z");
 
 beforeEach(async () => {
 	directory = await createOwnerDirectory();
+	// Released Review tokens replay on a #37 installation after this build upgrades it.
+	await createInstallation37(directory);
 	db = await openInstallation(directory);
 });
 afterEach(async () => {
@@ -77,7 +80,9 @@ function seedance() {
 }
 
 test("a released Seedance Review token keeps its HMAC bytes and replays without a second POST", async () => {
-	expect(Object.keys(installationMigrations)).toEqual(released.migrations);
+	expect(Object.keys(installationMigrations).slice(0, released.migrations.length)).toEqual(
+		released.migrations,
+	);
 	const store = providerStore(db);
 	await store.save("toapis", "video-only", now, false, 0);
 	await store.save("poyo", "balance-only", now, false, 0);
@@ -150,7 +155,9 @@ test("a released Seedance Review token keeps its HMAC bytes and replays without 
 	expect(dispatched).toHaveLength(1);
 	const tracking = createJobTracking(db, store, { now: () => now });
 	try {
-		expect(await tracking.isVideo(claimed)).toBe(true);
+		expect((await tracking.list()).find((job) => job.id === claimed)).toMatchObject({
+			video: true,
+		});
 	} finally {
 		tracking.close();
 	}

@@ -29,7 +29,10 @@ const h3: ImageJob = {
 	failure_reason: null,
 	billing: null,
 	expires_at: null,
-	gallery_reason: null,
+	save_due: null,
+	save_hold: null,
+	save_attempt: null,
+	save_tries: 0,
 	batch_id: null,
 	transient_failure: null,
 	slot: null,
@@ -104,23 +107,89 @@ test("a throttled video job reports its cooldown and stays uncertain", () => {
 	expect(summarizeJob(throttled, true, now + 60_000).submitAfter).toBeNull();
 });
 
-test("every video job uses the video window, Save gate and expiry wording", () => {
+test("every video job uses the video window, retry gate and expiry wording", () => {
 	expect(summarizeJob({ ...h3, state: "running" }, true, 300_000)).toMatchObject({
 		tracking: "automatic",
 		pollDeadline: 600_005,
 	});
 	expect(summarizeJob({ ...h3, state: "running" }, true, 600_005).tracking).toBe("manual");
-	expect(summarizeJob(h3, true, now)).toMatchObject({ canSave: true, video: true });
-	expect(summarizeJob({ ...h3, pause_reason: "authorization" }, true, now).canSave).toBe(false);
-	const expired = { ...h3, expires_at: now - 1 };
+	const failed = { ...h3, save_hold: "failed" } as const;
+	expect(summarizeJob(failed, true, now)).toMatchObject({ retryable: true, video: true });
+	expect(summarizeJob({ ...failed, pause_reason: "authorization" }, true, now).retryable).toBe(
+		false,
+	);
+	const expired = { ...failed, expires_at: now - 1 };
 	expect(summarizeJob(expired, true, now)).toMatchObject({
-		canSave: false,
+		retryable: false,
 		message: "The provider's last reported video expiry has passed.",
 	});
 	expect(summarizeJob({ ...h3, pause_reason: "result-unavailable" }, true, now).message).toBe(
-		"No usable video result was available. Check provider history or retry Save.",
+		"No usable video result was available. Check provider history or Retry download.",
 	);
 	expect(summarizeJob({ ...h3, model: "seedream-5.5", video_terms: null }, true, now).video).toBe(
 		false,
 	);
+});
+
+test("library shows one Save state in precedence order with a separate retry flag", () => {
+	const pending = { ...h3, save_due: now };
+	type Case = [string, Partial<ImageJob>, Gallery, boolean, string, boolean];
+	type Gallery = "saved" | "unavailable" | null;
+	const cases: Case[] = [
+		["saved beats a stale hold", { save_hold: "failed" }, "saved", true, "saved", false],
+		["unavailable", {}, "unavailable", true, "unavailable", true],
+		["unavailable after expiry", { expires_at: now }, "unavailable", true, "unavailable", false],
+		["removed", { save_hold: "removed" }, null, true, "removed", true],
+		["unsupported", { save_hold: "unsupported" }, null, true, "unsupported", false],
+		["webm", { save_hold: "webm" }, null, true, "webm", false],
+		["failed", { save_hold: "failed" }, null, true, "failed", true],
+		["failed without the key", { save_hold: "failed" }, null, false, "failed", false],
+		[
+			"failed while paused",
+			{ save_hold: "failed", pause_reason: "missing-task" },
+			null,
+			true,
+			"failed",
+			false,
+		],
+		[
+			"failed while saving",
+			{ save_hold: "failed", save_attempt: "a" },
+			null,
+			true,
+			"failed",
+			false,
+		],
+		["expired", { ...pending, expires_at: now }, null, false, "expired", false],
+		["needs key", pending, null, false, "needs-key", false],
+		["paused", { ...pending, pause_reason: "unknown-status" }, null, true, "paused", false],
+		["saving", { ...pending, save_attempt: "a" }, null, true, "saving", false],
+		["waiting", pending, null, true, "waiting", false],
+		[
+			"waiting after a link-less read",
+			{ ...pending, pause_reason: "result-unavailable" },
+			null,
+			true,
+			"waiting",
+			false,
+		],
+		["none after expiry was cleared", {}, null, true, "none", false],
+		["none before completion", { state: "running" }, null, true, "none", false],
+	];
+	for (const [name, change, gallery, readable, library, retryable] of cases) {
+		expect(summarizeJob({ ...h3, ...change }, readable, now, gallery), name).toMatchObject({
+			library,
+			retryable,
+		});
+		// Batch attempts use the same projection.
+		expect(
+			summarizeJob(
+				{ ...h3, ...change, batch_id: "batch", slot: 1, attempt: 1 },
+				readable,
+				now,
+				gallery,
+			),
+			name,
+		).toMatchObject({ library, retryable });
+	}
 });

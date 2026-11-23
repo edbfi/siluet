@@ -42,7 +42,7 @@ let { data }: PageProps = $props();
 			{/each}
 		</ul>
 	{:else}
-		<p>No saved media yet. Open a completed job and choose <strong>Save to Gallery</strong>.</p>
+		<p>No saved media yet. Completed jobs appear here automatically.</p>
 		<a class={link} href="/jobs">Open Jobs</a>
 	{/if}
 </section>

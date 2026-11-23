@@ -174,10 +174,9 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			expect(posts).toBe(1);
 			await expect(page).toHaveURL(`${origin}/jobs#job-${jobId}`);
 			await expect(page.getByText("Completed", { exact: true })).toBeVisible({ timeout: 25000 });
-			const save = page.getByRole("button", { name: "Save to Gallery" });
-			await expect(save).toBeEnabled({ timeout: 20000 });
-			await save.press("Enter");
-			await page.getByRole("link", { name: "Open saved video" }).click();
+			// Siluet saves the clip without a click.
+			await expect(page.getByRole("button", { name: "Save to Gallery" })).toHaveCount(0);
+			await page.getByRole("link", { name: "Open saved video" }).click({ timeout: 20000 });
 			const path = `/gallery/${jobId}`;
 			const media = `${origin + path}/media`;
 			const before = fixture.requests.length;
@@ -287,10 +286,7 @@ test("Gallery says when this browser cannot play a saved clip and keeps Download
 		).json();
 		await page.goto(`${origin}/jobs#job-${jobId}`);
 		await expect(page.getByText("Completed", { exact: true })).toBeVisible({ timeout: 25000 });
-		const save = page.getByRole("button", { name: "Save to Gallery" });
-		await expect(save).toBeEnabled({ timeout: 20000 });
-		await save.click();
-		await page.getByRole("link", { name: "Open saved video" }).click();
+		await page.getByRole("link", { name: "Open saved video" }).click({ timeout: 20000 });
 		const note = page.getByRole("status").filter({
 			hasText: "This browser can't play this video. Download it to open it in another player.",
 		});

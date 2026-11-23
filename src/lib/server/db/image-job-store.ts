@@ -28,6 +28,14 @@ export type StatusNote =
 	| "result-unavailable"
 	| "unsupported-video-result";
 
+export type SaveHold = "removed" | "unsupported" | "webm" | "failed";
+
+/** A note that stops status reads until Refresh. A temporary or link-less read does not. */
+export function isReadPaused(note: StatusNote | null) {
+	return note !== null && note !== "temporary" && note !== "result-unavailable";
+}
+const unpausedSql = sql`(image_job.pause_reason IS NULL OR image_job.pause_reason IN ('temporary','result-unavailable'))`;
+
 export type ImageJob = {
 	batch_id: string | null;
 	transient_failure: "service_busy" | "request_rate_limited" | null;
@@ -45,7 +53,12 @@ export type ImageJob = {
 	state: JobState;
 	model: string;
 	operation: string | null;
-	gallery_reason: "unsupported-image" | null;
+	/** A pending automatic Save and the earliest time the worker may act on it (D9). */
+	save_due: number | null;
+	save_hold: SaveHold | null;
+	/** The claimed attempt's token: the fence for its outcome and its scratch name. */
+	save_attempt: string | null;
+	save_tries: number;
 	created_at: number;
 	poll_deadline: number;
 	business_id: string | null;
@@ -134,20 +147,25 @@ type StatusUpdate = {
 // A balance read has a bounded timeout. Allow time to load its pinned credential first.
 const walletFinishWindowMs = 2 * statusTimeoutMs;
 
-const currentCredential = sql`EXISTS (
+export const currentCredential = sql`EXISTS (
 		SELECT 1 FROM provider_credential c WHERE c.provider=image_job.provider
 			AND c.revision=image_job.revision AND c.ciphertext IS NOT NULL AND (${credentialPermitsImage(sql`image_job.model`)} OR ${videoJobSql})
 	)`;
 
-export const jobsNeedCredential = (provider: ProviderId) => sql`(EXISTS (
+/** No Gallery item, saved or not, belongs to this job. */
+export const noGalleryItemSql = sql`NOT EXISTS (SELECT 1 FROM gallery_image g WHERE g.job_id=image_job.id)`;
+/** A completed result the creator may retry: its link has not expired and reads are not paused. */
+export const retryableSql = (now: number) =>
+	sql`image_job.state='completed' AND (image_job.expires_at IS NULL OR image_job.expires_at>${now}) AND ${unpausedSql}`;
+
+export const jobsNeedCredential = (provider: ProviderId, now: number) => sql`(EXISTS (
 	SELECT 1 FROM image_batch b JOIN provider_credential c ON c.provider=b.provider AND c.revision=b.revision
 	WHERE b.provider=${provider} AND b.closed_reason IS NULL AND c.ciphertext IS NOT NULL
 ) OR EXISTS (
 	SELECT 1 FROM image_job WHERE provider=${provider} AND ${currentCredential}
 	AND (state IN ('submitting','waiting','running') OR (state='unknown' AND business_id IS NOT NULL) OR (
-		state='completed' AND NOT EXISTS (
-			SELECT 1 FROM gallery_image WHERE job_id=image_job.id AND state='saved'
-		)
+		state='completed' AND (expires_at IS NULL OR expires_at>${now}) AND ${noGalleryItemSql}
+		AND ((save_due IS NOT NULL AND save_hold IS NULL) OR save_hold='failed')
 	))
 ))`;
 
@@ -340,7 +358,13 @@ export function imageJobStore({ use }: Installation) {
 			return use((db) =>
 				db.transaction(
 					async (tx) => {
+						const previous = await tx.get<Pick<ImageJob, "state" | "save_due" | "pause_reason">>(
+							sql`SELECT state, save_due, pause_reason FROM image_job WHERE id=${id}`,
+						);
+						// The first transition into completed records the intent to save (D9).
 						const saved = await tx.get<ImageJob>(sql`UPDATE image_job SET state=${update.state},
+				save_due=CASE WHEN state<>'completed' AND ${update.state}='completed' AND save_hold IS NULL
+					AND ${noGalleryItemSql} THEN ${now} ELSE save_due END,
 				task_id=COALESCE(task_id,${update.recoveredTask ?? null}),
 				submission_recorded_at=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now} ELSE submission_recorded_at END,
 				poll_deadline=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now + imageJobPollingWindowMs} ELSE poll_deadline END,
@@ -359,16 +383,31 @@ export function imageJobStore({ use }: Installation) {
 							await tx.run(
 								sql`UPDATE provider_gate SET query_after=MAX(query_after,${update.queryAfter}) WHERE provider=${provider}`,
 							);
-						return saved;
+						if (!saved || !previous) return;
+						const armed =
+							previous.state !== "completed" &&
+							saved.state === "completed" &&
+							saved.save_due !== null;
+						// An earlier completion's intent is still waiting for the worker.
+						const pending =
+							!armed &&
+							previous.state === "completed" &&
+							saved.state === "completed" &&
+							saved.save_due !== null &&
+							saved.save_hold === null &&
+							!(await tx.get(sql`SELECT 1 FROM gallery_image WHERE job_id=${id}`));
+						const resumed =
+							pending && isReadPaused(previous.pause_reason) && !isReadPaused(saved.pause_reason);
+						return { job: saved, armed, pending, resumed };
 					},
 					{ behavior: "immediate" },
 				),
 			);
 		},
 
-		async needsCredential(provider: ProviderId) {
+		async needsCredential(provider: ProviderId, now: number) {
 			const row = await use((db) =>
-				db.get<{ needed: number }>(sql`SELECT ${jobsNeedCredential(provider)} AS needed`),
+				db.get<{ needed: number }>(sql`SELECT ${jobsNeedCredential(provider, now)} AS needed`),
 			);
 			return row?.needed === 1;
 		},

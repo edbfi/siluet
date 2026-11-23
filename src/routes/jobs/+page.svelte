@@ -1,4 +1,5 @@
 <script lang="ts">
+import { tick } from "svelte";
 import { reviewPriceReason } from "#lib/shared/image-studio/review-price.ts";
 import { seedreamProviderNames } from "#lib/shared/image-studio/seedream.ts";
 import { releasedModels, releasedOperations } from "#lib/shared/media-catalog/registry.ts";
@@ -8,7 +9,8 @@ import type { PageProps } from "./$types";
 import { styles } from "./jobs-styles.ts";
 
 let { data, form }: PageProps = $props();
-let pending = $state<Record<string, "refresh" | "save" | "lookup" | undefined>>({});
+type Action = "refresh" | "download" | "lookup";
+let pending = $state<Record<string, Action | undefined>>({});
 const outcomeLabels = {
 	unsent: "Not submitted",
 	pending: "Pending",
@@ -36,6 +38,37 @@ const states = {
 	completed: "Completed",
 	failed: "Job failed",
 };
+type Job = PageProps["data"]["jobs"][number];
+// What automatic Save has done with a completed result (D9).
+function libraryText(job: Job) {
+	const kind = job.video ? "video" : "image";
+	switch (job.library) {
+		case "waiting":
+			return "Waiting to download";
+		case "saving":
+			return "Saving to Gallery";
+		case "saved":
+			return "Saved";
+		case "failed":
+			return "Download failed";
+		case "removed":
+			return "Removed from Gallery";
+		case "unavailable":
+			return "File missing from Gallery";
+		case "unsupported":
+			return `Not saved · this ${kind} is outside the Gallery profile`;
+		case "webm":
+			return "Not saved · WebM or Matroska. Gallery keeps MP4 files only.";
+		case "expired":
+			return "Not saved · the provider link has expired";
+		case "needs-key":
+			return "Download waits for the original API key";
+		case "paused":
+			return "Download paused until status is refreshed";
+		default:
+			return "";
+	}
+}
 const walletReasons = {
 	missing: "A balance reading is missing.",
 	overlap: "Other jobs may have overlapped this attempt.",
@@ -59,7 +92,14 @@ $effect(() => {
 	);
 	let delay = data.batches.some((batch) => !batch.reason) ? 2000 : Infinity;
 	for (const job of [...jobs, ...attempts]) {
-		if (job.tracking === "automatic" || job.state === "submitting") delay = Math.min(delay, 2000);
+		// Automatic Save has no read schedule of its own here; check its local progress.
+		if (
+			job.tracking === "automatic" ||
+			job.state === "submitting" ||
+			job.library === "waiting" ||
+			job.library === "saving"
+		)
+			delay = Math.min(delay, 2000);
 		else if (job.nextReadAt && job.nextReadAt > now)
 			delay = Math.min(delay, job.nextReadAt - now + 50);
 		// Reload when a cooldown ends so its line disappears.
@@ -74,7 +114,7 @@ $effect(() => {
 	return () => window.clearTimeout(timer);
 });
 
-function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFunction {
+function submit(id: string, action: Action): SubmitFunction {
 	return ({ cancel }) => {
 		if (pending[id]) {
 			cancel();
@@ -87,6 +127,11 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 			} finally {
 				delete pending[id];
 			}
+			// The download button is gone once the job is armed; keep keyboard focus on its status.
+			if (action === "download") {
+				await tick();
+				document.getElementById(`job-${id}-library`)?.focus();
+			}
 		};
 	};
 }
@@ -98,11 +143,7 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 	<time datetime={new Date(time).toISOString()}>{clock.format(time)} UTC</time>
 {/snippet}
 
-{#snippet jobRow(
-	job: Omit<PageProps["data"]["jobs"][number], "hasRecoveredResult"> & {
-		hasRecoveredResult?: boolean;
-	},
-)}
+{#snippet jobRow(job: Job)}
 	{#if job}
 		{@const entry = releasedOperations.find(
 			(entry) =>
@@ -111,7 +152,8 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 				(!job.operation || entry.key.operation === job.operation),
 		)}
 		{@const provider = seedreamProviderNames[job.provider]}
-		{@const saved = data.saved.includes(job.id)}
+		{@const saved = job.library === "saved"}
+		{@const unsaved = ["waiting", "saving", "failed", "needs-key", "paused"].includes(job.library)}
 		{@const cooldown = job.nextReadAt && job.nextReadAt > data.now ? job.nextReadAt : null}
 		<article class={styles.job} aria-labelledby={`job-${job.id}-title`} id={`job-${job.id}`}>
 			<header>
@@ -126,11 +168,7 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 							: `${releasedModels.find((model) => model.id === entry?.modelId)?.label ?? job.model} · ${provider}`}
 					</svelte:element>
 					<span class={styles.state} data-state={job.state} aria-live="polite"
-						>{job.galleryReason === "unsupported-image"
-							? "Completed · unsupported image for Gallery"
-							: job.throttled && job.batchId
-								? "Not admitted · throttled"
-								: states[job.state]}</span
+						>{job.throttled && job.batchId ? "Not admitted · throttled" : states[job.state]}</span
 					>
 				</div>
 				<p class={styles.meta}>
@@ -215,15 +253,26 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 					</div>
 				{/if}
 			</dl>
-			{#if !saved && job.state === "completed"}
+			{#if job.library !== "none"}
+				<p
+					class={styles.library}
+					id={`job-${job.id}-library`}
+					tabindex="-1"
+					data-library={job.library}
+					aria-live="polite"
+				>
+					{libraryText(job)}
+				</p>
+			{/if}
+			{#if unsaved}
 				<p class={styles.note}>
 					{#if job.expiresAt}
 						Provider result expires {@render date(job.expiresAt)}.
 					{:else if job.video && job.provider === "poyo"}
 						Poyo.ai keeps video content for three days after creation, and a file link can expire
-						after 24 hours. Save it promptly.
+						after 24 hours. Siluet downloads it as soon as the job completes.
 					{:else}
-						Expiry unknown. The provider keeps this result for a limited time. Save it promptly.
+						Expiry unknown. The provider keeps this result for a limited time.
 					{/if}
 				</p>
 			{/if}
@@ -234,7 +283,7 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 				<p class={styles.meta}>Next status check available {@render date(cooldown)}.</p>
 			{/if}
 			{#if saved ||
-				job.canSave ||
+				job.retryable ||
 				job.canRefresh ||
 				job.state === "unknown" ||
 				(job.video && job.state === "unsent")}
@@ -243,15 +292,11 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 						<a class={styles.link} href={`/gallery/${encodeURIComponent(job.id)}`}
 							>Open saved {job.video ? "video" : "image"}</a
 						>
-					{:else if job.canSave}
-						<form method="POST" action="?/save" use:enhance={submit(job.id, "save")}>
+					{:else if job.retryable}
+						<form method="POST" action="?/download" use:enhance={submit(job.id, "download")}>
 							<input type="hidden" name="id" value={job.id}>
-							<button
-								class={styles.button}
-								disabled={!!pending[job.id] || (!job.hasRecoveredResult && cooldown !== null)}
-								type="submit"
-							>
-								{pending[job.id] === "save" ? "Saving…" : "Save to Gallery"}
+							<button class={styles.button} disabled={!!pending[job.id]} type="submit">
+								{job.library === "failed" ? "Retry download" : "Download again"}
 							</button>
 						</form>
 					{/if}
@@ -297,7 +342,9 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 
 <div class={styles.page}>
 	<h1>Jobs</h1>
-	<p class={styles.intro}>Track image and video requests and save completed results to Gallery.</p>
+	<p class={styles.intro}>
+		Track image and video requests. Siluet saves completed results to Gallery automatically.
+	</p>
 	<div class={styles.list}>
 		{#each data.batches as batch (batch.id)}
 			<section class={styles.job} id={`job-${batch.id}`} aria-label="Image batch">

@@ -1,76 +1,166 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmod, copyFile, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	copyFile,
+	mkdir,
+	open,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
-import { referenceGif, referencePng } from "../../../../../tests/fixtures/reference-image";
+import { referencePng } from "../../../../../tests/fixtures/reference-image";
+import { h264Aac } from "../../../../../tests/fixtures/video/mp4-boxes";
+import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
+import { saveIntentStore } from "../../db/save-intent";
+import { verifyVideoFile } from "../video-media/verify-video";
 import { createGallery } from "./gallery";
+import { galleryStorage } from "./storage";
+import { verifyImage } from "./verify-image";
 
 let directory: string;
 let installation: RuntimeInstallation;
 let gallery: ReturnType<typeof createGallery>;
 const jobId = "16759492-59c3-41fe-8334-46e01dd75ffe";
-let statusReads: number;
-let downloads: number;
-let remote = referencePng;
 const galleryFiles = async () =>
 	(await readdir(directory)).filter((name) => name.startsWith("gallery-"));
+const digest = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
 
 beforeEach(async () => {
 	directory = await createOwnerDirectory();
 	installation = await openRuntimeInstallation(directory);
-	statusReads = 0;
-	downloads = 0;
-	remote = referencePng;
-	gallery = createGallery(
-		installation,
-		async () => {
-			statusReads++;
-			return "https://cdn.example/private-signed-url";
-		},
-		async () => {
-			downloads++;
-			return remote;
-		},
-	);
+	await providerStore(installation).save("poyo", "fixture-key", Date.now(), true, 0);
+	gallery = createGallery(installation);
 });
 afterEach(async () => {
 	await installation?.close();
 	await rm(directory, { recursive: true, force: true });
 });
 
-test("concurrent saves publish one original image, then restart and removal stay offline", async () => {
-	expect(await Promise.all([gallery.save(jobId), gallery.save(jobId)])).toEqual([true, true]);
-	expect(await gallery.save(jobId)).toBe(true);
-	expect(statusReads).toBe(1);
-	expect(downloads).toBe(1);
+/** A completed job whose save intent this test claims, as the worker would. */
+async function claim(id = jobId, model = "seedream-5.5") {
+	await installation.use((db) =>
+		db.run(sql`INSERT OR IGNORE INTO image_job
+			(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,video_terms)
+			VALUES (${id},${id},'poyo',1,'{}','completed',${model},0,120000,${model === "h3-max" ? "[]" : null})`),
+	);
+	await installation.use((db) =>
+		db.run(
+			sql`UPDATE image_job SET save_due=COALESCE(save_due,0) WHERE id=${id} AND save_hold IS NULL`,
+		),
+	);
+	const token = crypto.randomUUID();
+	return (await saveIntentStore(installation).claim(id, token, Date.now())) ? token : null;
+}
+const intent = (id = jobId) =>
+	installation.use((db) =>
+		db.get(sql`SELECT save_due, save_hold, save_attempt, save_tries FROM image_job WHERE id=${id}`),
+	);
+async function publishImage(token: string | null, id = jobId) {
+	return galleryStorage(installation).publish(
+		id,
+		token ?? "",
+		referencePng,
+		await verifyImage(referencePng),
+	);
+}
+async function publishVideo(token: string | null, id = jobId) {
+	const storage = galleryStorage(installation);
+	const path = storage.scratchPath(token ?? crypto.randomUUID());
+	const bytes = h264Aac();
+	await writeFile(path, bytes, { mode: 0o600 });
+	try {
+		return await storage.publishVideo(id, path, token ?? "", {
+			...(await verifyVideoFile(path)),
+			size: bytes.length,
+			digest: digest(bytes),
+		});
+	} finally {
+		await rm(path, { force: true });
+	}
+}
+
+test("a claimed save publishes one original image, then restart and removal stay offline", async () => {
+	const token = await claim();
+	const [first, second] = await Promise.all([publishImage(token), publishImage(token)]);
+	expect([first, second].sort()).toEqual(["fenced", "saved"]);
+	expect(await intent()).toEqual({
+		save_due: null,
+		save_hold: null,
+		save_attempt: null,
+		save_tries: 0,
+	});
 	expect((await gallery.list()).map((entry) => entry.jobId)).toEqual([jobId]);
 	expect(await galleryFiles()).toHaveLength(1);
 	await installation.close();
 	installation = await openRuntimeInstallation(directory);
-	const offline = createGallery(installation, async () => {
-		throw new Error("offline");
-	});
+	const offline = createGallery(installation);
 	await offline.recover();
 	expect((await offline.read(jobId))?.bytes).toEqual(referencePng);
 	expect(await offline.remove(jobId)).toBe(true);
+	expect(await intent()).toMatchObject({ save_hold: "removed", save_due: null });
 	await offline.recover();
 	expect(await offline.list()).toEqual([]);
 	expect(await galleryFiles()).toEqual([]);
 });
 
-test("failed image verification leaves the job eligible for another save", async () => {
-	remote = Buffer.from("expired or incomplete");
-	expect(await gallery.save(jobId)).toBe(false);
+test("an existing publication still clears the intent", async () => {
+	expect(await publishImage(await claim())).toBe("saved");
+	await installation.use((db) => db.run(sql`DELETE FROM gallery_image WHERE job_id=${jobId}`));
+	const token = await claim();
+	await installation.use((db) =>
+		db.run(sql`INSERT INTO gallery_image (job_id,state,mime,width,height,size,digest,saved_at)
+			VALUES (${jobId},'saved','image/png',1,1,${referencePng.length},${digest(referencePng)},1)`),
+	);
+	expect(await publishImage(token)).toBe("saved");
+	expect(await intent()).toEqual({
+		save_due: null,
+		save_hold: null,
+		save_attempt: null,
+		save_tries: 0,
+	});
+});
+
+test("Remove fences an image or video attempt, and Download again saves under a new claim", async () => {
+	for (const [id, model, publish] of [
+		["image", "seedream-5.5", publishImage],
+		["video", "h3-max", publishVideo],
+	] as const) {
+		const old = await claim(id, model);
+		await gallery.remove(id);
+		expect(await publish(old, id), id).toBe("fenced");
+		expect(await gallery.get(id)).toBeNull();
+		expect(await intent(id)).toEqual({
+			save_due: null,
+			save_hold: "removed",
+			save_attempt: null,
+			save_tries: 0,
+		});
+		expect(await saveIntentStore(installation).retry(id, Date.now())).toBe(true);
+		const fresh = await claim(id, model);
+		expect(await publish(old, id), id).toBe("fenced");
+		expect(await publish(fresh, id), id).toBe("saved");
+		expect((await gallery.get(id))?.available).toBe(true);
+	}
+	expect((await readdir(directory)).filter((name) => name.endsWith(".part"))).toEqual([]);
+});
+
+test("a key replaced before publication fences the attempt", async () => {
+	const token = await claim();
+	await providerStore(installation).save("poyo", "replacement", Date.now(), true, 1);
+	expect(await publishImage(token)).toBe("fenced");
 	expect(await gallery.list()).toEqual([]);
-	expect(await galleryFiles()).toEqual([]);
-	remote = referencePng;
-	expect(await gallery.save(jobId)).toBe(true);
+	expect(await intent()).toMatchObject({ save_attempt: token, save_due: 0 });
 });
 
 test("a failed directory sync publishes no Gallery row", async () => {
+	const token = await claim();
 	const probe = await open(directory, "r");
 	const proto = Object.getPrototypeOf(probe);
 	await probe.close();
@@ -81,40 +171,53 @@ test("a failed directory sync publishes no Gallery row", async () => {
 		return syncFile.apply(this);
 	});
 	try {
-		expect(await gallery.save(jobId)).toBe(false);
+		await expect(publishImage(token)).rejects.toThrow("Fixture directory sync failed");
 	} finally {
 		sync.mockRestore();
 	}
 	expect(await gallery.list()).toEqual([]);
+	expect(await galleryFiles()).toEqual([]);
 	expect(await installation.use((db) => db.all(sql`SELECT job_id FROM gallery_image`))).toEqual([]);
+	expect(await intent()).toMatchObject({ save_attempt: token, save_due: 0 });
 });
 
-test("recovery discards unindexed writes and finishes interrupted deletion", async () => {
-	await gallery.save(jobId);
+test("recovery discards unindexed writes and video scratch and finishes interrupted deletion", async () => {
+	await publishImage(await claim());
 	const orphan = join(directory, `gallery-${"a".repeat(64)}`);
 	await writeFile(orphan, "partial");
+	const leftover = `video-${crypto.randomUUID()}.part`;
+	const stuck = `video-${crypto.randomUUID()}.part`;
+	await writeFile(join(directory, leftover), "incomplete");
+	await mkdir(join(directory, stuck, "child"), { recursive: true });
 	await installation.use((db) =>
 		db.run(sql`UPDATE gallery_image SET state='deleting' WHERE job_id=${jobId}`),
 	);
-	await gallery.recover();
+	const logged = spyOn(console, "error").mockImplementation(() => {});
+	try {
+		await gallery.recover();
+		expect(logged.mock.calls).toEqual([[`Unable to remove leftover video scratch ${stuck}.`]]);
+	} finally {
+		logged.mockRestore();
+	}
 	expect(await gallery.list()).toEqual([]);
 	expect(await galleryFiles()).toEqual([]);
-	expect(statusReads).toBe(1);
+	expect((await readdir(directory)).filter((name) => name.endsWith(".part"))).toEqual([stuck]);
 });
 
-test("missing saved files show as unavailable and can be saved again", async () => {
-	await gallery.save(jobId);
+test("missing saved files show as unavailable and save again only through Download again", async () => {
+	await publishImage(await claim());
 	const [filename] = await galleryFiles();
 	await rm(join(directory, filename));
 	expect(await gallery.list()).toMatchObject([{ jobId, available: false }]);
 	expect(await gallery.read(jobId)).toBeNull();
-	expect(await gallery.save(jobId)).toBe(true);
+	expect(await claim()).toBeNull();
+	expect(await saveIntentStore(installation).retry(jobId, Date.now())).toBe(true);
+	expect(await publishImage(await claim())).toBe("saved");
 	expect(await gallery.list()).toMatchObject([{ jobId, available: true }]);
-	expect(statusReads).toBe(2);
 });
 
 test("startup cleans a partial replacement of an unavailable file and preserves the entry", async () => {
-	await gallery.save(jobId);
+	await publishImage(await claim());
 	const [name] = await galleryFiles();
 	await rm(join(directory, name));
 	await gallery.list();
@@ -124,43 +227,7 @@ test("startup cleans a partial replacement of an unavailable file and preserves 
 	expect(await gallery.list()).toMatchObject([{ jobId, available: false }]);
 });
 
-test("a complete unsupported result survives restart until publication succeeds", async () => {
-	await installation.use((db) =>
-		db.run(sql`INSERT INTO image_job
-		(id,binding,provider,revision,quote,state,model,created_at,poll_deadline)
-		VALUES (${jobId},'binding','poyo',1,'{}','completed','z-image',0,120000)`),
-	);
-	const reason = () =>
-		installation.use((db) =>
-			db.get(sql`SELECT gallery_reason, state FROM image_job WHERE id=${jobId}`),
-		);
-	remote = referencePng.subarray(0, -12);
-	expect(await gallery.save(jobId)).toBe(false);
-	expect(await reason()).toEqual({ gallery_reason: null, state: "completed" });
-	expect(await gallery.list()).toEqual([]);
-	remote = referenceGif;
-	await installation.use((db) =>
-		db.run(sql`CREATE TRIGGER refuse_reason BEFORE UPDATE OF gallery_reason ON image_job
-			BEGIN SELECT RAISE(ABORT, 'fixture write refusal'); END`),
-	);
-	expect(await gallery.save(jobId)).toBe(false);
-	expect(await reason()).toEqual({ gallery_reason: null, state: "completed" });
-	await installation.use((db) => db.run(sql`DROP TRIGGER refuse_reason`));
-	expect(await gallery.save(jobId)).toBe(false);
-	await installation.close();
-	installation = await openRuntimeInstallation(directory);
-	expect(await reason()).toEqual({ gallery_reason: "unsupported-image", state: "completed" });
-	const reopened = createGallery(
-		installation,
-		async (id) => (id === jobId ? "fixture" : null),
-		async () => referencePng,
-	);
-	expect(await reopened.save(jobId)).toBe(true);
-	expect(await reason()).toEqual({ gallery_reason: null, state: "completed" });
-});
-
 test("video identity reconciliation leaves the installation connection available", async () => {
-	const digest = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
 	const bytes = await readFile(
 		join(import.meta.dir, "../../../../../tests/fixtures/video/silent.mp4"),
 	);
