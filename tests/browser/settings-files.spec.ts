@@ -147,6 +147,42 @@ test("a change in this tab re-prepares the attached file, and a stale tab shows 
 	});
 });
 
+test("a failed save puts the switch and its description back to the stored value", async ({
+	page,
+}) => {
+	await withStudio(async (studio) => {
+		const { origin } = studio;
+		await claim(page, studio);
+		await page.goto(new URL("/settings/files", origin).href);
+		const effect = page.getByText(/Siluet sends only a cleaned private copy/);
+		let failure: "network" | "unavailable" = "network";
+		await page.route("**/settings/files", async (route) => {
+			if (route.request().method() !== "POST") return route.fallback();
+			if (failure === "network") return route.abort();
+			// The action's own answer when storage cannot save.
+			return route.fulfill({
+				status: 503,
+				contentType: "application/json",
+				body: JSON.stringify({
+					type: "failure",
+					status: 503,
+					data: JSON.stringify([{ message: 1 }, "Siluet could not save this setting. Try again."]),
+				}),
+			});
+		});
+		for (const kind of ["network", "unavailable"] as const) {
+			failure = kind;
+			await cleaningSwitch(page).click();
+			await expect(page.getByRole("status")).toHaveText(
+				"Siluet could not save this setting. Try again.",
+			);
+			await expect(cleaningSwitch(page)).toBeChecked();
+			await expect(effect).toBeVisible();
+		}
+		expect(await stored(page, origin.href)).toEqual({ enabled: true, revision: 0 });
+	});
+});
+
 async function secondTab(browser: Browser, page: Page, origin: string) {
 	const context = await browser.newContext({ storageState: await page.context().storageState() });
 	const other = await context.newPage();

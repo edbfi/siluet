@@ -67,16 +67,17 @@ const action = css({ justifySelf: "start", minHeight: "44px", paddingInline: "1r
 				return async ({ result }) => {
 					pending = false;
 					if (result.type === "redirect") return applyAction(result);
-					if ((result.type === "success" || result.type === "failure") && result.data) {
-						const saved = result.data as { enabled?: boolean; revision?: number; message?: string };
-						if (typeof saved.revision === "number") {
-							stored = { enabled: !!saved.enabled, revision: saved.revision };
-							enabled = stored.enabled;
-						}
-						status = saved.message ?? null;
-						return;
-					}
-					status = "Siluet could not save this setting. Try again.";
+					const saved = (
+						(result.type === "success" || result.type === "failure") && result.data
+							? result.data
+							: {}
+					) as { enabled?: boolean; revision?: number; message?: string };
+					if (typeof saved.revision === "number")
+						stored = { enabled: !!saved.enabled, revision: saved.revision };
+					// A save that failed outright leaves the stored value; outside the offer the
+					// switch shows it again. The offer keeps the choice until Continue.
+					if (typeof saved.revision === "number" || !data.offer) enabled = stored.enabled;
+					status = saved.message ?? "Siluet could not save this setting. Try again.";
 				};
 			}}
 		>
