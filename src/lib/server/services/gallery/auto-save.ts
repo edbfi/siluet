@@ -68,7 +68,8 @@ export function createAutoSave(
 	const shutdown = new AbortController();
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let started = false;
-	let filling = false;
+	// The running fill pass, if any; shutdown waits for it.
+	let pass: Promise<void> | undefined;
 	let again = false;
 	// The last pass left a due job waiting for a transfer slot.
 	let capped = false;
@@ -161,10 +162,11 @@ export function createAutoSave(
 	async function fill() {
 		const time = now();
 		const due = await saves.pendingSaves(time);
+		if (shutdown.signal.aborted) return;
 		const readable = due.length ? await readability() : () => false;
+		if (shutdown.signal.aborted) return;
 		capped = false;
 		for (const job of due) {
-			if (shutdown.signal.aborted) return;
 			if (active.has(job.id)) continue;
 			// Expiry needs no transfer slot.
 			if (!expired(job)) {
@@ -187,12 +189,11 @@ export function createAutoSave(
 
 	function wake() {
 		if (!started || shutdown.signal.aborted) return;
-		if (filling) {
+		if (pass) {
 			again = true;
 			return;
 		}
-		filling = true;
-		void (async () => {
+		pass = (async () => {
 			try {
 				do {
 					again = false;
@@ -201,7 +202,7 @@ export function createAutoSave(
 			} catch {
 				// Storage is closing or busy; the next event or restart resumes the intent.
 			} finally {
-				filling = false;
+				pass = undefined;
 			}
 		})();
 	}
@@ -230,16 +231,20 @@ export function createAutoSave(
 		},
 		/** Resolves once no attempt is running (tests). */
 		async idle() {
-			while (filling || active.size) {
+			while (pass || active.size) {
+				await pass;
 				await Promise.all([...active.values()].map((entry) => entry.done));
 				await Bun.sleep(1);
 			}
 		},
-		/** Stop admission, abort transfers and wait for active attempts to give their claims back. */
+		/** Stop admission, abort transfers and wait for the running pass and active attempts to end. */
 		async close() {
 			shutdown.abort(new Error("Siluet is stopping."));
 			clearTimeout(timer);
-			while (active.size) await Promise.all([...active.values()].map((entry) => entry.done));
+			while (pass || active.size) {
+				await pass;
+				await Promise.all([...active.values()].map((entry) => entry.done));
+			}
 			deliveries.clear();
 		},
 	};

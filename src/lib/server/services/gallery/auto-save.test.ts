@@ -579,6 +579,41 @@ test("shutdown during a write releases the claim without a try and the next star
 	expect(transfers).toEqual(["video"]);
 });
 
+test("shutdown during a slow pass waits for it and touches the database no more", async () => {
+	await insert("image", "completed");
+	await installation.use((db) => db.run(sql`UPDATE image_job SET save_due=0 WHERE id='image'`));
+	const use = installation.use;
+	let closed = false;
+	let late = 0;
+	installation.use = ((work) => {
+		if (closed) late++;
+		return use(work);
+	}) as typeof use;
+	const listed = Promise.withResolvers<void>();
+	const gate = Promise.withResolvers<void>();
+	const store = providerStore(installation);
+	runtime = open({
+		readability: async () => {
+			listed.resolve();
+			await gate.promise;
+			return store.jobReadability();
+		},
+	});
+	runtime.autoSave.start();
+	await listed.promise;
+	const closing = runtime.autoSave.close().then(() => {
+		closed = true;
+	});
+	await Bun.sleep(10);
+	expect(closed).toBe(false);
+	gate.resolve();
+	await closing;
+	await Bun.sleep(10);
+	expect(late).toBe(0);
+	expect(reads).toEqual([]);
+	expect(await job("image")).toMatchObject({ save_due: 0, save_attempt: null, save_tries: 0 });
+});
+
 test("Remove during a transfer keeps the hold, and Download again saves while the old attempt unwinds", async () => {
 	const holds: PromiseWithResolvers<void>[] = [];
 	const arrived: PromiseWithResolvers<void>[] = [Promise.withResolvers(), Promise.withResolvers()];
