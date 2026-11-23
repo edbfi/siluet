@@ -22,6 +22,17 @@ export async function nextProviderStart(
 	return gate?.until ?? 0;
 }
 
+export async function submitCooldown(
+	tx: Pick<InstallationTransaction, "get">,
+	provider: ProviderId,
+) {
+	const gate = await tx.get<{ submit_after: number }>(
+		sql`SELECT submit_after FROM provider_gate WHERE provider=${provider}`,
+	);
+	return gate?.submit_after ?? 0;
+}
+
+/** Record a send start and return its row, so a positively unsent POST can withdraw it. */
 export async function recordProviderStart(
 	tx: InstallationTransaction,
 	provider: ProviderId,
@@ -29,7 +40,11 @@ export async function recordProviderStart(
 	now: number,
 ) {
 	await tx.run(sql`DELETE FROM provider_start WHERE started<=${now - 10_000}`);
-	await tx.run(sql`INSERT INTO provider_start VALUES(${provider},${kind},${now})`);
+	const marked = await tx.get<{ id: number }>(
+		sql`INSERT INTO provider_start VALUES(${provider},${kind},${now}) RETURNING rowid AS id`,
+	);
+	if (!marked) throw new Error("Provider start unavailable.");
+	return marked.id;
 }
 
 export function retryTime(value: string | null, now: number) {

@@ -4,10 +4,30 @@ import type { Installation, InstallationTransaction } from "../../db/installatio
 import { nextProviderStart, recordProviderStart, retryTime } from "../../db/provider-gate";
 import type { Submission } from "../../providers/image-job";
 
-// The balance read and any uploads take place outside this critical section.
-// Serialize only generation sends and their limiter observations, across all
-// callers and credential revisions for this provider in the running studio.
+// The balance read takes place outside this critical section. Serialize generation
+// sends, file upload handoffs and their limiter observations, across all callers
+// and credential revisions for this provider in the running studio.
 const tails = new Map<string, Promise<void>>();
+
+export async function withProviderSendLock<T>(
+	installation: Installation,
+	provider: ProviderId,
+	work: () => Promise<T>,
+) {
+	const scope = installation.id + provider;
+	const previous = tails.get(scope) ?? Promise.resolve();
+	const operation = previous.then(work);
+	const tail = operation.then(
+		() => {},
+		() => {},
+	);
+	tails.set(scope, tail);
+	try {
+		return await operation;
+	} finally {
+		if (tails.get(scope) === tail) tails.delete(scope);
+	}
+}
 
 export function createSubmitGate(
 	installation: Installation,
@@ -28,9 +48,7 @@ export function createSubmitGate(
 			) => Promise<void>;
 		},
 	) {
-		const scope = installation.id + provider;
-		const previous = tails.get(scope) ?? Promise.resolve();
-		const operation = previous.then(async () => {
+		return withProviderSendLock(installation, provider, async () => {
 			const decision = await installation.use((db) =>
 				db.transaction(
 					async (tx) => {
@@ -67,10 +85,7 @@ export function createSubmitGate(
 			const finished = now();
 			let retryAt = 0;
 			if (result.kind === "throttled") {
-				retryAt = Math.max(
-					retryTime(result.retryAfter, finished),
-					finished + retryDelay(attempt, random),
-				);
+				retryAt = submitRetryAt(result.retryAfter, finished, attempt, random);
 				await installation.use((db) =>
 					db.run(
 						sql`UPDATE provider_gate SET submit_after=MAX(submit_after,${retryAt}) WHERE provider=${provider}`,
@@ -79,19 +94,18 @@ export function createSubmitGate(
 			}
 			return { result, retryAt } as const;
 		});
-		const tail = operation.then(
-			() => {},
-			() => {},
-		);
-		tails.set(scope, tail);
-		try {
-			return await operation;
-		} finally {
-			if (tails.get(scope) === tail) tails.delete(scope);
-		}
 	};
 }
 
 export function retryDelay(attempt: number, random: () => number) {
 	return 1_000 * 2 ** (attempt - 1) + Math.floor(random() * 1_000);
+}
+
+export function submitRetryAt(
+	retryAfter: string | null,
+	now: number,
+	attempt: number,
+	random: () => number,
+) {
+	return Math.max(retryTime(retryAfter, now), now + retryDelay(attempt, random));
 }
