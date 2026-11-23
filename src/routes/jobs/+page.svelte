@@ -270,7 +270,10 @@ function submit(id: string, action: Action): SubmitFunction {
 						Provider result expires {@render date(job.expiresAt)}.
 					{:else if job.video && job.provider === "poyo"}
 						Poyo.ai keeps video content for three days after creation, and a file link can expire
-						after 24 hours. Siluet downloads it as soon as the job completes.
+						after 24 hours.
+						{#if job.library === "waiting" || job.library === "saving"}
+							Siluet downloads it as soon as the job completes.
+						{/if}
 					{:else}
 						Expiry unknown. The provider keeps this result for a limited time.
 					{/if}
