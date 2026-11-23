@@ -24,6 +24,8 @@ export function createGallery(
 ) {
 	const slot = videoSaveSlot(installation);
 	const videoSaves = new Map<string, Promise<string>>();
+	// Remove cancels a Save still waiting for the slot here; the database fence covers the active one.
+	const tickets = new Map<string, { cancelled: boolean }>();
 	const storage = galleryStorage(installation);
 	const pending = new Map<string, Promise<boolean>>();
 	async function save(id: string) {
@@ -48,10 +50,13 @@ export function createGallery(
 		saveVideo(id: string, result: () => Promise<VideoDelivery | null>) {
 			const pending = videoSaves.get(id);
 			if (pending) return pending;
+			const ticket = { cancelled: false };
+			tickets.set(id, ticket);
 			const work = (async () => {
 				if ((await storage.get(id))?.available) return "Saved to Gallery.";
 				// Another video waits here until the active Save finishes.
 				return slot.hold(id, async ({ path, token }) => {
+					if (ticket.cancelled) return "The video could not be saved.";
 					if ((await storage.get(id))?.available) return "Saved to Gallery.";
 					const delivery = await result();
 					if (!delivery)
@@ -66,14 +71,21 @@ export function createGallery(
 				});
 			})()
 				.catch(() => "The video download or local write failed. Retry Save on this job.")
-				.finally(() => videoSaves.delete(id));
+				.finally(() => {
+					videoSaves.delete(id);
+					tickets.delete(id);
+				});
 			videoSaves.set(id, work);
 			return work;
 		},
 		get: storage.get,
 		list: storage.list,
 		read: storage.read,
-		remove: storage.remove,
+		remove(id: string) {
+			const ticket = tickets.get(id);
+			if (ticket) ticket.cancelled = true;
+			return storage.remove(id);
+		},
 		save(id: string) {
 			const existing = pending.get(id);
 			if (existing) return existing;
