@@ -137,3 +137,24 @@ export function setField(
 	else out.writeUInt32BE(value, at);
 	return out;
 }
+
+/**
+ * h264Aac whose avcC PPS names a missing SPS (pps_id 0, sps_id 31). The declared
+ * configuration verifies; no frame can decode, because the samples carry no
+ * in-band parameter sets.
+ */
+export function undecodableH264Aac() {
+	return rewrite(h264Aac(), "moov/trak/mdia/minf/stbl/stsd/avc1/avcC", (data) => {
+		const spsLength = data.readUInt16BE(6);
+		const ppsAt = 8 + spsLength;
+		const ppsLength = data.readUInt16BE(ppsAt + 1);
+		const pps = Buffer.from([0x68, 0x82, 0x08]);
+		const length = Buffer.from([0, pps.length]);
+		return Buffer.concat([
+			data.subarray(0, ppsAt + 1),
+			length,
+			pps,
+			data.subarray(ppsAt + 3 + ppsLength),
+		]);
+	});
+}

@@ -2,7 +2,14 @@ import { afterAll, expect, spyOn, test } from "bun:test";
 import { mkdtemp, open, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendChild, box, h264Aac, locate } from "../../../../../tests/fixtures/video/mp4-boxes";
+import {
+	appendChild,
+	box,
+	h264Aac,
+	locate,
+	payload,
+	undecodableH264Aac,
+} from "../../../../../tests/fixtures/video/mp4-boxes";
 import { TruncatedVideoError, UnsupportedVideoError } from "./errors";
 import { movieByteLimit } from "./limits";
 import { verifyVideoFile } from "./verify-video";
@@ -29,6 +36,13 @@ test("the fixture verifies from its file", async () => {
 		height: 64,
 		duration: 2,
 	});
+});
+
+test("a corrupt PPS behind a valid SPS passes the configuration checks", async () => {
+	const bytes = undecodableH264Aac();
+	const avcC = payload(bytes, "moov/trak/mdia/minf/stbl/stsd/avc1/avcC");
+	expect(avcC.includes(Buffer.from([0x68, 0x82, 0x08]))).toBe(true);
+	expect(await verifyVideoFile(await file(bytes))).toMatchObject({ width: 96, height: 64 });
 });
 
 test("an EBML file gets the WebM reason", async () => {
