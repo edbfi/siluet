@@ -93,8 +93,8 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 			}
 			if (zImage) {
 				const picker = page.getByLabel("Model", { exact: true });
-				await picker.focus();
-				await picker.press("End");
+				// A native select's End key differs by platform (macOS opens a menu), so pick directly.
+				await picker.selectOption("z-image");
 				await expect(picker).toHaveValue("z-image");
 				await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue(prompt);
 				if (edit) {
