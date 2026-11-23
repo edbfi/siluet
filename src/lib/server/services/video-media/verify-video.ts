@@ -40,8 +40,12 @@ export async function verifyVideoFile(path: string) {
 		for (let at = 0; at < size; ) {
 			check(++boxes <= topLevelBoxLimit, "too many boxes");
 			const head = await readAt(file, at, Math.min(16, size - at));
+			// Refuse a foreign type before its size, so a complete non-MP4 file is not truncated.
+			if (head.length >= 8) {
+				const type = head.toString("latin1", 4, 8);
+				check(topLevel.has(type), type === "moof" ? "fragmented MP4" : `${type} at the top level`);
+			}
 			const { type, size: length, header } = boxHeader(head, 0, size - at, truncated);
-			check(topLevel.has(type), type === "moof" ? "fragmented MP4" : `${type} at the top level`);
 			if (type === "ftyp") {
 				check(!ftyp && length <= fileTypeByteLimit, "file type box");
 				ftyp = await readAt(file, at, length);

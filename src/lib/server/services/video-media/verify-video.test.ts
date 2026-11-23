@@ -106,3 +106,13 @@ test("a 60 MiB mdat is checked from headers with at most 4 MiB buffered", async 
 	expect(Math.max(...reads)).toBeLessThanOrEqual(movieByteLimit);
 	expect(reads.reduce((a, b) => a + b, 0)).toBeLessThan(64 * 1024);
 });
+
+test("a complete non-MP4 file is unsupported, not truncated", async () => {
+	const png = Buffer.concat([
+		Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),
+		Buffer.alloc(64),
+	]);
+	const html = Buffer.from("<!DOCTYPE html><html><body>Not found</body></html>\n");
+	for (const bytes of [png, html])
+		expect(await refusal(bytes)).toBeInstanceOf(UnsupportedVideoError);
+});
