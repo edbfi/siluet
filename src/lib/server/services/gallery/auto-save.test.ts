@@ -633,6 +633,35 @@ test("a short body without Content-Length counts a try and never holds the job",
 	expect(await leftovers()).toEqual([]);
 });
 
+test("a failed write that settles an attempt looks again after a delay without another event", async () => {
+	const use = installation.use;
+	let failNext = false;
+	installation.use = ((work) => {
+		if (!failNext) return use(work);
+		failNext = false;
+		return Promise.reject(
+			Object.assign(new Error("Fixture database full"), { code: "SQLITE_FULL" }),
+		);
+	}) as typeof use;
+	let refuse = true;
+	runtime = open({
+		settleRetryDelay: 20,
+		transferImage: async (url, transport, signal) => {
+			if (!refuse) return downloadImage(url, transport, signal);
+			refuse = false;
+			failNext = true;
+			throw new Error("Fixture CDN reset");
+		},
+	});
+	await runtime.start();
+	await complete("image");
+	// Past the completing read's cooldown. Nothing else happens: no handoff, Retry or restart.
+	now += 2_000;
+	await Bun.sleep(200);
+	await settle();
+	expect((await summary("image"))?.library).toBe("saved");
+});
+
 test("a failed write that settles an attempt gives the claim back without counting a try", async () => {
 	const use = installation.use;
 	let failNext = false;

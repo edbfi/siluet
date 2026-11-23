@@ -28,6 +28,8 @@ type AutoSaveDependencies = {
 	transferVideo?: typeof downloadVideo;
 	/** Delays before the second and third try of a failed download. */
 	backoff?: readonly [number, number];
+	/** Delay before looking again after a database write that records an outcome failed. */
+	settleRetryDelay?: number;
 };
 
 // At most two image and one video transfer at a time; the rest wait.
@@ -66,6 +68,7 @@ export function createAutoSave(
 		transferImage = downloadImage,
 		transferVideo = downloadVideo,
 		backoff = [30_000, 120_000],
+		settleRetryDelay = 30_000,
 	}: AutoSaveDependencies,
 ) {
 	const saves = saveIntentStore(installation);
@@ -75,6 +78,8 @@ export function createAutoSave(
 	const active = new Map<string, { video: boolean; done: Promise<void> }>();
 	const shutdown = new AbortController();
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	// A later look after a failed outcome write; nothing else may wake the worker.
+	let recheck: ReturnType<typeof setTimeout> | undefined;
 	let started = false;
 	// The running fill pass, if any; shutdown waits for it.
 	let pass: Promise<void> | undefined;
@@ -158,9 +163,18 @@ export function createAutoSave(
 		const token = crypto.randomUUID();
 		const done = attempt(job.id, token)
 			// A failed database write gives the claim back so the intent is claimable or retryable
-			// again; startup clears it if this write fails too. It does not look again at once, so a
-			// failing database is not retried in a loop.
-			.catch(() => saves.release(job.id, token).then(nothing, nothing))
+			// again; startup clears it if this write fails too. It looks again only after a delay,
+			// so a failing database is not retried in a loop and a quiet one is not left waiting.
+			.catch(() =>
+				saves
+					.release(job.id, token)
+					.then(nothing, nothing)
+					.finally(() => {
+						if (shutdown.signal.aborted) return;
+						clearTimeout(recheck);
+						recheck = setTimeout(wake, settleRetryDelay).unref();
+					}),
+			)
 			.then((changed) => {
 				active.delete(job.id);
 				// A finished attempt, or a missed claim that frees a slot a due job waits for, looks
@@ -252,6 +266,7 @@ export function createAutoSave(
 		async close() {
 			shutdown.abort(new Error("Siluet is stopping."));
 			clearTimeout(timer);
+			clearTimeout(recheck);
 			while (pass || active.size) {
 				await pass;
 				await Promise.all([...active.values()].map((entry) => entry.done));
