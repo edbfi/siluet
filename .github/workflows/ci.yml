@@ -80,7 +80,7 @@ jobs:
       - run: bun test --timeout 30000 ./src/lib/server/db ./src/lib/server/services/owner ./src/lib/server/services/gallery ./src/lib/server/services/video-media ./src/routes/settings/security ./scripts/owner-recover.test.ts
       - run: bun run --bun build
       - run: bunx --bun --no-install playwright install chromium
-      - run: bun run --bun smoke tests/browser/studio.spec.ts tests/browser/authenticator.spec.ts tests/browser/first-saved-video.spec.ts tests/browser/poyo-first-video.spec.ts --workers=1
+      - run: bun run --bun smoke tests/browser/studio.spec.ts tests/browser/authenticator.spec.ts tests/browser/first-saved-image.spec.ts tests/browser/first-saved-video.spec.ts tests/browser/poyo-first-video.spec.ts --workers=1
   media-cleanup:
     name: Media cleanup (${{ matrix.runner }})
     strategy:
