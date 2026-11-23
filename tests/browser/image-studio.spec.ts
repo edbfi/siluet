@@ -73,6 +73,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await enterOwnerDetails(page, password);
 			await page.getByRole("button", { name: "Claim studio" }).press("Enter");
 			await page.getByRole("link", { name: "Skip for now" }).click();
+			await page.getByRole("button", { name: "Continue to studio" }).click();
 			await expect(page).toHaveURL(origin.href);
 			await expect(page.getByRole("heading", { name: "Studio home" })).toBeVisible();
 		});
@@ -933,6 +934,7 @@ test("built Image Studio cleans an attached local copy automatically while Queue
 		await enterOwnerDetails(page, password);
 		await page.getByRole("button", { name: "Claim studio" }).press("Enter");
 		await page.getByRole("link", { name: "Skip for now" }).click();
+		await page.getByRole("button", { name: "Continue to studio" }).click();
 		await expect(page).toHaveURL(origin.href);
 
 		const files = (draft: string) => new URL(`/image/files/${draft}`, origin).href;

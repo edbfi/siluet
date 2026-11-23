@@ -37,7 +37,9 @@ const destination = $derived(
 	settings
 		? pathname.startsWith("/settings/security")
 			? "Security"
-			: "Providers"
+			: pathname.startsWith("/settings/files")
+				? "Attached files"
+				: "Providers"
 		: pathname === "/video"
 			? "Video Studio"
 			: image

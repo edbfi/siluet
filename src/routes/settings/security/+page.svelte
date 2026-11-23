@@ -32,7 +32,8 @@ function forget() {
 beforeNavigate(forget);
 onMount(() => {
 	const restored = (event: PageTransitionEvent) => {
-		if (event.persisted) location.replace("/settings/security");
+		if (event.persisted)
+			location.replace(data.offer ? "/settings/security?offer" : "/settings/security");
 	};
 	window.addEventListener("pagehide", forget);
 	window.addEventListener("pageshow", restored);
@@ -52,7 +53,8 @@ const choices = [
 	<h1 class={styles.heading}>Settings</h1>
 	<nav class={styles.categories} aria-label="Settings categories">
 		<a class={styles.categoryLink} href="/settings/providers">Providers</a
-		><a class={styles.categoryLink} href="/settings/security" aria-current="page">Security</a>
+		><a class={styles.categoryLink} href="/settings/security" aria-current="page">Security</a
+		><a class={styles.categoryLink} href="/settings/files">Attached files</a>
 	</nav>
 	<section class={panel}>
 		<h2
@@ -79,7 +81,7 @@ const choices = [
 					</ul>
 				</div>
 			{/if}
-			<a href="/settings/security">Done</a>
+			<a href={data.offer ? "/settings/files?offer" : "/settings/security"}>Done</a>
 		{:else if result?.kind === "candidate" ||
 			(result?.kind === "error" && result.proof && result.action)}
 			<div bind:this={secretArea}>
@@ -109,10 +111,14 @@ const choices = [
 					<button type="submit">Confirm authenticator</button>
 				</form>
 			</div>
-			<a href="/settings/security">Return to Security</a>
+			<a href={data.offer ? "/settings/security?offer" : "/settings/security"}
+				>Return to Security</a
+			>
 		{:else}
 			{#if data.canResume}
-				<a href="/settings/security?resume">Resume authenticator setup</a>
+				<a href={data.offer ? "/settings/security?resume&offer" : "/settings/security?resume"}
+					>Resume authenticator setup</a
+				>
 			{/if}
 			{#if data.enabled}
 				<p>
@@ -160,7 +166,7 @@ const choices = [
 				{/if}
 			</form>
 			{#if data.offer && !data.enabled}
-				<a href="/">Skip for now</a>
+				<a href="/settings/files?offer">Skip for now</a>
 			{/if}
 		{/if}
 	</section>

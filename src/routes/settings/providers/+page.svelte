@@ -95,7 +95,8 @@ function save(
 	<h1 class={styles.heading}>Settings</h1>
 	<nav class={styles.categories} aria-label="Settings categories">
 		<a class={styles.categoryLink} href="/settings/providers" aria-current="page">Providers</a>
-		<a class={styles.categoryLink} href="/settings/security">Security</a>
+		<a class={styles.categoryLink} href="/settings/security">Security</a
+		><a class={styles.categoryLink} href="/settings/files">Attached files</a>
 	</nav>
 	<section class={cx(studioPanel(), styles.panel)} aria-labelledby="providers-title">
 		<header>
