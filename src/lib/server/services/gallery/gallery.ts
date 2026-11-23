@@ -49,7 +49,8 @@ export function createGallery(
 		openVideo: storage.openVideo,
 		saveVideo(id: string, result: () => Promise<VideoDelivery | null>) {
 			const pending = videoSaves.get(id);
-			if (pending) return pending;
+			// A Save that Remove cancelled while it waited cannot absorb a new one.
+			if (pending && !tickets.get(id)?.cancelled) return pending;
 			const ticket = { cancelled: false };
 			tickets.set(id, ticket);
 			const work = (async () => {
@@ -72,8 +73,8 @@ export function createGallery(
 			})()
 				.catch(() => "The video download or local write failed. Retry Save on this job.")
 				.finally(() => {
-					videoSaves.delete(id);
-					tickets.delete(id);
+					if (videoSaves.get(id) === work) videoSaves.delete(id);
+					if (tickets.get(id) === ticket) tickets.delete(id);
 				});
 			videoSaves.set(id, work);
 			return work;

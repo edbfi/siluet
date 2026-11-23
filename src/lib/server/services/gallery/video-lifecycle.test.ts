@@ -143,6 +143,47 @@ test("Remove cancels a Save that is waiting for the slot", () =>
 		}
 	}));
 
+test("a Save after Remove cancels the waiting one starts afresh", () =>
+	withRuntime(async (db) => {
+		const transfers: string[] = [];
+		const entered = Promise.withResolvers<void>();
+		const finish = Promise.withResolvers<void>();
+		const gallery = createGallery(
+			db,
+			async () => null,
+			undefined,
+			async (source, path) => {
+				transfers.push(source.url);
+				await writeFile(path, sample, { flag: "wx", mode: 0o600 });
+				if (source.url.endsWith("/a")) {
+					entered.resolve();
+					await finish.promise;
+				}
+				return { size: sample.length, digest };
+			},
+		);
+		const from = (name: string) => async () => ({
+			url: `https://93.184.216.34/${name}`,
+			fallback: null,
+		});
+		try {
+			const first = gallery.saveVideo("a", from("a"));
+			await entered.promise;
+			const cancelled = gallery.saveVideo("x", from("x"));
+			await Bun.sleep(20);
+			await gallery.remove("x");
+			const again = gallery.saveVideo("x", from("x"));
+			finish.resolve();
+			expect(await first).toBe("Saved to Gallery.");
+			expect(await cancelled).toBe("The video could not be saved.");
+			expect(await again).toBe("Saved to Gallery.");
+			expect((await gallery.get("x"))?.available).toBe(true);
+			expect(transfers).toEqual(["https://93.184.216.34/a", "https://93.184.216.34/x"]);
+		} finally {
+			finish.resolve();
+		}
+	}));
+
 test("startup removes leftover scratch and finishes interrupted removal", () =>
 	withRuntime(async (db, directory) => {
 		const gallery = createGallery(
