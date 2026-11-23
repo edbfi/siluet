@@ -88,7 +88,7 @@ export function createStages(
 				reservation.release();
 				return true;
 			} catch {
-				// A busy file may refuse deletion; retry, then keep it charged.
+				// Retry a transient removal failure such as EIO, then keep it charged.
 			}
 		}
 		leftovers.set(path, reservation);

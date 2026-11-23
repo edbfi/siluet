@@ -221,7 +221,7 @@ test("sign-out retires an open preview and removes its scratch file", async () =
 		body: "",
 	});
 	expect(signOut.status).toBeLessThan(400);
-	// A busy file may refuse deletion; wait for the server to retry it.
+	// Sign-out removes the scratch file after it responds; wait for it.
 	await until(
 		() => readdir(scratch),
 		(names) => names.length === 0,

@@ -73,7 +73,7 @@ export function createScratchPool(
 			if (!isRuntimeInstallation(installation))
 				throw new Error("Scratch reclaim requires the runtime installation lock.");
 			if (reclaimed || used) throw new Error("Scratch is already in use.");
-			// A busy file may refuse deletion; retry, then report it.
+			// Retry a transient removal failure such as EIO, then report it.
 			let failure: unknown;
 			for (const delay of [0, ...retryDelays]) {
 				if (delay) await Bun.sleep(delay);
