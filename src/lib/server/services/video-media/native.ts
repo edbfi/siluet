@@ -5,7 +5,6 @@ import { createRequire } from "node:module";
 import { dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { videoByteLimit } from "./limits";
-import { runtimeIdentity } from "./runtime-identity";
 import { verifyVideoFile } from "./verify-video";
 
 function ensure(condition: unknown): asserts condition {
@@ -56,7 +55,6 @@ export async function qualifiedVerifier(dir = process.env.SILUET_FFMPEG_DIR) {
 	if (!dir || !isAbsolute(dir) || process.platform !== "linux" || process.arch !== "arm64")
 		return null;
 	try {
-		if (!(await runtimeIdentity(process.pid))) return null;
 		const paths = await Promise.all(["ffmpeg", "ffprobe"].map((name) => realpath(join(dir, name))));
 		const signatures = await Promise.all(
 			[...paths, limit, "/usr/bin/setpriv"].map(async (path) => {

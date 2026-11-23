@@ -1,4 +1,4 @@
-import type { Installation } from "../../db/installation";
+import type { RuntimeInstallation } from "../../db/runtime-installation";
 import { downloadVideo, type VideoDelivery } from "../video-media/download";
 import { UnsupportedVideoError } from "../video-media/errors";
 import { videoSaveSlot } from "../video-media/save-slot";
@@ -13,7 +13,7 @@ const unsupported = {
 };
 
 export function createGallery(
-	installation: Installation,
+	installation: RuntimeInstallation,
 	resultUrl: (id: string) => Promise<string | null>,
 	download: (url: string) => Promise<Buffer> = downloadImage,
 	transferVideo = downloadVideo,
@@ -37,7 +37,7 @@ export function createGallery(
 	}
 	return {
 		async recover() {
-			await slot.reserve();
+			await slot.recover();
 			await storage.recover();
 		},
 		openVideo: storage.openVideo,
@@ -46,31 +46,22 @@ export function createGallery(
 			if (pending) return pending;
 			const work = (async () => {
 				if ((await storage.get(id))?.available) return "Saved to Gallery.";
-				const active = await slot.reserve(id);
-				if (!active) return "Another video Save is active. Try again after it finishes.";
-				if (active.kind === "join") {
-					await slot.waitForSave(active.token);
-					return (await storage.get(id))?.available
-						? "Saved to Gallery."
-						: "The video has not been saved. Check Jobs before retrying.";
-				}
-				try {
+				// Another video waits here until the active Save finishes.
+				return slot.hold(id, async ({ path, token }) => {
 					if ((await storage.get(id))?.available) return "Saved to Gallery.";
 					const delivery = await result();
 					if (!delivery)
 						return "The current task has no verified, unexpired video link. Check status and retry Save.";
-					const bytes = await transferVideo(delivery, active.path);
-					const info = await verifyVideoFile(active.path).catch((error) => {
+					const bytes = await transferVideo(delivery, path);
+					const info = await verifyVideoFile(path).catch((error) => {
 						if (error instanceof UnsupportedVideoError) return error;
 						throw error;
 					});
 					if (info instanceof UnsupportedVideoError) return unsupported[info.reason];
-					return (await storage.publishVideo(id, active.path, active.token, { ...bytes, ...info }))
+					return (await storage.publishVideo(id, path, token, { ...bytes, ...info }))
 						? "Saved to Gallery."
 						: "The video could not be saved.";
-				} finally {
-					await slot.release(active.token);
-				}
+				});
 			})()
 				.catch(() => "The video download or local write failed. Retry Save on this job.")
 				.finally(() => videoSaves.delete(id));

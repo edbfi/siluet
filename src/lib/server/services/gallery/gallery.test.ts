@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { referenceGif, referencePng } from "../../../../../tests/fixtures/reference-image";
-import { type Installation, openInstallation } from "../../db/installation";
+import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
 import { createGallery } from "./gallery";
 
 let directory: string;
-let installation: Installation;
+let installation: RuntimeInstallation;
 let gallery: ReturnType<typeof createGallery>;
 const jobId = "16759492-59c3-41fe-8334-46e01dd75ffe";
 let statusReads: number;
@@ -20,7 +20,7 @@ const galleryFiles = async () =>
 
 beforeEach(async () => {
 	directory = await createOwnerDirectory();
-	installation = await openInstallation(directory);
+	installation = await openRuntimeInstallation(directory);
 	statusReads = 0;
 	downloads = 0;
 	remote = referencePng;
@@ -49,7 +49,7 @@ test("concurrent saves publish one original image, then restart and removal stay
 	expect((await gallery.list()).map((entry) => entry.jobId)).toEqual([jobId]);
 	expect(await galleryFiles()).toHaveLength(1);
 	await installation.close();
-	installation = await openInstallation(directory);
+	installation = await openRuntimeInstallation(directory);
 	const offline = createGallery(installation, async () => {
 		throw new Error("offline");
 	});
@@ -148,7 +148,7 @@ test("a complete unsupported result survives restart until publication succeeds"
 	await installation.use((db) => db.run(sql`DROP TRIGGER refuse_reason`));
 	expect(await gallery.save(jobId)).toBe(false);
 	await installation.close();
-	installation = await openInstallation(directory);
+	installation = await openRuntimeInstallation(directory);
 	expect(await reason()).toEqual({ gallery_reason: "unsupported-image", state: "completed" });
 	const reopened = createGallery(
 		installation,

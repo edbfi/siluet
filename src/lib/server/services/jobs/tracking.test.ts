@@ -15,8 +15,9 @@ import {
 } from "../../../shared/image-studio/z-image";
 import type { ProviderId } from "../../../shared/providers/connections";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
-import { type Installation, openInstallation } from "../../db/installation";
+import { openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
+import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
 import type { CheckFetch } from "../../providers/connection-check";
 import { createGallery } from "../gallery/gallery";
 import { createJobTracking } from "./tracking";
@@ -31,13 +32,13 @@ const quote = { status: "unknown", reason: "missing-feed", maxAttempts: 1 } as c
 const credential = "key-sentinel";
 let now: number;
 let directory: string;
-let installation: Installation;
+let installation: RuntimeInstallation;
 let tracker: ReturnType<typeof createJobTracking> | undefined;
 
 beforeEach(async () => {
 	now = start;
 	directory = await createOwnerDirectory();
-	installation = await openInstallation(directory);
+	installation = await openRuntimeInstallation(directory);
 	const store = providerStore(installation);
 	for (const provider of ["poyo", "toapis"] as const)
 		await store.save(provider, credential, now, true, 0);
@@ -94,7 +95,7 @@ function dispatch(provider: ProviderId, id = "job", reference?: string) {
 async function reopen(read: CheckFetch) {
 	tracker?.close();
 	await installation.close();
-	installation = await openInstallation(directory);
+	installation = await openRuntimeInstallation(directory);
 	return makeTracking(read);
 }
 
