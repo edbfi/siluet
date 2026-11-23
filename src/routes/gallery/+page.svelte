@@ -6,6 +6,7 @@ import {
 	link,
 	page,
 	preview,
+	tile,
 } from "#lib/components/gallery/gallery-styles.ts";
 import SavedImageDetails from "#lib/components/gallery/SavedImageDetails.svelte";
 import type { PageProps } from "./$types";
@@ -20,7 +21,8 @@ let { data }: PageProps = $props();
 		<ul class={grid} aria-label="Saved media">
 			{#each data.images as image (image.jobId)}
 				{@const href = `/gallery/${encodeURIComponent(image.jobId)}`}
-				<li>
+				{@const kind = image.mime === "video/mp4" ? "video" : "image"}
+				<li class={tile}>
 					<a class={card} {href}>
 						<div class={preview}>
 							{#if image.available && image.mime === "video/mp4"}
@@ -38,6 +40,12 @@ let { data }: PageProps = $props();
 							<SavedImageDetails {...image} />
 						</div>
 					</a>
+					{#if image.available}
+						<!-- A sibling of the card link: an ordinary browser download of the original file. -->
+						<a class={link} href={`${href}/media?download=1`} download
+							>Download {kind} {image.jobId.slice(0, 8)}</a
+						>
+					{/if}
 				</li>
 			{/each}
 		</ul>

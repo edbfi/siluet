@@ -179,6 +179,17 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			await page.getByRole("link", { name: "Open saved video" }).click({ timeout: 20000 });
 			const path = `/gallery/${jobId}`;
 			const media = `${origin + path}/media`;
+			// The viewer and the Gallery tile download the original clip under the short job id.
+			const name = `siluet-video-${jobId.slice(0, 8)}.mp4`;
+			for (const link of [
+				() => page.getByRole("link", { name: "Download video" }),
+				() => page.getByRole("link", { name: `Download video ${jobId.slice(0, 8)}` }),
+			]) {
+				const [file] = await Promise.all([page.waitForEvent("download"), link().press("Enter")]);
+				expect(file.suggestedFilename()).toBe(name);
+				expect(await readFile(await file.path())).toEqual(bytes);
+				await page.goto(`${origin}/gallery`);
+			}
 			const before = fixture.requests.length;
 			await server.stop();
 			server = await startStudio(directory, port, false, fixture.env, release);

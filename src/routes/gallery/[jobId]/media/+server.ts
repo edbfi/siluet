@@ -11,7 +11,9 @@ export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 	)
 		error(403, "Open the saved media from Gallery.");
 	const video = await locals.studio.gallery.openVideo(params.jobId, request.method === "HEAD");
-	if (video) return videoResponse(request, url, video);
+	// Downloads are named after the job, never after a provider or user-supplied name.
+	const name = params.jobId.slice(0, 8).replace(/[^a-zA-Z0-9-]/g, "");
+	if (video) return videoResponse(request, url, video, `siluet-video-${name}.mp4`);
 	const image = await locals.studio.gallery.read(params.jobId);
 	if (!image) error(404, "The saved file is unavailable.");
 	const extension = image.mime === "image/png" ? "png" : "jpg";
@@ -22,7 +24,7 @@ export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 			"x-content-type-options": "nosniff",
 			"content-disposition":
 				url.searchParams.get("download") === "1"
-					? `attachment; filename="siluet-image.${extension}"`
+					? `attachment; filename="siluet-image-${name}.${extension}"`
 					: "inline",
 		},
 	});
