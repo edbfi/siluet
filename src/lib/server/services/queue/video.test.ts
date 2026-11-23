@@ -36,7 +36,6 @@ afterEach(async () => {
 	await db.close();
 	await rm(directory, { recursive: true, force: true });
 });
-const build = { ffmpeg: "fixture", ffprobe: "fixture", identity: "qualified-fixture" };
 function fixture() {
 	const store = providerStore(db);
 	let inventory: unknown = { success: true, object: "list", data: [{ id: "seedance-2-5" }] };
@@ -81,7 +80,6 @@ test("video checks preserve ciphertext, revision and image eligibility, with ind
 test("one durable claim binds the eligible key, exact terms and transient draft before dispatch", async () => {
 	const { store, access } = fixture();
 	await store.save("toapis", "video-only", now, false, 0);
-	let qualified = true;
 	let calls = 0;
 	const queue = await createVideoQueue(
 		db,
@@ -95,7 +93,6 @@ test("one durable claim binds the eligible key, exact terms and transient draft 
 				operation: seedanceOperation.key.operation,
 			});
 		},
-		async () => (qualified ? build : null),
 		undefined,
 		() => now,
 	);
@@ -110,9 +107,6 @@ test("one durable claim binds the eligible key, exact terms and transient draft 
 	await blocked();
 	await access.check();
 	expect(await store.credential("toapis")).toBeNull();
-	qualified = false;
-	await blocked();
-	qualified = true;
 	const first = await review();
 	expect(first.quote).toMatchObject({
 		reason: "token-usage-unknown",
@@ -130,7 +124,6 @@ test("one durable claim binds the eligible key, exact terms and transient draft 
 	const clicks = await Promise.all([click(r.token), click(r.token)]);
 	expect(clicks[0]).toEqual(clicks[1]);
 	expect(calls).toBe(1);
-	qualified = false;
 	await store.remove("toapis");
 	expect(await click(r.token)).toEqual(clicks[0]);
 	expect(await queue.submit("other", { ...live, token: r.token, acceptTerms: true })).toEqual({
@@ -138,14 +131,27 @@ test("one durable claim binds the eligible key, exact terms and transient draft 
 	});
 	expect(JSON.stringify(await imageJobStore(db).list())).not.toContain("private.test");
 });
-test("a rate withdrawn during verifier qualification requires a fresh Review before claim", async () => {
+test("Review lists no verifier blocker", async () => {
 	const { store, access } = fixture();
 	await store.save("toapis", "video-only", now, false, 0);
 	await access.check();
-	const started = Promise.withResolvers<void>();
-	const finish = Promise.withResolvers<void>();
-	let hold = false,
-		priced = true,
+	const queue = await createVideoQueue(
+		db,
+		access,
+		async () => {},
+		undefined,
+		() => now,
+	);
+	const review = await queue.review("owner", live);
+	expect(review.blockers).toEqual([]);
+	expect(JSON.stringify(review)).not.toMatch(/verifier/i);
+	expect(review.disclosures.join(" ")).toContain("stays with the provider");
+});
+test("a rate withdrawn after Review requires a fresh Review before claim", async () => {
+	const { store, access } = fixture();
+	await store.save("toapis", "video-only", now, false, 0);
+	await access.check();
+	let priced = true,
 		sends = 0;
 	const queue = await createVideoQueue(
 		db,
@@ -153,24 +159,15 @@ test("a rate withdrawn during verifier qualification requires a fresh Review bef
 		async () => {
 			sends++;
 		},
-		async () => {
-			if (hold) {
-				started.resolve();
-				await finish.promise;
-			}
-			return build;
-		},
 		async (at) => (priced ? loadStudioPricingFeeds(at) : {}),
 		() => now,
 	);
 	const review = await queue.review("owner", live);
 	expect(review.quote).toMatchObject({ advertisedUnitRate: { usd: "10" } });
-	hold = true;
-	const submitted = queue.submit("owner", { ...live, token: review.token, acceptTerms: true });
-	await started.promise;
 	priced = false;
-	finish.resolve();
-	expect(await submitted).toEqual({ error: "stale" });
+	expect(await queue.submit("owner", { ...live, token: review.token, acceptTerms: true })).toEqual({
+		error: "stale",
+	});
 	expect(await imageJobStore(db).list()).toHaveLength(0);
 	expect(sends).toBe(0);
 });
@@ -198,14 +195,7 @@ test("recovery reserves a single GET, retains Retry-After across reopen, attache
 			},
 		});
 	jobs = tracker();
-	const api = await createVideoQueue(
-		db,
-		access,
-		jobs.dispatchVideo,
-		async () => build,
-		undefined,
-		() => now,
-	);
+	const api = await createVideoQueue(db, access, jobs.dispatchVideo, undefined, () => now);
 	const r = await api.review("owner", live);
 	const result = await api.submit("owner", { ...live, token: r.token, acceptTerms: true });
 	if (!("jobId" in result)) throw new Error("Missing claim");
@@ -319,7 +309,6 @@ test.each(["before-dispatch", "same-ack", "conflicting-ack"] as const)(
 				}
 				await server.dispatchVideo(job, key, body, business);
 			},
-			async () => build,
 			undefined,
 			() => now,
 		);
@@ -406,14 +395,7 @@ test("manual video reads keep an expired or failed task separate from its charge
 			return Response.json(status);
 		},
 	});
-	const queue = await createVideoQueue(
-		db,
-		access,
-		jobs.dispatchVideo,
-		async () => build,
-		undefined,
-		() => now,
-	);
+	const queue = await createVideoQueue(db, access, jobs.dispatchVideo, undefined, () => now);
 	async function queueOne() {
 		const r = await queue.review("owner", live);
 		const sent = await queue.submit("owner", { ...live, token: r.token, acceptTerms: true });
@@ -500,7 +482,6 @@ test.each(["before claim", "after claim", "during POST"])(
 				if (when === "after claim") await closeGate();
 				await tracker.dispatchVideo(...args);
 			},
-			async () => build,
 			undefined,
 			() => now,
 		);
@@ -547,14 +528,7 @@ test("a video query throttle survives key replacement and defers a new image que
 			return new Response(null, { status: 429, headers: { "Retry-After": "80" } });
 		},
 	});
-	const api = await createVideoQueue(
-		db,
-		access,
-		jobs.dispatchVideo,
-		async () => build,
-		undefined,
-		() => now,
-	);
+	const api = await createVideoQueue(db, access, jobs.dispatchVideo, undefined, () => now);
 	const { token } = await api.review("owner", live);
 	const result = await api.submit("owner", { ...live, token, acceptTerms: true });
 	if (!("jobId" in result)) throw new Error("Missing video job");
@@ -600,14 +574,7 @@ test.each([false, true])(
 		END`),
 			),
 		);
-		const queue = await createVideoQueue(
-			db,
-			access,
-			jobs.dispatchVideo,
-			async () => build,
-			undefined,
-			() => now,
-		);
+		const queue = await createVideoQueue(db, access, jobs.dispatchVideo, undefined, () => now);
 		const { token } = await queue.review("owner", live);
 		const click = () => queue.submit("owner", { ...live, token, acceptTerms: true });
 		const first = await click();

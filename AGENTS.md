@@ -29,7 +29,7 @@ Research the provider's own documentation. Record the source and model-specific 
 
 ## Tools and pull requests
 
-Use Bun or Bunx for JavaScript runtimes, packages, installers and scripts. Use Biome and prek for local checks. The general [edbfi-ci templates](https://github.com/edbfi/edbfi-ci/tree/main/templates) are the automation source.
+Use Bun or Bunx for JavaScript runtimes, packages, installers and scripts. Add no native tool or package the stack already covers (D1). Use Biome and prek for local checks. The general [edbfi-ci templates](https://github.com/edbfi/edbfi-ci/tree/main/templates) are the automation source.
 
 Use signed-off Conventional Commits (`git commit -s`). File PRs with `file-pr` and use `babysit-pr` through Ready. At Ready, squash-merge against the reviewed head SHA. After GitHub reports `MERGED`, verify each branch tip matches that head before removing the PR worktree and branches. Report a mismatch or another stopping condition to the owner. Finish with a clean `main` at `origin/main`.
 

@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 import { open } from "node:fs/promises";
 import { DeliveryUnavailable, direct, mediaResponse } from "../gallery/download";
-import { ensure, videoByteLimit } from "./mp4";
+import { check } from "./errors";
+import { videoByteLimit } from "./limits";
+
+// A refused transfer is a failed download; only a file over the size limit is unsupported.
+function ensure(condition: unknown): asserts condition {
+	if (!condition) throw new Error("The video transfer was refused.");
+}
 
 export type VideoDelivery = { url: string; fallback: string | null };
 async function headers(url: string, transport: typeof direct, signal: AbortSignal) {
@@ -59,7 +65,8 @@ export async function downloadVideo(source: VideoDelivery, path: string, transpo
 				!response.headers.has("content-range") &&
 				(!encoding || encoding.toLowerCase() === "identity"),
 		);
-		ensure(length === null || (/^\d+$/.test(length) && Number(length) <= videoByteLimit));
+		ensure(length === null || /^\d+$/.test(length));
+		check(length === null || Number(length) <= videoByteLimit, "file size");
 		const file = await open(path, "wx", 0o600);
 		let size = 0;
 		const digest = createHash("sha256");
@@ -69,7 +76,7 @@ export async function downloadVideo(source: VideoDelivery, path: string, transpo
 				const part = await reader.read();
 				if (part.done) break;
 				size += part.value.length;
-				ensure(size <= videoByteLimit);
+				check(size <= videoByteLimit, "file size");
 				digest.update(part.value);
 				await file.writeFile(part.value);
 			}
@@ -82,6 +89,7 @@ export async function downloadVideo(source: VideoDelivery, path: string, transpo
 		}
 	} finally {
 		budget.removeEventListener("abort", abort);
-		await reader.cancel();
+		// A stream that already failed rejects cancel(); keep the original error.
+		await reader.cancel().catch(() => {});
 	}
 }

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -6,45 +7,22 @@ import { seedanceOperation } from "../../src/lib/shared/media-catalog/registry";
 import { videoDefaults } from "../../src/lib/shared/video-studio/seedance";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
+import { undecodableH264Aac } from "../fixtures/video/mp4-boxes";
 import { startStudio } from "./built-studio";
 
-test("video-only key reviews once, saves one video and reopens its original bytes offline", async ({
-	page,
-	browser,
-}) => {
-	test.setTimeout(100_000);
-	const directory = await createOwnerDirectory();
-	const bytes = await readFile("src/lib/server/services/video-media/qualification.mp4");
-	const prompt = "A blue clock rotates slowly.";
-	const draft = { ...videoDefaults, prompt, aspect_ratio: "9:16" };
-	let business = "";
-	let posts = 0;
-	const fixture = startProviderFixtures(async (request, path) => {
+/** ToAPIs Seedance fixtures: one accepted task that completes with `bytes` at a public media URL. */
+function seedanceProvider(bytes: Buffer, submit: (request: Request) => Promise<string>) {
+	return async (request: Request, path: string) => {
 		if (path === "/toapis/video-models")
 			return Response.json({ success: true, object: "list", data: [{ id: "seedance-2-5" }] });
-		if (path === "/toapis/video-submit") {
-			posts++;
-			const body = await request.json();
-			business = body.client_business_id;
-			expect(request.headers.get("authorization")).toBe(`Bearer ${providerFixtureKeys.restricted}`);
-			expect(request.method).toBe("POST");
-			expect(body).toEqual({
-				...draft,
-				client_business_id: expect.stringMatching(/^siluet-[0-9a-f-]{14}4[0-9a-f-]{21}$/),
-				model: "seedance-2-5",
-				video_operation: "generate",
-				output_format: "mp4",
-				return_last_frame: false,
-				disable_nsfw: false,
-			});
+		if (path === "/toapis/video-submit")
 			return Response.json({
 				object: "generation.task",
 				id: "clip_1",
 				model: "seedance-2-5",
-				client_business_id: business,
+				client_business_id: await submit(request),
 				status: "queued",
 			});
-		}
 		if (path === "/toapis/video-status/clip_1")
 			return Response.json({
 				object: "generation.task",
@@ -61,10 +39,41 @@ test("video-only key reviews once, saves one video and reopens its original byte
 		if (path === "/media/video") {
 			expect(request.headers.has("authorization")).toBe(false);
 			expect(request.headers.has("cookie")).toBe(false);
-			return new Response(bytes);
+			return new Response(new Uint8Array(bytes));
 		}
 		return null;
-	});
+	};
+}
+
+test("video-only key reviews once, saves one video and reopens its original bytes offline", async ({
+	page,
+	browser,
+}) => {
+	test.setTimeout(100_000);
+	const directory = await createOwnerDirectory();
+	const bytes = await readFile("tests/fixtures/video/h264-aac.mp4");
+	const prompt = "A blue clock rotates slowly.";
+	const draft = { ...videoDefaults, prompt, aspect_ratio: "9:16" };
+	let posts = 0;
+	const fixture = startProviderFixtures(
+		seedanceProvider(bytes, async (request) => {
+			posts++;
+			const body = await request.json();
+			const business = body.client_business_id;
+			expect(request.headers.get("authorization")).toBe(`Bearer ${providerFixtureKeys.restricted}`);
+			expect(request.method).toBe("POST");
+			expect(body).toEqual({
+				...draft,
+				client_business_id: expect.stringMatching(/^siluet-[0-9a-f-]{14}4[0-9a-f-]{21}$/),
+				model: "seedance-2-5",
+				video_operation: "generate",
+				output_format: "mp4",
+				return_last_frame: false,
+				disable_nsfw: false,
+			});
+			return business;
+		}),
+	);
 	const release = await mkdtemp(join(tmpdir(), "siluet-video-release-"));
 	let server: Awaited<ReturnType<typeof startStudio>> | undefined;
 	try {
@@ -73,18 +82,9 @@ test("video-only key reviews once, saves one video and reopens its original byte
 		await copyFile("scripts/start.ts", join(release, "scripts/start.ts"));
 		await copyFile("package.json", join(release, "package.json"));
 		await symlink(resolve("node_modules"), join(release, "node_modules"));
-		expect(await readFile(join(release, "build/server/qualification.mp4"))).toEqual(bytes);
-		const native = process.env.SILUET_FFMPEG_DIR;
-		server = await startStudio(
-			directory,
-			"0",
-			false,
-			{
-				...fixture.env,
-				SILUET_FFMPEG_DIR: native ?? "",
-			},
-			release,
-		);
+		// The release ships no video specimen or native tool.
+		expect(existsSync(join(release, "build/server/qualification.mp4"))).toBe(false);
+		server = await startStudio(directory, "0", false, fixture.env, release);
 		const { origin, port } = server.origin;
 		await expect.poll(server.token).not.toBe("");
 		const post = (path: string, data: unknown, from = origin) =>
@@ -151,12 +151,6 @@ test("video-only key reviews once, saves one video and reopens its original byte
 					await post("/video/queue", { ...click, draft: { ...draft, prompt: "replacement" } })
 				).status(),
 			).toBe(400);
-			if (!native) {
-				expect(review.blockers.join(" ")).toContain("verifier");
-				expect((await post("/video/queue", click)).status()).toBe(409);
-				expect(posts).toBe(0);
-				return;
-			}
 			expect(review.blockers).toEqual([]);
 			const button = page.getByRole("button", { name: "Queue 1 request" });
 			await expect(button).toBeDisabled();
@@ -188,13 +182,7 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			const media = `${origin + path}/media`;
 			const before = fixture.requests.length;
 			await server.stop();
-			server = await startStudio(
-				directory,
-				port,
-				false,
-				{ ...fixture.env, SILUET_FFMPEG_DIR: "" },
-				release,
-			);
+			server = await startStudio(directory, port, false, fixture.env, release);
 			await page.request.post(`${origin}/settings/providers?/remove`, {
 				headers: { origin, accept: "text/html" },
 				form: { provider: "toapis" },
@@ -256,5 +244,66 @@ test("video-only key reviews once, saves one video and reopens its original byte
 		fixture.stop();
 		await rm(directory, { recursive: true, force: true });
 		await rm(release, { recursive: true, force: true });
+	}
+});
+
+test("Gallery says when this browser cannot play a saved clip and keeps Download", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	const directory = await createOwnerDirectory();
+	const bytes = undecodableH264Aac();
+	const fixture = startProviderFixtures(
+		seedanceProvider(bytes, async (request) => (await request.json()).client_business_id),
+	);
+	let server: Awaited<ReturnType<typeof startStudio>> | undefined;
+	try {
+		server = await startStudio(directory, "0", false, fixture.env);
+		const { origin } = server.origin;
+		await expect.poll(server.token).not.toBe("");
+		await page.request.post(`${origin}/setup`, {
+			headers: { origin, accept: "text/html" },
+			form: { token: server.token(), username: "creator", password: crypto.randomUUID() },
+		});
+		await page.request.post(`${origin}/settings/providers?/connect`, {
+			headers: { origin, accept: "text/html" },
+			form: { provider: "toapis", key: providerFixtureKeys.restricted },
+		});
+		await page.goto(`${origin}/settings/providers?provider=toapis`);
+		await page.getByRole("button", { name: "Check video access" }).click();
+		await expect(page.getByText(/Seedance 2.5 was listed/).first()).toBeVisible();
+		const input = {
+			draft: { ...videoDefaults, prompt: "A red ball bounces." },
+			operationKey: seedanceOperation.key,
+			count: 1,
+			retryLimit: 0,
+		};
+		const post = (path: string, data: unknown) =>
+			page.request.post(origin + path, { data, headers: { origin } });
+		const review = await (await post("/video/review", { ...input, acceptTerms: false })).json();
+		expect(review.blockers).toEqual([]);
+		const { jobId } = await (
+			await post("/video/queue", { ...input, token: review.token, acceptTerms: true })
+		).json();
+		await page.goto(`${origin}/jobs#job-${jobId}`);
+		await expect(page.getByText("Completed", { exact: true })).toBeVisible({ timeout: 25000 });
+		const save = page.getByRole("button", { name: "Save to Gallery" });
+		await expect(save).toBeEnabled({ timeout: 20000 });
+		await save.click();
+		await page.getByRole("link", { name: "Open saved video" }).click();
+		const note = page.getByRole("status").filter({
+			hasText: "This browser can't play this video. Download it to open it in another player.",
+		});
+		const video = page.getByLabel("Saved video playback");
+		await video.evaluate((v: HTMLVideoElement) => v.play().catch(() => {}));
+		await expect(note).toBeVisible();
+		const download = page.getByRole("link", { name: "Download video" });
+		await expect(download).toBeVisible();
+		const media = await page.request.get(origin + (await download.getAttribute("href")));
+		expect(await media.body()).toEqual(bytes);
+	} finally {
+		await server?.stop();
+		fixture.stop();
+		await rm(directory, { recursive: true, force: true });
 	}
 });

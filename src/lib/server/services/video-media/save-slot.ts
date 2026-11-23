@@ -1,61 +1,62 @@
-import { rm } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
-import type { Installation } from "../../db/installation";
-import { runtimeIdentity } from "./runtime-identity";
+import type { RuntimeInstallation } from "../../db/runtime-installation";
 
-export function videoSaveSlot({ directory, use }: Installation) {
-	const scratch = (token: string) => {
-		if (!/^[a-f0-9-]{36}$/.test(token)) throw new Error("Invalid scratch identifier.");
-		return join(directory, `video-${token}.part`);
-	};
-	async function reserve(id?: string) {
-		return use((db) =>
-			db.transaction(
-				async (tx) => {
-					const slot = await tx.get<{
-						job_id: string;
-						token: string;
-						pid: number;
-						runtime: string;
-					}>(sql`SELECT * FROM video_save`);
-					if (slot) {
-						const owner = await runtimeIdentity(slot.pid);
-						if (owner === undefined || owner === slot.runtime)
-							return id && slot.job_id === id ? { kind: "join" as const, token: slot.token } : null;
-						await rm(scratch(slot.token), { force: true });
-						await tx.run(sql`DELETE FROM video_save WHERE singleton=1`);
-					}
-					if (!id) return null;
-					const token = crypto.randomUUID();
-					const current = await runtimeIdentity(process.pid);
-					if (!current) throw new Error("Video verifier unavailable.");
-					await tx.run(
-						sql`INSERT INTO video_save(singleton,job_id,token,pid,runtime) VALUES(1,${id},${token},${process.pid},${current})`,
-					);
-					return { kind: "claimed" as const, path: scratch(token), token };
-				},
-				{ behavior: "immediate" },
-			),
-		);
+const scratchName = /^video-[a-f0-9-]{36}\.part$/;
+/** Log only the scratch file name; the next startup retries it. */
+const unremoved = (name: string) =>
+	console.error(`Unable to remove leftover video scratch ${name}.`);
+
+/**
+ * One video Save at a time in the single runtime that holds the installation.
+ * The `video_save` row names the active scratch file and lets Remove cancel
+ * publication; no other process can own it.
+ */
+export function videoSaveSlot({ directory, use }: RuntimeInstallation) {
+	let turn = Promise.resolve();
+	const fileName = (token: string) => `video-${token}.part`;
+	const scratch = (token: string) => join(directory, fileName(token));
+	/** Wait for the slot, then run `work` while holding it. */
+	async function exclusive<T>(work: () => Promise<T>) {
+		const previous = turn;
+		const done = Promise.withResolvers<void>();
+		turn = done.promise;
+		await previous;
+		try {
+			return await work();
+		} finally {
+			done.resolve();
+		}
 	}
 	return {
-		reserve,
-		async waitForSave(token: string) {
-			const deadline = performance.now() + 130_000;
-			while (performance.now() < deadline) {
-				const active = await use((db) =>
-					db.get<{ pid: number; runtime: string }>(
-						sql`SELECT pid,runtime FROM video_save WHERE token=${token}`,
+		/** Hold the slot for job `id` while `work` writes to the scratch path. */
+		hold<T>(id: string, work: (slot: { path: string; token: string }) => Promise<T>) {
+			return exclusive(async () => {
+				const token = crypto.randomUUID();
+				// Nothing reads `pid` or `runtime` any more; the table still declares them NOT NULL.
+				await use((db) =>
+					db.run(
+						sql`INSERT INTO video_save(singleton,job_id,token,pid,runtime) VALUES(1,${id},${token},${process.pid},'')`,
 					),
 				);
-				if (!active || (await runtimeIdentity(active.pid)) !== active.runtime) return;
-				await Bun.sleep(200);
-			}
+				try {
+					return await work({ path: scratch(token), token });
+				} finally {
+					await rm(scratch(token), { force: true }).catch(() => unremoved(fileName(token)));
+					await use((db) => db.run(sql`DELETE FROM video_save WHERE token=${token}`));
+				}
+			});
 		},
-		async release(token: string) {
-			await rm(scratch(token), { force: true });
-			await use((db) => db.run(sql`DELETE FROM video_save WHERE token=${token}`));
+		/** Remove every leftover scratch file and slot row from an earlier run. */
+		recover() {
+			return exclusive(async () => {
+				await use((db) => db.run(sql`DELETE FROM video_save`));
+				for (const name of await readdir(directory)) {
+					if (!scratchName.test(name)) continue;
+					await rm(join(directory, name), { force: true }).catch(() => unremoved(name));
+				}
+			});
 		},
 	};
 }

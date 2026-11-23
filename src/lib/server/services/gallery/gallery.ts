@@ -1,19 +1,31 @@
-import type { Installation } from "../../db/installation";
+import type { RuntimeInstallation } from "../../db/runtime-installation";
 import { downloadVideo, type VideoDelivery } from "../video-media/download";
-import { qualifiedVerifier, verifyVideo } from "../video-media/native";
+import { UnsupportedVideoError } from "../video-media/errors";
 import { videoSaveSlot } from "../video-media/save-slot";
+import { verifyVideoFile } from "../video-media/verify-video";
 import { downloadImage } from "./download";
 import { galleryStorage } from "./storage";
 import { UnsupportedGalleryImage, verifyImage } from "./verify-image";
 
+const unsupported = {
+	profile: "This completed video is outside the supported Gallery profile.",
+	webm: "This completed video is WebM or Matroska. Gallery keeps MP4 files only.",
+};
+function refused(error: unknown) {
+	if (error instanceof UnsupportedVideoError) return error;
+	throw error;
+}
+
 export function createGallery(
-	installation: Installation,
+	installation: RuntimeInstallation,
 	resultUrl: (id: string) => Promise<string | null>,
 	download: (url: string) => Promise<Buffer> = downloadImage,
 	transferVideo = downloadVideo,
 ) {
 	const slot = videoSaveSlot(installation);
 	const videoSaves = new Map<string, Promise<string>>();
+	// Remove cancels a Save still waiting for the slot here; the database fence covers the active one.
+	const tickets = new Map<string, { cancelled: boolean }>();
 	const storage = galleryStorage(installation);
 	const pending = new Map<string, Promise<boolean>>();
 	async function save(id: string) {
@@ -31,49 +43,50 @@ export function createGallery(
 	}
 	return {
 		async recover() {
-			await slot.reserve();
+			await slot.recover();
 			await storage.recover();
 		},
 		openVideo: storage.openVideo,
 		saveVideo(id: string, result: () => Promise<VideoDelivery | null>) {
 			const pending = videoSaves.get(id);
-			if (pending) return pending;
+			// A Save that Remove cancelled while it waited cannot absorb a new one.
+			if (pending && !tickets.get(id)?.cancelled) return pending;
+			const ticket = { cancelled: false };
+			tickets.set(id, ticket);
 			const work = (async () => {
 				if ((await storage.get(id))?.available) return "Saved to Gallery.";
-				const verifier = await qualifiedVerifier();
-				if (!verifier) return "The local video verifier is unavailable.";
-				const active = await slot.reserve(id);
-				if (!active) return "Another video Save is active. Try again after it finishes.";
-				if (active.kind === "join") {
-					await slot.waitForSave(active.token);
-					return (await storage.get(id))?.available
-						? "Saved to Gallery."
-						: "The video has not been saved. Check Jobs before retrying.";
-				}
-				try {
+				// Another video waits here until the active Save finishes.
+				return slot.hold(id, async ({ path, token }) => {
+					if (ticket.cancelled) return "The video could not be saved.";
 					if ((await storage.get(id))?.available) return "Saved to Gallery.";
 					const delivery = await result();
 					if (!delivery)
 						return "The current task has no verified, unexpired video link. Check status and retry Save.";
-					const bytes = await transferVideo(delivery, active.path);
-					const info = await verifyVideo(active.path, verifier).catch(() => null);
-					if (!info) return "This completed video is outside the supported Gallery profile.";
-					return (await storage.publishVideo(id, active.path, active.token, { ...bytes, ...info }))
+					const bytes = await transferVideo(delivery, path).catch(refused);
+					if (bytes instanceof UnsupportedVideoError) return unsupported[bytes.reason];
+					const info = await verifyVideoFile(path).catch(refused);
+					if (info instanceof UnsupportedVideoError) return unsupported[info.reason];
+					return (await storage.publishVideo(id, path, token, { ...bytes, ...info }))
 						? "Saved to Gallery."
 						: "The video could not be saved.";
-				} finally {
-					await slot.release(active.token);
-				}
+				});
 			})()
 				.catch(() => "The video download or local write failed. Retry Save on this job.")
-				.finally(() => videoSaves.delete(id));
+				.finally(() => {
+					if (videoSaves.get(id) === work) videoSaves.delete(id);
+					if (tickets.get(id) === ticket) tickets.delete(id);
+				});
 			videoSaves.set(id, work);
 			return work;
 		},
 		get: storage.get,
 		list: storage.list,
 		read: storage.read,
-		remove: storage.remove,
+		remove(id: string) {
+			const ticket = tickets.get(id);
+			if (ticket) ticket.cancelled = true;
+			return storage.remove(id);
+		},
 		save(id: string) {
 			const existing = pending.get(id);
 			if (existing) return existing;

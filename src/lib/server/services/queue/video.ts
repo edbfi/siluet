@@ -17,7 +17,6 @@ import {
 	type VideoAccess,
 	videoInventoryQuery,
 } from "../providers/video-access";
-import { qualifiedVerifier } from "../video-media/native";
 import { reviewSigner, tokenFormat } from "./review-signature";
 
 export async function createVideoQueue(
@@ -29,7 +28,6 @@ export async function createVideoQueue(
 		body: VideoRequest["body"],
 		business: string,
 	) => Promise<void>,
-	verifier = qualifiedVerifier,
 	feeds = loadStudioPricingFeeds,
 	now = Date.now,
 ) {
@@ -39,13 +37,8 @@ export async function createVideoQueue(
 	function signature(id: string, terms: string, owner: string, input: VideoRequest) {
 		return sign("video-review-v1", id, terms, owner, seedanceOperation.key, input.body, 1, 0);
 	}
-	async function environment() {
-		const [key, build] = await Promise.all([access.current(), verifier()]);
-		return { ...key, build };
-	}
 	function terms(
 		input: VideoRequest,
-		context: Awaited<ReturnType<typeof environment>>,
 		current: VideoAccess | null | undefined,
 		pricing: Awaited<ReturnType<typeof feeds>>,
 		time: number,
@@ -66,14 +59,12 @@ export async function createVideoQueue(
 		const blockers = [
 			queueEvidenceProblem(seedanceOperation.evidence),
 			state === "eligible" ? null : accessMessage[state],
-			context.build ? null : "A qualified local video verifier is unavailable.",
 		].filter((s): s is string => !!s);
 		const digest = sign(
 			"video-terms-v1",
 			current?.revision,
 			state,
 			current?.checked_at,
-			context.build?.identity,
 			quote,
 			videoDisclosures,
 			blockers,
@@ -82,14 +73,8 @@ export async function createVideoQueue(
 	}
 	return {
 		async review(owner: string, input: VideoRequest) {
-			const context = await environment();
-			const { quote, blockers, digest } = terms(
-				input,
-				context,
-				context.record,
-				await feeds(now()),
-				now(),
-			);
+			const { record } = await access.current();
+			const { quote, blockers, digest } = terms(input, record, await feeds(now()), now());
 			const id = crypto.randomUUID();
 			return {
 				token: [id, digest, signature(id, digest, owner, input)].join("."),
@@ -111,7 +96,7 @@ export async function createVideoQueue(
 				row.binding === binding ? { jobId: id } : invalid;
 			const prior = await installation.use((db) => db.get<{ binding: string }>(existing));
 			if (prior) return replay(prior);
-			const context = await environment();
+			const context = await access.current();
 			const claim = await installation.use((db) =>
 				db.transaction(
 					async (tx) => {
@@ -120,7 +105,7 @@ export async function createVideoQueue(
 						const current = await tx.get<VideoAccess>(videoInventoryQuery);
 						const pricing = await feeds(now());
 						const time = now();
-						const termsNow = terms(input, context, current, pricing, time);
+						const termsNow = terms(input, current, pricing, time);
 						if (
 							!context.saved ||
 							current?.revision !== context.saved.revision ||

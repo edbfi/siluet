@@ -1,4 +1,3 @@
-import { copyFile } from "node:fs/promises";
 import panda from "@pandacss/vite";
 import adapter from "@sveltejs/adapter-bun";
 import { sveltekit } from "@sveltejs/kit/vite";
@@ -16,18 +15,7 @@ const bunAdapter = adapter({
 export default defineConfig({
 	plugins: [
 		guardPublicAssets("static"),
-		sveltekit({
-			adapter: {
-				...bunAdapter,
-				async adapt(builder) {
-					await bunAdapter.adapt(builder);
-					await copyFile(
-						"src/lib/server/services/video-media/qualification.mp4",
-						"build/server/qualification.mp4",
-					);
-				},
-			},
-		}),
+		sveltekit({ adapter: bunAdapter }),
 		panda({ transform: true }),
 	],
 	server: {

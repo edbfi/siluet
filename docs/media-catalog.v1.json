@@ -12,7 +12,7 @@
 		"seedance-generate": {
 			"addedSinceBaseline": true,
 			"review": "ordinary prompt-only MP4, 4–10 seconds at 480p or 720p",
-			"queue": "one reviewed request with video access and qualified Gallery verifier",
+			"queue": "one reviewed request with video access",
 			"optionCoverage": "partial"
 		},
 		"z-image-generate": {
