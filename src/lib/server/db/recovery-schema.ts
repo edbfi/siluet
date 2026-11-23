@@ -6,7 +6,15 @@ import { DirectoryPolicyError } from "./private-directory";
 
 // Fingerprint of the non-internal DDL produced by this release's locked migrations.
 // Opening the exclusive recovery connection in the native recovery test qualifies this value.
-const currentSchema = "f6855408612145ed1cfd793f667892f51d2cb9c6afcb655637ef32c67c53bd1d";
+export const currentSchema = "4bc149db1b71c50c48361ab4f5f3dfdbffd67ce9439556ed518b0dfa54f1b7d4";
+
+/** SHA-256 of the installation's non-internal DDL. */
+export async function schemaFingerprint(db: StudioDatabase) {
+	const schema = await db.all(
+		sql`SELECT type,name,sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT GLOB 'sqlite_*' ORDER BY type,name`,
+	);
+	return createHash("sha256").update(JSON.stringify(schema)).digest("hex");
+}
 export async function verifyRecoverySchema(db: StudioDatabase) {
 	const applied = await db.all<{ name: string }>(
 		sql`SELECT name FROM __drizzle_migrations ORDER BY id`,
@@ -20,10 +28,7 @@ export async function verifyRecoverySchema(db: StudioDatabase) {
 		throw new DirectoryPolicyError("Start the installed version once, stop it, then run recovery.");
 	if (applied.length !== expected.length || applied.some((row, i) => row.name !== expected[i]))
 		throw new Error("Unrecognized migration history.");
-	const schema = await db.all(
-		sql`SELECT type,name,sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT GLOB 'sqlite_*' ORDER BY type,name`,
-	);
-	if (createHash("sha256").update(JSON.stringify(schema)).digest("hex") !== currentSchema)
+	if ((await schemaFingerprint(db)) !== currentSchema)
 		throw new Error("Unrecognized studio schema.");
 	const integrity = await db.all<{ integrity_check: string }>(sql`PRAGMA integrity_check`);
 	if (integrity.length !== 1 || integrity[0].integrity_check !== "ok")

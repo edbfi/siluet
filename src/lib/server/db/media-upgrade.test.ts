@@ -6,6 +6,8 @@ import { connect } from "@tursodatabase/database";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/tursodatabase/database";
 import { createInstallation37 } from "../../../../tests/fixtures/db/installation-37";
+import { migrations37 } from "../../../../tests/fixtures/db/migrations-37";
+import { migrationsAs2 } from "../../../../tests/fixtures/db/migrations-as2";
 import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
 import { referencePng } from "../../../../tests/fixtures/reference-image";
 import { createAutoSave } from "../services/gallery/auto-save";
@@ -13,9 +15,11 @@ import { galleryStorage } from "../services/gallery/storage";
 import { createJobTracking } from "../services/jobs/tracking";
 import { createOwnerAccess } from "../services/owner/access";
 import { openInstallation } from "./installation";
+import { mediaCleaning } from "./media-cleaning";
 import { installationMigrations, migrateInstallation } from "./migrations";
 import { providerStore } from "./provider-store";
 import { recoverOwner } from "./recover-owner";
+import { currentSchema, schemaFingerprint } from "./recovery-schema";
 import { openRuntimeInstallation } from "./runtime-installation";
 import { saveIntentStore } from "./save-intent";
 
@@ -310,3 +314,86 @@ test("a #37 installation upgrades to automatic Save intents and holds, then save
 		await rm(directory, { recursive: true, force: true });
 	}
 }, 30_000);
+
+test.each([
+	["R1a-era (#37 history)", migrations37],
+	["AS2", migrationsAs2],
+] as const)(
+	"a populated %s installation reaches the local-file edit release",
+	async (_label, history) => {
+		const directory = await createOwnerDirectory();
+		try {
+			const { password } = await createInstallation37(
+				directory,
+				async (db) => {
+					await db.run(
+						sql`INSERT INTO model_access VALUES ('toapis', 'seedance-2-5', 1, 'eligible', 2)`,
+					);
+					await db.run(sql`INSERT INTO image_job
+					(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,submission_recorded_at,task_id)
+					VALUES ('saved','saved-binding','poyo',1,'{}','completed','seedream-5.5',1,120002,2,'saved-task'),
+					('pending','pending-binding','toapis',1,'{}','submitting','doubao-seedream-5-5',3,120003,NULL,NULL)`);
+					await db.run(sql`INSERT INTO gallery_image (job_id,state,mime,width,height,size,digest,saved_at)
+					VALUES ('saved','saved','image/png',1,1,${referencePng.length},${digest(referencePng)},3)`);
+					await writeFile(join(directory, `gallery-${digest("saved")}`), referencePng, {
+						mode: 0o600,
+					});
+				},
+				undefined,
+				history,
+			);
+			const upgraded = await openRuntimeInstallation(directory);
+			try {
+				expect(await upgraded.use((db) => schemaFingerprint(db))).toBe(currentSchema);
+				expect(await mediaCleaning(upgraded).read()).toEqual({ enabled: true, revision: 0 });
+				expect(
+					await upgraded.use((db) =>
+						db.all(
+							sql`SELECT id, binding, state, file_owner, file_phase FROM image_job ORDER BY id`,
+						),
+					),
+				).toEqual([
+					{
+						id: "pending",
+						binding: "pending-binding",
+						state: "submitting",
+						file_owner: null,
+						file_phase: null,
+					},
+					{
+						id: "saved",
+						binding: "saved-binding",
+						state: "completed",
+						file_owner: null,
+						file_phase: null,
+					},
+				]);
+				expect(await upgraded.use((db) => db.all(sql`SELECT * FROM poyo_upload_start`))).toEqual(
+					[],
+				);
+				const access = createOwnerAccess(upgraded);
+				expect((await access.signIn("creator", password)).kind).toBe("session");
+				const gallery = galleryStorage(upgraded);
+				await gallery.recover();
+				expect((await gallery.read("saved"))?.bytes).toEqual(referencePng);
+				// A URL job cannot gain a file phase without a dispatch owner.
+				await expect(
+					upgraded.use((db) =>
+						db.run(sql`UPDATE image_job SET file_phase='claimed' WHERE id='pending'`).execute(),
+					),
+				).rejects.toThrow();
+			} finally {
+				await upgraded.close();
+			}
+			const recovery = await openInstallation(directory, "recovery");
+			try {
+				expect(await recovery.hasOwner()).toBe(true);
+			} finally {
+				await recovery.close();
+			}
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	},
+	30_000,
+);
