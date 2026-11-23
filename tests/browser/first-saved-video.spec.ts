@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -81,18 +82,9 @@ test("video-only key reviews once, saves one video and reopens its original byte
 		await copyFile("scripts/start.ts", join(release, "scripts/start.ts"));
 		await copyFile("package.json", join(release, "package.json"));
 		await symlink(resolve("node_modules"), join(release, "node_modules"));
-		expect(await readFile(join(release, "build/server/qualification.mp4"))).toEqual(bytes);
-		const native = process.env.SILUET_FFMPEG_DIR;
-		server = await startStudio(
-			directory,
-			"0",
-			false,
-			{
-				...fixture.env,
-				SILUET_FFMPEG_DIR: native ?? "",
-			},
-			release,
-		);
+		// The release ships no video specimen or native tool.
+		expect(existsSync(join(release, "build/server/qualification.mp4"))).toBe(false);
+		server = await startStudio(directory, "0", false, fixture.env, release);
 		const { origin, port } = server.origin;
 		await expect.poll(server.token).not.toBe("");
 		const post = (path: string, data: unknown, from = origin) =>
@@ -190,13 +182,7 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			const media = `${origin + path}/media`;
 			const before = fixture.requests.length;
 			await server.stop();
-			server = await startStudio(
-				directory,
-				port,
-				false,
-				{ ...fixture.env, SILUET_FFMPEG_DIR: "" },
-				release,
-			);
+			server = await startStudio(directory, port, false, fixture.env, release);
 			await page.request.post(`${origin}/settings/providers?/remove`, {
 				headers: { origin, accept: "text/html" },
 				form: { provider: "toapis" },
