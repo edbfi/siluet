@@ -82,6 +82,26 @@ test("an unsent video job reports when the next submission is available", () => 
 		wallet: null,
 	});
 	expect(summarizeJob({ ...unsent, skipped: "interrupted" }, true, now).submitAfter).toBeNull();
+	expect(summarizeJob(unsent, true, now).message).toBe(
+		"Not submitted. A provider cooldown was active. Review again before queuing.",
+	);
+	expect(summarizeJob(unsent, true, now + 60_000).submitAfter).toBeNull();
+});
+
+test("a throttled video job reports its cooldown and stays uncertain", () => {
+	const throttled = {
+		...h3,
+		state: "unknown",
+		task_id: null,
+		throttle: 1,
+		retry_at: now + 60_000,
+	} as const;
+	expect(summarizeJob(throttled, true, now)).toMatchObject({
+		state: "unknown",
+		submitAfter: now + 60_000,
+		message: expect.stringContaining("Check provider history"),
+	});
+	expect(summarizeJob(throttled, true, now + 60_000).submitAfter).toBeNull();
 });
 
 test("every video job uses the video window, Save gate and expiry wording", () => {

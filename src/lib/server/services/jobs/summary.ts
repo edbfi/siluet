@@ -40,7 +40,7 @@ export type JobSummary = {
 	updatedAt: number;
 	pollDeadline: number;
 	nextReadAt: number | null;
-	/** An unsent job's provider cooldown. A fresh Review can queue after it. */
+	/** A pending provider cooldown from a skipped job or a throttled video submission. A fresh Review can queue after it. */
 	submitAfter: number | null;
 	tracking: "automatic" | "manual" | "paused" | "done";
 	message: string | null;
@@ -162,8 +162,8 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		message = "Not submitted. New task evidence ruled out this retry.";
 	else if (job.skipped)
 		message =
-			job.skipped === "cooldown" && job.retry_at
-				? `Not submitted. Provider cooldown until ${new Date(job.retry_at).toISOString()}. Review again before queuing.`
+			job.skipped === "cooldown"
+				? "Not submitted. A provider cooldown was active. Review again before queuing."
 				: "Not submitted. The dispatch window closed before sending.";
 	else if (job.throttle && job.batch_id) message = "Not admitted · throttled";
 	if (job.state === "failed") {
@@ -210,7 +210,12 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		updatedAt: job.updated_at ?? job.created_at,
 		pollDeadline: jobPollDeadline(job),
 		nextReadAt: job.next_read_at ?? (lookupPending ? job.created_at + 5_000 : null),
-		submitAfter: job.skipped === "cooldown" ? job.retry_at : null,
+		submitAfter:
+			(job.skipped === "cooldown" || (video && job.throttle)) &&
+			job.retry_at !== null &&
+			job.retry_at > now
+				? job.retry_at
+				: null,
 		tracking,
 		message,
 		quote: JSON.parse(job.quote) as PriceEstimate,

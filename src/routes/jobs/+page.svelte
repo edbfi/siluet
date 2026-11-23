@@ -224,7 +224,7 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 					{/if}
 				</p>
 			{/if}
-			{#if job.video && job.submitAfter !== null}
+			{#if job.submitAfter !== null && job.submitAfter > data.now}
 				<p class={styles.meta}>Next submission available after {@render date(job.submitAfter)}.</p>
 			{/if}
 			{#if cooldown && (job.canRefresh || job.canLookup || job.tracking === "automatic")}
