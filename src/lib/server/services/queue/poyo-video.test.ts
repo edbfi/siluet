@@ -488,3 +488,25 @@ test("P-01: racing claims of one Review return one job and send one POST", async
 	).toEqual({ error: "invalid" });
 	expect(seen.posts).toBe(1);
 });
+
+test("after the quote expires a claimed Review replays its job and an unclaimed one is stale, with 0 more POSTs", async () => {
+	const seen = calls();
+	const { store, queue } = await studio(
+		poyo(seen, () => {
+			throw new Error("lost acknowledgement");
+		}),
+		{ feeds: knownFeeds() },
+	);
+	await store.save("poyo", "balance-only", now, false, 0);
+	const claimed = await reviewAndClick(queue);
+	const unclaimed = await reviewAndClick(queue);
+	const result = await queue.submit("owner", claimed.click);
+	expect(result).toHaveProperty("jobId");
+	expect(seen.posts).toBe(1);
+	if (claimed.review.quote.status !== "known") throw new Error("Expected a known quote.");
+	now = Date.parse(claimed.review.quote.expiresAt);
+	expect(await queue.submit("owner", claimed.click)).toEqual(result);
+	expect(await queue.submit("owner", unclaimed.click)).toEqual({ error: "stale" });
+	expect(seen.posts).toBe(1);
+	expect(await imageJobStore(db).list()).toHaveLength(1);
+});

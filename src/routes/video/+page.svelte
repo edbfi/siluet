@@ -66,6 +66,8 @@ let reviewed = $state<{
 let acceptTerms = $state(false);
 let pending = $state(false);
 let notice = $state("");
+// The exact body of a Queue whose outcome is unknown. Expiry and edits keep it for a byte-for-byte retry.
+let attempt = $state<string | null>(null);
 const edges = $derived(draft.aspect_ratio.split(":").map(Number));
 const size = $derived(new TextEncoder().encode(draft.prompt.trim()).length);
 const promptError = $derived(
@@ -120,21 +122,25 @@ $effect(() => {
 		document.removeEventListener("visibilitychange", watch.refresh);
 	};
 });
-async function act(queue: boolean) {
-	if (pending || promptError || (queue && (!reviewed || !acceptTerms))) return;
+async function act(queue: boolean, replay?: string) {
+	if (pending) return;
+	if (replay === undefined && (promptError || (queue && (!reviewed || !acceptTerms)))) return;
 	pending = true;
+	const body =
+		replay ??
+		JSON.stringify({
+			draft: requestDraft(),
+			operationKey: operation.key,
+			count: 1,
+			retryLimit: 0,
+			acceptTerms,
+			...(queue && { token: reviewed?.token }),
+		});
 	try {
 		const response = await fetch(queue ? "/video/queue" : "/video/review", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				draft: requestDraft(),
-				operationKey: operation.key,
-				count: 1,
-				retryLimit: 0,
-				acceptTerms,
-				...(queue && { token: reviewed?.token }),
-			}),
+			body,
 		});
 		if (!response.ok) {
 			if (queue && response.status === 429) {
@@ -145,6 +151,7 @@ async function act(queue: boolean) {
 				}
 			}
 			if (queue && response.status >= 500) throw new Error("Queue interrupted.");
+			if (replay !== undefined) attempt = null;
 			edit();
 			notice = "Review the current request and its terms again.";
 			return;
@@ -157,6 +164,7 @@ async function act(queue: boolean) {
 			notice = "Request reviewed.";
 		}
 	} catch {
+		if (queue) attempt = body;
 		notice = queue
 			? "The Queue response was interrupted. Retry the same reviewed request or check Jobs."
 			: "Review is unavailable. Try again.";
@@ -285,6 +293,18 @@ const frame = css({
 	<section class={style.panel} aria-labelledby="video-review">
 		<h2 class={style.heading} id="video-review">Review</h2>
 		<p role="status">{notice}</p>
+		{#if attempt}
+			<p id="queue-retry">The retry sends the interrupted request unchanged.</p>
+			<button
+				type="button"
+				class={studioButton()}
+				disabled={pending}
+				aria-describedby="queue-retry"
+				onclick={() => act(true, attempt ?? undefined)}
+			>
+				Retry the interrupted request
+			</button>
+		{/if}
 		{#if reviewed}
 			<p>Create video · {title}{poyo ? "" : " · MP4"}</p>
 			<p>1 potentially billable submission</p>

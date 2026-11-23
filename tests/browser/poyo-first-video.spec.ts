@@ -223,6 +223,58 @@ test("model switch keeps prompt, clears consent, and a Poyo-only owner saves one
 	}
 });
 
+test("a dropped Queue response stays retryable after the rates expire and replays the same token once", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	const directory = await createOwnerDirectory();
+	const cache = await createOwnerDirectory();
+	const counts = { posts: 0 };
+	const fixture = poyoFixtures(new Uint8Array(0), counts);
+	let server: Studio | undefined;
+	try {
+		const rates = await writeReviewPricing(cache, 0, undefined, { "h3-max": h3Rate });
+		await page.clock.install({ time: new Date(rates.observedMs + 60_000) });
+		server = await startStudio(directory, "0", false, { ...fixture.env, XDG_CACHE_HOME: cache });
+		const { origin } = server.origin;
+		await signInWithPoyo(page, server);
+		await page.goto(`${origin}/video?model=h3-max`);
+		await page.getByRole("textbox", { name: "Prompt" }).fill(prompt);
+		const reviewed = page.waitForResponse((r) => new URL(r.url()).pathname === "/video/review");
+		await page.getByRole("button", { name: "Review request" }).press("Enter");
+		const { token, quote } = await (await reviewed).json();
+		await page.getByRole("checkbox", { name: /I accept/ }).check();
+		const clicks: string[] = [];
+		await page.route("**/video/queue", async (route) => {
+			clicks.push(route.request().postData() ?? "");
+			if (clicks.length === 1) {
+				expect((await route.fetch()).status()).toBe(200);
+				await route.abort("failed");
+			} else await route.continue();
+		});
+		await page.getByRole("button", { name: "Queue 1 request" }).press("Enter");
+		await expect(page.getByText(/Queue response was interrupted/)).toBeVisible();
+		await page.clock.fastForward(Date.parse(quote.expiresAt) - rates.observedMs);
+		await expect(page.getByRole("status")).toHaveText(
+			"The reviewed rates expired. Review the request again before queuing.",
+		);
+		await expect(page.getByRole("button", { name: "Queue 1 request" })).toHaveCount(0);
+		await page.getByRole("textbox", { name: "Prompt" }).fill("A later edit.");
+		await page.getByRole("button", { name: "Retry the interrupted request" }).press("Enter");
+		await expect(page).toHaveURL(/\/jobs#job-/);
+		expect(clicks).toHaveLength(2);
+		expect(clicks[1]).toBe(clicks[0]);
+		expect(JSON.parse(clicks[0])).toMatchObject({ token, draft: { prompt } });
+		expect(counts.posts).toBe(1);
+		await expect(page.getByRole("article")).toHaveCount(1);
+	} finally {
+		await server?.stop();
+		fixture.stop();
+		await rm(directory, { recursive: true, force: true });
+		await rm(cache, { recursive: true, force: true });
+	}
+});
+
 test("an unknown H3 price needs consent naming it, and a Security change clears the H3 draft", async ({
 	page,
 	context,
