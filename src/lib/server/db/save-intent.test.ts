@@ -165,6 +165,17 @@ test("every outcome is fenced by its attempt token", async () => {
 	expect(await saves.nextDue(now)).toBeNull();
 });
 
+test("a worker pass clears only claims that belong to no running attempt", async () => {
+	const saves = saveIntentStore(installation);
+	for (const id of ["running", "stale"])
+		await insert(id, "completed", sql`UPDATE image_job SET save_due=${now} WHERE id=${id}`);
+	await saves.claim("running", "live", now);
+	await saves.claim("stale", "lost", now);
+	await saves.clearAbandoned(["live"]);
+	expect(await row("running")).toMatchObject({ save_attempt: "live", save_due: now });
+	expect(await row("stale")).toMatchObject({ save_attempt: null, save_due: now });
+});
+
 test("startup clears abandoned attempts and keeps their intent, tries and holds", async () => {
 	const saves = saveIntentStore(installation);
 	await insert(

@@ -95,8 +95,11 @@ export function saveIntentStore({ use }: Installation) {
 		release(id: string, token: string) {
 			return settle(id, token, sql`save_due=save_due`);
 		},
-		/** Startup: attempts from an earlier process ended with it. */
-		/** Clear every claim except those of attempts still running in this process. */
+		/**
+		 * Clear every claim except those of attempts still running in this process. At startup that
+		 * is every claim, since an earlier process's attempts ended with it; each worker pass also
+		 * clears a claim whose release failed.
+		 */
 		clearAbandoned(running: readonly string[] = []) {
 			const keep = running.length
 				? sql` AND save_attempt NOT IN (${sql.join(
