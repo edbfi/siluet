@@ -112,7 +112,10 @@ $effect(() => {
 		if (time < expiresAt) return;
 		reviewed = null;
 		acceptTerms = false;
-		notice = "The reviewed rates expired. Review the request again before queuing.";
+		// An interrupted Queue may already be claimed; its retry is the safe next step.
+		notice = attempt
+			? "The reviewed rates expired. Retry the interrupted request or check Jobs before reviewing again."
+			: "The reviewed rates expired. Review the request again before queuing.";
 	});
 	window.addEventListener("focus", watch.refresh);
 	document.addEventListener("visibilitychange", watch.refresh);
@@ -151,7 +154,13 @@ async function act(queue: boolean, replay?: string) {
 				}
 			}
 			if (queue && response.status >= 500) throw new Error("Queue interrupted.");
-			if (replay !== undefined) attempt = null;
+			// A definite refusal means the saved token was never claimed.
+			if (replay !== undefined || body === attempt) attempt = null;
+			if (replay !== undefined) {
+				// Keep any newer Review and its consent.
+				notice = "The interrupted request was never queued. Nothing was sent.";
+				return;
+			}
 			edit();
 			notice = "Review the current request and its terms again.";
 			return;

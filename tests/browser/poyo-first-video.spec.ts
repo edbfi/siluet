@@ -255,8 +255,9 @@ test("a dropped Queue response stays retryable after the rates expire and replay
 		await page.getByRole("button", { name: "Queue 1 request" }).press("Enter");
 		await expect(page.getByText(/Queue response was interrupted/)).toBeVisible();
 		await page.clock.fastForward(Date.parse(quote.expiresAt) - rates.observedMs);
+		// The pending retry, not a fresh Review, is the safe next step.
 		await expect(page.getByRole("status")).toHaveText(
-			"The reviewed rates expired. Review the request again before queuing.",
+			"The reviewed rates expired. Retry the interrupted request or check Jobs before reviewing again.",
 		);
 		await expect(page.getByRole("button", { name: "Queue 1 request" })).toHaveCount(0);
 		await page.getByRole("textbox", { name: "Prompt" }).fill("A later edit.");
@@ -267,6 +268,57 @@ test("a dropped Queue response stays retryable after the rates expire and replay
 		expect(JSON.parse(clicks[0])).toMatchObject({ token, draft: { prompt } });
 		expect(counts.posts).toBe(1);
 		await expect(page.getByRole("article")).toHaveCount(1);
+	} finally {
+		await server?.stop();
+		fixture.stop();
+		await rm(directory, { recursive: true, force: true });
+		await rm(cache, { recursive: true, force: true });
+	}
+});
+
+test("a refused retry of a request that never arrived keeps the newer Review", async ({ page }) => {
+	test.setTimeout(60_000);
+	const directory = await createOwnerDirectory();
+	const cache = await createOwnerDirectory();
+	const counts = { posts: 0 };
+	const fixture = poyoFixtures(new Uint8Array(0), counts);
+	let server: Studio | undefined;
+	try {
+		await writeReviewPricing(cache, 0, undefined, { "h3-max": h3Rate });
+		server = await startStudio(directory, "0", false, { ...fixture.env, XDG_CACHE_HOME: cache });
+		const { origin } = server.origin;
+		await signInWithPoyo(page, server);
+		await page.goto(`${origin}/video?model=h3-max`);
+		const promptField = page.getByRole("textbox", { name: "Prompt" });
+		await promptField.fill(prompt);
+		await page.getByRole("button", { name: "Review request" }).press("Enter");
+		await page.getByRole("checkbox", { name: /I accept/ }).check();
+		let dropped = false;
+		await page.route("**/video/queue", async (route) => {
+			if (dropped) return route.continue();
+			dropped = true;
+			// The request never reaches the server, so its token is never claimed.
+			await route.abort("failed");
+		});
+		await page.getByRole("button", { name: "Queue 1 request" }).press("Enter");
+		await expect(page.getByText(/Queue response was interrupted/)).toBeVisible();
+		// The H3 rate disappears, so the unclaimed token is stale and a new Review is unpriced.
+		await writeReviewPricing(cache, 0);
+		await promptField.fill("A newer request.");
+		await page.getByRole("button", { name: "Review request" }).press("Enter");
+		await expect(page.getByText("Request reviewed.")).toBeVisible();
+		const consent = page.getByRole("checkbox", { name: /I accept/ });
+		await consent.check();
+		await page.getByRole("button", { name: "Retry the interrupted request" }).press("Enter");
+		await expect(page.getByRole("status")).toHaveText(
+			"The interrupted request was never queued. Nothing was sent.",
+		);
+		await expect(page.getByRole("button", { name: "Retry the interrupted request" })).toHaveCount(
+			0,
+		);
+		await expect(page.getByRole("button", { name: "Queue 1 request" })).toBeEnabled();
+		await expect(consent).toBeChecked();
+		expect(counts.posts).toBe(0);
 	} finally {
 		await server?.stop();
 		fixture.stop();
