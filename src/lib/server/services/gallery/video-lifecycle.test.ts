@@ -214,3 +214,27 @@ test("a complete clip saves without native tools and refusals name the profile o
 		},
 	);
 });
+
+test("a video over 64 MiB, declared or observed, gets the profile message", async () => {
+	const chunk = new Uint8Array(1024 * 1024);
+	const oversized = () => {
+		let sent = 0;
+		return new ReadableStream<Uint8Array>({
+			pull(controller) {
+				if (sent++ > 64) controller.close();
+				else controller.enqueue(chunk);
+			},
+		});
+	};
+	for (const respond of [
+		() => new Response("large", { headers: { "content-length": String(64 * 1024 * 1024 + 1) } }),
+		() => new Response(oversized()),
+	])
+		await withGallery(respond, async (gallery, directory) => {
+			expect(await gallery.saveVideo("large", delivery)).toBe(
+				"This completed video is outside the supported Gallery profile.",
+			);
+			expect(await gallery.get("large")).toBeNull();
+			expect(await scratchFiles(directory)).toBeEmpty();
+		});
+});

@@ -3,6 +3,7 @@ import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { downloadVideo } from "./download";
+import { UnsupportedVideoError } from "./errors";
 import { videoByteLimit } from "./limits";
 
 const source = { url: "https://93.184.216.34/primary", fallback: "https://93.184.216.34/fallback" };
@@ -170,3 +171,37 @@ test.each(["header deadline", "total budget"])(
 		}
 	},
 );
+
+test("a declared or observed size over the limit is an unsupported file size", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "video-size-"));
+	const chunk = new Uint8Array(1024 * 1024);
+	try {
+		for (const response of [
+			() => new Response("large", { headers: { "content-length": String(videoByteLimit + 1) } }),
+			() => {
+				let sent = 0;
+				return new Response(
+					new ReadableStream<Uint8Array>({
+						pull(controller) {
+							if (sent++ * chunk.length > videoByteLimit) controller.close();
+							else controller.enqueue(chunk);
+						},
+					}),
+				);
+			},
+		]) {
+			const error = await downloadVideo(
+				{ url: source.url, fallback: null },
+				join(dir, crypto.randomUUID()),
+				{
+					resolve: async () => "",
+					request: async () => response(),
+				},
+			).catch((caught: unknown) => caught);
+			expect(error).toBeInstanceOf(UnsupportedVideoError);
+			expect((error as Error).message).toMatch(/file size/);
+		}
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});

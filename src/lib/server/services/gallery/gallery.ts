@@ -11,6 +11,10 @@ const unsupported = {
 	profile: "This completed video is outside the supported Gallery profile.",
 	webm: "This completed video is WebM or Matroska. Gallery keeps MP4 files only.",
 };
+function refused(error: unknown) {
+	if (error instanceof UnsupportedVideoError) return error;
+	throw error;
+}
 
 export function createGallery(
 	installation: RuntimeInstallation,
@@ -52,11 +56,9 @@ export function createGallery(
 					const delivery = await result();
 					if (!delivery)
 						return "The current task has no verified, unexpired video link. Check status and retry Save.";
-					const bytes = await transferVideo(delivery, path);
-					const info = await verifyVideoFile(path).catch((error) => {
-						if (error instanceof UnsupportedVideoError) return error;
-						throw error;
-					});
+					const bytes = await transferVideo(delivery, path).catch(refused);
+					if (bytes instanceof UnsupportedVideoError) return unsupported[bytes.reason];
+					const info = await verifyVideoFile(path).catch(refused);
 					if (info instanceof UnsupportedVideoError) return unsupported[info.reason];
 					return (await storage.publishVideo(id, path, token, { ...bytes, ...info }))
 						? "Saved to Gallery."
