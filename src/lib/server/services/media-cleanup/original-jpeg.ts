@@ -16,7 +16,7 @@ const otherFrames = new Set([0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xc
 const starts = (data: Buffer, prefix: Buffer) => data.subarray(0, prefix.length).equals(prefix);
 
 // Reassemble APP2 ICC_PROFILE chunks by sequence number. A set that does not fit
-// together is metadata like any other and passes; only an HDR declaration refuses.
+// together passes here; the decode then checks the profile the decoder assembles.
 function iccHdr(parts: Buffer[]) {
 	const total = parts.length;
 	const sorted = parts.toSorted((a, b) => a[12] - b[12]);

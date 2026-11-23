@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { profileHdr } from "./icc-profile";
 import { JpegCleanupError } from "./jpeg-errors";
 import { jpegMaxPixels } from "./jpeg-markers";
 import { verifyOriginalJpeg } from "./original-jpeg";
@@ -22,8 +23,11 @@ export async function verifyOriginal(
 	const source = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const mime = mediaMime(source);
 	const png = mime === "image/png";
-	const fail = (code: "invalid" | "cancelled"): never => {
-		if (png) throw new PngCleanupError(code === "invalid" ? "invalid-png" : "cancelled");
+	const fail = (code: "invalid" | "cancelled" | "hdr"): never => {
+		if (png)
+			throw new PngCleanupError(
+				code === "invalid" ? "invalid-png" : code === "hdr" ? "hdr-png" : "cancelled",
+			);
 		throw new JpegCleanupError(code);
 	};
 	const active = () => {
@@ -47,9 +51,13 @@ export async function verifyOriginal(
 		image.on("warning", (message: string) => {
 			if (!(png && /^iCCP: /.test(message))) warned = true;
 		});
-		const { format, width, height, orientation } = await image.metadata();
+		const { format, width, height, orientation, icc } = await image.metadata();
 		active();
 		if (warned || format !== (png ? "png" : "jpeg")) fail("invalid");
+		// The decoder may assemble a profile the structure walk did not, for example
+		// when a later ICC marker leaves the walk's set incomplete. The walk already
+		// bounded every ICC byte to 1 MiB.
+		if (icc && profileHdr(icc) === "hdr") fail("hdr");
 		if (width !== header.width || height !== header.height) fail("invalid");
 		const { info } = await image
 			.timeout({ seconds: 5 })

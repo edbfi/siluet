@@ -72,6 +72,12 @@ describe("an original JPEG", () => {
 		await refused(withSegments(still, ...iccSegments(icc([lutTag, gainTag]), 64)), "hdr");
 	});
 
+	test("is refused when a complete PQ profile hides behind a later ICC marker", async () => {
+		const file = withSegments(await jpeg(), ...iccSegments(icc([cicpTag(9, 16)])));
+		const extra = segment(0xe2, Buffer.from("ICC_PROFILE\0\x01\x01PRIVATE_MARKER", "latin1"));
+		await refused(Buffer.concat([file.subarray(0, -2), extra, file.subarray(-2)]), "hdr");
+	});
+
 	test("is refused when its ICC profile exceeds 1 MiB", async () => {
 		const large = icc([lutTag, ["priv", Buffer.alloc(1024 * 1024)]]);
 		await refused(withSegments(await jpeg(), ...iccSegments(large)), "limit");
