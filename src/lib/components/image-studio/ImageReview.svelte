@@ -3,6 +3,7 @@ import { Tabs } from "@ark-ui/svelte/tabs";
 import { onDestroy, tick } from "svelte";
 import {
 	fileByteLimit,
+	fileLimitMessage,
 	filePlaceholder,
 	fileUploadRoutes,
 	neutralFilename,
@@ -204,26 +205,12 @@ function post(path: string, body: object) {
 	});
 }
 
-function megabytes(size: number) {
-	return `${(size / 1_000_000).toFixed(1)} MB`;
-}
-
-// A file Review or Queue found its copy stale: prepare the attached file again.
-function renewFile(input: QueueInput) {
+// A file Review or Queue found its copy stale: prepare the attached file again. The
+// copy's own status describes the preparation.
+function renewFile() {
 	authorized = null;
 	acceptedToken = null;
 	localFile?.renew();
-	feedback = {
-		request: input,
-		message: "Preparing the attached file again. Review it when it is ready.",
-	};
-}
-
-function fileLimitMessage(result: unknown) {
-	const { size, limit } = (result ?? {}) as { size?: unknown; limit?: unknown };
-	if (typeof size !== "number" || typeof limit !== "number")
-		return "The file is too large for this provider.";
-	return `Poyo.ai accepts files up to ${megabytes(limit)}; this ${fileWord} is ${megabytes(size)}. Choose ToAPIs or export a smaller image.`;
 }
 
 function applyTerms(input: QueueInput, terms: ReviewTerms) {
@@ -272,13 +259,13 @@ async function inspect() {
 		// A response for a copy that is no longer current is dropped.
 		if (!mounted || input !== request) return;
 		if (input.stage && response.status === 409) {
-			renewFile(input);
+			renewFile();
 			return;
 		}
 		if (input.stage && response.status === 413) {
 			feedback = {
 				request: input,
-				message: fileLimitMessage(await response.json().catch(() => null)),
+				message: fileLimitMessage(await response.json().catch(() => null), fileWord),
 			};
 			return;
 		}
@@ -323,7 +310,7 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 			return;
 		}
 		if (response.status === 413) {
-			tell(fileLimitMessage(await response.json().catch(() => null)));
+			tell(fileLimitMessage(await response.json().catch(() => null), fileWord));
 			return;
 		}
 		if (response.status === 409) {
@@ -342,7 +329,7 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 				return;
 			}
 			if (!input) return refused();
-			renewFile(input);
+			renewFile();
 			return;
 		}
 		if (response.status === 400) {

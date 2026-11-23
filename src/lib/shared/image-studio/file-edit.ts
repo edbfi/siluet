@@ -15,6 +15,25 @@ export const fileByteLimit = { poyo: 10_000_000, toapis: 30_000_000 };
 export const neutralFilename = (mime: StageDescriptor["mime"]) =>
 	mime === "image/png" ? "reference.png" : "reference.jpg";
 
+const megabytes = (size: number) => `${(size / 1_000_000).toFixed(1)} MB`;
+
+/**
+ * Explain a 413 from file Review or Queue: the provider that refused, its limit and this
+ * file's size. Only a Poyo.ai refusal can be solved by choosing ToAPIs.
+ */
+export function fileLimitMessage(answer: unknown, fileWord: string) {
+	const { provider, size, limit } = (answer ?? {}) as Record<string, unknown>;
+	if (
+		(provider !== "poyo" && provider !== "toapis") ||
+		typeof size !== "number" ||
+		typeof limit !== "number"
+	)
+		return "The file is too large for this provider.";
+	const advice =
+		provider === "poyo" ? "Choose ToAPIs or export a smaller image." : "Export a smaller image.";
+	return `${seedreamProviderNames[provider]} accepts files up to ${megabytes(limit)}; this ${fileWord} is ${megabytes(size)}. ${advice}`;
+}
+
 /** Shown only with an original whose file declares a rotation (D10). */
 export const originalRotationNote =
 	"Providers do not document camera orientation; the result may come back rotated.";

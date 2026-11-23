@@ -149,8 +149,8 @@ function tagHdr(profile: Buffer, tag: string, offset: number, size: number) {
 
 /**
  * Whether a profile declares HDR, for an original sent unchanged. It walks only a tag
- * table that fits the profile and never judges other color content: a profile it
- * cannot read, or one that is not sRGB, gives nothing.
+ * table that fits the profile and never reports `color`; a profile it cannot read gives
+ * nothing.
  */
 export function profileHdr(profile: Buffer): "hdr" | undefined {
 	if (profile.length < 132) return;

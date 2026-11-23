@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import sharp from "sharp";
 import { cmykJpeg, markedFile } from "../fixtures/local-image";
@@ -285,5 +286,27 @@ test("Retry after an edit resends the earlier request and says so", async ({ pag
 		expect(bodies[2]).toBe(bodies[0]);
 		await expect(page.getByRole("article")).toHaveCount(1);
 		await expect.poll(() => fixtures.uploads.length, { timeout: 20_000 }).toBe(1);
+	});
+});
+
+test("Poyo.ai's file limit is explained before anything is sent", async ({ page }) => {
+	await withEditStudio(page, "poyo", "completed", async ({ origin, fixtures }) => {
+		const { file, inspect, review } = await openEdit(page, origin);
+		// Noise does not compress: about 11.4 MB as a PNG, over Poyo.ai's 10 MB.
+		const [width, height] = [1900, 2000];
+		const noisy = await sharp(randomBytes(width * height * 3), {
+			raw: { width, height, channels: 3 },
+		})
+			.png({ compressionLevel: 0 })
+			.toBuffer();
+		await file.setInputFiles({ name: "noise.png", mimeType: "image/png", buffer: noisy });
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./, { timeout: 30_000 });
+		const requests = fixtures.requests.length;
+		await inspect.press("Enter");
+		await expect(review.getByRole("status")).toHaveText(
+			/^Poyo\.ai accepts files up to 10\.0 MB; this cleaned copy is 11\.\d MB\. Choose ToAPIs or export a smaller image\.$/,
+		);
+		expect(fixtures.requests.length).toBe(requests);
+		expect(fixtures.uploads).toHaveLength(0);
 	});
 });
