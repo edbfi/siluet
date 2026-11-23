@@ -96,9 +96,16 @@ export function saveIntentStore({ use }: Installation) {
 			return settle(id, token, sql`save_due=save_due`);
 		},
 		/** Startup: attempts from an earlier process ended with it. */
-		clearAbandoned() {
+		/** Clear every claim except those of attempts still running in this process. */
+		clearAbandoned(running: readonly string[] = []) {
+			const keep = running.length
+				? sql` AND save_attempt NOT IN (${sql.join(
+						running.map((token) => sql`${token}`),
+						sql`,`,
+					)})`
+				: sql``;
 			return use((db) =>
-				db.run(sql`UPDATE image_job SET save_attempt=NULL WHERE save_attempt IS NOT NULL`),
+				db.run(sql`UPDATE image_job SET save_attempt=NULL WHERE save_attempt IS NOT NULL${keep}`),
 			);
 		},
 		/**

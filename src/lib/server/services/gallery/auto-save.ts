@@ -75,7 +75,7 @@ export function createAutoSave(
 	const jobs = imageJobStore(installation);
 	const storage = galleryStorage(installation);
 	const deliveries = new Map<string, VideoDelivery>();
-	const active = new Map<string, { video: boolean; done: Promise<void> }>();
+	const active = new Map<string, { video: boolean; token: string; done: Promise<void> }>();
 	const shutdown = new AbortController();
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	// A later look after a failed outcome write; nothing else may wake the worker.
@@ -181,10 +181,13 @@ export function createAutoSave(
 				// again. A missed claim is not claimable again, so this cannot spin.
 				if (changed || capped) wake();
 			});
-		active.set(job.id, { video, done });
+		active.set(job.id, { video, token, done });
 	}
 
 	async function fill() {
+		// A claim whose release failed belongs to no running attempt; clear it in this process.
+		await saves.clearAbandoned([...active.values()].map((entry) => entry.token));
+		if (shutdown.signal.aborted) return;
 		const time = now();
 		const due = await saves.pendingSaves(time);
 		if (shutdown.signal.aborted) return;

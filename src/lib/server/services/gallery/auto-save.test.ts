@@ -662,6 +662,35 @@ test("a failed write that settles an attempt looks again after a delay without a
 	expect((await summary("image"))?.library).toBe("saved");
 });
 
+test("a claim whose release also failed is cleared by the next pass without a restart", async () => {
+	const use = installation.use;
+	let failures = 0;
+	installation.use = ((work) => {
+		if (!failures) return use(work);
+		failures--;
+		return Promise.reject(
+			Object.assign(new Error("Fixture database full"), { code: "SQLITE_FULL" }),
+		);
+	}) as typeof use;
+	let refuse = true;
+	runtime = open({
+		settleRetryDelay: 20,
+		transferImage: async (url, transport, signal) => {
+			if (!refuse) return downloadImage(url, transport, signal);
+			refuse = false;
+			// Both the outcome write and the release that gives the claim back fail.
+			failures = 2;
+			throw new Error("Fixture CDN reset");
+		},
+	});
+	await runtime.start();
+	await complete("image");
+	now += 2_000;
+	await Bun.sleep(200);
+	await settle();
+	expect((await summary("image"))?.library).toBe("saved");
+});
+
 test("a failed write that settles an attempt gives the claim back without counting a try", async () => {
 	const use = installation.use;
 	let failNext = false;
