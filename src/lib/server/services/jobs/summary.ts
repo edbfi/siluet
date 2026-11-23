@@ -40,6 +40,8 @@ export type JobSummary = {
 	updatedAt: number;
 	pollDeadline: number;
 	nextReadAt: number | null;
+	/** An unsent job's provider cooldown. A fresh Review can queue after it. */
+	submitAfter: number | null;
 	tracking: "automatic" | "manual" | "paused" | "done";
 	message: string | null;
 	quote: PriceEstimate;
@@ -50,6 +52,7 @@ export type JobSummary = {
 	canLookup: boolean;
 	progress: number | null;
 	canSave: boolean;
+	video: boolean;
 };
 
 const rejections: Record<Rejection, string> = {
@@ -207,6 +210,7 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		updatedAt: job.updated_at ?? job.created_at,
 		pollDeadline: jobPollDeadline(job),
 		nextReadAt: job.next_read_at ?? (lookupPending ? job.created_at + 5_000 : null),
+		submitAfter: job.skipped === "cooldown" ? job.retry_at : null,
 		tracking,
 		message,
 		quote: JSON.parse(job.quote) as PriceEstimate,
@@ -221,6 +225,7 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		canRefresh,
 		canLookup: lookupPending && readable,
 		progress: job.video_progress ?? null,
+		video,
 		canSave:
 			canRefresh &&
 			job.state === "completed" &&

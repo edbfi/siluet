@@ -216,19 +216,29 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 				<p class={styles.note}>
 					{#if job.expiresAt}
 						Provider result expires {@render date(job.expiresAt)}.
+					{:else if job.video && job.provider === "poyo"}
+						Poyo.ai keeps video content for three days after creation, and a file link can expire
+						after 24 hours. Save it promptly.
 					{:else}
 						Expiry unknown. The provider keeps this result for a limited time. Save it promptly.
 					{/if}
 				</p>
 			{/if}
+			{#if job.video && job.submitAfter !== null}
+				<p class={styles.meta}>Next submission available after {@render date(job.submitAfter)}.</p>
+			{/if}
 			{#if cooldown && (job.canRefresh || job.canLookup || job.tracking === "automatic")}
 				<p class={styles.meta}>Next status check available {@render date(cooldown)}.</p>
 			{/if}
-			{#if saved || job.canSave || job.canRefresh || job.state === "unknown"}
+			{#if saved ||
+				job.canSave ||
+				job.canRefresh ||
+				job.state === "unknown" ||
+				(job.video && job.state === "unsent")}
 				<div class={styles.actions}>
 					{#if saved}
 						<a class={styles.link} href={`/gallery/${encodeURIComponent(job.id)}`}
-							>Open saved {job.model === "seedance-2-5" ? "video" : "image"}</a
+							>Open saved {job.video ? "video" : "image"}</a
 						>
 					{:else if job.canSave}
 						<form method="POST" action="?/save" use:enhance={submit(job.id, "save")}>
@@ -254,7 +264,7 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 							</button>
 						</form>
 					{/if}
-					{#if job.state === "unknown"}
+					{#if job.state === "unknown" || (job.video && job.state === "unsent")}
 						{#if job.canLookup}
 							<form method="POST" action="?/lookup" use:enhance={submit(job.id, "lookup")}>
 								<input type="hidden" name="id" value={job.id}>
@@ -267,7 +277,9 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 								</button>
 							</form>
 						{/if}
-						<a class={styles.link} href={job.model === "seedance-2-5" ? "/video" : "/image"}
+						<a
+							class={styles.link}
+							href={job.video ? `/video?model=${encodeURIComponent(job.model)}` : "/image"}
 							>Review a new request</a
 						>
 					{/if}
