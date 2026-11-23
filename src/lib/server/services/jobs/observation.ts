@@ -104,8 +104,9 @@ export function statusUpdate(
 					note = observation.unsupportedVideoResult
 						? "unsupported-video-result"
 						: "result-unavailable";
-				// A link-less first completion shows Download failed at once; the worker clears an expired one.
-				if (!resultUrl && !expired) saveHold = "failed";
+				// A link-less first completion shows its final state at once; the worker clears an expired one.
+				if (!resultUrl && !expired)
+					saveHold = observation.unsupportedVideoResult ? "unsupported" : "failed";
 			}
 		} else {
 			note = "unknown-status";

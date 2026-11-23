@@ -924,6 +924,32 @@ test("replacing the Poyo key pauses H3 reads and discards a read in flight", asy
 	});
 });
 
+test("an unsupported H3 video result is held as unsupported with no Retry download", async () => {
+	await insertH3();
+	const store = imageJobStore(installation);
+	await store.beginDispatch("h3", "poyo", now);
+	await store.recordSubmission("h3", { kind: "accepted", taskId: "h3_task" }, now, 2_000);
+	const media = { file_type: "video", file_url: signedUrl };
+	const { calls, onDelivery } = handoffs();
+	makeTracking(
+		async () =>
+			Response.json({
+				code: 200,
+				data: { task_id: "h3_task", status: "finished", files: [media, media] },
+			}),
+		onDelivery,
+	);
+	now += 2_000;
+	await tracker?.refresh("h3");
+	expect(await store.get("h3")).toMatchObject({ save_hold: "unsupported", save_due: null });
+	expect(await latest("h3")).toMatchObject({
+		library: "unsupported",
+		retryable: false,
+		message: expect.stringContaining("unsupported video result"),
+	});
+	expect(calls).toEqual([]);
+});
+
 test("unknown Poyo job raises no Settings warning; active and unsaved H3 jobs do", async () => {
 	const settings = providerStore(installation);
 	await settings.save("poyo", credential, now, false, 1);
