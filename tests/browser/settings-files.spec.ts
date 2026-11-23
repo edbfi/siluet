@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { chmod, readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { TOTP } from "otpauth";
 import { uprightPng } from "../fixtures/local-image";
@@ -8,11 +9,11 @@ import { startStudio } from "./built-studio";
 
 type Studio = Awaited<ReturnType<typeof startStudio>>;
 
-async function withStudio(run: (studio: Studio) => Promise<void>) {
+async function withStudio(run: (studio: Studio, directory: string) => Promise<void>) {
 	const directory = await createOwnerDirectory();
 	const studio = await startStudio(directory, "0", false);
 	try {
-		await run(studio);
+		await run(studio, directory);
 	} finally {
 		await studio.stop();
 		await rm(directory, { recursive: true, force: true });
@@ -180,6 +181,60 @@ test("a failed save puts the switch and its description back to the stored value
 			await expect(effect).toBeVisible();
 		}
 		expect(await stored(page, origin.href)).toEqual({ enabled: true, revision: 0 });
+	});
+});
+
+test("the access Retry link and a back-forward restore keep the offer", async ({ page }) => {
+	await withStudio(async (studio, directory) => {
+		const { origin } = studio;
+		const password = await claim(page, studio);
+		await page.getByLabel("Current password").fill(password);
+		await page.getByRole("button", { name: "Set up authenticator" }).click();
+		const manual = (await page.locator("section code").first().textContent()) ?? "";
+		await page
+			.getByLabel("New authenticator code")
+			.fill(new TOTP({ secret: manual }).generate({ timestamp: Date.now() }));
+		await page.getByRole("button", { name: "Confirm authenticator" }).click();
+		await expect(page.locator("section li")).toHaveCount(10);
+		await page.getByRole("link", { name: "Done" }).click();
+		await expect(page).toHaveURL(/\/settings\/files\?offer$/);
+
+		// Leaving by a category link and coming back restores the offer.
+		await page.getByRole("link", { name: "Providers" }).first().click();
+		await expect(page).toHaveURL(/\/settings\/providers$/);
+		await page.goBack();
+		await expect(page).toHaveURL(/\/settings\/files\?offer$/);
+		await expect(page.getByRole("button", { name: "Continue to studio" })).toBeVisible();
+		// So does a full page load and a return from the back-forward cache.
+		await page.goto(new URL("/settings/providers", origin).href);
+		await page.goBack();
+		await expect(page).toHaveURL(/\/settings\/files\?offer$/);
+		await expect(page.getByRole("button", { name: "Continue to studio" })).toBeVisible();
+
+		// The authenticator key cannot be read: access fails with a Retry link built from
+		// fixed keys that keeps the offer.
+		const key = (await readdir(directory)).find((entry) => /^factor-.*[.]key$/.test(entry));
+		if (!key) throw new Error("Missing fixture key.");
+		await chmod(join(directory, key), 0);
+		try {
+			await page.goto(new URL("/settings/files?offer&next=%2Fother", origin).href);
+			await expect(page.getByRole("heading", { name: "Studio access" })).toBeVisible();
+			await expect(page.getByRole("link", { name: "Retry" })).toHaveAttribute(
+				"href",
+				"/settings/files?offer",
+			);
+			await page.goto(new URL("/settings/security?offer", origin).href);
+			await expect(page.getByRole("link", { name: "Retry" })).toHaveAttribute(
+				"href",
+				"/settings/security?resume&offer",
+			);
+			await page.goto(new URL("/settings/files?offer", origin).href);
+		} finally {
+			await chmod(join(directory, key), 0o600);
+		}
+		await page.getByRole("link", { name: "Retry" }).click();
+		await expect(page).toHaveURL(/\/settings\/files\?offer$/);
+		await expect(page.getByRole("button", { name: "Continue to studio" })).toBeVisible();
 	});
 });
 

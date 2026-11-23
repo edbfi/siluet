@@ -310,3 +310,96 @@ test("Poyo.ai's file limit is explained before anything is sent", async ({ page 
 		expect(fixtures.uploads).toHaveLength(0);
 	});
 });
+
+test("showing the tab after a change elsewhere renews the copy and clears an active Review's consent", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
+		const { file, inspect, consent, queue } = await openEdit(page, origin);
+		await file.setInputFiles(await markedFile("png"));
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+		await inspect.press("Enter");
+		await consent.press("Space");
+		await expect(queue).toBeEnabled();
+		await changeElsewhere(page, origin, false);
+		await shown(page);
+		await expect(file).toHaveAccessibleDescription(/File checked · Not cleaned\./);
+		await expect(consent).toHaveCount(0);
+		await expect(queue).toBeDisabled();
+		await expect(inspect).toBeEnabled();
+		expect(fixtures.uploads).toHaveLength(0);
+	});
+});
+
+test("a Review answer that arrives after the copy was prepared again is dropped", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin }) => {
+		const { file, inspect, consent, queue } = await openEdit(page, origin);
+		const staging: string[] = [];
+		page.on("request", (request) => {
+			if (request.method() === "POST" && /\/image\/files\/[^/]+$/.test(request.url()))
+				staging.push(request.url());
+		});
+		await file.setInputFiles(await markedFile("png"));
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+		const arrived = Promise.withResolvers<void>();
+		const released = Promise.withResolvers<void>();
+		const answered = Promise.withResolvers<number>();
+		await page.route("**/image/file-review", async (route) => {
+			// The Review of the earlier copy reaches the server only after the change, which
+			// answers it as stale. Acting on that answer would prepare the new copy again.
+			arrived.resolve();
+			await released.promise;
+			const response = await route.fetch();
+			await route.fulfill({ response });
+			answered.resolve(response.status());
+		});
+		await inspect.press("Enter");
+		await arrived.promise;
+		await changeElsewhere(page, origin, false);
+		await shown(page);
+		await expect(file).toHaveAccessibleDescription(/File checked · Not cleaned\./);
+		expect(staging).toHaveLength(2);
+		released.resolve();
+		expect(await answered.promise).toBe(409);
+		await expect(inspect).toBeEnabled();
+		await page.waitForTimeout(500);
+		expect(staging).toHaveLength(2);
+		await expect(file).toHaveAccessibleDescription(/File checked · Not cleaned\./);
+		await expect(consent).toHaveCount(0);
+		await expect(queue).toBeDisabled();
+	});
+});
+
+test("a claimed request whose answer was lost replays exactly after a change elsewhere", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
+		const { file, inspect, consent, queue, review } = await openEdit(page, origin);
+		await file.setInputFiles(await markedFile("png"));
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+		await inspect.press("Enter");
+		await consent.press("Space");
+		const bodies: string[] = [];
+		await page.route("**/image/file-queue", async (route) => {
+			bodies.push(route.request().postData() ?? "");
+			const response = await route.fetch();
+			if (bodies.length === 1) return route.abort();
+			return route.fulfill({ response });
+		});
+		await queue.press("Enter");
+		await expect(review.getByRole("status")).toContainText("Queue confirmation is unavailable");
+		await changeElsewhere(page, origin, false);
+		await shown(page);
+		await expect(file).toHaveAccessibleDescription(/File checked · Not cleaned\./);
+		await review.getByRole("button", { name: "Retry", exact: true }).press("Enter");
+		await expect(page).toHaveURL(/\/jobs/);
+		expect(bodies).toEqual([bodies[0], bodies[0]]);
+		await expect(page.getByRole("article")).toHaveCount(1);
+		await expect.poll(() => fixtures.uploads.length, { timeout: 20_000 }).toBe(1);
+		// The claimed job keeps the cleaned copy it reviewed.
+		const sent = Buffer.from(await fixtures.uploads[0].file.arrayBuffer());
+		expect(sent.includes(Buffer.from("private-local-image-comment"))).toBe(false);
+	});
+});

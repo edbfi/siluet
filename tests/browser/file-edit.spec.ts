@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { sql } from "drizzle-orm";
+import sharp from "sharp";
 import { openInstallation } from "../../src/lib/server/db/installation";
-import { localImageMarker, markedFile } from "../fixtures/local-image";
+import { localImageMarker, markedFile, rotatedJpeg } from "../fixtures/local-image";
 import { editedPng } from "../fixtures/reference-edit";
 import { prompt, providerPayload, withEditStudio } from "./edit-studio-fixture";
 
@@ -112,6 +113,44 @@ for (const provider of ["poyo", "toapis"] as const) {
 			);
 		});
 	}
+}
+
+for (const provider of ["poyo", "toapis"] as const) {
+	test(`${provider} uploads exactly the previewed copy of a rotated JPEG and discloses its re-encode`, async ({
+		page,
+	}) => {
+		test.setTimeout(60_000);
+		await withEditStudio(page, provider, "completed", async ({ origin, fixtures }) => {
+			await page.goto(`${origin}/image`);
+			await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(prompt);
+			await page.getByLabel("Operation", { exact: true }).selectOption("edit");
+			const file = page.getByLabel("Reference image 1", { exact: true });
+			await file.setInputFiles({
+				name: "sideways.jpg",
+				mimeType: "image/jpeg",
+				buffer: await rotatedJpeg(),
+			});
+			await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+			const review = page.getByRole("region", { name: "Review request", exact: true });
+			const localCopy = review.getByRole("region", { name: "Local copy", exact: true });
+			await expect(localCopy).toContainText("Re-encoded to apply rotation.");
+			const src = await localCopy
+				.getByRole("img", { name: "Cleaned local copy" })
+				.getAttribute("src");
+			if (!src) throw new Error("Missing preview");
+			const previewed = await (await page.request.get(origin + src)).body();
+			const { width, height } = await sharp(previewed).metadata();
+			expect([width, height]).toEqual([32, 48]);
+			await review.getByRole("button", { name: "Review request", exact: true }).press("Enter");
+			await review.getByRole("checkbox", { name: /unknown total cost/ }).press("Space");
+			await review.getByRole("button", { name: "Queue 1 request" }).press("Enter");
+			await expect(page).toHaveURL(/\/jobs/);
+			await expect.poll(() => fixtures.uploads.length, { timeout: 20_000 }).toBe(1);
+			const sent = Buffer.from(await fixtures.uploads[0].file.arrayBuffer());
+			expect(sent.equals(previewed)).toBe(true);
+			expect(sent.includes(Buffer.from(localImageMarker))).toBe(false);
+		});
+	});
 }
 
 test("Jobs warns about restaging only for uncertain or stored uploads", async ({ page }) => {
