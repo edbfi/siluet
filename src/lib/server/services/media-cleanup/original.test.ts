@@ -19,6 +19,7 @@ import {
 	segment,
 	withSegments,
 } from "./original.fixture";
+import { verifyOriginalPng } from "./original-png";
 import { cleanPng } from "./png";
 import { PngCleanupError } from "./png-errors";
 
@@ -163,6 +164,41 @@ describe("an original PNG", () => {
 		await refused(damaged, "invalid-png");
 		await refused(Buffer.concat([file, Buffer.from("PRIVATE_MARKER")]), "trailing-png-data");
 		await refused(Buffer.concat([pngSignature, ihdr(16_385, 1), file.subarray(33)]), "png-limit");
+	});
+
+	test("is refused with two image data streams split by an ancillary chunk", async () => {
+		const rows = deflateSync(Buffer.from([0, 1, 2, 3, 4, 5, 6, 0, 7, 8, 9, 10, 11, 12]));
+		const split = Buffer.concat([
+			pngSignature,
+			ihdr(),
+			chunk("IDAT", rows.subarray(0, 8)),
+			chunk("tEXt", Buffer.from("k\0PRIVATE_MARKER")),
+			chunk("IDAT", rows.subarray(8)),
+			chunk("IEND"),
+		]);
+		await refused(split, "invalid-png");
+		// The structure walk refuses it before any decode.
+		await expect(verifyOriginalPng(split, signal)).rejects.toMatchObject({ code: "invalid-png" });
+	});
+
+	test("is refused with a repeated iCCP", async () => {
+		const profile = iccp(icc([lutTag]));
+		await refused(png(profile, profile), "invalid-png");
+		await expect(verifyOriginalPng(png(profile, profile), signal)).rejects.toMatchObject({
+			code: "invalid-png",
+		});
+	});
+
+	test("stops the chunk walk when the signal aborts", async () => {
+		let reads = 0;
+		const late = {
+			get aborted() {
+				return ++reads > 3;
+			},
+		} as AbortSignal;
+		const many = png(...Array.from({ length: 50 }, () => chunk("tEXt", Buffer.from("k\0v"))));
+		await expect(verifyOriginalPng(many, late)).rejects.toMatchObject({ code: "cancelled" });
+		expect(reads).toBeLessThan(10);
 	});
 
 	test("is refused when the decoder warns about the image data", async () => {

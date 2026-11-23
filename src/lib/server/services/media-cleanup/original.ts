@@ -35,7 +35,7 @@ export async function verifyOriginal(
 	};
 	active();
 	if (!mime) return fail("invalid");
-	const header = png ? await verifyOriginalPng(source) : verifyOriginalJpeg(source);
+	const header = png ? await verifyOriginalPng(source, signal) : verifyOriginalJpeg(source);
 	active();
 	let warned = false;
 	try {
@@ -47,7 +47,8 @@ export async function verifyOriginal(
 			sequentialRead: true,
 		});
 		// libpng reports a profile it cannot use and then ignores it, as ignoreIcc does
-		// anyway. Other profile content is metadata the owner chose to send.
+		// anyway. The structure walk already refused a second profile; other profile
+		// content is metadata the owner chose to send.
 		image.on("warning", (message: string) => {
 			if (!(png && /^iCCP: /.test(message))) warned = true;
 		});

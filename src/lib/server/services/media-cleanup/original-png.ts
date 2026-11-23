@@ -17,18 +17,22 @@ const criticalChunks = new Set(["IHDR", "PLTE", "IDAT", "IEND"]);
 
 /**
  * Check that an original is one complete still SDR PNG before it is decoded: valid
- * chunks and CRCs, nothing after IEND, no animation, no HDR declaration (including
- * one inside an embedded profile) and no unknown critical chunk. Ancillary chunks,
+ * chunks and CRCs, one run of image data, at most one profile, nothing after IEND,
+ * no animation, no HDR declaration (including one inside an embedded profile) and no
+ * unknown critical chunk. Ancillary chunks,
  * including other profiles, pass. Follows the Gallery walk (`completePng`) rather
  * than the cleaner's allowlist.
  */
-export async function verifyOriginalPng(bytes: Buffer) {
+export async function verifyOriginalPng(bytes: Buffer, signal: AbortSignal) {
 	if (bytes.length > maxPngBytes) throw new PngCleanupError("png-limit");
 	if (!bytes.subarray(0, 8).equals(pngSignature)) throw new PngCleanupError("invalid-png");
 	let header: ReturnType<typeof readHeader> | undefined;
 	let pixels = false;
+	let idat: "before" | "in" | "after" = "before";
+	let profile = false;
 	let parsed = 0;
 	for (let offset = pngSignature.length; offset + 12 <= bytes.length; ) {
+		if (signal.aborted) throw new PngCleanupError("cancelled");
 		if (parsed++ >= maxChunks) throw new PngCleanupError("png-limit");
 		const length = bytes.readUInt32BE(offset);
 		const end = offset + 8 + length;
@@ -49,8 +53,17 @@ export async function verifyOriginalPng(bytes: Buffer) {
 		if (animationChunks.has(type)) throw new PngCleanupError("animated-png");
 		if (hdrChunks.has(type)) throw new PngCleanupError("hdr-png");
 		if (type === "cICP" && cicpProblem(data) === "hdr") throw new PngCleanupError("hdr-png");
-		if (type === "iCCP" && (await iccpHdr(data))) throw new PngCleanupError("hdr-png");
-		if (type === "IDAT" && length > 0) pixels = true;
+		if (type === "iCCP") {
+			// PNG 3rd edition 5.6: at most one iCCP, and IDAT chunks are consecutive.
+			if (profile) throw new PngCleanupError("invalid-png");
+			profile = true;
+			if (await iccpHdr(data)) throw new PngCleanupError("hdr-png");
+		}
+		if (type === "IDAT") {
+			if (idat === "after") throw new PngCleanupError("invalid-png");
+			idat = "in";
+			if (length > 0) pixels = true;
+		} else if (idat === "in") idat = "after";
 		if (type === "IHDR") throw new PngCleanupError("invalid-png");
 		if (type === "IEND") {
 			if (length !== 0 || !pixels) throw new PngCleanupError("invalid-png");
