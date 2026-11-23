@@ -20,11 +20,11 @@
 
 ## First saved video
 
-- [x] Verify full-track sample accounting and native decode under the resource limits.
+- [x] Verify full-track sample accounting, timelines and decoder configuration in TypeScript (D6); the browser decodes the samples.
 - [x] Verify credential revision, eligibility, review consent and one durable generation.
 - [x] Verify read-only recovery, matching status, billing and read cooldowns.
 - [x] Verify private Save, Range playback and removal across restart in the built studio.
-- [x] Run local checks on glibc Linux ARM64 and verify offline playback in the built studio.
+- [x] Run local checks and verify offline playback in the built studio; hosted CI plays it on Linux `smoke` and macOS `native-owner`.
 - [x] Review the implementation with council and verify the registry and Z-Image have landed.
 
 ## Owner authenticator and host recovery
