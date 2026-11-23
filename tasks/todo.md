@@ -29,6 +29,17 @@
 - [ ] After merge, a pricing run publishes `h3-max` to `pricing-data` and the bundle refresh brings it into `pricing/v2/poyo.json`.
 - [ ] `smoke` and `native-owner` pass both video journeys on hosted Linux and macOS.
 
+## Automatic Save (D9)
+
+- [x] Save each completed image and video with no click and no extra status read; at most two images and one video transfer at once. `auto-save.test.ts`, `gallery-download.spec.ts`.
+- [x] Try a failed or incomplete download three times in all, then show Download failed; Retry download reads once, never submits and saves. `auto-save.test.ts`.
+- [x] Show Download failed at once for a completion without a usable link; hold an unsupported image or clip, or a WebM, on any read. `auto-save.test.ts`, `video.test.ts`, `first-saved-image.spec.ts`.
+- [x] Clear an expired intent with no request; resume a paused one after one Refresh; wait for the original key. `auto-save.test.ts`, `save-intent.test.ts`.
+- [x] Count no try for shutdown, restart, a refused read gate or a failed database write; recover an interrupted attempt with one read. `auto-save.test.ts`, `save-intent.test.ts`.
+- [x] Keep Remove until Download again; show File missing until Download again. `auto-save.test.ts`, `gallery-download.spec.ts`.
+- [x] Upgrade a #37 installation: arm completed, unsaved jobs, keep holds and save once with no POST. `media-upgrade.test.ts`, `migrations.test.ts`.
+- [x] Keep signed result links out of the database, logs and summaries. `auto-save.test.ts`.
+
 ## First saved video
 
 - [x] Verify full-track sample accounting, timelines and decoder configuration in TypeScript (D6); the browser decodes the samples.
