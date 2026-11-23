@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { connect } from "@tursodatabase/database";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/tursodatabase/database";
-import { requireSupportedPlatform, UnsupportedPlatformError } from "../platform";
+import { requireSupportedPlatform } from "../platform";
 import { installationMigrations, migrateInstallation } from "./migrations";
 
 import { DirectoryPolicyError, preparePrivateDirectory } from "./private-directory";
@@ -106,8 +106,7 @@ export async function openInstallation(
 			/Locking error: Failed locking file|locked by another process/i.test(error.message)
 		)
 			throw new DirectoryPolicyError("Studio installation is in use.");
-		if (error instanceof DirectoryPolicyError || error instanceof UnsupportedPlatformError)
-			throw error;
+		if (error instanceof DirectoryPolicyError) throw error;
 		throw storageError();
 	}
 }
