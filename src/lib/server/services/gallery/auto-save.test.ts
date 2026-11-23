@@ -296,6 +296,48 @@ test("a key replaced before publication fences the attempt and keeps the job wai
 	expect(transfers).toEqual(["image"]);
 });
 
+test("a key replaced during a transfer that then fails or finds an unsupported file changes nothing", async () => {
+	const gate = Promise.withResolvers<void>();
+	media = async (id) => {
+		await gate.promise;
+		return id === "image" ? new Response(null, { status: 404 }) : new Response(referenceGif);
+	};
+	runtime = open();
+	await runtime.start();
+	for (const id of ["image", "image-gif"]) {
+		await insert(id);
+		await runtime.jobs.refresh(id);
+	}
+	const original = await installation.use((db) =>
+		db.get<{ revision: number; ciphertext: string; verified_at: number; seedream: number }>(
+			sql`SELECT revision, ciphertext, verified_at, seedream FROM provider_credential WHERE provider='poyo'`,
+		),
+	);
+	await providerStore(installation).save("poyo", "replacement", now, true, 1);
+	gate.resolve();
+	await settle();
+	for (const id of ["image", "image-gif"]) {
+		expect(await job(id)).toEqual({
+			save_due: start,
+			save_hold: null,
+			save_attempt: null,
+			save_tries: 0,
+		});
+		expect(await summary(id)).toMatchObject({ library: "needs-key" });
+	}
+	// Nothing was consumed: once the original key is current again, both save.
+	await installation.use((db) =>
+		db.run(sql`UPDATE provider_credential SET revision=${original?.revision},
+			ciphertext=${original?.ciphertext}, verified_at=${original?.verified_at},
+			seedream=${original?.seedream} WHERE provider='poyo'`),
+	);
+	media = () => new Response(referencePng);
+	now += 5_000;
+	runtime.autoSave.start();
+	await settle();
+	for (const id of ["image", "image-gif"]) expect((await summary(id))?.library).toBe("saved");
+});
+
 test("full disk fails three times for images and videos and leaves no partial file", async () => {
 	const full = () => Object.assign(new Error("Fixture disk full"), { code: "ENOSPC" });
 	runtime = open({

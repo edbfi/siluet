@@ -22,12 +22,21 @@ const claimable = (
 
 /** The durable intent, hold and attempt fence behind automatic Save (D9). */
 export function saveIntentStore({ use }: Installation) {
-	/** Every outcome applies only to the attempt that still holds the job. */
+	/**
+	 * Every outcome applies only to the attempt that still holds the job, under its current key
+	 * and with no hold, as publication does. A replaced key gets the claim back unchanged.
+	 */
 	async function settle(id: string, token: string, changes: ReturnType<typeof sql>) {
-		const row = await use((db) =>
-			db.get(sql`UPDATE image_job SET save_attempt=NULL, ${changes}
-				WHERE id=${id} AND save_attempt=${token} RETURNING id`),
-		);
+		const row = await use(async (db) => {
+			const done = await db.get(sql`UPDATE image_job SET save_attempt=NULL, ${changes}
+				WHERE id=${id} AND save_attempt=${token} AND save_hold IS NULL AND ${currentCredential}
+				RETURNING id`);
+			if (!done)
+				await db.run(
+					sql`UPDATE image_job SET save_attempt=NULL WHERE id=${id} AND save_attempt=${token}`,
+				);
+			return done;
+		});
 		return (row ? "done" : "fenced") satisfies SaveOutcome;
 	}
 	return {
@@ -69,7 +78,7 @@ export function saveIntentStore({ use }: Installation) {
 		expire(id: string, token: string) {
 			return settle(id, token, sql`save_due=NULL`);
 		},
-		/** Shutdown or a read pause: give the attempt back without counting a try. */
+		/** Shutdown, a read pause or a replaced key: give the attempt back without counting a try. */
 		release(id: string, token: string) {
 			return settle(id, token, sql`save_due=save_due`);
 		},
