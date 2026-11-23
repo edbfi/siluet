@@ -34,6 +34,7 @@ export function videoSaveSlot({ directory, use }: RuntimeInstallation) {
 		hold<T>(id: string, work: (slot: { path: string; token: string }) => Promise<T>) {
 			return exclusive(async () => {
 				const token = crypto.randomUUID();
+				// Nothing reads `pid` or `runtime` any more; the table still declares them NOT NULL.
 				await use((db) =>
 					db.run(
 						sql`INSERT INTO video_save(singleton,job_id,token,pid,runtime) VALUES(1,${id},${token},${process.pid},'')`,
