@@ -854,6 +854,10 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			const poyoLink = page.getByRole("link", { name: "Poyo.ai", exact: true });
 			const remove = page.getByRole("button", { name: "Remove key", exact: true });
 			await poyoLink.press("Enter");
+			// Poyo.ai is already the selected provider, so aria-current holds before the
+			// navigation applies. SvelteKit blurs the focused element in the same task that
+			// sets the URL, which would send an earlier Enter to the body.
+			await expect(page).toHaveURL(new URL("/settings/providers?provider=poyo", origin).href);
 			await expect(poyoLink).toHaveAttribute("aria-current", "page");
 			await remove.press("Enter");
 			await expect(page.getByRole("status")).toHaveText("Key removed.");
