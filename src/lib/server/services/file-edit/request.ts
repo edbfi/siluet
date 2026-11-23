@@ -35,7 +35,7 @@ export function parseFileRequest(value: unknown) {
 		...request,
 		draft: { ...draft, references: [{ kind: "url", url: filePlaceholder }] },
 	});
-	if (!live || live.entry.mode !== "edit") return null;
+	if (live?.entry.mode !== "edit") return null;
 	const { input } = live;
 	if (input.model !== "seedream-5.5" && input.model !== "doubao-seedream-5-5") return null;
 	return {

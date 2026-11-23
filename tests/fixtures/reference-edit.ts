@@ -54,10 +54,36 @@ export function referenceEditFixtures(
 ) {
 	const submissions: unknown[] = [];
 	const statusPaths: string[] = [];
+	const uploads: { file: File; parts: string[] }[] = [];
+	const hosted = "https://different.storage.net/reference?sig=fixture-upload-link";
 	const result = `https://${referenceHost}/result/reference-edit.png?sig=${editedImageSignature}`;
 	let completions = 0;
 	// Provider response fields follow the Seedream submit, status and error contracts.
 	const fixture = startProviderFixtures(async (request, path) => {
+		// Upload responses follow the Poyo.ai stream and ToAPIs image upload contracts.
+		if (path === `/${provider}/upload` && request.method === "POST") {
+			const parts = await request.formData();
+			const file = parts.get("file");
+			if (!(file instanceof File)) return new Response(null, { status: 400 });
+			uploads.push({ file, parts: [...parts.keys()] });
+			return Response.json(
+				provider === "poyo"
+					? {
+							success: true,
+							code: 200,
+							data: {
+								file_id: "fixture-id",
+								file_url: hosted,
+								mime_type: file.type,
+								file_size: file.size,
+							},
+						}
+					: {
+							success: true,
+							data: { id: "fixture-id", url: hosted, mime_type: file.type, size: file.size },
+						},
+			);
+		}
 		if (path === `/${provider}/submit` && request.method === "POST") {
 			submissions.push((await request.json()) as unknown);
 			const echo = `${providerEchoMarker} ${prompt} ${signedReference} ${secondSignedReference}`;
@@ -135,5 +161,5 @@ export function referenceEditFixtures(
 		}
 		return null;
 	});
-	return { ...fixture, submissions, statusPaths };
+	return { ...fixture, uploads, hosted, submissions, statusPaths };
 }

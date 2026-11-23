@@ -1,3 +1,4 @@
+import { crc32 } from "node:zlib";
 import sharp from "sharp";
 
 function segment(marker: number, payload: Buffer) {
@@ -49,4 +50,36 @@ export async function uprightPng() {
 
 export async function cmykJpeg() {
 	return picture(24, 24).toColourspace("cmyk").jpeg().toBuffer();
+}
+
+export const localFilenameMarker = "private-local-filename";
+
+/**
+ * An upright JPEG or PNG carrying a planted comment, named with a private marker. The
+ * cleaner removes the comment; an original keeps it.
+ */
+export async function markedFile(format: "jpeg" | "png") {
+	const image = picture(40, 30);
+	const name = `${localFilenameMarker}.${format === "png" ? "png" : "jpg"}`;
+	if (format === "jpeg") {
+		const jpeg = await image.jpeg({ quality: 90 }).toBuffer();
+		return {
+			name,
+			mimeType: "image/jpeg",
+			buffer: insert(jpeg, segment(0xfe, Buffer.from(localImageMarker))),
+		};
+	}
+	const png = await image.png().toBuffer();
+	// A tEXt chunk after IHDR (8-byte signature + 25-byte IHDR chunk).
+	const text = Buffer.concat([Buffer.from("Comment\0"), Buffer.from(localImageMarker)]);
+	const chunk = Buffer.alloc(text.length + 12);
+	chunk.writeUInt32BE(text.length);
+	chunk.write("tEXt", 4, "ascii");
+	text.copy(chunk, 8);
+	chunk.writeUInt32BE(crc32(chunk.subarray(4, -4)), chunk.length - 4);
+	return {
+		name,
+		mimeType: "image/png",
+		buffer: Buffer.concat([png.subarray(0, 33), chunk, png.subarray(33)]),
+	};
 }

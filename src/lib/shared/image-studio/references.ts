@@ -16,8 +16,8 @@ export const publicReferenceUrlError =
 	"Enter a public HTTP or HTTPS URL without a username or password.";
 
 /**
- * The one local JPEG or PNG that Siluet cleans for an edit. Queue stays URL-only
- * until file Review terms exist.
+ * The one local JPEG or PNG that Siluet stages for an edit: cleaned, or checked and sent
+ * unchanged when the owner turned cleaning off. Several files or other formats stay offline.
  */
 export function cleanableReferenceFile(references: readonly SeedreamReference[]): File | null {
 	const [reference] = references;

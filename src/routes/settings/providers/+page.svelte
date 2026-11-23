@@ -161,7 +161,8 @@ function save(
 						<p class={cx(styles.warning, styles.notice)} id="job-key-warning">
 							Jobs still need this key. Replacing or removing it pauses status checks and stops
 							downloads of their unsaved results. It also stops future submissions in any open
-							batch, including batches waiting for cooldown or settlement.
+							batch, including batches waiting for cooldown or settlement. An active upload or edit
+							finishes using the reviewed key.
 						</p>
 					{/if}
 					{#if provider.state === "repair"}

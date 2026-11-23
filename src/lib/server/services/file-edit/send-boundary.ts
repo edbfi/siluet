@@ -9,7 +9,7 @@ export function fileSendBoundary<T, const Stop extends { reason: string } = neve
 	provider: ProviderId,
 	kind: "upload" | "edit",
 	clock: () => number,
-	mark: (tx: InstallationTransaction, time: number) => Promise<Stop | void>,
+	mark: (tx: InstallationTransaction, time: number) => Promise<Stop | undefined>,
 	send: () => Promise<T>,
 	handoff?: {
 		check: () => Stop | { reason: "destination" } | undefined;

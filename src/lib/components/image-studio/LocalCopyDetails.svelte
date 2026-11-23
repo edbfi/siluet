@@ -19,8 +19,13 @@ const caption = $derived.by(() => {
 <section class={styles.section} aria-labelledby={`${headingId}-local-copy`}>
 	<h3 class={styles.heading} id={`${headingId}-local-copy`}>Local copy</h3>
 	<p class={styles.note}>
-		Siluet cleans a private copy on this computer as soon as you attach the file. Cleaning makes no
-		provider calls, and your original file stays unchanged.
+		{#if copy.cleaned}
+			Siluet cleans a private copy on this computer as soon as you attach the file. Cleaning makes
+			no provider calls, and your original file stays unchanged.
+		{:else}
+			Metadata removal is off in Settings. Siluet checks this file on this computer and sends it
+			unchanged.
+		{/if}
 	</p>
 	{#if copy.status}
 		<p class={copy.failed ? styles.failure : styles.note}>{copy.status}</p>
@@ -31,30 +36,37 @@ const caption = $derived.by(() => {
 			<img
 				class={styles.preview}
 				src={resource(stage)}
-				alt="Cleaned local copy"
+				alt={copy.cleaned ? "Cleaned local copy" : "Attached file"}
 				onload={() => copy.loaded(stage)}
 				onerror={() => copy.unavailable(stage)}
 			>
 			<figcaption class={styles.note}>{caption}</figcaption>
 		</figure>
-		{#if stage.transform === "reencoded-rotation"}
+		{#if !copy.cleaned}
+			<p class={styles.disclosure}>
+				<strong>Not cleaned.</strong> Its metadata, including any location, camera, authorship or
+				AI-source tags, reaches the provider.
+			</p>
+		{:else if stage.transform === "reencoded-rotation"}
 			<p class={styles.disclosure}>
 				<strong>Re-encoded to apply rotation.</strong> The camera orientation was applied to the
 				pixels and the image was saved once more as a JPEG at quality 95, which can soften fine
 				detail.
 			</p>
 		{/if}
-		<h4 class={styles.subheading} id={`${headingId}-survival`}>What survives cleanup</h4>
-		<ul class={styles.list} aria-labelledby={`${headingId}-survival`}>
-			<li>
-				Removed: EXIF and GPS, XMP and IPTC including authorship and AI-source tags, comments,
-				thumbnails, editing history and recognized embedded Content Credentials.
-			</li>
-			<li>
-				Kept: an embedded ICC color profile, exactly. Its creator, copyright, creation date, device
-				names, descriptions and private fields can survive.
-			</li>
-			<li>Watermarks in the picture itself survive.</li>
-		</ul>
+		{#if copy.cleaned}
+			<h4 class={styles.subheading} id={`${headingId}-survival`}>What survives cleanup</h4>
+			<ul class={styles.list} aria-labelledby={`${headingId}-survival`}>
+				<li>
+					Removed: EXIF and GPS, XMP and IPTC including authorship and AI-source tags, comments,
+					thumbnails, editing history and recognized embedded Content Credentials.
+				</li>
+				<li>
+					Kept: an embedded ICC color profile, exactly. Its creator, copyright, creation date,
+					device names, descriptions and private fields can survive.
+				</li>
+				<li>Watermarks in the picture itself survive.</li>
+			</ul>
+		{/if}
 	{/if}
 </section>

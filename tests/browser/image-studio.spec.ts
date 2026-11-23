@@ -338,9 +338,9 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 				await expect(firstFile).toBeFocused();
 			};
 			await expect(queue(1)).toHaveAccessibleDescription(/1–10 public image URLs/i);
-			await expect(
-				request.getByText(/stage files \(JPEG or PNG up to 16 MiB, or WebP up to 10 MB each\)/),
-			).toBeVisible();
+			await expect(request).toContainText(
+				"offline Review (JPEG or PNG up to 16 MiB, or WebP up to 10 MB each)",
+			);
 			await stageUrl(firstUrl);
 			await batchTab.press("Enter");
 			await review.getByLabel("Batch count").selectOption("2");
@@ -559,10 +559,10 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect
 				.poll(() => localPreview.evaluate((image) => (image as HTMLImageElement).naturalWidth))
 				.toBe(1);
-			await expect(queue(1)).toHaveAccessibleDescription(/1–10 public image URLs/i);
-			await expect(review.getByRole("button", { name: "Review request", exact: true })).toHaveCount(
-				0,
-			);
+			// One local PNG queues through its staged copy once it is ready.
+			await expect(
+				review.getByRole("button", { name: "Review request", exact: true }),
+			).toBeVisible();
 
 			await stageRemote();
 			await expect(secondFile).toBeFocused();
@@ -896,7 +896,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 	}
 });
 
-test("built Image Studio cleans an attached local copy automatically while Queue stays URL-only", async ({
+test("built Image Studio cleans an attached local copy automatically before its Review", async ({
 	context,
 	page,
 }) => {
@@ -1049,7 +1049,7 @@ test("built Image Studio cleans an attached local copy automatically while Queue
 			await expect(localCopy).toContainText("Cleaning and verifying the file…");
 			await expect(tryAgain).toHaveCount(0);
 			await expect(queue).toBeDisabled();
-			await expect(queue).toHaveAccessibleDescription(/1–10 public image URLs/i);
+			await expect(queue).toHaveAccessibleDescription(/Cleaning and verifying the file…/);
 			await release();
 			await fileStatus("Cleaned copy ready.");
 			await expect(firstFile).toBeFocused();
@@ -1083,7 +1083,7 @@ test("built Image Studio cleans an attached local copy automatically while Queue
 			await expect(localCopy).toContainText("Its creator, copyright, creation date");
 			await expect(localCopy.getByRole("button")).toHaveCount(0);
 			await expect(queue).toBeDisabled();
-			await expect(queue).toHaveAccessibleDescription(/1–10 public image URLs/i);
+			await expect(queue).toHaveAccessibleDescription(/Review the completed request/);
 			const served = await page.request.get(new URL(first, origin).href);
 			expect(served.headers()["content-type"]).toBe("image/jpeg");
 			const bytes = Buffer.from(await served.body());
@@ -1169,7 +1169,7 @@ test("built Image Studio cleans an attached local copy automatically while Queue
 			});
 			// The first copy fails to load, so Siluet cleans the file once more on its own.
 			// The second copy fails too, which ends automatic recovery.
-			await fileStatus("The cleaned copy is no longer available.");
+			await fileStatus("The staged file is no longer available.");
 			await expect(tryAgain).toBeVisible();
 			await expect(cleaned).toHaveCount(0);
 			expect(sentWith("POST")).toHaveLength(posts + 2);
@@ -1252,7 +1252,7 @@ test("built Image Studio cleans an attached local copy automatically while Queue
 			await expect(cleaned).toBeVisible();
 			const release = await holdPosts();
 			await page.clock.fastForward("00:20");
-			await fileStatus("The cleaned copy expired. Cleaning and verifying it again…");
+			await fileStatus("The staged file expired. Cleaning and verifying the file…");
 			await expect(cleaned).toHaveCount(0);
 			await expect(tryAgain).toHaveCount(0);
 			await release();
@@ -1264,7 +1264,7 @@ test("built Image Studio cleans an attached local copy automatically while Queue
 			// An idle tab does not keep cleaning the file: the second expiry retires it.
 			const posts = sentWith("POST").length;
 			await page.clock.fastForward("15:10");
-			await fileStatus("The cleaned copy expired.");
+			await fileStatus("The staged file expired.");
 			await expect(tryAgain).toBeVisible();
 			await expect(cleaned).toHaveCount(0);
 			await gone(renewed);
