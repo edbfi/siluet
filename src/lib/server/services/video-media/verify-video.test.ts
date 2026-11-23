@@ -116,3 +116,18 @@ test("a complete non-MP4 file is unsupported, not truncated", async () => {
 	for (const bytes of [png, html])
 		expect(await refusal(bytes)).toBeInstanceOf(UnsupportedVideoError);
 });
+
+test("a file cut at a box boundary before moov or mdat is truncated", async () => {
+	const source = h264Aac();
+	const [ftyp] = locate(source, "ftyp");
+	const [moov] = locate(source, "moov");
+	const [mdat] = locate(source, "mdat");
+	const span = (node: { start: number; size: number }) =>
+		source.subarray(node.start, node.start + node.size);
+	const faststartCut = source.subarray(0, moov.start + moov.size);
+	const moovLastCut = Buffer.concat([span(ftyp), span(mdat)]);
+	for (const bytes of [faststartCut, moovLastCut])
+		expect(await refusal(bytes)).toBeInstanceOf(TruncatedVideoError);
+	const noFileType = source.subarray(ftyp.size);
+	expect(await refusal(noFileType)).toBeInstanceOf(UnsupportedVideoError);
+});

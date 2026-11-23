@@ -25,7 +25,8 @@ async function readAt(file: FileHandle, position: number, length: number) {
 /**
  * Verify a downloaded video's structure (D6). Reads top-level box headers from the
  * file and buffers only `ftyp` and `moov`. Throws `TruncatedVideoError` when the file
- * ends inside a box and `UnsupportedVideoError` for anything outside the profile.
+ * ends inside a box or before `moov` or `mdat`, and `UnsupportedVideoError` for anything
+ * outside the profile.
  */
 export async function verifyVideoFile(path: string) {
 	const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -56,7 +57,9 @@ export async function verifyVideoFile(path: string) {
 			} else if (type === "mdat") media.push({ start: at + header, end: at + length });
 			at += length;
 		}
-		check(ftyp && moov && media.length, "file type, movie and media data");
+		check(ftyp, "file type box");
+		// A download cut exactly at a box boundary ends before the movie or its media.
+		if (!moov || !media.length) throw truncated();
 		return inspectMovie(ftyp, moov, media);
 	} finally {
 		await file.close();
