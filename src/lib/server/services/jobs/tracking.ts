@@ -40,14 +40,10 @@ export type SaveRead =
 	| { kind: "failed" };
 
 /**
- * Hands a completed result to automatic Save. `armed` marks the first completion, whose
- * missing link ends in Download failed; otherwise a pending intent resumes with any link.
+ * Hands a completed result to automatic Save: a first completion's intent with its link, or a
+ * pending intent that resumes with any link. A link-less first completion already holds Download failed.
  */
-export type DeliveryHandoff = (
-	id: string,
-	delivery: VideoDelivery | null,
-	armed: boolean,
-) => unknown;
+export type DeliveryHandoff = (id: string, delivery: VideoDelivery | null) => unknown;
 
 type JobCredentials = Pick<ReturnType<typeof providerStore>, "credential" | "jobReadability">;
 type TrackingDependencies = {
@@ -141,11 +137,11 @@ export function createJobTracking(
 	}
 
 	// Signed links stay in memory: the handoff never waits for Save and never persists them.
-	function handOff(id: string, delivery: VideoDelivery | null, armed: boolean) {
+	function handOff(id: string, delivery: VideoDelivery | null) {
 		if (closed || !onDelivery) return;
 		queueMicrotask(() => {
 			try {
-				void Promise.resolve(onDelivery(id, delivery, armed)).catch(() => {});
+				void Promise.resolve(onDelivery(id, delivery)).catch(() => {});
 			} catch {}
 		});
 	}
@@ -228,7 +224,7 @@ export function createJobTracking(
 		const delivery = resultUrl ? { url: resultUrl, fallback: videoRead?.fallback ?? null } : null;
 		// Commit first, then hand over: a first completion always, a waiting intent when this
 		// read brought a link or ended a read pause. Refresh on any other completed job does nothing.
-		if (handoff && (armed || (pending && (delivery || resumed)))) handOff(id, delivery, armed);
+		if (handoff && (armed || (pending && (delivery || resumed)))) handOff(id, delivery);
 		if (isActive(reserved) && (saved.state === "completed" || saved.state === "failed"))
 			await finishBalance(saved);
 		return { delivery };

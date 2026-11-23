@@ -1062,9 +1062,8 @@ test("P-02: a key replaced after the claim leaves the H3 job unsent with no POST
 
 const delivered = { kind: "delivered", delivery: { url: signedUrl, fallback: null } } as const;
 const handoffs = () => {
-	const calls: [string, unknown, boolean][] = [];
-	const onDelivery: DeliveryHandoff = (id, delivery, armed) =>
-		void calls.push([id, delivery, armed]);
+	const calls: [string, unknown][] = [];
+	const onDelivery: DeliveryHandoff = (id, delivery) => void calls.push([id, delivery]);
 	return { calls, onDelivery };
 };
 
@@ -1086,7 +1085,7 @@ test("completion during cooldown hands over the delivery with zero extra reads a
 	now += 5_000;
 	await jobs.refresh("job");
 	await Bun.sleep(1);
-	expect(calls).toEqual([["job", { url: signedUrl, fallback: null }, true]]);
+	expect(calls).toEqual([["job", { url: signedUrl, fallback: null }]]);
 	// The completing read left a cooldown, and nothing reads again.
 	expect(await latest()).toMatchObject({ library: "waiting", nextReadAt: now + 5_000 });
 	await Bun.sleep(5);
@@ -1151,8 +1150,8 @@ test("Refresh on a completed job calls no onDelivery unless a waiting intent res
 	await jobs.refresh("job");
 	await Bun.sleep(1);
 	expect(calls).toEqual([
-		["job", { url: signedUrl, fallback: null }, true],
-		["job", { url: signedUrl, fallback: null }, false],
+		["job", { url: signedUrl, fallback: null }],
+		["job", { url: signedUrl, fallback: null }],
 	]);
 });
 

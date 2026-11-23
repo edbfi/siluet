@@ -46,6 +46,7 @@ const update = (state: "running" | "completed", note: ImageJob["pause_reason"] =
 	failureReason: null,
 	billing: null,
 	expiresAt: null,
+	saveHold: null,
 });
 async function record(
 	id: string,
@@ -68,6 +69,21 @@ test("first completion arms once", async () => {
 	await run(sql`UPDATE image_job SET save_due=${now + 60_000} WHERE id='job'`);
 	expect(await record("job", "completed")).toMatchObject({ armed: false, pending: true });
 	expect(await row("job")).toMatchObject({ save_due: now + 60_000 });
+});
+
+test("a link-less first completion records Download failed in the same commit", async () => {
+	await insert("job");
+	await run(sql`UPDATE image_job SET read_token='read' WHERE id='job'`);
+	const store = imageJobStore(installation);
+	const job = await store.get("job");
+	if (!job) throw new Error("Missing fixture job.");
+	expect(
+		await store.recordStatus(job, "read", now, { ...update("completed"), saveHold: "failed" }),
+	).toMatchObject({ armed: false, pending: false });
+	expect(await row("job")).toMatchObject({ save_due: null, save_hold: "failed", save_tries: 0 });
+	// A later link-less read leaves the hold alone.
+	expect(await record("job", "completed")).toMatchObject({ armed: false, pending: false });
+	expect(await row("job")).toMatchObject({ save_due: null, save_hold: "failed" });
 });
 
 test("Refresh on a saved, unavailable or removed job arms nothing", async () => {

@@ -142,6 +142,8 @@ type StatusUpdate = {
 	failureReason: TaskFailureReason | null;
 	billing: TaskBilling | null;
 	expiresAt: number | null;
+	/** What a first completion records instead of an intent when its read has no usable link (D9). */
+	saveHold: SaveHold | null;
 };
 
 // A balance read has a bounded timeout. Allow time to load its pinned credential first.
@@ -361,10 +363,12 @@ export function imageJobStore({ use }: Installation) {
 						const previous = await tx.get<Pick<ImageJob, "state" | "save_due" | "pause_reason">>(
 							sql`SELECT state, save_due, pause_reason FROM image_job WHERE id=${id}`,
 						);
-						// The first transition into completed records the intent to save (D9).
+						// The first transition into completed records the intent to save, or its hold (D9).
+						const first = sql`state<>'completed' AND ${update.state}='completed' AND save_hold IS NULL
+					AND ${noGalleryItemSql}`;
 						const saved = await tx.get<ImageJob>(sql`UPDATE image_job SET state=${update.state},
-				save_due=CASE WHEN state<>'completed' AND ${update.state}='completed' AND save_hold IS NULL
-					AND ${noGalleryItemSql} THEN ${now} ELSE save_due END,
+				save_due=CASE WHEN ${first} THEN CASE WHEN ${update.saveHold} IS NULL THEN ${now} END ELSE save_due END,
+				save_hold=CASE WHEN ${first} THEN ${update.saveHold} ELSE save_hold END,
 				task_id=COALESCE(task_id,${update.recoveredTask ?? null}),
 				submission_recorded_at=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now} ELSE submission_recorded_at END,
 				poll_deadline=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now + imageJobPollingWindowMs} ELSE poll_deadline END,

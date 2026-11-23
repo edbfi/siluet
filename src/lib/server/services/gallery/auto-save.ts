@@ -62,8 +62,6 @@ export function createAutoSave(
 	const jobs = imageJobStore(installation);
 	const storage = galleryStorage(installation);
 	const deliveries = new Map<string, VideoDelivery>();
-	// A first completion whose read carried no usable link.
-	const linkless = new Set<string>();
 	const active = new Map<string, { video: boolean; done: Promise<void> }>();
 	const shutdown = new AbortController();
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -108,12 +106,7 @@ export function createAutoSave(
 		try {
 			if (expired(job)) {
 				deliveries.delete(id);
-				linkless.delete(id);
 				await saves.expire(id, token);
-				return true;
-			}
-			if (linkless.delete(id)) {
-				await saves.hold(id, token, "failed");
 				return true;
 			}
 			let delivery = deliveries.get(id);
@@ -167,9 +160,8 @@ export function createAutoSave(
 		for (const job of due) {
 			if (shutdown.signal.aborted) return;
 			if (active.has(job.id)) continue;
-			// Expiry and a link-less completion need no transfer slot.
-			const settleOnly = expired(job) || linkless.has(job.id);
-			if (!settleOnly) {
+			// Expiry needs no transfer slot.
+			if (!expired(job)) {
 				// Paused and key-less jobs wait for Refresh or stay as they are; nothing polls.
 				if (isReadPaused(job.pause_reason) || !readable(job)) continue;
 				const video = isVideoJob(job);
@@ -211,10 +203,9 @@ export function createAutoSave(
 			wake();
 		},
 		/** The tracking handoff after a status read committed (never awaited by it). */
-		deliver(id: string, delivery: VideoDelivery | null, armed: boolean) {
+		deliver(id: string, delivery: VideoDelivery | null) {
 			if (shutdown.signal.aborted) return;
 			if (delivery) deliveries.set(id, delivery);
-			else if (armed) linkless.add(id);
 			wake();
 		},
 		/** Retry download or Download again: one fresh status read, never a submission. */
@@ -224,7 +215,6 @@ export function createAutoSave(
 			const job = await jobs.get(id);
 			if (!job || !(await readability())(job) || !(await saves.retry(id, now()))) return false;
 			deliveries.delete(id);
-			linkless.delete(id);
 			wake();
 			return true;
 		},
@@ -241,7 +231,6 @@ export function createAutoSave(
 			clearTimeout(timer);
 			while (active.size) await Promise.all([...active.values()].map((entry) => entry.done));
 			deliveries.clear();
-			linkless.clear();
 		},
 	};
 }

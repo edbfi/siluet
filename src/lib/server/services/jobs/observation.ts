@@ -3,6 +3,7 @@ import {
 	type ImageJob,
 	isReadPaused,
 	isVideoJob,
+	type SaveHold,
 	type StatusNote,
 } from "../../db/image-job-store";
 import { retryTime } from "../../db/provider-gate";
@@ -70,6 +71,7 @@ export function statusUpdate(
 	let billing = storedBilling(job);
 	let expiresAt = job.expires_at;
 	let resultUrl: string | null = null;
+	let saveHold: SaveHold | null = null;
 
 	if (observation.kind === "paused") note = observation.reason;
 	if (observation.kind === "temporary")
@@ -96,11 +98,14 @@ export function statusUpdate(
 			failureReason = observation.failureReason;
 			expiresAt = observation.expiresAt ?? job.expires_at;
 			if (state === "completed") {
-				resultUrl = expiresAt !== null && expiresAt <= now ? null : observation.resultUrl;
+				const expired = expiresAt !== null && expiresAt <= now;
+				resultUrl = expired ? null : observation.resultUrl;
 				if (!resultUrl)
 					note = observation.unsupportedVideoResult
 						? "unsupported-video-result"
 						: "result-unavailable";
+				// A link-less first completion shows Download failed at once; the worker clears an expired one.
+				if (!resultUrl && !expired) saveHold = "failed";
 			}
 		} else {
 			note = "unknown-status";
@@ -124,6 +129,7 @@ export function statusUpdate(
 				observation.kind === "observed" && !isVideoJob(job)
 					? now + delay
 					: Math.max(now + delay, retryTime(observation.retryAfter, now)),
+			saveHold,
 		},
 		resultUrl,
 	};

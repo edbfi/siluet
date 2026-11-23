@@ -76,7 +76,7 @@ async function openOwner(dev: boolean) {
 		});
 		// Tracking hands each completed result to automatic Save after its read commits (D9).
 		const jobs = createJobTracking(installation, store, {
-			onDelivery: (id, delivery, armed) => autoSave.deliver(id, delivery, armed),
+			onDelivery: (id, delivery) => autoSave.deliver(id, delivery),
 		});
 		const autoSave = createAutoSave(installation, {
 			readForSave: jobs.readForSave,

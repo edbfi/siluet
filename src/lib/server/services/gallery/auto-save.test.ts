@@ -79,15 +79,15 @@ const transport: Transport = {
 type Overrides = Partial<Parameters<typeof createAutoSave>[1]>;
 function open(overrides: Overrides = {}) {
 	const store = providerStore(installation);
-	const handoffs: [string, boolean][] = [];
+	const handoffs: string[] = [];
 	const jobs = createJobTracking(installation, store, {
 		fetch,
 		now: () => now,
 		random: () => 0,
 		scheduleRead: () => () => {},
-		onDelivery: (id, delivery, armed) => {
-			handoffs.push([id, armed]);
-			autoSave.deliver(id, delivery, armed);
+		onDelivery: (id, delivery) => {
+			handoffs.push(id);
+			autoSave.deliver(id, delivery);
 		},
 	});
 	const autoSave = createAutoSave(installation, {
@@ -162,10 +162,7 @@ test("a completed image and video save with no click and no extra status read", 
 	await runtime.start();
 	await complete("image", "video");
 	expect(reads).toEqual(["image", "video"]);
-	expect(runtime.handoffs).toEqual([
-		["image", true],
-		["video", true],
-	]);
+	expect(runtime.handoffs).toEqual(["image", "video"]);
 	expect(await summary("image")).toMatchObject({ library: "saved", retryable: false });
 	expect((await runtime.gallery.read("image"))?.bytes).toEqual(referencePng);
 	const saved = await runtime.gallery.openVideo("video");
@@ -219,7 +216,7 @@ test("duplicate handoffs transfer once and at most two images and one video run 
 		now = start + Math.floor(index / 2) * 1_000;
 		await runtime.jobs.refresh(id);
 	}
-	runtime.autoSave.deliver("image-1", { url: signed("image-1"), fallback: null }, false);
+	runtime.autoSave.deliver("image-1", { url: signed("image-1"), fallback: null });
 	await Bun.sleep(20);
 	expect(running).toEqual({ image: 2, video: 1 });
 	gate.resolve();
@@ -377,6 +374,21 @@ test("a completion without a usable link shows Download failed with no extra rea
 	await settle();
 	expect(reads).toEqual(["image", "video", "video"]);
 	expect((await summary("video"))?.library).toBe("saved");
+});
+
+test("a link-less completion shows Download failed at once and a restart reads nothing", async () => {
+	status = (id) => finished(id, null);
+	runtime = open();
+	await runtime.start();
+	await insert("image");
+	// The process stops after the completing read commits, before the worker runs.
+	void runtime.autoSave.close();
+	await runtime.jobs.refresh("image");
+	expect(await job("image")).toMatchObject({ save_hold: "failed", save_due: null });
+	expect(await summary("image")).toMatchObject({ library: "failed", retryable: true });
+	await reopen();
+	expect(reads).toEqual(["image"]);
+	expect(await job("image")).toMatchObject({ save_hold: "failed", save_due: null });
 });
 
 test("a Retry or a recovery whose read has no usable link makes one read and shows Download failed", async () => {

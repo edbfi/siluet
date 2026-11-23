@@ -371,7 +371,7 @@ test("Poyo single video saves automatically through the structural verifier", as
 					},
 				});
 			},
-			onDelivery: (id, delivery, armed) => autoSave?.deliver(id, delivery, armed),
+			onDelivery: (id, delivery) => autoSave?.deliver(id, delivery),
 		});
 		tracking = jobs;
 		const saver = createAutoSave(db, {
