@@ -31,7 +31,7 @@ import { type GalleryState, isActive, summarizeJob } from "./summary";
 
 export type { JobSummary } from "./summary";
 
-/** What a status read for automatic Save found (D9). Only `failed` counts as a failed try. */
+/** What a status read for automatic Save found (D9). `failed` ends in Download failed. */
 export type SaveRead =
 	| { kind: "delivered"; delivery: VideoDelivery }
 	| { kind: "cooldown"; until: number }
@@ -399,7 +399,7 @@ export function createJobTracking(
 			const observed = await (sharing ?? readStatus(id, false, false, false));
 			if (observed?.delivery) return { kind: "delivered", delivery: observed.delivery };
 			const after = (await blocker()) ?? { kind: "failed" };
-			// A read that ran without a usable link is a failed try, even inside its new cooldown.
+			// A read that ran without a usable link fails, even inside its new cooldown.
 			return observed && after.kind === "cooldown" ? { kind: "failed" } : after;
 		},
 		async dispatch(id: string, provider: ProviderId, key: string, request: ReviewedImageRequest) {

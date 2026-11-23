@@ -120,11 +120,11 @@ export function createAutoSave(
 			if (!delivery) {
 				const read = await readForSave(id);
 				if (shutdown.signal.aborted) throw shutdown.signal.reason;
-				// Only a read that ran without a usable link counts as a failed try.
+				// A read that ran without a usable link ends in Download failed: D9 allows no further read.
 				if (read.kind === "cooldown") await saves.defer(id, token, read.until, job.save_tries);
 				else if (read.kind === "paused") await saves.release(id, token);
 				else if (read.kind === "expired") await saves.expire(id, token);
-				else if (read.kind === "failed") await failed(job, token);
+				else if (read.kind === "failed") await saves.hold(id, token, "failed");
 				if (read.kind !== "delivered") return true;
 				delivery = read.delivery;
 				deliveries.set(id, delivery);

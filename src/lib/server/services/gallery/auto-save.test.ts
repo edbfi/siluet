@@ -379,6 +379,35 @@ test("a completion without a usable link shows Download failed with no extra rea
 	expect((await summary("video"))?.library).toBe("saved");
 });
 
+test("a Retry or a recovery whose read has no usable link makes one read and shows Download failed", async () => {
+	status = (id) => finished(id, null);
+	runtime = open();
+	await runtime.start();
+	await complete("image");
+	now += 5_000;
+	expect(await runtime.autoSave.retry("image")).toBe(true);
+	await settle();
+	expect(reads).toEqual(["image", "image"]);
+	expect(await job("image")).toMatchObject({ save_hold: "failed", save_due: null });
+	expect(await summary("image")).toMatchObject({ library: "failed", retryable: true });
+
+	// Recovery after a restart reads once as well.
+	await insert("image-2", "completed");
+	await installation.use((db) =>
+		db.run(sql`UPDATE image_job SET save_due=0, next_read_at=0 WHERE id='image-2'`),
+	);
+	await reopen();
+	expect(reads).toEqual(["image", "image", "image-2"]);
+	expect(await job("image-2")).toMatchObject({ save_hold: "failed", save_due: null });
+	for (const wait of [30_000, 120_000]) {
+		now += wait;
+		runtime.autoSave.start();
+		await settle();
+	}
+	expect(reads).toEqual(["image", "image", "image-2"]);
+	expect(posts).toBe(0);
+});
+
 test("an expired pending job is cleared without any request", async () => {
 	await insert("image", "completed");
 	await installation.use((db) =>
