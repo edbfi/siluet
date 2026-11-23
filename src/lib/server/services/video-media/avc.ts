@@ -10,6 +10,11 @@ const profiles = new Set([66, 77, 100]); // Baseline, Main, High
 // Profiles whose SPS carries chroma format, bit depth and scaling matrices.
 const extended = new Set([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135]);
 
+/** Refuse an HDR or unknown transfer characteristic (ITU-T H.273), from `colr` or the SPS VUI. */
+export function checkTransfer(transfer: number) {
+	check([1, 2, 4, 5, 6, 13].includes(transfer), "HDR or unknown transfer");
+}
+
 /** Remove emulation-prevention bytes (0x000003) from a NAL unit payload. */
 function rbsp(nal: Buffer) {
 	const out: number[] = [];
@@ -80,6 +85,19 @@ export function readSps(nal: Buffer) {
 	const width = widthMbs * 16 - 2 * (left + right);
 	const height = (2 - frames) * heightUnits * 16 - 2 * (2 - frames) * (top + bottom);
 	check(width > 0 && height > 0, "cropped picture size");
+	// VUI up to the colour description (H.264 §E.1.1).
+	if (read.bit()) {
+		if (read.bit() && read.bits(8) === 255) read.bits(32); // aspect_ratio_idc, SAR
+		if (read.bit()) read.bit(); // overscan_appropriate_flag
+		if (read.bit()) {
+			read.bits(4); // video_format, video_full_range_flag
+			if (read.bit()) {
+				read.bits(8); // colour_primaries
+				checkTransfer(read.bits(8));
+				read.bits(8); // matrix_coefficients
+			}
+		}
+	}
 	return { profile, width, height };
 }
 

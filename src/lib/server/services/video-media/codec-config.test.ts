@@ -21,6 +21,8 @@ type Sps = {
 	width: number;
 	height: number;
 	crop?: [number, number, number, number];
+	/** VUI with a 255 aspect ratio, overscan and signal type, and a colour description when `transfer` is set. */
+	vui?: { transfer?: number };
 };
 function bitWriter() {
 	const bits: number[] = [];
@@ -48,7 +50,7 @@ function bitWriter() {
 	};
 }
 /** A minimal SPS NAL unit, with emulation prevention applied. */
-function sps({ profile = 100, chroma = 1, depth = 8, scaling, width, height, crop }: Sps) {
+function sps({ profile = 100, chroma = 1, depth = 8, scaling, width, height, crop, vui }: Sps) {
 	const w = bitWriter();
 	w.put(profile, 8);
 	w.put(0, 8);
@@ -77,7 +79,25 @@ function sps({ profile = 100, chroma = 1, depth = 8, scaling, width, height, cro
 	w.put(1, 1);
 	w.put(crop ? 1 : 0, 1);
 	for (const value of crop ?? []) w.ue(value);
-	w.put(0, 1);
+	w.put(vui ? 1 : 0, 1);
+	if (vui) {
+		w.put(1, 1);
+		w.put(255, 8);
+		w.put(1, 16);
+		w.put(1, 16);
+		w.put(1, 1);
+		w.put(0, 1);
+		w.put(1, 1);
+		w.put(5, 3);
+		w.put(0, 1);
+		w.put(vui.transfer === undefined ? 0 : 1, 1);
+		if (vui.transfer !== undefined) {
+			w.put(9, 8);
+			w.put(vui.transfer, 8);
+			w.put(9, 8);
+		}
+		w.put(0, 5); // no chroma location, timing, HRD, picture structure or bitstream restriction
+	}
 	const raw = w.bytes();
 	const escaped: number[] = [0x67];
 	let zeros = 0;
@@ -162,6 +182,13 @@ test("each SPS must be Baseline, Main or High, 4:2:0, 8-bit and match the sample
 	refuses(() => checkAvcConfig(avcC([]), 64, 64));
 	refuses(() => readSps(Buffer.concat([Buffer.from([0x67]), Buffer.alloc(1100, 0xff)])));
 	refuses(() => checkAvcConfig(fixtureAvcC.subarray(0, 20), 96, 64));
+});
+
+test("an SPS colour description refuses what colr refuses", () => {
+	const config = (vui: Sps["vui"]) => avcC([sps({ width: 64, height: 64, vui })]);
+	expect(() => checkAvcConfig(config({}), 64, 64)).not.toThrow();
+	expect(() => checkAvcConfig(config({ transfer: 1 }), 64, 64)).not.toThrow();
+	for (const transfer of [16, 18]) refuses(() => checkAvcConfig(config({ transfer }), 64, 64));
 });
 
 test("esds must declare AAC-LC at a sample rate up to 48 kHz with one or two channels", () => {

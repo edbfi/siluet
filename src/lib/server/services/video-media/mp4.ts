@@ -1,5 +1,5 @@
 import { checkAacConfig } from "./aac";
-import { checkAvcConfig } from "./avc";
+import { checkAvcConfig, checkTransfer } from "./avc";
 import { check } from "./errors";
 import { areaLimit, edgeLimit, presentedSecondsLimit } from "./limits";
 import { type Box, boxWalker, fields, movieRules, only } from "./mp4-boxes";
@@ -68,7 +68,7 @@ function sampleEntry(walk: Walker, stbl: Box[], video: boolean) {
 	for (const color of extensions.filter((b) => b.type === "colr")) {
 		const value = fields(color);
 		check(["nclx", "nclc"].includes(value.latin1(0, 4)), "colour description");
-		check([1, 2, 4, 5, 6, 13].includes(value.u16(6)), "HDR or unknown transfer");
+		checkTransfer(value.u16(6));
 	}
 	return { width, height };
 }
