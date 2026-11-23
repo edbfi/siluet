@@ -178,6 +178,16 @@ test("a declared or observed size over the limit is an unsupported file size", a
 	try {
 		for (const response of [
 			() => new Response("large", { headers: { "content-length": String(videoByteLimit + 1) } }),
+			// A stream that already failed makes cancel() reject; the size refusal must survive it.
+			() =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							controller.error(new Error("disconnected"));
+						},
+					}),
+					{ headers: { "content-length": String(videoByteLimit + 1) } },
+				),
 			() => {
 				let sent = 0;
 				return new Response(

@@ -89,6 +89,7 @@ export async function downloadVideo(source: VideoDelivery, path: string, transpo
 		}
 	} finally {
 		budget.removeEventListener("abort", abort);
-		await reader.cancel();
+		// A stream that already failed rejects cancel(); keep the original error.
+		await reader.cancel().catch(() => {});
 	}
 }
