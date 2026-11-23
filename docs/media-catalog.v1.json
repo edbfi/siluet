@@ -40,7 +40,7 @@
 		},
 		"seedream-edit": {
 			"review": "ordinary options, up to ten ordered staged files or URLs, batch and retry estimate",
-			"queue": "1–10 ordered public HTTP(S) image URLs, 1–5 requests, 0–3 authorized retries per request, maximum 20 generation POSTs",
+			"queue": "1–10 ordered public HTTP(S) image URLs, 1–5 requests, 0–3 authorized retries per request, maximum 20 generation POSTs; or one local JPEG or PNG via provider upload, cleaned unless cleaning is off, one request, zero retries",
 			"optionCoverage": "partial"
 		}
 	},
@@ -130,7 +130,14 @@
 				"docsOnlyIds": ["ideogram-v4.6", "ideogram-v4.6-edit"],
 				"catalogDocs": "capability"
 			},
-			"lifecycleSources": ["status", "uploads", "imageStatus", "videoStatus", "musicResult"],
+			"lifecycleSources": [
+				"status",
+				"uploads",
+				"uploadStream",
+				"imageStatus",
+				"videoStatus",
+				"musicResult"
+			],
 			"d4": {
 				"field": "input.enable_safety_checker",
 				"value": false
@@ -258,6 +265,7 @@
 				"soraSchema": "https://docs.poyo.ai/api-manual/video-series/sora-2.json",
 				"status": "https://docs.poyo.ai/api-manual/task-management/status.md",
 				"uploads": "https://docs.poyo.ai/api-manual/file-series/upload-url.md",
+				"uploadStream": "https://docs.poyo.ai/api-manual/file-series/upload-stream",
 				"veo-3-1": "https://docs.poyo.ai/api-manual/video-series/veo-3-1.md",
 				"veo-3-1-official": "https://docs.poyo.ai/api-manual/video-series/veo-3-1-official.md",
 				"veo-market": "https://poyo.ai/models/veo-3-1-official",
