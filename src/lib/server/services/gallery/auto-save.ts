@@ -95,26 +95,19 @@ export function createAutoSave(
 		}
 	}
 
-	async function failed(job: ImageJob, token: string) {
-		const tries = job.save_tries + 1;
-		if (tries >= saveTryLimit) {
-			deliveries.delete(job.id);
-			return saves.hold(job.id, token, "failed", saveTryLimit);
-		}
-		return saves.defer(job.id, token, now() + backoff[tries - 1], tries);
-	}
-
 	/** Resolves false when the intent was no longer claimable, so nothing changed. */
 	async function attempt(id: string, token: string) {
 		const job = await saves.claim(id, token, now());
 		if (!job) return false;
+		const taken = deliveries.get(id);
+		let delivery = taken;
+		// The link a try deferred under this claim keeps for the next one.
+		let keep: VideoDelivery | undefined;
 		try {
 			if (expired(job)) {
-				deliveries.delete(id);
 				await saves.expire(id, token);
 				return true;
 			}
-			let delivery = deliveries.get(id);
 			if (!delivery) {
 				const read = await readForSave(id);
 				if (shutdown.signal.aborted) throw shutdown.signal.reason;
@@ -125,7 +118,6 @@ export function createAutoSave(
 				else if (read.kind === "failed") await saves.hold(id, token, "failed");
 				if (read.kind !== "delivered") return true;
 				delivery = read.delivery;
-				deliveries.set(id, delivery);
 			}
 			const publication: Publication = await publish(job, token, delivery);
 			if (publication === "saved") deliveries.delete(id);
@@ -136,11 +128,17 @@ export function createAutoSave(
 			if (shutdown.signal.aborted) await saves.release(id, token).catch(() => {});
 			else {
 				const hold = refusal(error);
-				if (hold) {
-					deliveries.delete(id);
-					await saves.hold(id, token, hold);
-				} else await failed(job, token);
+				const tries = job.save_tries + 1;
+				if (hold) await saves.hold(id, token, hold);
+				else if (tries >= saveTryLimit) await saves.hold(id, token, "failed", saveTryLimit);
+				else if ((await saves.defer(id, token, now() + backoff[tries - 1], tries)) === "done")
+					keep = delivery;
 			}
+		} finally {
+			// A saved, held, expired or fenced attempt forgets its signed link, so a fenced one
+			// cannot hand it to Download again. A newer handoff's link stays.
+			if (deliveries.get(id) === taken) deliveries.delete(id);
+			if (keep && !deliveries.has(id)) deliveries.set(id, keep);
 		}
 		return true;
 	}

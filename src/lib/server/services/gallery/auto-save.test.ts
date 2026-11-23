@@ -27,7 +27,7 @@ let runtime: ReturnType<typeof open> | undefined;
 let reads: string[];
 let posts: number;
 let transfers: string[];
-let status: (id: string) => Response;
+let status: (id: string) => Response | Promise<Response>;
 let media: (id: string) => Response | Promise<Response>;
 
 beforeEach(async () => {
@@ -361,6 +361,8 @@ test("a key replaced during a transfer that then fails or finds an unsupported f
 	runtime.autoSave.start();
 	await settle();
 	for (const id of ["image", "image-gif"]) expect((await summary(id))?.library).toBe("saved");
+	// The fenced attempts forgot their links, so each recovery read afresh.
+	expect(reads.toSorted()).toEqual(["image", "image", "image-gif", "image-gif"]);
 });
 
 test("full disk fails three times for images and videos and leaves no partial file", async () => {
@@ -651,6 +653,35 @@ test("Remove during a transfer keeps the hold, and Download again saves while th
 	await settle();
 	expect((await summary("image"))?.library).toBe("saved");
 	expect(await leftovers()).toHaveLength(1);
+});
+
+test("Remove and Download again during a recovery read leave the fenced link behind", async () => {
+	await insert("image", "completed");
+	await installation.use((db) =>
+		db.run(sql`UPDATE image_job SET save_due=0, next_read_at=0 WHERE id='image'`),
+	);
+	const reading = Promise.withResolvers<void>();
+	const gate = Promise.withResolvers<void>();
+	status = (id) => {
+		reading.resolve();
+		return gate.promise.then(() => finished(id));
+	};
+	runtime = open();
+	runtime.autoSave.start();
+	await reading.promise;
+	await runtime.gallery.remove("image");
+	expect(await runtime.autoSave.retry("image")).toBe(true);
+	gate.resolve();
+	await settle();
+	expect(await runtime.gallery.get("image")).toBeNull();
+	expect(reads).toEqual(["image"]);
+	// The new attempt reads afresh instead of reusing the fenced attempt's link.
+	status = (id) => finished(id);
+	now += 60_000;
+	runtime.autoSave.start();
+	await settle();
+	expect(reads).toEqual(["image", "image"]);
+	expect((await summary("image"))?.library).toBe("saved");
 });
 
 test("a missing file stays unavailable until Download again", async () => {
