@@ -284,7 +284,7 @@ export function createStages(
 			const profile: StageProfile =
 				media.mime === "image/jpeg"
 					? { mime: media.mime, transform: media.transform }
-					: { mime: media.mime, transform: "none" };
+					: { mime: media.mime, transform: media.transform };
 			if (bytes.length !== size || !size || size > maxStageBytes) throw new ChangedStage();
 			// Checked again with no await before reserving and starting the write.
 			if (stopped()) throw new StageError("Stage unavailable.");

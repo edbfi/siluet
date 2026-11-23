@@ -5,7 +5,7 @@ export const pngSignature = Buffer.from("89504e470d0a1a0a", "hex");
 export const maxPngPixels = 8_000_000;
 export const maxPngBytes = 16 * 1024 * 1024;
 const maxEdge = 16_384;
-const maxChunks = 8_192;
+export const maxChunks = 8_192;
 
 const colorTypes = {
 	0: { depths: [1, 2, 4, 8, 16], channels: 1 },
@@ -15,7 +15,7 @@ const colorTypes = {
 	6: { depths: [8, 16], channels: 4 },
 } as const;
 
-function readHeader(data: Buffer) {
+export function readHeader(data: Buffer) {
 	if (data.length !== 13) throw new PngCleanupError("invalid-png");
 	const width = data.readUInt32BE(0);
 	const height = data.readUInt32BE(4);
@@ -44,9 +44,9 @@ const colorChunks = new Set(["cHRM", "cICP", "gAMA", "iCCP", "sBIT", "sRGB"]);
 const afterPaletteChunks = new Set(["bKGD", "hIST", "tRNS"]);
 const beforeImageChunks = new Set(["eXIf", "pHYs", "sPLT"]);
 const textChunks = new Set(["iTXt", "tEXt", "zTXt"]);
-const animationChunks = new Set(["acTL", "fcTL", "fdAT"]);
+export const animationChunks = new Set(["acTL", "fcTL", "fdAT"]);
 // https://www.w3.org/TR/png-3/#11cLLI and https://github.com/w3c/png/issues/380
-const hdrChunks = new Set(["mDCV", "cLLI", "gMAP", "gDAT", "gmAP", "gdAT"]);
+export const hdrChunks = new Set(["mDCV", "cLLI", "gMAP", "gDAT", "gmAP", "gdAT"]);
 
 const knownChunks = new Set([
 	"IHDR",

@@ -16,8 +16,14 @@ test("seven-key descriptors parse and anything else is refused", () => {
 	expect(parseStageDescriptor({ ...valid, mime: "image/png", transform: "none" })).toMatchObject({
 		mime: "image/png",
 	});
+	for (const mime of ["image/png", "image/jpeg"])
+		expect(parseStageDescriptor({ ...valid, mime, transform: "original" })).toMatchObject({
+			mime,
+			transform: "original",
+		});
 	for (const bad of [
 		{ ...valid, mime: "image/png" },
+		{ ...valid, revision: 1 },
 		{ ...valid, transform: "rotated" },
 		{ ...valid, extra: 1 },
 		{ ...valid, draft: "draft" },

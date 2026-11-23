@@ -29,6 +29,11 @@ const prefixes = {
 	mpf: Buffer.from("MPF\0"),
 };
 
+/** APP2 prefixes of an ISO 21496 gain map and an MPF secondary-image index. */
+export const gainMapPrefix = prefixes.gain;
+export const mpfPrefix = prefixes.mpf;
+export const iccPrefix = prefixes.icc;
+
 function starts(data: Buffer, prefix: keyof typeof prefixes) {
 	const bytes = prefixes[prefix];
 	return data.subarray(0, bytes.length).equals(bytes);

@@ -22,6 +22,8 @@ const media = {
 	size: bytes.length,
 	mime: "image/png" as const,
 	transform: "none" as const,
+	revision: 0,
+	rotated: false,
 };
 
 const cleanup: (() => Promise<void>)[] = [];

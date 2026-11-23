@@ -23,8 +23,20 @@ test("scoped JPEG and PNG previews read a verified file identity and revoke ever
 		size: bytes.length,
 		digest: createHash("sha256").update(bytes).digest("hex"),
 	};
-	const jpeg = { ...common, mime: "image/jpeg" as const, transform: "reencoded-rotation" as const };
-	const png = { ...common, mime: "image/png" as const, transform: "none" as const };
+	const jpeg = {
+		...common,
+		mime: "image/jpeg" as const,
+		transform: "reencoded-rotation" as const,
+		revision: 0,
+		rotated: false,
+	};
+	const png = {
+		...common,
+		mime: "image/png" as const,
+		transform: "none" as const,
+		revision: 0,
+		rotated: false,
+	};
 	const url = "http://127.0.0.1/stage";
 	try {
 		for (const media of [jpeg, png]) {

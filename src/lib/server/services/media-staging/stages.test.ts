@@ -33,6 +33,8 @@ function png(...values: number[]) {
 		size: bytes.length,
 		mime: "image/png" as const,
 		transform: "none" as const,
+		revision: 0,
+		rotated: false,
 		digest: createHash("sha256").update(bytes).digest("hex"),
 	};
 }
