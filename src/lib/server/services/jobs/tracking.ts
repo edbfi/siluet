@@ -83,7 +83,7 @@ export function createJobTracking(
 		fetch: read,
 		now = Date.now,
 		random = Math.random,
-		sleep = (delay) => Bun.sleep(delay),
+		sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay).unref()),
 		scheduleRead = scheduleReadTimer,
 		onDelivery,
 	}: TrackingDependencies = {},
@@ -99,6 +99,9 @@ export function createJobTracking(
 	const inFlight = new Map<string, Promise<Observed>>();
 	let start: Promise<void> | undefined;
 	let closed = false;
+	// close() ends every dispatch sleep at once. Each sender checks `closed` after waking.
+	const shutdown = Promise.withResolvers<void>();
+	const pause = (delay: number) => Promise.race([sleep(delay), shutdown.promise]);
 
 	function cancelTimer(id: string) {
 		timers.get(id)?.();
@@ -295,7 +298,7 @@ export function createJobTracking(
 			if ("blocked" in response) {
 				if (retryConflict) return;
 				if (auth && response.blocked === "cooldown" && response.until < deadline) {
-					await sleep(Math.max(1, response.until - now()));
+					await pause(Math.max(1, response.until - now()));
 					continue;
 				}
 				return response.blocked;
@@ -392,7 +395,7 @@ export function createJobTracking(
 				(id, attempt, before) =>
 					send(id, auth.provider, auth.key, auth.request, attempt, before, auth),
 				now,
-				sleep,
+				pause,
 				() => closed,
 			);
 		} finally {
@@ -462,6 +465,7 @@ export function createJobTracking(
 		/** Stop new work, then settle every dispatch and status read before storage closes. */
 		close() {
 			closed = true;
+			shutdown.resolve();
 			for (const cancel of timers.values()) cancel();
 			timers.clear();
 			return Promise.allSettled([...dispatches, ...inFlight.values()]);

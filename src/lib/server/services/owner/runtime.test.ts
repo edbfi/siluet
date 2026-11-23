@@ -3,8 +3,10 @@ import type { EventEmitter } from "node:events";
 import { exists, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
+import * as fileAttempts from "../../db/file-attempt";
 import * as runtimeInstallation from "../../db/runtime-installation";
 import { UnsupportedPlatformError } from "../../platform";
+import * as tracking from "../jobs/tracking";
 import { initializeOwner } from "./runtime";
 
 const keys = ["SILUET_DATA_DIR", "SILUET_SERVER_PORT", "SILUET_SERVER_ORIGIN"] as const;
@@ -40,6 +42,56 @@ test("a dev reload closes the previous runtime before opening the installation a
 	}
 	const third = await initializeOwner(true);
 	await third.close();
+});
+
+test("file recovery runs before job recovery, and close stops work before storage closes", async () => {
+	const order: string[] = [];
+	const record =
+		<T extends (...args: never[]) => unknown>(name: string, run: T) =>
+		(...args: Parameters<T>) => {
+			order.push(name);
+			return run(...args) as ReturnType<T>;
+		};
+	const files = fileAttempts.fileAttemptStore;
+	spyOn(fileAttempts, "fileAttemptStore").mockImplementation((...args) => {
+		const store = files(...args);
+		return { ...store, recover: record("files.recover", store.recover) };
+	});
+	const jobs = tracking.createJobTracking;
+	spyOn(tracking, "createJobTracking").mockImplementation((...args) => {
+		const created = jobs(...args);
+		return {
+			...created,
+			resume: record("jobs.resume", created.resume),
+			close: record("jobs.close", created.close),
+		};
+	});
+	const open = runtimeInstallation.openRuntimeInstallation;
+	spyOn(runtimeInstallation, "openRuntimeInstallation").mockImplementationOnce(async (...args) => {
+		const installation = await open(...args);
+		return Object.assign(installation, {
+			close: record("installation.close", installation.close),
+		});
+	});
+	const runtime = await initializeOwner(true);
+	expect(order).toEqual(["files.recover", "jobs.resume"]);
+	order.length = 0;
+	for (const [name, part] of [
+		["files.close", runtime.files],
+		["stages.close", runtime.stages],
+		["autoSave.close", runtime.autoSave],
+	] as const) {
+		const close = part.close.bind(part);
+		spyOn(part, "close").mockImplementation(record(name, close));
+	}
+	await runtime.close();
+	expect(order).toEqual([
+		"jobs.close",
+		"files.close",
+		"stages.close",
+		"autoSave.close",
+		"installation.close",
+	]);
 });
 
 test("a started studio still refuses a second runtime in the same process", async () => {
