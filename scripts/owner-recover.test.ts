@@ -114,11 +114,20 @@ test.each(["missing", "unsafe"])(
 						sql`INSERT INTO auth_attempt VALUES(${crypto.randomUUID()},'signin',${Date.now()})`,
 					);
 			});
-			await galleryStorage(install).publish("saved-job", Buffer.from(referencePng), {
-				mime: "image/png",
-				width: 1,
-				height: 1,
-			});
+			// Publication takes the claimed save attempt the worker would hold.
+			await install.use((db) =>
+				db.run(sql`UPDATE image_job SET save_attempt='fixture-attempt' WHERE id='saved-job'`),
+			);
+			await galleryStorage(install).publish(
+				"saved-job",
+				"fixture-attempt",
+				Buffer.from(referencePng),
+				{
+					mime: "image/png",
+					width: 1,
+					height: 1,
+				},
+			);
 			const id = install.id;
 			const key = (await readdir(directory)).find((n) => /^factor-.*\.key$/.test(n));
 			if (!key) throw new Error("Expected key.");

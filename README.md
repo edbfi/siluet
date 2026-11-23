@@ -16,7 +16,7 @@
   <a href="https://github.com/edbfi/siluet/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/edbfi/siluet/ci.yml?branch=main&amp;event=push&amp;label=CI&amp;style=flat" alt="CI on main"></a>
 </p>
 
-Siluet is a private image and video studio that runs on your own machine. Connect your Poyo.ai or ToAPIs key, review each request and its estimated cost before anything is sent, and follow the job until you save the result.
+Siluet is a private image and video studio that runs on your own machine. Connect your Poyo.ai or ToAPIs key, review each request and its estimated cost before anything is sent, and follow the job; Siluet saves the result to your Gallery.
 Saved images and videos stay in your local Gallery and open offline.
 
 ## Quick start

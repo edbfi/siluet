@@ -1,0 +1,280 @@
+import { rm } from "node:fs/promises";
+import { basename } from "node:path";
+import {
+	type ImageJob,
+	imageJobStore,
+	isReadPaused,
+	isVideoJob,
+	type SaveHold,
+} from "../../db/image-job-store";
+import type { RuntimeInstallation } from "../../db/runtime-installation";
+import { saveIntentStore, saveTryLimit } from "../../db/save-intent";
+import type { SaveRead } from "../jobs/tracking";
+import { downloadVideo, type VideoDelivery } from "../video-media/download";
+import { UnsupportedVideoError } from "../video-media/errors";
+import { verifyVideoFile } from "../video-media/verify-video";
+import { direct, downloadImage, type Transport } from "./download";
+import { galleryStorage, type Publication, unremovedScratch } from "./storage";
+import { UnsupportedGalleryImage, verifyImage } from "./verify-image";
+
+type AutoSaveDependencies = {
+	/** One status read for this job under its cooldown, gate and key; never a submission. */
+	readForSave: (id: string) => Promise<SaveRead>;
+	/** Whether each job's original key is still current and readable. */
+	readability: () => Promise<(job: ImageJob) => boolean>;
+	now?: () => number;
+	transport?: Transport;
+	transferImage?: typeof downloadImage;
+	transferVideo?: typeof downloadVideo;
+	/** Delays before the second and third try of a failed download. */
+	backoff?: readonly [number, number];
+	/** Delay before looking again after a database write that records an outcome failed. */
+	settleRetryDelay?: number;
+};
+
+// At most two image and one video transfer at a time; the rest wait.
+const caps = { image: 2, video: 1 };
+// The longest delay setTimeout accepts; a longer one fires at once.
+const timerLimit = 2_147_483_647;
+const nothing = () => false;
+
+/** A complete file outside the Gallery profile; another download cannot change it. */
+function refusal(error: unknown): SaveHold | null {
+	if (error instanceof UnsupportedGalleryImage) return "unsupported";
+	if (error instanceof UnsupportedVideoError)
+		return error.reason === "webm" ? "webm" : "unsupported";
+	return null;
+}
+
+/** A database write that records an attempt's outcome failed; it never counts as a try. */
+class SettleFailure extends Error {}
+const settling = <T>(write: Promise<T>) =>
+	write.catch((cause: unknown) => {
+		throw new SettleFailure("The save outcome was not recorded.", { cause });
+	});
+
+/**
+ * Carries out every durable save intent (D9): claims it, downloads from the delivery the
+ * completing read observed (or one recovery read), verifies and publishes under the fence.
+ * Signed links stay in this memory only.
+ */
+export function createAutoSave(
+	installation: RuntimeInstallation,
+	{
+		readForSave,
+		readability,
+		now = Date.now,
+		transport = direct,
+		transferImage = downloadImage,
+		transferVideo = downloadVideo,
+		backoff = [30_000, 120_000],
+		settleRetryDelay = 30_000,
+	}: AutoSaveDependencies,
+) {
+	const saves = saveIntentStore(installation);
+	const jobs = imageJobStore(installation);
+	const storage = galleryStorage(installation);
+	const deliveries = new Map<string, VideoDelivery>();
+	const active = new Map<string, { video: boolean; token: string; done: Promise<void> }>();
+	const shutdown = new AbortController();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	// A later look after a failed outcome write; nothing else may wake the worker.
+	let recheck: ReturnType<typeof setTimeout> | undefined;
+	let started = false;
+	// The running fill pass, if any; shutdown waits for it.
+	let pass: Promise<void> | undefined;
+	let again = false;
+	// The last pass left a due job waiting for a transfer slot.
+	let capped = false;
+
+	const expired = (job: ImageJob) => job.expires_at !== null && job.expires_at <= now();
+	const running = (video: boolean) =>
+		[...active.values()].filter((attempt) => attempt.video === video).length;
+
+	async function publish(job: ImageJob, token: string, delivery: VideoDelivery) {
+		const { signal } = shutdown;
+		if (!isVideoJob(job)) {
+			const bytes = await transferImage(delivery.url, transport, signal);
+			return storage.publish(job.id, token, bytes, await verifyImage(bytes));
+		}
+		const path = storage.scratchPath(token);
+		try {
+			const bytes = await transferVideo(delivery, path, transport, signal);
+			const info = await verifyVideoFile(path);
+			return await storage.publishVideo(job.id, path, token, { ...bytes, ...info });
+		} finally {
+			// Publication renames the scratch away; any other outcome discards only this attempt's file.
+			await rm(path, { force: true }).catch(() => unremovedScratch(basename(path)));
+		}
+	}
+
+	/** Resolves false when the intent was no longer claimable, so nothing changed. */
+	async function attempt(id: string, token: string) {
+		const job = await saves.claim(id, token, now());
+		if (!job) return false;
+		const taken = deliveries.get(id);
+		let delivery = taken;
+		// The link a try deferred under this claim keeps for the next one.
+		let keep: VideoDelivery | undefined;
+		try {
+			if (expired(job)) {
+				await settling(saves.expire(id, token, now()));
+				return true;
+			}
+			if (!delivery) {
+				const read = await readForSave(id);
+				if (shutdown.signal.aborted) throw shutdown.signal.reason;
+				// A read that ran without a usable link ends in Download failed: D9 allows no further read.
+				if (read.kind === "cooldown")
+					await settling(saves.defer(id, token, read.until, job.save_tries));
+				else if (read.kind === "paused") await settling(saves.release(id, token));
+				else if (read.kind === "expired") await settling(saves.expire(id, token, now()));
+				else if (read.kind === "failed") await settling(saves.hold(id, token, "failed"));
+				if (read.kind !== "delivered") return true;
+				delivery = read.delivery;
+			}
+			const publication: Publication = await publish(job, token, delivery);
+			if (publication === "saved") deliveries.delete(id);
+			// A replaced key leaves the claim in place; give it back. Remove already cleared it.
+			else await settling(saves.release(id, token));
+		} catch (error) {
+			// Shutdown never counts as a failure.
+			if (shutdown.signal.aborted) await saves.release(id, token).catch(() => {});
+			else if (error instanceof SettleFailure) throw error;
+			else {
+				const hold = refusal(error);
+				const tries = job.save_tries + 1;
+				if (hold) await saves.hold(id, token, hold);
+				else if (tries >= saveTryLimit) await saves.hold(id, token, "failed", saveTryLimit);
+				else if ((await saves.defer(id, token, now() + backoff[tries - 1], tries)) === "done")
+					keep = delivery;
+			}
+		} finally {
+			// A saved, held, expired or fenced attempt forgets its signed link, so a fenced one
+			// cannot hand it to Download again. A newer handoff's link stays.
+			if (deliveries.get(id) === taken) deliveries.delete(id);
+			if (keep && !deliveries.has(id)) deliveries.set(id, keep);
+		}
+		return true;
+	}
+
+	function begin(job: ImageJob) {
+		const video = isVideoJob(job);
+		const token = crypto.randomUUID();
+		const done = attempt(job.id, token)
+			// A failed database write gives the claim back so the intent is claimable or retryable
+			// again; startup clears it if this write fails too. It looks again only after a delay,
+			// so a failing database is not retried in a loop and a quiet one is not left waiting.
+			.catch(() =>
+				saves
+					.release(job.id, token)
+					.then(nothing, nothing)
+					.finally(() => {
+						if (shutdown.signal.aborted) return;
+						clearTimeout(recheck);
+						recheck = setTimeout(wake, settleRetryDelay).unref();
+					}),
+			)
+			.then((changed) => {
+				active.delete(job.id);
+				// A finished attempt, or a missed claim that frees a slot a due job waits for, looks
+				// again. A missed claim is not claimable again, so this cannot spin.
+				if (changed || capped) wake();
+			});
+		active.set(job.id, { video, token, done });
+	}
+
+	async function fill() {
+		// A claim whose release failed belongs to no running attempt; clear it in this process.
+		await saves.clearAbandoned([...active.values()].map((entry) => entry.token));
+		if (shutdown.signal.aborted) return;
+		const time = now();
+		const due = await saves.pendingSaves(time);
+		if (shutdown.signal.aborted) return;
+		const readable = due.length ? await readability() : () => false;
+		if (shutdown.signal.aborted) return;
+		capped = false;
+		for (const job of due) {
+			if (active.has(job.id)) continue;
+			// Expiry needs no transfer slot.
+			if (!expired(job)) {
+				// Paused and key-less jobs wait for Refresh or stay as they are; nothing polls.
+				if (isReadPaused(job.pause_reason) || !readable(job)) continue;
+				const video = isVideoJob(job);
+				if (running(video) >= caps[video ? "video" : "image"]) {
+					capped = true;
+					continue;
+				}
+			}
+			begin(job);
+		}
+		clearTimeout(timer);
+		const next = await saves.nextDue(time);
+		if (next !== null && !shutdown.signal.aborted)
+			// A far due time (such as a long Retry-After) wakes early and looks again.
+			timer = setTimeout(wake, Math.min(Math.max(0, next - now()), timerLimit)).unref();
+	}
+
+	function wake() {
+		if (!started || shutdown.signal.aborted) return;
+		if (pass) {
+			again = true;
+			return;
+		}
+		pass = (async () => {
+			try {
+				do {
+					again = false;
+					await fill();
+				} while (again && !shutdown.signal.aborted);
+			} catch {
+				// Storage is closing or busy; the next event or restart resumes the intent.
+			} finally {
+				pass = undefined;
+			}
+		})();
+	}
+
+	return {
+		/** Start (or look again) after startup recovery cleared abandoned attempts. */
+		start() {
+			started = true;
+			wake();
+		},
+		/** The tracking handoff after a status read committed (never awaited by it). */
+		deliver(id: string, delivery: VideoDelivery | null) {
+			if (shutdown.signal.aborted) return;
+			if (delivery) deliveries.set(id, delivery);
+			wake();
+		},
+		/** Retry download or Download again: one fresh status read, never a submission. */
+		async retry(id: string) {
+			if (shutdown.signal.aborted) return false;
+			// The original key must still decrypt, as the Jobs retry flag requires.
+			const job = await jobs.get(id);
+			if (!job || !(await readability())(job) || !(await saves.retry(id, now()))) return false;
+			deliveries.delete(id);
+			wake();
+			return true;
+		},
+		/** Resolves once no attempt is running (tests). */
+		async idle() {
+			while (pass || active.size) {
+				await pass;
+				await Promise.all([...active.values()].map((entry) => entry.done));
+				await Bun.sleep(1);
+			}
+		},
+		/** Stop admission, abort transfers and wait for the running pass and active attempts to end. */
+		async close() {
+			shutdown.abort(new Error("Siluet is stopping."));
+			clearTimeout(timer);
+			clearTimeout(recheck);
+			while (pass || active.size) {
+				await pass;
+				await Promise.all([...active.values()].map((entry) => entry.done));
+			}
+			deliveries.clear();
+		},
+	};
+}

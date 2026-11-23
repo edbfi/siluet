@@ -38,6 +38,15 @@ export const styles = {
 		overflowWrap: "anywhere",
 	}),
 	note: css({ maxWidth: "72ch", fontSize: "0.875rem" }),
+	library: css({
+		fontSize: "0.875rem",
+		fontWeight: 650,
+		color: "accent",
+		"&:is([data-library=saved])": { color: "success" },
+		"&:is([data-library=failed], [data-library=unsupported], [data-library=webm], [data-library=expired], [data-library=unavailable])":
+			{ color: "warning" },
+		_focusVisible: { outline: "2px solid {colors.accent}", outlineOffset: "2px" },
+	}),
 	billing: css({
 		display: "grid",
 		gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 13rem), 1fr))",

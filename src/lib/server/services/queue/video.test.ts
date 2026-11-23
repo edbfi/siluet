@@ -242,39 +242,45 @@ test("recovery reserves a single GET, retains Retry-After across reopen, attache
 		video_progress: 100,
 		video_poll_deadline: now + 600000,
 	});
+	// The completing lookup armed the save; its link went to the worker, so nothing reads now.
 	const beforeSave = reads;
-	expect(await jobs.videoResult(id)).toMatchObject({ url: "https://cdn.example/result?private" });
+	expect((await jobs.list())[0]).toMatchObject({ library: "waiting" });
+	const { next_read_at: cooldown } = (await imageJobStore(db).get(id)) ?? {};
+	expect(await jobs.readForSave(id)).toEqual({ kind: "cooldown", until: cooldown ?? 0 });
 	expect(reads).toBe(beforeSave);
 	now += 5000;
 	reply = () => Response.json({ ...response, model: "other" });
-	expect(await jobs.videoResult(id)).toBeNull();
+	expect(await jobs.readForSave(id)).toEqual({ kind: "paused", note: "unknown-status" });
+	expect((await jobs.list())[0]).toMatchObject({ library: "paused" });
 	now += 5000;
 	reply = () =>
 		Response.json(
 			{ ...response, billing: { status: "pending" } },
 			{ headers: { "retry-after": "65" } },
 		);
-	expect(await jobs.videoResult(id)).toMatchObject({ url: "https://cdn.example/result?private" });
+	await jobs.refresh(id);
 	expect((await jobs.list())[0].billing).toEqual({ status: "settled", usd: "0.25", credits: "5" });
 	expect((await imageJobStore(db).get(id))?.next_read_at).toBe(now + 65000);
+	expect(await jobs.readForSave(id)).toEqual({ kind: "cooldown", until: now + 65000 });
 	now += 65000;
 	reply = () => Response.json({ ...response, result: { type: "video", data: [{}] } });
-	expect(await jobs.videoResult(id)).toBeNull();
-	expect((await jobs.list())[0]).toMatchObject({ canSave: true });
+	expect(await jobs.readForSave(id)).toEqual({ kind: "failed" });
+	expect((await jobs.list())[0]).toMatchObject({ library: "waiting" });
 	now += 5000;
 	reply = () => new Response(null, { status: 503 });
-	expect(await jobs.videoResult(id)).toBeNull();
-	expect((await jobs.list())[0]).toMatchObject({ canSave: true });
+	expect(await jobs.readForSave(id)).toEqual({ kind: "failed" });
+	expect((await jobs.list())[0]).toMatchObject({ library: "waiting" });
 	now += 10000;
 	reply = () => Response.json({ ...response, result: { type: "video", data: [{}, {}] } });
-	expect(await jobs.videoResult(id)).toBeNull();
+	expect(await jobs.readForSave(id)).toEqual({ kind: "paused", note: "unsupported-video-result" });
 	const [unsupported] = await jobs.list();
-	expect(unsupported.canSave).toBe(false);
+	expect(unsupported).toMatchObject({ library: "unsupported", retryable: false });
 	expect(unsupported.message).toContain("unsupported video result");
+	// The held result stays held even when a later read finds one clip.
 	now += 5000;
 	reply = () => Response.json(response);
 	await jobs.refresh(id);
-	expect((await jobs.list())[0].canSave).toBe(true);
+	expect((await jobs.list())[0]).toMatchObject({ library: "unsupported", retryable: false });
 	expect(posts).toBe(1);
 	expect(JSON.stringify(await imageJobStore(db).get(id))).not.toContain("?private");
 });
@@ -438,15 +444,16 @@ test("manual video reads keep an expired or failed task separate from its charge
 	await jobs.refresh(second);
 	expect((await jobs.list()).find((j) => j.id === second)).toMatchObject({
 		state: "completed",
-		canSave: false,
+		library: "expired",
+		retryable: false,
 		billing: { status: "settled", credits: "5" },
 	});
 	now += 5000;
-	expect(await jobs.videoResult(second)).toBeNull();
+	expect(await jobs.readForSave(second)).toEqual({ kind: "expired" });
 	await store.save("toapis", "changed", now, false, 1);
 	now += 5000;
 	const count = reads;
-	expect(await jobs.videoResult(second)).toBeNull();
+	expect(await jobs.readForSave(second)).toEqual({ kind: "expired" });
 	expect(reads).toBe(count);
 	expect(posts).toBe(2);
 });

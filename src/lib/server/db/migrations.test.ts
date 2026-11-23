@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { connect } from "@tursodatabase/database";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/tursodatabase/database";
+import { migrations37 } from "../../../../tests/fixtures/db/migrations-37";
 import { installationMigrations, migrateInstallation } from "./migrations";
+import { releasedMigrations } from "./released-migrations";
 
 test("a recognized migration prefix is upgraded on reopen", async () => {
 	const client = await connect(":memory:");
@@ -134,4 +137,18 @@ test("upgrading saved jobs preserves Gallery entries and accepts bounded operati
 	} finally {
 		await client.close();
 	}
+});
+
+test("released migrations keep their SQL and new ones sort after the last release", () => {
+	const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+	const migrations: Record<string, string> = installationMigrations;
+	const released = [...releasedMigrations.keys()].sort();
+	for (const name of released)
+		expect(digest(migrations[name] ?? "")).toBe(releasedMigrations.get(name) ?? "");
+	const last = released.at(-1) ?? "";
+	for (const name of Object.keys(migrations))
+		if (!releasedMigrations.has(name)) expect(name > last).toBe(true);
+	// The pinned #37 history is the released prefix, byte for byte.
+	for (const [name, value] of Object.entries(migrations37))
+		expect(digest(value)).toBe(releasedMigrations.get(name) ?? "");
 });

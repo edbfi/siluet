@@ -3,15 +3,9 @@ import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, depends }) => {
 	depends("studio:jobs");
-	const [history, entries] = await Promise.all([
-		locals.studio.jobs.history(),
-		locals.studio.gallery.list(),
-	]);
-	return {
-		...history,
-		saved: entries.filter((entry) => entry.available).map((entry) => entry.jobId),
-		now: Date.now(),
-	};
+	// Listing Gallery first records any missing file, so the jobs show it.
+	await locals.studio.gallery.list();
+	return { ...(await locals.studio.jobs.history()), now: Date.now() };
 };
 
 async function jobId({ request }: RequestEvent) {
@@ -31,18 +25,10 @@ export const actions = {
 		await event.locals.studio.jobs.refresh(id);
 		return { id, message: "" };
 	},
-	save: async (event) => {
+	download: async (event) => {
 		const id = await jobId(event);
-		if (await event.locals.studio.jobs.isVideo(id)) {
-			const message = await event.locals.studio.gallery.saveVideo(id, () =>
-				event.locals.studio.jobs.videoResult(id),
-			);
-			return { id, message };
-		}
-		if (await event.locals.studio.gallery.save(id)) return { id, message: "Saved to Gallery." };
-		return fail(409, {
-			id,
-			message: "The image could not be saved. You can retry Save on this job.",
-		});
+		// Retry download and Download again arm the job; the worker downloads in the background.
+		if (await event.locals.studio.autoSave.retry(id)) return { id, message: "Download requested." };
+		return fail(409, { id, message: "This result cannot be downloaded again now." });
 	},
 } satisfies Actions;

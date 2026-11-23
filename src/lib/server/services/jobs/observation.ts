@@ -1,14 +1,16 @@
 import {
 	hasCorrelation,
 	type ImageJob,
+	isReadPaused,
 	isVideoJob,
+	type SaveHold,
 	type StatusNote,
 } from "../../db/image-job-store";
 import { retryTime } from "../../db/provider-gate";
 import type { TaskBilling, TaskFailureReason, TaskObservation } from "../../providers/image-job";
 import { retryDelay } from "../queue/submit-gate";
 import { mergeBilling } from "./settlement";
-import { isActive, isReadPaused, storedBilling } from "./summary";
+import { isActive, storedBilling } from "./summary";
 
 function automaticRetryState(
 	job: ImageJob,
@@ -69,6 +71,7 @@ export function statusUpdate(
 	let billing = storedBilling(job);
 	let expiresAt = job.expires_at;
 	let resultUrl: string | null = null;
+	let saveHold: SaveHold | null = null;
 
 	if (observation.kind === "paused") note = observation.reason;
 	if (observation.kind === "temporary")
@@ -95,11 +98,15 @@ export function statusUpdate(
 			failureReason = observation.failureReason;
 			expiresAt = observation.expiresAt ?? job.expires_at;
 			if (state === "completed") {
-				resultUrl = expiresAt !== null && expiresAt <= now ? null : observation.resultUrl;
+				const expired = expiresAt !== null && expiresAt <= now;
+				resultUrl = expired ? null : observation.resultUrl;
 				if (!resultUrl)
 					note = observation.unsupportedVideoResult
 						? "unsupported-video-result"
 						: "result-unavailable";
+				// A link-less first completion shows its final state at once; the worker clears an expired one.
+				if (!resultUrl && !expired)
+					saveHold = observation.unsupportedVideoResult ? "unsupported" : "failed";
 			}
 		} else {
 			note = "unknown-status";
@@ -123,6 +130,7 @@ export function statusUpdate(
 				observation.kind === "observed" && !isVideoJob(job)
 					? now + delay
 					: Math.max(now + delay, retryTime(observation.retryAfter, now)),
+			saveHold,
 		},
 		resultUrl,
 	};

@@ -179,10 +179,12 @@ test("model switch keeps prompt, clears consent, and a Poyo-only owner saves one
 		const article = page.getByRole("article");
 		await expect(article.getByText("Completed", { exact: true })).toBeVisible({ timeout: 25_000 });
 		await expect(article.getByText(/78 Poyo\.ai credits/)).toBeVisible();
-		const save = article.getByRole("button", { name: "Save to Gallery" });
-		await expect(save).toBeEnabled({ timeout: 20_000 });
-		await save.press("Enter");
-		await article.getByRole("link", { name: "Open saved video" }).press("Enter");
+		// Automatic publication replaces the Save click.
+		await expect(article.getByRole("button", { name: "Save to Gallery" })).toHaveCount(0);
+		const open = article.getByRole("link", { name: "Open saved video" });
+		await expect(open).toBeVisible({ timeout: 20_000 });
+		await expect(article.locator("[data-library]")).toHaveText("Saved");
+		await open.press("Enter");
 		await expect(page).toHaveURL(/\/gallery\/[0-9a-f-]+$/);
 		const path = new URL(page.url()).pathname;
 		await server.stop();

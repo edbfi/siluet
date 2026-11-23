@@ -391,7 +391,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 		await withEditStudio(
 			page,
 			provider,
-			"download-fails-once",
+			"link-missing-once",
 			async ({
 				origin,
 				rates,
@@ -563,24 +563,27 @@ for (const provider of ["poyo", "toapis"] as const) {
 				assertOneSubmission();
 				await assertPrivate();
 				expect(fixtures.requests.filter(({ path }) => path === editedImagePath)).toEqual([]);
-				const save = job.getByRole("button", { name: "Save to Gallery" });
-				await expect(save).toBeEnabled({ timeout: 20_000 });
-				const [failedSave] = await Promise.all([
-					page.waitForResponse(`${origin}/jobs?/save`),
-					save.press("Enter"),
-				]);
-				assertRedacted(await failedSave.text());
+				// The completing read had no usable link, so Jobs offers Retry download at once.
+				const library = job.locator("[data-library]");
+				await expect(library).toHaveText("Download failed", { timeout: 20_000 });
+				await expect(job.getByRole("button", { name: "Save to Gallery" })).toHaveCount(0);
+				const retry = job.getByRole("button", { name: "Retry download" });
 				const open = job.getByRole("link", { name: "Open saved image" });
-				await expect(job.getByText(/retry Save on this job/)).toBeVisible();
 				await expect(job.getByText("Completed", { exact: true })).toBeVisible();
 				await expect(open).toHaveCount(0);
 				await assertPrivate();
-				await expect(save).toBeEnabled({ timeout: 20_000 });
-				await save.press("Enter");
-				await expect(open).toBeVisible();
+				const [requested] = await Promise.all([
+					page.waitForResponse(`${origin}/jobs?/download`),
+					retry.press("Enter"),
+				]);
+				assertRedacted(await requested.text());
+				await expect(retry).toHaveCount(0);
+				await expect(library).toBeFocused();
+				await expect(open).toBeVisible({ timeout: 20_000 });
+				await expect(library).toHaveText("Saved");
 				const path = await open.getAttribute("href");
 				if (!path) throw new Error("Missing Gallery link.");
-				const downloads = 2;
+				const downloads = 1;
 				expect(fixtures.requests.filter(({ path }) => path === editedImagePath)).toEqual(
 					Array.from({ length: downloads }, () => ({
 						path: editedImagePath,
@@ -590,7 +593,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 				);
 				const statusRequests = fixtures.requests.filter(({ path }) => path.includes("/status/"));
 				expect(statusRequests.map(({ path }) => path)).toEqual(
-					Array.from({ length: downloads + 1 }, () => fixtures.statusPaths[0]),
+					Array.from({ length: 2 }, () => fixtures.statusPaths[0]),
 				);
 				await assertPrivate();
 				assertOneSubmission();
@@ -803,7 +806,8 @@ for (const [provider, outcome, state, message] of [
 					await expect(article).toHaveCount(1);
 					await expect(article.getByText(state, { exact: true })).toBeVisible({ timeout: 20_000 });
 					await expect(article.getByText(message)).toBeVisible();
-					await expect(article.getByRole("button", { name: "Save to Gallery" })).toHaveCount(0);
+					await expect(article.locator("[data-library]")).toHaveCount(0);
+					await expect(article.getByRole("button", { name: /download/i })).toHaveCount(0);
 					await assertPrivate();
 					assertOneSubmission();
 				};
@@ -883,14 +887,11 @@ for (const provider of ["poyo", "toapis"] as const) {
 					await expect(batch).toContainText(
 						"Total unknown · known subtotal · 22.4 credits · $0.112 USD",
 					);
-				const save = second.getByRole("button", { name: "Save to Gallery" });
-				await expect(save).toBeEnabled({ timeout: 20_000 });
-				await save.press("Enter");
-				await expect(second).toContainText("You can retry Save");
-				await expect(save).toBeEnabled({ timeout: 20_000 });
-				await save.press("Enter");
+				// Every successful attempt saves without a click.
 				const open = second.getByRole("link", { name: "Open saved image" });
-				await expect(open).toBeVisible();
+				await expect(open).toBeVisible({ timeout: 20_000 });
+				await expect(batch.locator("[data-library=saved]")).toHaveCount(4, { timeout: 20_000 });
+				await expect(batch.getByRole("button", { name: "Save to Gallery" })).toHaveCount(0);
 				const path = await open.getAttribute("href");
 				await assertPrivate();
 				await restart();

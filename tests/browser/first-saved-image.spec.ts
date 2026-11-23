@@ -46,12 +46,16 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 		const cacheHome = await createOwnerDirectory();
 		const observedBodies: unknown[] = [];
 		const respond = jobResponses();
-		let firstDownload = true;
+		let firstStatus = true;
 		const fixtures = startProviderFixtures(async (request, path) => {
 			if (path === "/poyo/submit") observedBodies.push(await request.clone().json());
-			if (edit && path === "/media/image" && firstDownload) {
-				firstDownload = false;
-				return new Response(referenceGif, { headers: { "content-type": "image/gif" } });
+			// The edit's completing read carries no usable link, so Jobs offers Retry download.
+			if (edit && path === "/poyo/status/poyo-fixture-1" && firstStatus) {
+				firstStatus = false;
+				return Response.json({
+					code: 200,
+					data: { task_id: "poyo-fixture-1", status: "finished", files: [] },
+				});
 			}
 			return respond(request, path);
 		});
@@ -89,8 +93,8 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 			}
 			if (zImage) {
 				const picker = page.getByLabel("Model", { exact: true });
-				await picker.focus();
-				await picker.press("End");
+				// A native select's End key differs by platform (macOS opens a menu), so pick directly.
+				await picker.selectOption("z-image");
 				await expect(picker).toHaveValue("z-image");
 				await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue(prompt);
 				if (edit) {
@@ -199,30 +203,26 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 					},
 				]);
 			}
-			const save = article.getByRole("button", { name: "Save to Gallery" });
-			await expect(save).toBeEnabled({ timeout: 20_000 });
-			await save.press("Enter");
+			// Siluet saves without a click; there is no Save button.
+			const library = article.locator("[data-library]");
+			await expect(article.getByRole("button", { name: "Save to Gallery" })).toHaveCount(0);
 			if (edit) {
-				const unsupported = article.getByText("Completed · unsupported image for Gallery", {
-					exact: true,
-				});
-				await expect(unsupported).toBeVisible();
+				await expect(library).toHaveText("Download failed", { timeout: 20_000 });
 				const port = server.origin.port;
 				await server.stop();
 				server = undefined;
 				server = await startStudio(dir, port, false, fixtures.env);
 				await page.reload();
-				await expect(unsupported).toBeVisible();
-				const refresh = article.getByRole("button", { name: "Refresh status" });
-				await expect(refresh).toBeEnabled({ timeout: 20_000 });
-				await refresh.press("Enter");
-				await expect(save).toBeEnabled({ timeout: 20_000 });
-				await expect(unsupported).toBeVisible();
-				await save.press("Enter");
-				await expect(unsupported).toHaveCount(0);
+				await expect(library).toHaveText("Download failed");
+				const retry = article.getByRole("button", { name: "Retry download" });
+				await retry.focus();
+				await retry.press("Enter");
+				await expect(retry).toHaveCount(0);
+				await expect(library).toBeFocused();
 			}
 			const open = article.getByRole("link", { name: "Open saved image" });
-			await expect(open).toBeVisible();
+			await expect(open).toBeVisible({ timeout: 20_000 });
+			await expect(library).toHaveText("Saved");
 			const path = await open.getAttribute("href");
 			if (!path) throw new Error("Missing Gallery link.");
 			const media = `${origin}${path}/media`;
@@ -231,7 +231,7 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 				{ method: "POST", path: `/${provider}/submit`, key: providerFixtureKeys[provider] },
 			]);
 			expect(fixtures.requests.filter((row) => row.path === "/media/image")).toEqual([
-				...Array(edit ? 2 : 1).fill({ path: "/media/image", method: "GET", key: null }),
+				{ path: "/media/image", method: "GET", key: null },
 			]);
 			const sentinels = [
 				prompt,
@@ -280,7 +280,12 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 			try {
 				const privateImage = await other.request.get(media, { maxRedirects: 0 });
 				expect(privateImage.status()).toBe(303);
-				for (const route of ["/image/queue", "/image/review", "/jobs?/save", `${path}/remove`]) {
+				for (const route of [
+					"/image/queue",
+					"/image/review",
+					"/jobs?/download",
+					`${path}/remove`,
+				]) {
 					expect(
 						(await other.request.post(origin + route, { headers: { origin }, data: {} })).status(),
 					).toBe(401);
@@ -306,6 +311,64 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 		}
 	});
 }
+
+test("a complete image outside the profile stays not saved across restart and Refresh", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	page.setDefaultTimeout(12_000);
+	const dir = await createOwnerDirectory();
+	const respond = jobResponses();
+	const fixtures = startProviderFixtures((request, path) =>
+		path === "/media/image"
+			? new Response(referenceGif, { headers: { "content-type": "image/gif" } })
+			: respond(request, path),
+	);
+	let server: Studio | undefined;
+	try {
+		server = await startStudio(dir, "0", false, fixtures.env);
+		await connect(page, server, "poyo");
+		const origin = server.origin.origin;
+		const input = {
+			draft: { ...createSeedreamDraft("poyo"), prompt },
+			count: 1,
+			retryLimit: 0,
+			acceptUnknown: false,
+		};
+		const post = (path: string, data: unknown) =>
+			page.request.post(origin + path, { data, headers: { origin } });
+		const review = await (await post("/image/review", input)).json();
+		const queued = await post("/image/queue", {
+			...input,
+			token: review.token,
+			acceptUnknown: review.requiresConsent,
+		});
+		expect(queued.status()).toBe(200);
+		await page.goto(`${origin}/jobs`);
+		const article = page.getByRole("article");
+		const library = article.locator("[data-library]");
+		const text = "Not saved · this image is outside the Gallery profile";
+		await expect(library).toHaveText(text, { timeout: 20_000 });
+		await expect(article.getByRole("button", { name: /download/i })).toHaveCount(0);
+		const port = server.origin.port;
+		await server.stop();
+		server = undefined;
+		server = await startStudio(dir, port, false, fixtures.env);
+		await page.reload();
+		await expect(library).toHaveText(text);
+		const refresh = article.getByRole("button", { name: "Refresh status" });
+		await expect(refresh).toBeEnabled({ timeout: 20_000 });
+		await refresh.press("Enter");
+		await expect(refresh).toBeEnabled({ timeout: 20_000 });
+		await expect(library).toHaveText(text);
+		expect(fixtures.requests.filter((row) => row.path === "/media/image")).toHaveLength(1);
+		expect(fixtures.requests.filter((row) => row.path.endsWith("/submit"))).toHaveLength(1);
+	} finally {
+		await server?.stop();
+		fixtures.stop();
+		await rm(dir, { recursive: true, force: true });
+	}
+});
 
 for (const point of ["before-dispatch", "after-acceptance"] as const) {
 	test(`a process stop ${point} preserves the claim and replay never dispatches again`, async ({

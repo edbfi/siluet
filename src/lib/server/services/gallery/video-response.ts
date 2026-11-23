@@ -4,6 +4,7 @@ export async function videoResponse(
 	request: Request,
 	url: URL,
 	{ handle, size }: { handle: FileHandle; size: number },
+	filename: string,
 ) {
 	const headers = new Headers({
 		"Content-Type": "video/mp4",
@@ -13,9 +14,7 @@ export async function videoResponse(
 		"Accept-Ranges": "bytes",
 		"Content-Length": String(size),
 		"Content-Disposition":
-			url.searchParams.get("download") === "1"
-				? 'attachment; filename="siluet-video.mp4"'
-				: "inline",
+			url.searchParams.get("download") === "1" ? `attachment; filename="${filename}"` : "inline",
 	});
 	if (request.method === "HEAD") {
 		await handle.close();

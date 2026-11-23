@@ -193,7 +193,7 @@ export function providerStore(installation: Installation) {
 								if (row?.revision !== expectedRevision) return false;
 								if (
 									guardActiveJobs &&
-									(await tx.get(sql`SELECT 1 WHERE ${jobsNeedCredential(id)}`))
+									(await tx.get(sql`SELECT 1 WHERE ${jobsNeedCredential(id, verifiedAt)}`))
 								)
 									return "job-warning" as const;
 								if (!(await prepared.publishIfCurrent())) return null;
@@ -217,9 +217,9 @@ export function providerStore(installation: Installation) {
 			}
 			throw new Error("The provider key changed during both save attempts.");
 		},
-		remove(id: ProviderId, guardActiveJobs = false) {
+		remove(id: ProviderId, guardActiveJobs = false, now = Date.now()) {
 			return use(async (db) => {
-				const guard = guardActiveJobs ? sql`AND NOT ${jobsNeedCredential(id)}` : sql``;
+				const guard = guardActiveJobs ? sql`AND NOT ${jobsNeedCredential(id, now)}` : sql``;
 				const changed =
 					await db.get(sql`UPDATE provider_credential SET revision=revision+1, ciphertext=NULL,
 					verified_at=NULL, seedream=NULL WHERE provider=${id} ${guard} RETURNING revision`);

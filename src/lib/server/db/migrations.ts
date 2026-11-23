@@ -5,7 +5,7 @@ import { gallerySchema } from "./gallery-schema";
 import { imageBatchSchema } from "./image-batch-schema";
 import { imageJobOperationMigration } from "./image-job-operation-migration";
 import { imageJobSchema } from "./image-job-schema";
-
+import { saveIntentMigration } from "./save-intent-schema";
 import { videoMigration } from "./video-schema";
 
 export const ownerMigrations = {
@@ -53,6 +53,7 @@ export const installationMigrations = {
 	"20261122120000_live_image_batches": imageBatchSchema,
 	"20261122121000_first_saved_video": videoMigration,
 	"20261122122000_owner_authenticator": authenticatorSchema,
+	"20261123120000_automatic_save": saveIntentMigration,
 };
 
 export async function migrateInstallation(

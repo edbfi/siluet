@@ -17,6 +17,7 @@ export const grid = css({
 	padding: 0,
 	margin: 0,
 });
+export const tile = css({ display: "grid", gap: "0.5rem", alignContent: "start", minWidth: 0 });
 export const card = css({
 	display: "grid",
 	overflow: "hidden",

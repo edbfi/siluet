@@ -1,10 +1,12 @@
 import type { EventEmitter } from "node:events";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
+import { saveIntentStore } from "../../db/save-intent";
 import { checkRequestSecurity, cleanUnusedKeys } from "../../db/security-state";
 import { requireSupportedPlatform } from "../../platform";
 import { checkPoyoConnection } from "../../providers/poyo/connection";
 import { checkToapisConnection } from "../../providers/toapis/connection";
+import { createAutoSave } from "../gallery/auto-save";
 import { createGallery } from "../gallery/gallery";
 import { createJobTracking } from "../jobs/tracking";
 import { createMediaPreparation } from "../media-cleanup/preparation";
@@ -72,18 +74,28 @@ async function openOwner(dev: boolean) {
 			poyo: checkPoyoConnection(),
 			toapis: checkToapisConnection(),
 		});
-		const jobs = createJobTracking(installation, store);
+		// Tracking hands each completed result to automatic Save after its read commits (D9).
+		const jobs = createJobTracking(installation, store, {
+			onDelivery: (id, delivery) => autoSave.deliver(id, delivery),
+		});
+		const autoSave = createAutoSave(installation, {
+			readForSave: jobs.readForSave,
+			readability: store.jobReadability,
+		});
 		const videoAccess = createVideoAccess(installation, store);
 		const videoQueue = await createVideoQueue(installation, videoAccess, jobs.dispatchVideo);
-		const gallery = createGallery(installation, (id) => jobs.resultUrl(id));
+		const gallery = createGallery(installation);
 		const queue = await createSubmissionQueue(installation, store.credential, jobs);
 		let workers: Promise<void> | undefined;
 		async function checkAccess() {
 			await checkRequestSecurity(ownerInstallation);
 			workers ??= (async () => {
 				await cleanUnusedKeys(ownerInstallation);
+				// This runtime alone holds the installation, so earlier attempts and scratch ended.
 				await gallery.recover();
+				await saveIntentStore(installation).clearAbandoned();
 				await jobs.resume();
+				autoSave.start();
 			})().catch((e) => {
 				workers = undefined;
 				throw e;
@@ -117,6 +129,8 @@ async function openOwner(dev: boolean) {
 					clearTimeout(rotation);
 					shutdown.abort();
 					jobs.close();
+					// Active saves give their claims back before storage closes.
+					await autoSave.close();
 					await runtimeEntry(installation).preparation?.settled;
 					await stages.close();
 					await installation.close();
@@ -148,6 +162,7 @@ async function openOwner(dev: boolean) {
 			videoQueue,
 			jobs,
 			gallery,
+			autoSave,
 			queue,
 			access,
 			providers,

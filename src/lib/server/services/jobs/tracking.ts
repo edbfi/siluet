@@ -5,9 +5,11 @@ import {
 	hasCorrelation,
 	type ImageJob,
 	imageJobStore,
+	isReadPaused,
 	isVideoJob,
 	jobCredentialAccess,
 	jobPollDeadline,
+	type StatusNote,
 	skipImageSend,
 } from "../../db/image-job-store";
 import type { Installation } from "../../db/installation";
@@ -25,9 +27,23 @@ import type { VideoTarget } from "../queue/video";
 import type { VideoDelivery } from "../video-media/download";
 import { batchHistory } from "./batch-history";
 import { retryEvidence, statusUpdate } from "./observation";
-import { isActive, isReadPaused, summarizeJob } from "./summary";
+import { type GalleryState, isActive, summarizeJob } from "./summary";
 
 export type { JobSummary } from "./summary";
+
+/** What a status read for automatic Save found (D9). `failed` ends in Download failed. */
+export type SaveRead =
+	| { kind: "delivered"; delivery: VideoDelivery }
+	| { kind: "cooldown"; until: number }
+	| { kind: "paused"; note: StatusNote }
+	| { kind: "expired" }
+	| { kind: "failed" };
+
+/**
+ * Hands a completed result to automatic Save: a first completion's intent with its link, or a
+ * pending intent that resumes with any link. A link-less first completion already holds Download failed.
+ */
+export type DeliveryHandoff = (id: string, delivery: VideoDelivery | null) => unknown;
 
 type JobCredentials = Pick<ReturnType<typeof providerStore>, "credential" | "jobReadability">;
 type TrackingDependencies = {
@@ -36,7 +52,10 @@ type TrackingDependencies = {
 	random?: () => number;
 	sleep?: (delay: number) => Promise<void>;
 	scheduleRead?: typeof scheduleReadTimer;
+	onDelivery?: DeliveryHandoff;
 };
+/** A status read that ran, with any usable result link, or none when it was not allowed. */
+type Observed = { delivery: VideoDelivery | null } | null;
 
 function scheduleReadTimer(read: () => Promise<void>, delay: number) {
 	const timer = setTimeout(() => void read(), delay).unref();
@@ -44,6 +63,8 @@ function scheduleReadTimer(read: () => Promise<void>, delay: number) {
 }
 
 const initialWait = { poyo: 2_000, toapis: 5_000 };
+// The query gate's span: a refused read for automatic Save looks again after it.
+const saveReadRetryMs = 1_000;
 const intervalJitter = { poyo: 3_000, toapis: 5_000 };
 
 function autoTrack(job: ImageJob) {
@@ -64,6 +85,7 @@ export function createJobTracking(
 		random = Math.random,
 		sleep = (delay) => Bun.sleep(delay),
 		scheduleRead = scheduleReadTimer,
+		onDelivery,
 	}: TrackingDependencies = {},
 ) {
 	const store = imageJobStore(installation);
@@ -73,29 +95,8 @@ export function createJobTracking(
 	const poyo = createPoyoImage(read);
 	const poyoVideo = createPoyoVideo(read);
 	const adapters = { poyo, toapis: createToapisImage(read) };
-	// Recovery may return a short-lived completed result before the next status read is allowed.
-	// Keep its URL only in this runtime and require the durable observation to still match.
-	const recoveredResults = new Map<
-		string,
-		{ token: string; until: number; delivery: VideoDelivery }
-	>();
-	function cachedResult(job: ImageJob) {
-		const cached = recoveredResults.get(job.id);
-		if (
-			cached &&
-			job.state === "completed" &&
-			!job.pause_reason &&
-			!job.read_token &&
-			cached.token === job.video_observation_id &&
-			now() < cached.until &&
-			(job.expires_at === null || now() < job.expires_at)
-		)
-			return cached.delivery;
-		recoveredResults.delete(job.id);
-		return null;
-	}
 	const timers = new Map<string, () => void>();
-	const inFlight = new Map<string, Promise<VideoDelivery | null>>();
+	const inFlight = new Map<string, Promise<Observed>>();
 	let start: Promise<void> | undefined;
 	let closed = false;
 
@@ -113,7 +114,7 @@ export function createJobTracking(
 		const cancel = scheduleRead(
 			async () => {
 				timers.delete(job.id);
-				await readStatus(job.id, true).catch(() =>
+				await readStatus(job.id, true, false, true).catch(() =>
 					schedule(job, now() + initialWait[job.provider]),
 				);
 			},
@@ -137,7 +138,22 @@ export function createJobTracking(
 		await store.finishWallet(job.id, balance, now());
 	}
 
-	async function observe(id: string, automatic: boolean, lookup = false) {
+	// Signed links stay in memory: the handoff never waits for Save and never persists them.
+	function handOff(id: string, delivery: VideoDelivery | null) {
+		if (closed || !onDelivery) return;
+		queueMicrotask(() => {
+			try {
+				void Promise.resolve(onDelivery(id, delivery)).catch(() => {});
+			} catch {}
+		});
+	}
+
+	async function observe(
+		id: string,
+		automatic: boolean,
+		lookup: boolean,
+		handoff: boolean,
+	): Promise<Observed> {
 		const job = await store.get(id);
 		if (
 			closed ||
@@ -190,7 +206,7 @@ export function createJobTracking(
 			automatic && reserved.retry_state
 				? retryEvidence(reserved, observation, update.billing, finished, random)
 				: null;
-		const saved = await store.recordStatus(reserved, token, finished, {
+		const recorded = await store.recordStatus(reserved, token, finished, {
 			...update,
 			retry,
 			lookup,
@@ -202,34 +218,28 @@ export function createJobTracking(
 			),
 		});
 
-		if (!saved) {
+		if (!recorded) {
 			if (lookup && videoRead?.taskId) await store.identityConflict(id, videoRead.taskId);
 			return null;
 		}
+		const { job: saved, armed, pending, resumed } = recorded;
+		const delivery = resultUrl ? { url: resultUrl, fallback: videoRead?.fallback ?? null } : null;
+		// Commit first, then hand over: a first completion always, a waiting intent when this
+		// read brought a link or ended a read pause. Refresh on any other completed job does nothing.
+		if (handoff && (armed || (pending && (delivery || resumed)))) handOff(id, delivery);
 		if (isActive(reserved) && (saved.state === "completed" || saved.state === "failed"))
 			await finishBalance(saved);
-		const delivery = resultUrl ? { url: resultUrl, fallback: videoRead?.fallback ?? null } : null;
-		if (lookup && delivery) {
-			const until = Math.min(finished + interval, update.nextReadAt);
-			recoveredResults.set(id, { token, until, delivery });
-			setTimeout(
-				() => {
-					if (recoveredResults.get(id)?.token === token) recoveredResults.delete(id);
-				},
-				Math.max(0, until - now()),
-			).unref();
-		}
-		return delivery;
+		return { delivery };
 	}
 
-	function readStatus(id: string, automatic: boolean, lookup = false) {
+	function readStatus(id: string, automatic: boolean, lookup: boolean, handoff: boolean) {
 		const active = inFlight.get(id);
 		if (active) return active;
-		const operation = observe(id, automatic, lookup)
-			.then(async (url) => {
+		const operation = observe(id, automatic, lookup, handoff)
+			.then(async (observed) => {
 				const job = await store.get(id);
 				if (job) schedule(job);
-				return url;
+				return observed;
 			})
 			.finally(() => inFlight.delete(id));
 		inFlight.set(id, operation);
@@ -309,10 +319,16 @@ export function createJobTracking(
 		const readable = rows.some((job) => job.task_id || hasCorrelation(job))
 			? await credentials.jobReadability()
 			: () => false;
-		return rows.map((job) => ({
-			hasRecoveredResult: !!cachedResult(job),
-			...summarizeJob(job, readable(job), now()),
-		}));
+		const gallery = new Map(
+			(
+				await installation.use((db) =>
+					db.all<{ job_id: string; state: Exclude<GalleryState, null> }>(
+						sql`SELECT job_id, state FROM gallery_image`,
+					),
+				)
+			).map((row) => [row.job_id, row.state]),
+		);
+		return rows.map((job) => summarizeJob(job, readable(job), now(), gallery.get(job.id) ?? null));
 	}
 
 	return {
@@ -355,16 +371,36 @@ export function createJobTracking(
 				await store.identityConflict(id, result.taskId);
 		},
 		async lookup(id: string) {
-			await readStatus(id, false, true);
+			await readStatus(id, false, true, true);
 		},
-		async videoResult(id: string) {
-			const job = await store.get(id);
-			if (!job || !isVideoJob(job) || job.state !== "completed") return null;
-			const delivery = cachedResult(job) ?? (await readStatus(id, false));
-			return delivery && (await originalKey(job)) ? delivery : null;
-		},
-		async isVideo(id: string) {
-			return isVideoJob(await store.get(id));
+		/**
+		 * One status read on behalf of automatic Save, under the same cooldown, provider gate
+		 * and key as Refresh. It never submits and hands nothing over itself.
+		 */
+		async readForSave(id: string): Promise<SaveRead> {
+			const blocker = async (): Promise<SaveRead | null> => {
+				const job = await store.get(id);
+				if (job?.state !== "completed") return { kind: "failed" };
+				if (job.expires_at !== null && job.expires_at <= now()) return { kind: "expired" };
+				if (isReadPaused(job.pause_reason)) return { kind: "paused", note: job.pause_reason };
+				if (!(await credentials.jobReadability())(job))
+					return { kind: "paused", note: "credential-changed" };
+				const until = job.next_read_at ?? 0;
+				return until > now() ? { kind: "cooldown", until } : null;
+			};
+			// A read already in flight (Refresh or polling) is shared, as for any other reader.
+			const before = inFlight.has(id) ? null : await blocker();
+			const sharing = inFlight.get(id);
+			if (before && !sharing) return before;
+			// Shutdown: give the attempt back without a try.
+			if (closed) return { kind: "cooldown", until: now() };
+			const observed = await (sharing ?? readStatus(id, false, false, false));
+			if (observed?.delivery) return { kind: "delivered", delivery: observed.delivery };
+			const after = await blocker();
+			// A read that ran without a usable link fails, even inside its new cooldown.
+			if (observed) return !after || after.kind === "cooldown" ? { kind: "failed" } : after;
+			// No read ran (the provider gate refused it, even if it has opened since): wait without a try.
+			return after ?? { kind: "cooldown", until: now() + saveReadRetryMs };
 		},
 		async dispatch(id: string, provider: ProviderId, key: string, request: ReviewedImageRequest) {
 			if (closed || !(await store.beginDispatch(id, provider, now()))) return;
@@ -404,7 +440,6 @@ export function createJobTracking(
 			closed = true;
 			for (const cancel of timers.values()) cancel();
 			timers.clear();
-			recoveredResults.clear();
 		},
 
 		list: async () => summarize(await store.list()),
@@ -419,17 +454,9 @@ export function createJobTracking(
 		},
 
 		async refresh(id: string) {
-			await readStatus(id, false);
+			await readStatus(id, false, false, true);
 		},
 
-		async resultUrl(id: string) {
-			const job = await store.get(id);
-			if (job?.state !== "completed") return null;
-			const url = await readStatus(id, false);
-			// A Settings change during the read also stops delivery of an unsaved result.
-			return url && !isVideoJob(job) && (await credentials.jobReadability())(job) ? url.url : null;
-		},
-
-		needsCredential: store.needsCredential,
+		needsCredential: (provider: ProviderId) => store.needsCredential(provider, now()),
 	};
 }

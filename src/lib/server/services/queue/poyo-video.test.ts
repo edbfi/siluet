@@ -303,37 +303,38 @@ test("crash before the POST and after the POST both replay without another POST"
 		expect(seen.posts).toBe(crash === "before" ? 0 : 1);
 		jobs?.close();
 	}
-	expect(await imageJobStore(db).needsCredential("poyo")).toBe(false);
+	expect(await imageJobStore(db).needsCredential("poyo", now)).toBe(false);
 });
 
-test("Poyo H3 videoResult returns a delivery, resultUrl none", async () => {
+test("Poyo H3 completion arms a save, and readForSave returns the video delivery", async () => {
 	const seen = calls();
 	const { store, queue, jobs: tracker } = await studio(poyo(seen, accepted));
 	await store.save("poyo", "balance-only", now, false, 0);
 	const { click } = await reviewAndClick(queue);
 	const result = await queue.submit("owner", click);
 	if (!("jobId" in result)) throw new Error("Queue refused.");
-	expect(await tracker.isVideo(result.jobId)).toBe(true);
 	now += 2_000;
 	await tracker.refresh(result.jobId);
 	expect(await tracker.list()).toMatchObject([
 		{
 			state: "completed",
-			canSave: true,
+			video: true,
+			library: "waiting",
 			billing: { status: "reported", credits: "80" },
 			wallet: { status: "observed", before: "100", after: "99", delta: "-1" },
 		},
 	]);
 	now += 5_000;
-	expect(await tracker.resultUrl(result.jobId)).toBeNull();
-	now += 5_000;
-	expect(await tracker.videoResult(result.jobId)).toEqual({ url: clip, fallback: null });
+	expect(await tracker.readForSave(result.jobId)).toEqual({
+		kind: "delivered",
+		delivery: { url: clip, fallback: null },
+	});
 	expect(seen.urls.filter((url) => url.includes("/status/"))).toEqual(
-		Array(3).fill(`https://api.poyo.ai/api/generate/status/${task}`),
+		Array(2).fill(`https://api.poyo.ai/api/generate/status/${task}`),
 	);
 });
 
-test("P-04: observed Poyo status 429 honours Retry-After and Retry Save reads the same task after cooldown", async () => {
+test("P-04: observed Poyo status 429 honours Retry-After and a save read waits for the same task", async () => {
 	const seen = calls();
 	let limited = false;
 	const {
@@ -362,13 +363,19 @@ test("P-04: observed Poyo status 429 honours Retry-After and Retry Save reads th
 	await tracker.refresh(result.jobId);
 	now += 5_000;
 	limited = true;
-	expect(await tracker.videoResult(result.jobId)).toBeNull();
-	expect(await tracker.list()).toMatchObject([{ canSave: true, nextReadAt: now + 11_000 }]);
-	expect(await tracker.videoResult(result.jobId)).toBeNull();
+	expect(await tracker.readForSave(result.jobId)).toEqual({ kind: "failed" });
+	expect(await tracker.list()).toMatchObject([{ library: "waiting", nextReadAt: now + 11_000 }]);
+	expect(await tracker.readForSave(result.jobId)).toEqual({
+		kind: "cooldown",
+		until: now + 11_000,
+	});
 	expect(seen.reads).toBe(2);
 	now += 11_000;
 	limited = false;
-	expect(await tracker.videoResult(result.jobId)).toEqual({ url: clip, fallback: null });
+	expect(await tracker.readForSave(result.jobId)).toEqual({
+		kind: "delivered",
+		delivery: { url: clip, fallback: null },
+	});
 	expect(seen.reads).toBe(3);
 	expect(seen.posts).toBe(1);
 });
