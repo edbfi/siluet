@@ -1,7 +1,14 @@
 import { reconcileWallet, type WalletScope } from "../../../shared/billing/wallet";
 import type { PriceEstimate } from "../../../shared/pricing/estimate";
 import type { ProviderId } from "../../../shared/providers/connections";
-import type { ImageJob, JobState, StatusNote } from "../../db/image-job-store";
+import {
+	hasCorrelation,
+	type ImageJob,
+	isVideoJob,
+	type JobState,
+	jobPollDeadline,
+	type StatusNote,
+} from "../../db/image-job-store";
 import type { Rejection, TaskBilling } from "../../providers/image-job";
 
 type JobWallet =
@@ -33,6 +40,8 @@ export type JobSummary = {
 	updatedAt: number;
 	pollDeadline: number;
 	nextReadAt: number | null;
+	/** A pending provider cooldown from a skipped job or a throttled video submission. A fresh Review can queue after it. */
+	submitAfter: number | null;
 	tracking: "automatic" | "manual" | "paused" | "done";
 	message: string | null;
 	quote: PriceEstimate;
@@ -43,9 +52,11 @@ export type JobSummary = {
 	canLookup: boolean;
 	progress: number | null;
 	canSave: boolean;
+	video: boolean;
 };
 
 const rejections: Record<Rejection, string> = {
+	permission: "Poyo.ai refused this model for this key. The saved key is unchanged.",
 	authorization: "The provider rejected the API key or its permissions.",
 	validation: "The provider rejected the request parameters.",
 	quota: "The provider rejected the submission because of insufficient credits or quota.",
@@ -78,7 +89,7 @@ export function isReadPaused(note: StatusNote | null) {
 export function storedBilling(job: ImageJob): TaskBilling | null {
 	if (!job.billing) return null;
 	const billing = JSON.parse(job.billing) as TaskBilling;
-	if (!job.business_id && (billing.status === "settled" || billing.status === "refunded")) {
+	if (!hasCorrelation(job) && (billing.status === "settled" || billing.status === "refunded")) {
 		if (billing.credits === null || billing.usd === null) return { status: "unknown" };
 		if (
 			billing.status === "refunded" &&
@@ -125,18 +136,19 @@ function walletSummary(job: ImageJob): JobWallet | null {
 
 export function summarizeJob(job: ImageJob, readable: boolean, now: number): JobSummary {
 	const canRefresh = job.task_id !== null && readable;
-	const lookupPending = !!job.business_id && job.state === "unknown";
+	const lookupPending = hasCorrelation(job) && job.state === "unknown";
+	const video = isVideoJob(job);
 	const note =
 		(job.task_id || lookupPending) && !readable ? "credential-changed" : job.pause_reason;
 	let message = note ? statusNotes[note] : null;
 	if (job.rejection)
 		message =
-			job.business_id && job.rejection === "authorization"
+			job.provider === "toapis" && video && job.rejection === "authorization"
 				? "ToAPIs denied this submission."
 				: rejections[job.rejection];
-	if (job.business_id && note === "unknown-status")
+	if (video && note === "unknown-status")
 		message = "Task identity or status could not be verified. Check provider history.";
-	if (job.business_id && note === "result-unavailable")
+	if (video && note === "result-unavailable")
 		message = "No usable video result was available. Check provider history or retry Save.";
 	if (job.state === "unknown") {
 		if (note === "missing-task") message = "The provider could not find this task.";
@@ -150,8 +162,8 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		message = "Not submitted. New task evidence ruled out this retry.";
 	else if (job.skipped)
 		message =
-			job.skipped === "cooldown" && job.retry_at
-				? `Not submitted. Provider cooldown until ${new Date(job.retry_at).toISOString()}. Review again before queuing.`
+			job.skipped === "cooldown"
+				? "Not submitted. A provider cooldown was active. Review again before queuing."
 				: "Not submitted. The dispatch window closed before sending.";
 	else if (job.throttle && job.batch_id) message = "Not admitted · throttled";
 	if (job.state === "failed") {
@@ -168,12 +180,12 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 			message ??= "The provider reported that the job failed.";
 		}
 	}
-	if ((!message || job.business_id) && job.expires_at !== null && job.expires_at <= now)
-		message = `The provider's last reported ${job.business_id ? "video" : "image"} expiry has passed.`;
+	if ((!message || video) && job.expires_at !== null && job.expires_at <= now)
+		message = `The provider's last reported ${video ? "video" : "image"} expiry has passed.`;
 	const tracking = isReadPaused(note)
 		? "paused"
 		: isActive(job)
-			? now < (job.video_poll_deadline ?? job.poll_deadline)
+			? now < jobPollDeadline(job)
 				? "automatic"
 				: "manual"
 			: "done";
@@ -196,8 +208,14 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		state: job.skipped ? "unsent" : job.state,
 		createdAt: job.created_at,
 		updatedAt: job.updated_at ?? job.created_at,
-		pollDeadline: job.video_poll_deadline ?? job.poll_deadline,
+		pollDeadline: jobPollDeadline(job),
 		nextReadAt: job.next_read_at ?? (lookupPending ? job.created_at + 5_000 : null),
+		submitAfter:
+			(job.skipped === "cooldown" || (video && job.throttle)) &&
+			job.retry_at !== null &&
+			job.retry_at > now
+				? job.retry_at
+				: null,
 		tracking,
 		message,
 		quote: JSON.parse(job.quote) as PriceEstimate,
@@ -212,10 +230,10 @@ export function summarizeJob(job: ImageJob, readable: boolean, now: number): Job
 		canRefresh,
 		canLookup: lookupPending && readable,
 		progress: job.video_progress ?? null,
+		video,
 		canSave:
 			canRefresh &&
 			job.state === "completed" &&
-			(!job.business_id ||
-				(!isReadPaused(note) && (job.expires_at === null || job.expires_at > now))),
+			(!video || (!isReadPaused(note) && (job.expires_at === null || job.expires_at > now))),
 	};
 }

@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import bundledV2 from "../../pricing/v2/poyo.json";
 import { estimatePrice } from "../../src/lib/shared/pricing/estimate";
+import h3Feed from "../../tests/fixtures/h3-rate.v2.json";
 import { toapisRates } from "../../tests/fixtures/toapis-feed";
 import { readEstimateArgs } from "./estimate";
 import { loadLocalPricing, pricingCachePath } from "./local-feed";
@@ -158,6 +160,49 @@ test("the release bundles estimate both providers offline with an empty cache", 
 				perRequest: credits,
 			});
 		}
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("a v2-backed CLI request for 5 s at 768p returns 80 credits", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "siluet-h3-rates-"));
+	try {
+		const cache = pricingCachePath(directory, "poyo-v2");
+		await mkdir(dirname(cache), { recursive: true });
+		// A later confirmation of the bundled revision whose collector added the H3 rate. An
+		// older confirmation would be a rollback, so the bundled feed would win.
+		const confirmedAt = new Date(Date.parse(bundledV2.confirmedAt) + 3_600_000)
+			.toISOString()
+			.replace(".000Z", "Z");
+		const confirmed = {
+			...bundledV2,
+			confirmedAt,
+			rates: { ...bundledV2.rates, "h3-max": h3Feed.rates["h3-max"] },
+		};
+		await writeFile(cache, JSON.stringify({ checkedAt: confirmedAt, feed: confirmed }));
+		const now = Date.parse(confirmedAt) + 86_400_000;
+		const feed = await loadLocalPricing(now, {
+			provider: "poyo",
+			cachePath: pricingCachePath(directory, "poyo"),
+			v2CachePath: cache,
+		});
+		const defaults = readEstimateArgs(["--model", "h3-max"]);
+		expect(defaults.options).toEqual({
+			duration: 5,
+			resolution: "768p",
+			aspect_ratio: "16:9",
+			enable_safety_checker: false,
+		});
+		expect(estimatePrice(feed, defaults, now)).toMatchObject({ status: "known", perRequest: "80" });
+		const ten = readEstimateArgs(["--model", "h3-max", "--duration", "10", "--resolution", "480p"]);
+		expect(estimatePrice(feed, ten, now)).toMatchObject({ status: "known", perRequest: "100" });
+		expect(
+			estimatePrice(feed, readEstimateArgs(["--model", "h3-max", "--references", "1"]), now),
+		).toMatchObject({ status: "unknown", reason: "unsupported-input" });
+		expect(() => readEstimateArgs(["--model", "h3-max", "--duration", "5.5"])).toThrow(
+			"--duration",
+		);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}

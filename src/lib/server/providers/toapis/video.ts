@@ -1,5 +1,5 @@
 import { seedanceOperation } from "../../../shared/media-catalog/registry";
-import type { VideoRequest } from "../../../shared/video-studio/seedance";
+import type { SeedanceBody } from "../../../shared/video-studio/seedance";
 import { type CheckFetch, isRecord } from "../connection-check";
 import {
 	decimalText,
@@ -100,7 +100,7 @@ function refusal(status: number, value: unknown): Submission {
 // https://docs.toapis.com/docs/en/api-reference/tasks/video-status
 export function createToapisVideo(read: CheckFetch = fetch) {
 	return {
-		async submit(key: string, body: VideoRequest["body"], business: string): Promise<Submission> {
+		async submit(key: string, body: SeedanceBody, business: string): Promise<Submission> {
 			const response = await requestImageJson(read, endpoint, key, {
 				method: "POST",
 				body: { ...body, client_business_id: business },

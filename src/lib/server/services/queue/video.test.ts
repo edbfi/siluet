@@ -3,7 +3,8 @@ import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { seedanceOperation } from "../../../shared/media-catalog/registry";
-import { parseVideo, videoDefaults } from "../../../shared/video-studio/seedance";
+import { parseVideo } from "../../../shared/video-studio/request";
+import { videoDefaults } from "../../../shared/video-studio/seedance";
 import { imageJobStore } from "../../db/image-job-store";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
@@ -84,12 +85,13 @@ test("one durable claim binds the eligible key, exact terms and transient draft 
 	const queue = await createVideoQueue(
 		db,
 		access,
-		async (id, key, body, business) => {
+		async (id, key, send) => {
 			calls++;
 			expect(key).toBe("video-only");
-			expect(body.prompt).toBe("Rotate https://private.test/?secret");
+			if (send.provider !== "toapis") throw new Error("Expected a ToAPIs target.");
+			expect(send.body.prompt).toBe("Rotate https://private.test/?secret");
 			expect(await imageJobStore(db).get(id)).toMatchObject({
-				business_id: business,
+				business_id: send.business,
 				operation: seedanceOperation.key.operation,
 			});
 		},
@@ -112,7 +114,7 @@ test("one durable claim binds the eligible key, exact terms and transient draft 
 		reason: "token-usage-unknown",
 		advertisedUnitRate: { usd: "10" },
 	});
-	expect(first.preview.prompt).not.toContain("private.test");
+	expect(JSON.stringify(first.preview)).not.toContain("private.test");
 	expect(await click(first.token, false)).toEqual({ error: "invalid" });
 	now += 31 * 86400_000;
 	expect(await click(first.token)).toEqual({ error: "stale" });
@@ -300,14 +302,15 @@ test.each(["before-dispatch", "same-ack", "conflicting-ack"] as const)(
 		const api = await createVideoQueue(
 			db,
 			access,
-			async (job, key, body, correlation) => {
+			async (job, key, send) => {
 				id = job;
-				business = correlation;
+				if (send.provider !== "toapis") throw new Error("Expected a ToAPIs target.");
+				business = send.business;
 				if (point === "before-dispatch") {
 					accepted.resolve();
 					return;
 				}
-				await server.dispatchVideo(job, key, body, business);
+				await server.dispatchVideo(job, key, send);
 			},
 			undefined,
 			() => now,

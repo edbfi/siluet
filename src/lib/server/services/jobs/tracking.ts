@@ -1,19 +1,27 @@
 import { sql } from "drizzle-orm";
 import type { ProviderId } from "../../../shared/providers/connections";
-import type { VideoRequest } from "../../../shared/video-studio/seedance";
 import { type BatchStop, imageBatchStore, retryStillSupported } from "../../db/image-batch-store";
-import { imageCredentialAccess } from "../../db/image-credential-access";
-import { type ImageJob, imageJobStore, skipImageSend } from "../../db/image-job-store";
+import {
+	hasCorrelation,
+	type ImageJob,
+	imageJobStore,
+	isVideoJob,
+	jobCredentialAccess,
+	jobPollDeadline,
+	skipImageSend,
+} from "../../db/image-job-store";
 import type { Installation } from "../../db/installation";
 import { retryTime } from "../../db/provider-gate";
 import type { providerStore } from "../../db/provider-store";
 import type { CheckFetch } from "../../providers/connection-check";
 import { type ReviewedImageRequest, statusTimeoutMs } from "../../providers/image-job";
 import { createPoyoImage } from "../../providers/poyo/image";
+import { createPoyoVideo } from "../../providers/poyo/video";
 import { createToapisImage } from "../../providers/toapis/image";
 import { createToapisVideo } from "../../providers/toapis/video";
 import { type BatchAuthorization, dispatchBatch } from "../queue/batch-dispatch";
 import { createSubmitGate } from "../queue/submit-gate";
+import type { VideoTarget } from "../queue/video";
 import type { VideoDelivery } from "../video-media/download";
 import { batchHistory } from "./batch-history";
 import { retryEvidence, statusUpdate } from "./observation";
@@ -63,6 +71,7 @@ export function createJobTracking(
 	const gatedSend = createSubmitGate(installation, now, random);
 	const video = createToapisVideo(read);
 	const poyo = createPoyoImage(read);
+	const poyoVideo = createPoyoVideo(read);
 	const adapters = { poyo, toapis: createToapisImage(read) };
 	// Recovery may return a short-lived completed result before the next status read is allowed.
 	// Keep its URL only in this runtime and require the durable observation to still match.
@@ -99,11 +108,8 @@ export function createJobTracking(
 		cancelTimer(job.id);
 		if (closed || !autoTrack(job) || job.next_read_at === null) return;
 		const due = Math.max(job.next_read_at, earliest);
-		if (
-			due >= (job.video_poll_deadline ?? job.poll_deadline) ||
-			now() >= (job.video_poll_deadline ?? job.poll_deadline)
-		)
-			return;
+		const deadline = jobPollDeadline(job);
+		if (due >= deadline || now() >= deadline) return;
 		const cancel = scheduleRead(
 			async () => {
 				timers.delete(job.id);
@@ -117,13 +123,8 @@ export function createJobTracking(
 	}
 
 	async function originalKey(job: ImageJob) {
-		return (
-			await credentials.credential(
-				job.provider,
-				job.revision,
-				job.business_id ? "toapis-video" : imageCredentialAccess(job.provider, job.model),
-			)
-		)?.key;
+		return (await credentials.credential(job.provider, job.revision, jobCredentialAccess(job)))
+			?.key;
 	}
 
 	async function afterBalance(job: ImageJob) {
@@ -141,12 +142,11 @@ export function createJobTracking(
 		if (
 			closed ||
 			!job ||
-			(lookup ? !job.business_id || job.state !== "unknown" || job.task_id : !job.task_id) ||
+			(lookup ? !hasCorrelation(job) || job.state !== "unknown" || job.task_id : !job.task_id) ||
 			(job.next_read_at ?? job.created_at + 5000) > now()
 		)
 			return null;
-		if (automatic && (!autoTrack(job) || now() >= (job.video_poll_deadline ?? job.poll_deadline)))
-			return null;
+		if (automatic && (!autoTrack(job) || now() >= jobPollDeadline(job))) return null;
 
 		const key = await originalKey(job);
 		if (closed) return null;
@@ -167,16 +167,21 @@ export function createJobTracking(
 			lookup ? job : undefined,
 		);
 		if (closed || !reserved) return null;
-		if (automatic && now() >= (reserved.video_poll_deadline ?? reserved.poll_deadline)) {
+		if (automatic && now() >= jobPollDeadline(reserved)) {
 			await store.releaseUnread(id, token, job.next_read_at ?? now() + holdMs);
 			return null;
 		}
 
-		const videoRead = reserved.business_id
-			? await video.status(key, reserved.business_id, reserved.task_id)
-			: null;
+		const correlation =
+			reserved.provider === "toapis" && isVideoJob(reserved) ? reserved.business_id : null;
+		const videoRead =
+			correlation === null ? null : await video.status(key, correlation, reserved.task_id);
 		const observation =
-			videoRead ?? (await adapters[job.provider].status(key, reserved.task_id ?? ""));
+			videoRead ??
+			(await (isVideoJob(reserved) ? poyoVideo : adapters[job.provider]).status(
+				key,
+				reserved.task_id ?? "",
+			));
 		const finished = now();
 		const interval =
 			initialWait[job.provider] + Math.floor(random() * (intervalJitter[job.provider] + 1));
@@ -301,7 +306,7 @@ export function createJobTracking(
 	}
 
 	async function summarize(rows: ImageJob[]) {
-		const readable = rows.some((job) => job.task_id || job.business_id)
+		const readable = rows.some((job) => job.task_id || hasCorrelation(job))
 			? await credentials.jobReadability()
 			: () => false;
 		return rows.map((job) => ({
@@ -311,39 +316,55 @@ export function createJobTracking(
 	}
 
 	return {
-		async dispatchVideo(id: string, key: string, body: VideoRequest["body"], business: string) {
-			if (closed || !(await store.beginDispatch(id, "toapis", now()))) return;
+		async dispatchVideo(id: string, key: string, target: VideoTarget) {
+			const { provider } = target;
+			if (closed || !(await store.beginDispatch(id, provider, now()))) return;
+			// A Poyo wallet interval opens with a before-read on the claimed key.
+			if (provider === "poyo") await store.recordBefore(id, await poyo.balance(key), now());
 			const response = await gatedSend(
-				"toapis",
+				provider,
 				Infinity,
 				1,
-				() => video.submit(key, body, business),
+				() =>
+					target.provider === "poyo"
+						? poyoVideo.submit(key, target.body)
+						: video.submit(key, target.body, target.business),
 				{
 					allowed: async (tx) =>
 						!closed &&
 						!!(await tx.get(
 							sql`SELECT 1 FROM image_job j JOIN provider_credential c ON c.provider=j.provider AND c.revision=j.revision WHERE j.id=${id} AND j.state='submitting' AND c.ciphertext IS NOT NULL AND j.submission_recorded_at IS NULL`,
 						)),
+					// An unsent job closes its wallet interval without an after-read.
 					blocked: (tx, reason, until) => skipImageSend(tx, id, reason, now(), until),
 				},
 			);
 			if ("blocked" in response) return;
 			const { result } = response;
-			const job = await store.recordSubmission(id, result, now(), 5000, response.retryAt);
-			if (job) schedule(job);
-			else if (result.kind === "accepted") await store.identityConflict(id, result.taskId);
+			const job = await store.recordSubmission(
+				id,
+				result,
+				now(),
+				initialWait[provider],
+				response.retryAt,
+			);
+			if (job) {
+				if (job.state === "rejected") await finishBalance(job);
+				schedule(job);
+			} else if (provider === "toapis" && result.kind === "accepted")
+				await store.identityConflict(id, result.taskId);
 		},
 		async lookup(id: string) {
 			await readStatus(id, false, true);
 		},
 		async videoResult(id: string) {
 			const job = await store.get(id);
-			if (!job?.business_id || job.state !== "completed") return null;
+			if (!job || !isVideoJob(job) || job.state !== "completed") return null;
 			const delivery = cachedResult(job) ?? (await readStatus(id, false));
 			return delivery && (await originalKey(job)) ? delivery : null;
 		},
 		async isVideo(id: string) {
-			return !!(await store.get(id))?.business_id;
+			return isVideoJob(await store.get(id));
 		},
 		async dispatch(id: string, provider: ProviderId, key: string, request: ReviewedImageRequest) {
 			if (closed || !(await store.beginDispatch(id, provider, now()))) return;
@@ -406,7 +427,7 @@ export function createJobTracking(
 			if (job?.state !== "completed") return null;
 			const url = await readStatus(id, false);
 			// A Settings change during the read also stops delivery of an unsaved result.
-			return url && !job.business_id && (await credentials.jobReadability())(job) ? url.url : null;
+			return url && !isVideoJob(job) && (await credentials.jobReadability())(job) ? url.url : null;
 		},
 
 		needsCredential: store.needsCredential,

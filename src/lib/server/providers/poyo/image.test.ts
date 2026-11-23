@@ -125,6 +125,15 @@ test("Poyo pauses missing or unknown tasks and retries upstream status errors", 
 		kind: "temporary",
 		retryAfter: "25",
 	});
+	// The shared reader treats an error beside a success code as a temporary read failure.
+	const contradictory = createPoyoImage(async () =>
+		Response.json({
+			code: 200,
+			data: { task_id: taskId, status: "finished" },
+			error: { type: "upstream_error" },
+		}),
+	);
+	expect(await contradictory.status(key, taskId)).toMatchObject({ kind: "temporary" });
 });
 
 // https://docs.poyo.ai/#10-rate-limits-concurrency
@@ -144,4 +153,45 @@ test("only a consistent submit-limiter rejection authorizes a Poyo retry", async
 	])
 		expect(await submit(429, { code: 429, error, ...extra })).toEqual({ kind: "unknown" });
 	expect(await submit(503, { code: 429, error })).toEqual({ kind: "unknown" });
+});
+
+test("the shared Poyo status reader keeps the image result rules and authorization kind", async () => {
+	const url = "https://media.example.org/one.png";
+	const image = createPoyoImage(async () =>
+		Response.json({
+			code: 200,
+			data: {
+				task_id: "img_1",
+				status: "finished",
+				credits_amount: 2,
+				files: [
+					{ file_type: "image", file_url: url },
+					{ file_type: "video", file_url: url },
+				],
+			},
+		}),
+	);
+	const observation = await image.status("fixture", "img_1");
+	expect(observation).toEqual({
+		kind: "observed",
+		state: "completed",
+		failureReason: null,
+		billing: { status: "reported", credits: "2" },
+		resultUrl: url,
+		expiresAt: null,
+		retryAfter: null,
+	});
+	const refused = createPoyoImage(async () =>
+		Response.json(
+			{ code: 403, error: { type: "permission_denied_error", message: "fixture" } },
+			{ status: 403 },
+		),
+	);
+	expect(
+		await refused.submit("fixture", {
+			url: "https://api.poyo.ai/api/generate/submit",
+			method: "POST",
+			body: { model: "z-image", input: { prompt: "x", size: "1:1" } },
+		} as never),
+	).toEqual({ kind: "rejected", reason: "authorization" });
 });

@@ -1,4 +1,6 @@
 import type { ProviderId } from "../providers/connections";
+import { h3Max } from "../video-studio/h3-max";
+import type { PoyoVideoDescriptor } from "../video-studio/poyo-video";
 
 // The browser needs only released operations. The ledger test reconciles these
 // exact keys against the dated inventory and its explicit family aliases.
@@ -19,7 +21,8 @@ const seedanceModel = {
 	label: "Seedance 2.5",
 	family: "ByteDance / Seedance",
 } as const;
-export const releasedModels = [...releasedImageModels, seedanceModel] as const;
+const h3MaxModel = { id: h3Max.model, label: h3Max.label, family: h3Max.family } as const;
+export const releasedModels = [...releasedImageModels, seedanceModel, h3MaxModel] as const;
 
 export const seedreamRoutes = {
 	poyo: {
@@ -91,6 +94,30 @@ export const seedanceOperation = {
 	evidence: { d4: "declared", catalogD4: "unknown" },
 } as const;
 
+// The Poyo video family shares one route, envelope, status and Save contract. Each row is a
+// reviewed descriptor. H3 Max is the family's verified representative with partial options.
+function poyoVideoEntry<Model extends string, Descriptor extends PoyoVideoDescriptor>(
+	descriptor: Descriptor & { model: Model },
+) {
+	return {
+		modelId: descriptor.model,
+		profile: `${descriptor.model}-generate` as `${Model}-generate`,
+		key: {
+			provider: "poyo",
+			model: descriptor.model,
+			route: "POST /api/generate/submit",
+			operation: descriptor.operation,
+		},
+		mode: "generate",
+		label: "Create video",
+		evidence: { d4: "declared", catalogD4: "declared" },
+		descriptor,
+	} as const;
+}
+
+export const h3MaxOperation = poyoVideoEntry(h3Max);
+export const poyoVideoOperations = [h3MaxOperation] as const;
+
 export const releasedImageOperations = [
 	seedreamEntry("poyo", "text-to-image"),
 	seedreamEntry("poyo", "reference-image-edit"),
@@ -99,7 +126,8 @@ export const releasedImageOperations = [
 	zImageEntry("text-to-image"),
 	zImageEntry("reference-image-edit"),
 ];
-export const releasedOperations = [...releasedImageOperations, seedanceOperation];
+export const releasedVideoOperations = [seedanceOperation, ...poyoVideoOperations] as const;
+export const releasedOperations = [...releasedImageOperations, ...releasedVideoOperations];
 export const releasedProviders = [
 	...new Set(releasedOperations.map((entry) => entry.key.provider)),
 ];

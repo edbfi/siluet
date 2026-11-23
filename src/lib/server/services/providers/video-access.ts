@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { ProviderId } from "../../../shared/providers/connections";
 import type { Installation } from "../../db/installation";
 import type { providerStore } from "../../db/provider-store";
 import { checkVideoInventory } from "../../providers/toapis/connection";
@@ -6,6 +7,13 @@ export type VideoAccessState = "eligible" | "missing" | "unverified" | "unchecke
 export const videoInventoryQuery = sql`SELECT c.revision,a.checked_at,COALESCE(a.state,'unchecked') AS state
 	FROM provider_credential c LEFT JOIN model_access a ON a.provider=c.provider AND a.revision=c.revision AND a.model='seedance-2-5'
 	WHERE c.provider='toapis' AND c.ciphertext IS NOT NULL`;
+// Poyo has no per-model entitlement probe. Settings accepted the key through its balance read.
+const poyoAccessQuery = sql`SELECT revision,verified_at AS checked_at,'eligible' AS state
+	FROM provider_credential WHERE provider='poyo' AND ciphertext IS NOT NULL`;
+export function accessQuery(provider: ProviderId) {
+	return provider === "poyo" ? poyoAccessQuery : videoInventoryQuery;
+}
+export const poyoAccessMessage = "Connect a balance-verified Poyo.ai key in Settings.";
 export type VideoAccess = { revision: number; checked_at: number | null; state: VideoAccessState };
 export const accessMessage: Record<VideoAccessState, string> = {
 	eligible: "Seedance 2.5 was listed for this key.",
@@ -21,9 +29,10 @@ export function createVideoAccess(
 ) {
 	let checking = false;
 	let attempts: number[] = [];
-	async function current() {
-		const record = await use((db) => db.get<VideoAccess>(videoInventoryQuery));
-		const saved = record && (await store.credential("toapis", record.revision, "toapis-video"));
+	async function current(provider: ProviderId = "toapis") {
+		const record = await use((db) => db.get<VideoAccess>(accessQuery(provider)));
+		const access = provider === "poyo" ? "poyo-balance" : "toapis-video";
+		const saved = record && (await store.credential(provider, record.revision, access));
 		return { record: saved ? record : null, saved };
 	}
 	return {

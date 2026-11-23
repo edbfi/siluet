@@ -1,5 +1,5 @@
 import { json, type RequestEvent } from "@sveltejs/kit";
-import { parseVideo } from "../../../shared/video-studio/seedance";
+import { parseVideo } from "../../../shared/video-studio/request";
 export async function videoAction({ request, locals }: RequestEvent, action: "review" | "submit") {
 	if (!locals.owner) return json({ error: "unauthorized" }, { status: 401 });
 	if (request.headers.get("content-type")?.split(";")[0].trim() !== "application/json")

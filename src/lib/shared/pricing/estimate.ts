@@ -1,3 +1,4 @@
+import { poyoVideoDescriptor } from "../video-studio/poyo-models";
 import { creditUnits, formatCredits } from "./decimal";
 import { isPricingClock, isPricingRecord, parsePricingInstant } from "./feed";
 import {
@@ -8,7 +9,7 @@ import {
 	poyoConfirmationMs,
 	poyoFeedExpiryMs,
 } from "./poyo-feed";
-
+import { estimatePoyoVideo } from "./poyo-video-estimate";
 import { estimateToapis } from "./toapis-estimate";
 import { decodeToapisPricingFeed, type ToapisRateSource } from "./toapis-feed";
 
@@ -182,6 +183,7 @@ export function estimatePrice(feed: unknown, input: PriceInput, nowMs: number): 
 		return estimateToapis(decodeToapisPricingFeed(feed), input, nowMs, maxAttempts);
 	}
 	if (provider !== "poyo") return unknown("unsupported-provider");
+	if (poyoVideoDescriptor(model)) return estimatePoyoVideo(feed, input, nowMs, maxAttempts);
 	const poyoFeed = decodePoyoPricingFeed(feed);
 	if (model !== "z-image" && model !== "seedream-5.5") return unknown("unsupported-model");
 	if (input.sourceKinds?.some((kind) => kind !== "image")) return unknown("unsupported-input");

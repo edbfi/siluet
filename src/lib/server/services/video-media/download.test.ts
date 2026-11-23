@@ -215,3 +215,50 @@ test("a declared or observed size over the limit is an unsupported file size", a
 		await rm(dir, { recursive: true, force: true });
 	}
 });
+
+test("a single Poyo delivery URL fails closed without a second URL", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "video-poyo-"));
+	const budget = new AbortController();
+	const deadlines = spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+		expect(ms).toBe(60_000);
+		return budget.signal;
+	});
+	const single = { url: "https://93.184.216.34/h3.mp4", fallback: null };
+	try {
+		for (const response of [
+			() => new Response(null, { status: 403 }),
+			() => new Response(null, { status: 410 }),
+			() => new Response(null, { status: 503 }),
+			() => Response.redirect("https://10.0.0.1/h3.mp4"),
+			() => new Response("encoded", { headers: { "content-encoding": "br" } }),
+			() => new Response("short", { headers: { "content-length": "9" } }),
+			() => new Response("large", { headers: { "content-length": String(videoByteLimit + 1) } }),
+		]) {
+			const calls: string[] = [];
+			await expect(
+				downloadVideo(single, join(dir, crypto.randomUUID()), {
+					resolve: async () => "93.184.216.34",
+					request: async (url) => {
+						calls.push(url.href);
+						return response();
+					},
+				}),
+			).rejects.toThrow();
+			expect(calls).toEqual([single.url]);
+		}
+		const stalled = downloadVideo(single, join(dir, "stalled"), {
+			resolve: async () => "93.184.216.34",
+			request: (_url, init) =>
+				new Promise((_resolve, reject) =>
+					init.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+						once: true,
+					}),
+				),
+		});
+		budget.abort();
+		await expect(stalled).rejects.toThrow();
+	} finally {
+		deadlines.mockRestore();
+		await rm(dir, { recursive: true, force: true });
+	}
+});

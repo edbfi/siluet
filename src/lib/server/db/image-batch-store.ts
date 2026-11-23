@@ -37,10 +37,16 @@ export type ImageBatch = {
 	accepted_unknown: number;
 };
 
+// Another open interval, or a Poyo job whose spend is still unresolved, can move the same
+// wallet. An uncertain job that began dispatch may have reached Poyo with no open interval,
+// and it withholds later comparisons across key revisions while it stays uncertain. A claim
+// interrupted before dispatch sent nothing and withholds nothing.
 export async function markWalletOverlap(tx: InstallationTransaction, now: number) {
 	const open = sql`wallet_open=1 AND (wallet_finish_by IS NULL OR wallet_finish_by>${now})`;
 	await tx.run(sql`UPDATE image_job SET wallet_overlap=1 WHERE ${open}
-		AND (SELECT count(*) FROM image_job WHERE ${open})>1`);
+		AND ((SELECT count(*) FROM image_job WHERE ${open})>1
+			OR EXISTS(SELECT 1 FROM image_job WHERE provider='poyo' AND state='unknown'
+				AND dispatch_started_at IS NOT NULL))`);
 }
 
 export function imageBatchStore({ use }: Installation) {

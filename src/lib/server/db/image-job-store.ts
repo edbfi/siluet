@@ -10,7 +10,11 @@ import {
 	type TaskState,
 } from "../providers/image-job";
 import { markWalletOverlap } from "./image-batch-store";
-import { credentialPermitsImage } from "./image-credential-access";
+import {
+	type CredentialAccess,
+	credentialPermitsImage,
+	imageCredentialAccess,
+} from "./image-credential-access";
 import { imageJobPollingWindowMs } from "./image-job-schema";
 import type { Installation, InstallationTransaction } from "./installation";
 import { nextProviderStart, recordProviderStart } from "./provider-gate";
@@ -45,6 +49,8 @@ export type ImageJob = {
 	created_at: number;
 	poll_deadline: number;
 	business_id: string | null;
+	video_terms: string | null;
+	submission_recorded_at: number | null;
 	video_poll_deadline: number | null;
 	video_progress: number | null;
 	video_observation_id: string | null;
@@ -66,6 +72,47 @@ export type ImageJob = {
 	wallet_after: string | null;
 	wallet_after_at: number | null;
 };
+
+type JobKind = Partial<Pick<ImageJob, "business_id" | "video_terms">>;
+
+/** A Video Queue job. Rows from before Poyo video carry only a ToAPIs correlation ID. */
+export function isVideoJob(job: JobKind | undefined) {
+	return !!job && (job.video_terms != null || job.business_id != null);
+}
+
+/** A ToAPIs correlation ID: lookup without a task ID, identity checks and settled billing. */
+export function hasCorrelation(job: JobKind) {
+	return job.business_id != null;
+}
+
+export type JobCredentialScope = Pick<ImageJob, "provider" | "revision" | "model"> & JobKind;
+
+export function jobCredentialAccess(job: JobCredentialScope): CredentialAccess {
+	if (isVideoJob(job)) return job.provider === "poyo" ? "poyo-balance" : "toapis-video";
+	return imageCredentialAccess(job.provider, job.model);
+}
+
+type DeadlineScope = JobKind &
+	Pick<ImageJob, "video_poll_deadline" | "poll_deadline" | "submission_recorded_at" | "task_id">;
+
+/**
+ * The automatic polling deadline. A ToAPIs video stores its own. A Poyo video keeps
+ * video_poll_deadline NULL (its CHECK requires a correlation ID), so the video window runs
+ * from its durable acknowledgement. Before an acknowledgement the image window applies.
+ */
+export function jobPollDeadline(job: DeadlineScope) {
+	if (job.video_poll_deadline != null) return job.video_poll_deadline;
+	return isVideoJob(job) && job.submission_recorded_at != null && job.task_id != null
+		? job.submission_recorded_at + videoJobPollingWindowMs
+		: job.poll_deadline;
+}
+
+const videoJobSql = sql`(image_job.video_terms IS NOT NULL OR image_job.business_id IS NOT NULL)`;
+/** The SQL twin of jobPollDeadline over image_job. */
+export const pollDeadlineSql = sql`COALESCE(image_job.video_poll_deadline,
+	CASE WHEN ${videoJobSql} AND image_job.task_id IS NOT NULL AND image_job.submission_recorded_at IS NOT NULL
+		THEN image_job.submission_recorded_at+${videoJobPollingWindowMs} END,
+	image_job.poll_deadline)`;
 
 type StatusUpdate = {
 	completedObservation: boolean;
@@ -89,7 +136,7 @@ const walletFinishWindowMs = 2 * statusTimeoutMs;
 
 const currentCredential = sql`EXISTS (
 		SELECT 1 FROM provider_credential c WHERE c.provider=image_job.provider
-			AND c.revision=image_job.revision AND c.ciphertext IS NOT NULL AND (${credentialPermitsImage(sql`image_job.model`)} OR (c.provider='toapis' AND image_job.business_id IS NOT NULL))
+			AND c.revision=image_job.revision AND c.ciphertext IS NOT NULL AND (${credentialPermitsImage(sql`image_job.model`)} OR ${videoJobSql})
 	)`;
 
 export const jobsNeedCredential = (provider: ProviderId) => sql`(EXISTS (
@@ -243,7 +290,7 @@ export function imageJobStore({ use }: Installation) {
 						const now = clock();
 						const holdUntil = now + holdMs;
 						const automaticGuard = automatic
-							? sql`AND COALESCE(video_poll_deadline,poll_deadline)>${now} AND ((state IN ('waiting','running') AND (pause_reason IS NULL OR pause_reason='temporary')) OR (retry_state IN ('settlement','watch')
+							? sql`AND ${pollDeadlineSql}>${now} AND ((state IN ('waiting','running') AND (pause_reason IS NULL OR pause_reason='temporary')) OR (retry_state IN ('settlement','watch')
 					AND EXISTS (SELECT 1 FROM image_batch WHERE id=image_job.batch_id AND closed_reason IS NULL AND deadline>${now})))
 					AND pause_reason IS NOT 'credential-changed'`
 							: sql``;
@@ -298,7 +345,7 @@ export function imageJobStore({ use }: Installation) {
 				submission_recorded_at=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now} ELSE submission_recorded_at END,
 				poll_deadline=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now + imageJobPollingWindowMs} ELSE poll_deadline END,
 				video_poll_deadline=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now + videoJobPollingWindowMs} ELSE video_poll_deadline END,
-				video_observation_id=CASE WHEN business_id IS NOT NULL THEN ${token} END,
+				video_observation_id=CASE WHEN ${videoJobSql} THEN ${token} END,
 				video_progress=COALESCE(${update.progress ?? null},video_progress),
 				next_read_at=${update.nextReadAt}, read_token=NULL, read_failures=${update.failures},
 				completion_seen=MAX(completion_seen,${Number(update.completedObservation)}),
@@ -307,7 +354,7 @@ export function imageJobStore({ use }: Installation) {
 				expires_at=${update.expiresAt}, updated_at=${now},
 				wallet_finish_by=CASE WHEN batch_id IS NULL AND wallet_open=1 AND state IN ('waiting','running')
 					AND ${update.state} IN ('completed','failed') THEN ${now + walletFinishWindowMs} ELSE wallet_finish_by END
-				WHERE id=${id} AND read_token=${token} AND (business_id IS NULL OR ${currentCredential}) AND (${!update.lookup ? 1 : 0} OR (state='unknown' AND task_id IS NULL) OR task_id=${update.recoveredTask ?? null}) RETURNING *`);
+				WHERE id=${id} AND read_token=${token} AND (NOT ${videoJobSql} OR ${currentCredential}) AND (${!update.lookup ? 1 : 0} OR (state='unknown' AND task_id IS NULL) OR task_id=${update.recoveredTask ?? null}) RETURNING *`);
 						if (update.queryAfter > now)
 							await tx.run(
 								sql`UPDATE provider_gate SET query_after=MAX(query_after,${update.queryAfter}) WHERE provider=${provider}`,

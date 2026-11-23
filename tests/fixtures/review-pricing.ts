@@ -9,6 +9,7 @@ export async function writeReviewPricing(
 	cacheHome: string,
 	cachedSeconds = 2 * 24 * 60 * 60,
 	zImageCredits?: string,
+	extraPoyoRates: Record<string, unknown> = {},
 ) {
 	const latest = Math.max(Date.parse(poyoBundle.sourceDate), Date.parse(toapisBundle.observedAt));
 	// Keep cached conversion evidence at least as recent as the bundle.
@@ -31,6 +32,7 @@ export async function writeReviewPricing(
 				resolutions: { "1K": "4", "1.5K": "4", "2K": "7" },
 				perReference: "1.6",
 			},
+			...extraPoyoRates,
 		},
 	};
 	const toapis = { ...toapisRates, observedAt, conversionCacheAgeSeconds: cachedSeconds };

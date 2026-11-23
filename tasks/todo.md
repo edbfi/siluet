@@ -18,6 +18,17 @@
 - [ ] Refresh the bundled v2 feed. It matches `pricing-data` semantically, the full checks pass, and the next `check-freshness` reports about 30 days.
 - [ ] The scheduled `immortality.yml` run on 2026-12-01 succeeds.
 
+## Poyo.ai video family (R3)
+
+- [x] Parse H3 Max from its descriptor and refuse out-of-range inputs, foreign keys and ToAPIs routing.
+- [x] Classify Poyo video acknowledgements, refusals, uncertainty, throttling and status with fresh fixtures.
+- [x] Split video jobs from ToAPIs correlation at every `business_id` site and poll H3 for ten minutes from its acknowledgement.
+- [x] Queue, replay and track one H3 job with no second POST across restart, key changes and a late cooldown. Keep the released Seedance HMAC bytes.
+- [x] Estimate H3 from the v2 `h3-max` rate with the unknown-price consent path. Keep the v1 feed bytes.
+- [x] Save H3 through the D6 structural verifier and play it offline in the built studio.
+- [ ] After merge, a pricing run publishes `h3-max` to `pricing-data` and the bundle refresh brings it into `pricing/v2/poyo.json`.
+- [ ] `smoke` and `native-owner` pass both video journeys on hosted Linux and macOS.
+
 ## First saved video
 
 - [x] Verify full-track sample accounting, timelines and decoder configuration in TypeScript (D6); the browser decodes the samples.

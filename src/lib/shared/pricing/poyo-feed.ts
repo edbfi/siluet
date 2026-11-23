@@ -1,4 +1,4 @@
-import { isCreditDecimal } from "./decimal";
+import { isCreditDecimal, isCreditRate } from "./decimal";
 import {
 	decodeFixedRate,
 	decodePricingFeed,
@@ -26,7 +26,12 @@ export type UnfamiliarRateValue = string | UnfamiliarRateFields;
 export type UnfamiliarRateFields = { readonly [key: string]: UnfamiliarRateValue };
 /** A rate kind this release cannot quote. Refresh and the cache keep it unchanged. */
 export type UnfamiliarRate = Readonly<{ kind: string }> & UnfamiliarRateFields;
-export type PoyoRate = FixedRate | ReferenceRate | Unavailable | UnfamiliarRate;
+/** Credits per requested second at each offered resolution, e.g. `{"480p": "10"}`. */
+export type PerSecondRate = Readonly<{
+	kind: "per-second-by-resolution";
+	resolutions: Readonly<Record<string, string>>;
+}>;
+export type PoyoRate = FixedRate | ReferenceRate | PerSecondRate | Unavailable | UnfamiliarRate;
 
 export type PoyoPricingFeedV2 = Readonly<{
 	version: 2;
@@ -67,6 +72,20 @@ function decodeUnfamiliarRate(value: Record<string, unknown>): UnfamiliarRate | 
 	return Object.assign(rate, fields) as UnfamiliarRate;
 }
 
+const resolutionKey = /^[0-9]{3,4}p$/;
+
+function decodePerSecondRate(value: Record<string, unknown>): PerSecondRate | undefined {
+	if (!hasKeys(value, ["kind", "resolutions"]) || !isPricingRecord(value.resolutions)) return;
+	const entries = Object.entries(value.resolutions);
+	if (entries.length < 1 || entries.length > 8) return;
+	const resolutions: Record<string, string> = Object.create(null);
+	for (const [key, credits] of entries) {
+		if (!resolutionKey.test(key) || !isCreditRate(credits)) return;
+		resolutions[key] = credits;
+	}
+	return { kind: "per-second-by-resolution", resolutions };
+}
+
 export function decodePoyoRate(value: unknown): PoyoRate | undefined {
 	if (!isPricingRecord(value)) return;
 	switch (value.kind) {
@@ -76,6 +95,8 @@ export function decodePoyoRate(value: unknown): PoyoRate | undefined {
 			return decodeFixedRate(value);
 		case "per-image-with-references":
 			return decodeReferenceRate(value);
+		case "per-second-by-resolution":
+			return decodePerSecondRate(value);
 		default:
 			return decodeUnfamiliarRate(value);
 	}
@@ -87,6 +108,10 @@ export function isFixedRate(rate: PoyoRate): rate is FixedRate {
 
 export function isReferenceRate(rate: PoyoRate): rate is ReferenceRate {
 	return rate.kind === "per-image-with-references";
+}
+
+export function isPerSecondRate(rate: PoyoRate): rate is PerSecondRate {
+	return rate.kind === "per-second-by-resolution";
 }
 
 function decodeRates(value: unknown): Record<string, PoyoRate> | undefined {

@@ -9,6 +9,12 @@
 		"support": "inventory"
 	},
 	"supportProfiles": {
+		"h3-max-generate": {
+			"addedSinceBaseline": true,
+			"review": "Poyo video family representative: one prompt up to 4,000 UTF-8 bytes, six fixed ratios, 5–10 seconds at 480p or 768p",
+			"queue": "one reviewed request with a balance-checked Poyo key",
+			"optionCoverage": "partial"
+		},
 		"seedance-generate": {
 			"addedSinceBaseline": true,
 			"review": "ordinary prompt-only MP4, 4–10 seconds at 480p or 720p",
@@ -1172,7 +1178,9 @@
 						"reference-to-video"
 					],
 					"contract": "documented",
-					"sources": ["h3-max"],
+					"sources": ["h3-max", "catalog"],
+					"support": { "text-to-video": "h3-max-generate" },
+					"catalogD4": "declared",
 					"catalogCategory": "video",
 					"d4": "declared"
 				},

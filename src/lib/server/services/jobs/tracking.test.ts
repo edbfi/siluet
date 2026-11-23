@@ -15,9 +15,11 @@ import {
 } from "../../../shared/image-studio/z-image";
 import type { ProviderId } from "../../../shared/providers/connections";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
+import { imageJobStore } from "../../db/image-job-store";
 import { openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
+import { videoJobPollingWindowMs } from "../../db/video-schema";
 import type { CheckFetch } from "../../providers/connection-check";
 import { createGallery } from "../gallery/gallery";
 import { createJobTracking } from "./tracking";
@@ -794,3 +796,239 @@ test.each(["generate", "edit"] as const)(
 			expect(JSON.stringify(rows)).not.toContain(value);
 	},
 );
+
+// A Poyo video claim as Video Queue writes it: no correlation ID and a NULL video deadline.
+async function insertH3(id = "h3", revision = 1, state = "submitting") {
+	await installation.use((db) =>
+		db.run(sql`INSERT INTO image_job (id,binding,provider,revision,quote,state,created_at,model,operation,poll_deadline,video_terms)
+			VALUES (${id},'binding','poyo',${revision},${JSON.stringify(quote)},${state},${now},'h3-max','text-to-video',
+				${now + imageJobPollingWindowMs},'["terms"]')`),
+	);
+}
+
+function h3Reader(reads: string[], status = "running") {
+	return (async (url: string) => {
+		reads.push(url);
+		return Response.json({ code: 200, data: { task_id: "h3_task", status } });
+	}) as CheckFetch;
+}
+
+function manualTimers() {
+	const due: (() => Promise<void>)[] = [];
+	return {
+		due,
+		scheduleRead: (read: () => Promise<void>) => {
+			due.push(read);
+			return () => {};
+		},
+		async fire() {
+			const read = due.pop();
+			if (!read) throw new Error("No scheduled read.");
+			await read();
+		},
+	};
+}
+
+test("accepted H3 ack records; automatic polling continues past 120 s and stops at 600 s", async () => {
+	// A balance-only Poyo key: Seedream access is not required to poll H3.
+	await providerStore(installation).save("poyo", credential, now, false, 1);
+	await insertH3("h3", 2);
+	const reads: string[] = [];
+	const timers = manualTimers();
+	tracker = createJobTracking(installation, providerStore(installation), {
+		fetch: h3Reader(reads),
+		now: () => now,
+		random: () => 0,
+		scheduleRead: timers.scheduleRead,
+	});
+	const store = imageJobStore(installation);
+	expect(await store.beginDispatch("h3", "poyo", now)).toBeTruthy();
+	const recorded = await store.recordSubmission(
+		"h3",
+		{ kind: "accepted", taskId: "h3_task" },
+		now,
+		2_000,
+	);
+	expect(recorded).toMatchObject({
+		state: "waiting",
+		task_id: "h3_task",
+		video_poll_deadline: null,
+	});
+	const acknowledged = now;
+	await tracker.resume();
+	now = acknowledged + 130_000;
+	await timers.fire();
+	expect(reads).toEqual(["https://api.poyo.ai/api/generate/status/h3_task"]);
+	expect(await latest("h3")).toMatchObject({
+		state: "running",
+		tracking: "automatic",
+		pollDeadline: acknowledged + videoJobPollingWindowMs,
+	});
+	now = acknowledged + videoJobPollingWindowMs;
+	await timers.fire().catch(() => {});
+	expect(reads).toHaveLength(1);
+	expect(await latest("h3")).toMatchObject({ tracking: "manual", canRefresh: true });
+	await tracker.refresh("h3");
+	expect(reads).toHaveLength(2);
+});
+
+test("replacing the Poyo key pauses H3 reads and discards a read in flight", async () => {
+	await insertH3();
+	const store = imageJobStore(installation);
+	await store.beginDispatch("h3", "poyo", now);
+	await store.recordSubmission("h3", { kind: "accepted", taskId: "h3_task" }, now, 2_000);
+	const settings = providerStore(installation);
+	let replace = true;
+	makeTracking(async () => {
+		if (replace) {
+			replace = false;
+			await settings.save("poyo", "replacement", now, true, 1);
+		}
+		return Response.json({ code: 200, data: { task_id: "h3_task", status: "failed" } });
+	});
+	now += 2_000;
+	await tracker?.refresh("h3");
+	expect(await store.get("h3")).toMatchObject({ state: "waiting", read_token: expect.any(String) });
+	now += 60_000;
+	await tracker?.refresh("h3");
+	expect(await latest("h3")).toMatchObject({
+		state: "waiting",
+		message: expect.stringContaining("original API key"),
+	});
+});
+
+test("unknown Poyo job raises no Settings warning; active and unsaved H3 jobs do", async () => {
+	const settings = providerStore(installation);
+	await settings.save("poyo", credential, now, false, 1);
+	await insertH3("lost", 2, "unknown");
+	const store = imageJobStore(installation);
+	expect(await store.needsCredential("poyo")).toBe(false);
+	await insertH3("active", 2, "running");
+	expect(await store.needsCredential("poyo")).toBe(true);
+	await installation.use((db) =>
+		db.run(sql`UPDATE image_job SET state='completed' WHERE id='active'`),
+	);
+	expect(await store.needsCredential("poyo")).toBe(true);
+});
+
+test.each([
+	["a dispatched", true, { status: "unavailable", reason: "overlap" }],
+	["an undispatched", false, { status: "observed", delta: "0" }],
+])(
+	"%s uncertain Poyo job decides whether a later wallet comparison is withheld",
+	async (_, sent, wallet) => {
+		const read: CheckFetch = async (url, request) => {
+			if (url.endsWith("/user/balance"))
+				return Response.json({ code: 200, data: { credits_amount: 50 } });
+			if (request.method === "POST") return Response.json({ code: 200, data: { task_id: taskId } });
+			return Response.json({ code: 200, data: { task_id: taskId, status: "finished" } });
+		};
+		// Built by hand to isolate the unresolved-spend clause: an uncertain Poyo row without its own
+		// open interval, as a later batch attempt leaves it. A lost H3 acknowledgement keeps wallet_open=1.
+		await insertH3("lost");
+		if (sent)
+			await installation.use((db) =>
+				db.run(sql`UPDATE image_job SET dispatch_started_at=${now} WHERE id='lost'`),
+			);
+		const jobs = makeTracking(read);
+		await jobs.resume();
+		expect(await imageJobStore(installation).get("lost")).toMatchObject({
+			state: "unknown",
+			wallet_open: 0,
+		});
+		// Only a request that may have reached Poyo withholds a later interval, even on a replacement key.
+		await providerStore(installation).save("poyo", credential, now, true, 1);
+		await insert("next", "poyo", "seedream-5.5", 2);
+		await dispatch("poyo", "next");
+		now += 2_000;
+		await jobs.refresh("next");
+		expect(await latest("next")).toMatchObject({ state: "completed", wallet });
+		expect(await latest("lost")).toMatchObject({
+			wallet: { status: "unavailable", reason: "uncertain" },
+		});
+	},
+);
+
+const h3Target = {
+	provider: "poyo",
+	body: {
+		model: "h3-max",
+		input: {
+			prompt,
+			duration: 5,
+			resolution: "768p",
+			aspect_ratio: "16:9",
+			enable_safety_checker: false,
+		},
+	},
+} as const;
+
+test.each(["image", "video"] as const)(
+	"a job starting during a %s after-read withholds both comparisons",
+	async (first) => {
+		let hold: PromiseWithResolvers<void> | undefined;
+		const reading = Promise.withResolvers<void>();
+		const jobs = makeTracking(async (url, request) => {
+			if (url.endsWith("/user/balance")) {
+				if (hold) {
+					reading.resolve();
+					await hold.promise;
+				}
+				return Response.json({ code: 200, data: { credits_amount: 40 } });
+			}
+			if (request.method === "POST") {
+				const body = JSON.parse(String(request.body));
+				return Response.json({ code: 200, data: { task_id: body.model.replace(/\W/g, "_") } });
+			}
+			const id = url.split("/").at(-1);
+			return Response.json({
+				code: 200,
+				data: { task_id: id, status: "finished", credits_amount: 1 },
+			});
+		});
+		await insert("image", "poyo");
+		await insertH3("video");
+		const start = async (kind: "image" | "video") =>
+			kind === "image"
+				? dispatch("poyo", "image")
+				: jobs.dispatchVideo("video", credential, h3Target);
+		const second = first === "image" ? "video" : "image";
+		await start(first);
+		now += 2_000;
+		hold = Promise.withResolvers<void>();
+		const afterRead = jobs.refresh(first);
+		await reading.promise;
+		const release = hold;
+		hold = undefined;
+		await start(second);
+		release.resolve();
+		await afterRead;
+		now += 2_000;
+		await jobs.refresh(second);
+		for (const id of ["image", "video"])
+			expect(await latest(id)).toMatchObject({
+				state: "completed",
+				wallet: { status: "unavailable", reason: "overlap" },
+			});
+	},
+);
+
+test("P-02: a key replaced after the claim leaves the H3 job unsent with no POST", async () => {
+	let posts = 0;
+	const jobs = makeTracking(async (url, request) => {
+		if (url.endsWith("/user/balance")) {
+			await providerStore(installation).save("poyo", "replacement", now, true, 1);
+			return Response.json({ code: 200, data: { credits_amount: 40 } });
+		}
+		if (request.method === "POST") posts++;
+		return Response.json({ code: 200, data: { task_id: "x" } });
+	});
+	await insertH3("video");
+	await jobs.dispatchVideo("video", credential, h3Target);
+	expect(posts).toBe(0);
+	expect(await latest("video")).toMatchObject({
+		state: "unsent",
+		skipped: "interrupted",
+		wallet: null,
+	});
+});
