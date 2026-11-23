@@ -302,8 +302,8 @@ test("a crash after completion or after the claim recovers with one read, also i
 });
 
 test("a key replaced before publication fences the attempt and keeps the job waiting for its key", async () => {
-	media = (id) => {
-		void providerStore(installation).save("poyo", "replacement", now, true, 1);
+	media = async (id) => {
+		await providerStore(installation).save("poyo", "replacement", now, true, 1);
 		return new Response(id.startsWith("video") ? video : referencePng);
 	};
 	runtime = open();
