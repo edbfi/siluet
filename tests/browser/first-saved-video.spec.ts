@@ -151,12 +151,6 @@ test("video-only key reviews once, saves one video and reopens its original byte
 					await post("/video/queue", { ...click, draft: { ...draft, prompt: "replacement" } })
 				).status(),
 			).toBe(400);
-			if (!native) {
-				expect(review.blockers.join(" ")).toContain("verifier");
-				expect((await post("/video/queue", click)).status()).toBe(409);
-				expect(posts).toBe(0);
-				return;
-			}
 			expect(review.blockers).toEqual([]);
 			const button = page.getByRole("button", { name: "Queue 1 request" });
 			await expect(button).toBeDisabled();

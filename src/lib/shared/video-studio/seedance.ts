@@ -4,7 +4,7 @@ export const videoRatios = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"] as cons
 export const videoDisclosures = [
 	"The prompt is sent to ToAPIs for one potentially billable submission.",
 	"The total charge is unknown. Fallback may be available on eligible accounts and regions. Its route and price are unknown.",
-	"Gallery accepts a limited H.264/AAC MP4 profile. A completed billable clip may be ineligible for Save.",
+	"Gallery saves complete MP4 files within its size, dimension and 12-second limits. A completed billable clip outside them stays with the provider.",
 ];
 export const videoDefaults = {
 	prompt: "",

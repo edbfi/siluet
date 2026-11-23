@@ -230,8 +230,6 @@ function submit(id: string, action: "refresh" | "save" | "lookup"): SubmitFuncti
 						<a class={styles.link} href={`/gallery/${encodeURIComponent(job.id)}`}
 							>Open saved {job.model === "seedance-2-5" ? "video" : "image"}</a
 						>
-					{:else if job.canSave && job.model === "seedance-2-5" && !data.videoVerifier}
-						<p class={styles.note}>Save requires a qualified local video verifier.</p>
 					{:else if job.canSave}
 						<form method="POST" action="?/save" use:enhance={submit(job.id, "save")}>
 							<input type="hidden" name="id" value={job.id}>

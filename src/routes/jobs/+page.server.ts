@@ -1,5 +1,4 @@
 import { error, fail, type RequestEvent } from "@sveltejs/kit";
-import { qualifiedVerifier } from "#lib/server/services/video-media/native.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, depends }) => {
@@ -10,9 +9,6 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 	]);
 	return {
 		...history,
-		videoVerifier:
-			!history.jobs.some((j) => j.canSave && j.model === "seedance-2-5") ||
-			!!(await qualifiedVerifier()),
 		saved: entries.filter((entry) => entry.available).map((entry) => entry.jobId),
 		now: Date.now(),
 	};
