@@ -462,6 +462,25 @@ test("a Retry or a recovery whose read has no usable link makes one read and sho
 	expect(posts).toBe(0);
 });
 
+test("a due time beyond the timer limit waits instead of looping", async () => {
+	await insert("image", "completed");
+	await installation.use((db) =>
+		db.run(sql`UPDATE image_job SET save_due=${start + 30 * 86_400_000} WHERE id='image'`),
+	);
+	let clock = 0;
+	runtime = open({
+		now: () => {
+			clock++;
+			return now;
+		},
+	});
+	await runtime.start();
+	const before = clock;
+	await Bun.sleep(50);
+	expect(clock - before).toBeLessThan(3);
+	expect(reads).toEqual([]);
+});
+
 test("an expired pending job is cleared without any request", async () => {
 	await insert("image", "completed");
 	await installation.use((db) =>

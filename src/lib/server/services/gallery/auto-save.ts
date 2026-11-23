@@ -32,6 +32,8 @@ type AutoSaveDependencies = {
 
 // At most two image and one video transfer at a time; the rest wait.
 const caps = { image: 2, video: 1 };
+// The longest delay setTimeout accepts; a longer one fires at once.
+const timerLimit = 2_147_483_647;
 
 /** A complete file outside the Gallery profile; another download cannot change it. */
 function refusal(error: unknown): SaveHold | null {
@@ -172,7 +174,8 @@ export function createAutoSave(
 		clearTimeout(timer);
 		const next = await saves.nextDue(time);
 		if (next !== null && !shutdown.signal.aborted)
-			timer = setTimeout(wake, Math.max(0, next - now())).unref();
+			// A far due time (such as a long Retry-After) wakes early and looks again.
+			timer = setTimeout(wake, Math.min(Math.max(0, next - now()), timerLimit)).unref();
 	}
 
 	function wake() {
