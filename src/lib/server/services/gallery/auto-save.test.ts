@@ -323,7 +323,12 @@ test("a key replaced before publication fences the attempt and keeps the job wai
 
 test("a key replaced during a transfer that then fails or finds an unsupported file changes nothing", async () => {
 	const gate = Promise.withResolvers<void>();
+	// Replace the key only once both transfers have started.
+	const arrived = Promise.withResolvers<void>();
+	const started = new Set<string>();
 	media = async (id) => {
+		started.add(id);
+		if (started.size === 2) arrived.resolve();
 		await gate.promise;
 		return id === "image" ? new Response(null, { status: 404 }) : new Response(referenceGif);
 	};
@@ -338,6 +343,7 @@ test("a key replaced during a transfer that then fails or finds an unsupported f
 			sql`SELECT revision, ciphertext, verified_at, seedream FROM provider_credential WHERE provider='poyo'`,
 		),
 	);
+	await arrived.promise;
 	await providerStore(installation).save("poyo", "replacement", now, true, 1);
 	gate.resolve();
 	await settle();
