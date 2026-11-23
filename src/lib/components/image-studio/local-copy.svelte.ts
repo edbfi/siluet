@@ -43,6 +43,9 @@ const revisionOf = (value: unknown) => {
  */
 export class LocalCopy {
 	#cleaning: () => CleaningSetting | null = () => null;
+	// The newest setting a state check or staging response reported. It can be newer than
+	// the page data, which reloads only after a change is confirmed.
+	#latest = $state.raw<CleaningSetting | null>(null);
 	file = $state.raw<File | null>(null);
 	stage = $state.raw<MediaDescriptor | null>(null);
 	pending = $state(false);
@@ -51,7 +54,7 @@ export class LocalCopy {
 	failed = $state(false);
 	/** Whether the copy is (or will be) cleaned: a staged copy's own mode, else the setting. */
 	cleaned = $derived(
-		this.stage ? this.stage.transform !== "original" : (this.#cleaning()?.enabled ?? true),
+		this.stage ? this.stage.transform !== "original" : (this.#setting()?.enabled ?? true),
 	);
 	status = $derived.by(() => {
 		if (this.pending) {
@@ -124,7 +127,9 @@ export class LocalCopy {
 	 * its copy stale. The setting may have changed since.
 	 */
 	renew() {
-		if (this.file) this.#replace();
+		if (!this.file) return;
+		void this.#readSetting().catch(() => {});
+		this.#replace();
 	}
 
 	/** A Review moved the copy's idle deadline. Keep the same copy and its identity. */
@@ -177,12 +182,12 @@ export class LocalCopy {
 		if (!this.file || this.#checking) return;
 		this.#checking = true;
 		try {
-			const response = await fetch("/settings/files/state", { cache: "no-store" });
-			const current = response.ok ? revisionOf(await response.json().catch(() => null)) : null;
+			const current = await this.#readSetting();
 			if (current === null || !this.file) return;
 			this.#known = Math.max(this.#known ?? current, current);
 			const admitted = this.#revision ?? this.#cleaning()?.revision ?? null;
-			// A preparation still in flight is compared when its response arrives.
+			// A preparation still in flight is compared when its response arrives; the
+			// mode it describes meanwhile already follows the newer setting.
 			if (this.pending || admitted === current) return;
 			await invalidateAll();
 			if (this.file) this.#replace();
@@ -191,6 +196,27 @@ export class LocalCopy {
 		} finally {
 			this.#checking = false;
 		}
+	}
+
+	#setting() {
+		const page = this.#cleaning();
+		const latest = this.#latest;
+		return latest && (!page || latest.revision >= page.revision) ? latest : page;
+	}
+
+	// Keep a reported setting when it is at least as new as the one already known.
+	#learn(value: unknown) {
+		const { enabled } = record(value);
+		const revision = revisionOf(value);
+		if (typeof enabled !== "boolean" || revision === null) return;
+		if (!this.#latest || revision >= this.#latest.revision) this.#latest = { enabled, revision };
+	}
+
+	async #readSetting() {
+		const response = await fetch("/settings/files/state", { cache: "no-store" });
+		const result: unknown = response.ok ? await response.json().catch(() => null) : null;
+		this.#learn(result);
+		return revisionOf(result);
 	}
 
 	// Retire the copy but keep the file, which a restored page prepares again.
@@ -298,6 +324,7 @@ export class LocalCopy {
 				if (this.#preparing !== abort) return;
 				const { stage, error, code } = record(result);
 				this.#revision = revisionOf(result) ?? this.#revision;
+				this.#learn(result);
 				// The setting changed while this file was prepared: prepare it once more at once.
 				if (code === "cleaning-changed" && !changed) {
 					changed = true;

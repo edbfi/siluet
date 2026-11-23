@@ -1,10 +1,16 @@
 import { json, type RequestEvent } from "@sveltejs/kit";
+import type { CleaningSetting } from "../../../shared/media-staging/cleaning";
 import { privateMediaResponse } from "../media/private-response";
 import { PreparationError } from "../media-cleanup/preparation";
 import { opaqueId } from "../media-staging/opaque-id";
 import { CleaningChangedError, maxStageBytes, StageError } from "../media-staging/stages";
 import { sessionDigest } from "../owner/credentials";
 import { parseFileRequest } from "./request";
+
+const settingFields = (setting: CleaningSetting | null) => ({
+	enabled: setting?.enabled ?? null,
+	revision: setting?.revision ?? null,
+});
 
 function scopeFor({ locals, cookies }: RequestEvent, draft: unknown) {
 	const token = cookies.get(locals.studio.cookieName);
@@ -27,14 +33,11 @@ export async function stageFile(event: RequestEvent) {
 	if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxStageBytes))
 		return new Response(null, { status: 413 });
 	const token = event.cookies.get(locals.studio.cookieName);
-	// The revision this preparation was admitted under, so another tab can tell when a
-	// change in Settings made this copy or refusal stale.
-	let revision: number | null = null;
-	const current = () =>
-		locals.studio.cleaning.read().then(
-			({ revision }) => revision,
-			() => null,
-		);
+	// The setting this preparation was admitted under, so another tab can tell when a
+	// change in Settings made this copy or refusal stale and describe the current mode.
+	let admitted: CleaningSetting | null = null;
+	const current = async () =>
+		settingFields(admitted ?? (await locals.studio.cleaning.read().catch(() => null)));
 	try {
 		const stage = await locals.studio.prepareMedia(
 			request.body,
@@ -45,17 +48,17 @@ export async function stageFile(event: RequestEvent) {
 					valid: async () => (await locals.studio.access.session(token)) === scope.owner,
 				}),
 			(setting) => {
-				revision = setting?.revision ?? null;
+				admitted = setting;
 			},
 		);
-		return json({ stage, revision });
+		return json({ stage, ...settingFields(admitted) });
 	} catch (error) {
 		if (error instanceof CleaningChangedError)
 			return json(
 				{
 					error: "The cleaning setting changed.",
 					code: "cleaning-changed",
-					revision: await current(),
+					...settingFields(await locals.studio.cleaning.read().catch(() => null)),
 				},
 				{ status: 409 },
 			);
@@ -65,7 +68,7 @@ export async function stageFile(event: RequestEvent) {
 				: error instanceof StageError
 					? ["stage", error.message]
 					: ["unavailable", "Image preparation unavailable."];
-		return json({ error: message, code, revision: revision ?? (await current()) }, { status: 422 });
+		return json({ error: message, code, ...(await current()) }, { status: 422 });
 	}
 }
 

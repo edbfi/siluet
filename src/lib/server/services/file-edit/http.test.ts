@@ -52,13 +52,13 @@ function event(
 	} as unknown as RequestEvent;
 }
 
-test("a staged copy carries the admission revision beside its seven-key descriptor", async () => {
+test("a staged copy carries the admission setting beside its seven-key descriptor", async () => {
 	const response = await stageFile(event(async () => "commit"));
 	expect(response.status).toBe(200);
-	expect(await response.json()).toEqual({ stage: descriptor, revision: 4 });
+	expect(await response.json()).toEqual({ stage: descriptor, enabled: false, revision: 4 });
 });
 
-test("a refusal carries the admission revision", async () => {
+test("a refusal carries the admission setting", async () => {
 	const response = await stageFile(
 		event(async () => {
 			throw new PreparationError("declined", ["The PNG contains trailing data.", "Export again."]);
@@ -68,11 +68,12 @@ test("a refusal carries the admission revision", async () => {
 	expect(await response.json()).toEqual({
 		error: "The PNG contains trailing data. Export again.",
 		code: "declined",
+		enabled: false,
 		revision: 4,
 	});
 });
 
-test("a refusal before the setting was read carries the current revision", async () => {
+test("a refusal before the setting was read carries the current setting", async () => {
 	const response = await stageFile(
 		event(
 			async () => {
@@ -81,7 +82,7 @@ test("a refusal before the setting was read carries the current revision", async
 			{ admitted: null as unknown as CleaningSetting },
 		),
 	);
-	expect(await response.json()).toMatchObject({ code: "stage", revision: 5 });
+	expect(await response.json()).toMatchObject({ code: "stage", enabled: true, revision: 5 });
 });
 
 test("a copy overtaken by a setting change answers 409 cleaning-changed", async () => {
@@ -91,5 +92,9 @@ test("a copy overtaken by a setting change answers 409 cleaning-changed", async 
 		}),
 	);
 	expect(response.status).toBe(409);
-	expect(await response.json()).toMatchObject({ code: "cleaning-changed", revision: 5 });
+	expect(await response.json()).toMatchObject({
+		code: "cleaning-changed",
+		enabled: true,
+		revision: 5,
+	});
 });

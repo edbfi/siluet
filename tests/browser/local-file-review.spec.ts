@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import sharp from "sharp";
-import { markedFile } from "../fixtures/local-image";
+import { cmykJpeg, markedFile } from "../fixtures/local-image";
 import { prompt, withEditStudio } from "./edit-studio-fixture";
 
 // A JPEG with an APP9 segment the cleaner cannot classify. An original may carry it.
@@ -46,6 +46,23 @@ async function changeElsewhere(page: Page, origin: string, enabled: boolean) {
 }
 const shown = (page: Page) =>
 	page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+
+// Hold the next staging response until `release()`. Its request reaches the server at once.
+async function holdNextStaging(page: Page) {
+	const arrived = Promise.withResolvers<void>();
+	const released = Promise.withResolvers<void>();
+	let held = false;
+	await page.route("**/image/files/*", async (route) => {
+		if (route.request().method() !== "POST" || held) return route.fallback();
+		held = true;
+		const response = await route.fetch();
+		arrived.resolve();
+		await released.promise;
+		await route.fulfill({ response });
+	});
+	return { arrived: arrived.promise, release: () => released.resolve() };
+}
+const cleanedHelp = (page: Page) => page.getByText(/Siluet cleans before upload/);
 
 test("a file the cleaner declines is checked unchanged after cleaning is turned off elsewhere", async ({
 	page,
@@ -150,5 +167,51 @@ test("a single WebP keeps the URL-only reason", async ({ page }) => {
 		await file.setInputFiles({ name: "photo.webp", mimeType: "image/webp", buffer: webp });
 		await expect(queue).toHaveAccessibleDescription(/1–10 public image URLs/i);
 		await expect(inspect).toHaveCount(0);
+	});
+});
+
+test("a change elsewhere during preparation, then a refusal, describes the new mode", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin }) => {
+		await changeElsewhere(page, origin, false);
+		const { file } = await openEdit(page, origin);
+		await expect(page.getByText(/Siluet checks and sends unchanged before upload/)).toBeVisible();
+		const staging = await holdNextStaging(page);
+		await file.setInputFiles({
+			name: "cmyk.jpg",
+			mimeType: "image/jpeg",
+			buffer: await cmykJpeg(),
+		});
+		// Admitted with cleaning off; cleaning is turned on before its refusal arrives.
+		await staging.arrived;
+		await changeElsewhere(page, origin, true);
+		await shown(page);
+		await expect(cleanedHelp(page)).toBeVisible();
+		staging.release();
+		await expect(file).toHaveAccessibleDescription(/unsupported image coding/);
+		await expect(cleanedHelp(page)).toBeVisible();
+	});
+});
+
+test("a copy prepared again after a stale Queue shows the current mode while it prepares", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
+		const { file, inspect, consent, queue } = await openEdit(page, origin);
+		await file.setInputFiles(await markedFile("png"));
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+		await inspect.press("Enter");
+		await consent.press("Space");
+		await changeElsewhere(page, origin, false);
+		const staging = await holdNextStaging(page);
+		await queue.press("Enter");
+		await staging.arrived;
+		await expect(file).toHaveAccessibleDescription(
+			/unchanged before upload\..* Checking the file…/,
+		);
+		staging.release();
+		await expect(file).toHaveAccessibleDescription(/File checked · Not cleaned\./);
+		expect(fixtures.uploads).toHaveLength(0);
 	});
 });
