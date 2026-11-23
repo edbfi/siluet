@@ -70,6 +70,8 @@ export function createAutoSave(
 	let started = false;
 	let filling = false;
 	let again = false;
+	// The last pass left a due job waiting for a transfer slot.
+	let capped = false;
 
 	const expired = (job: ImageJob) => job.expires_at !== null && job.expires_at <= now();
 	const running = (video: boolean) =>
@@ -149,8 +151,9 @@ export function createAutoSave(
 			.catch(() => true)
 			.then((changed) => {
 				active.delete(job.id);
-				// A finished attempt frees a slot; a missed claim changed nothing to look at again.
-				if (changed) wake();
+				// A finished attempt, or a missed claim that frees a slot a due job waits for, looks
+				// again. A missed claim is not claimable again, so this cannot spin.
+				if (changed || capped) wake();
 			});
 		active.set(job.id, { video, done });
 	}
@@ -159,6 +162,7 @@ export function createAutoSave(
 		const time = now();
 		const due = await saves.pendingSaves(time);
 		const readable = due.length ? await readability() : () => false;
+		capped = false;
 		for (const job of due) {
 			if (shutdown.signal.aborted) return;
 			if (active.has(job.id)) continue;
@@ -167,7 +171,10 @@ export function createAutoSave(
 				// Paused and key-less jobs wait for Refresh or stay as they are; nothing polls.
 				if (isReadPaused(job.pause_reason) || !readable(job)) continue;
 				const video = isVideoJob(job);
-				if (running(video) >= caps[video ? "video" : "image"]) continue;
+				if (running(video) >= caps[video ? "video" : "image"]) {
+					capped = true;
+					continue;
+				}
 			}
 			begin(job);
 		}

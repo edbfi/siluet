@@ -226,6 +226,31 @@ test("duplicate handoffs transfer once and at most two images and one video run 
 	for (const id of ids) expect((await summary(id))?.library, id).toBe("saved");
 });
 
+test("a video waiting behind the cap starts when the first video's claim misses", async () => {
+	for (const id of ["video-1", "video-2"]) {
+		await insert(id, "completed");
+		await installation.use((db) =>
+			db.run(sql`UPDATE image_job SET save_due=0, next_read_at=0 WHERE id=${id}`),
+		);
+	}
+	const store = providerStore(installation);
+	let raced = false;
+	runtime = open({
+		// Remove lands after the worker listed both videos and before it claims the first.
+		readability: async () => {
+			if (!raced) {
+				raced = true;
+				await runtime?.gallery.remove("video-1");
+			}
+			return store.jobReadability();
+		},
+	});
+	await runtime.start();
+	expect(await job("video-1")).toMatchObject({ save_hold: "removed", save_attempt: null });
+	expect((await summary("video-2"))?.library).toBe("saved");
+	expect(transfers).toEqual(["video-2"]);
+});
+
 test("a backfilled batch of three waits for the read gate without counting a try", async () => {
 	runtime = open();
 	for (const id of ["image-1", "image-2", "image-3"]) {
