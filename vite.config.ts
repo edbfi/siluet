@@ -21,10 +21,7 @@ export default defineConfig({
 				...bunAdapter,
 				async adapt(builder) {
 					await bunAdapter.adapt(builder);
-					await copyFile(
-						"src/lib/server/services/video-media/qualification.mp4",
-						"build/server/qualification.mp4",
-					);
+					await copyFile("tests/fixtures/video/h264-aac.mp4", "build/server/qualification.mp4");
 				},
 			},
 		}),

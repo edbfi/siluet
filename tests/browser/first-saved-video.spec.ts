@@ -14,7 +14,7 @@ test("video-only key reviews once, saves one video and reopens its original byte
 }) => {
 	test.setTimeout(100_000);
 	const directory = await createOwnerDirectory();
-	const bytes = await readFile("src/lib/server/services/video-media/qualification.mp4");
+	const bytes = await readFile("tests/fixtures/video/h264-aac.mp4");
 	const prompt = "A blue clock rotates slowly.";
 	const draft = { ...videoDefaults, prompt, aspect_ratio: "9:16" };
 	let business = "";

@@ -3,7 +3,7 @@ import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { downloadVideo } from "./download";
-import { videoByteLimit } from "./mp4";
+import { videoByteLimit } from "./limits";
 
 const source = { url: "https://93.184.216.34/primary", fallback: "https://93.184.216.34/fallback" };
 test("only pre-body availability failures can use a second delivery URL", async () => {

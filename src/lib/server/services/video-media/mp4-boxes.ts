@@ -7,6 +7,7 @@ export type Box = { type: string; data: Buffer; depth: number };
 type Rule = readonly string[] | { readonly skip: number; readonly allow: readonly string[] };
 export type Rules = Readonly<Record<string, Rule>>;
 
+// Container levels below a top-level box: trak, mdia, minf, stbl, stsd and a sample entry.
 const maxDepth = 6;
 const maxBoxes = 4096;
 
@@ -64,8 +65,8 @@ export function boxWalker(rules: Rules) {
 			const rule = rules[parent.type];
 			check(rule, `${parent.type} is not a container`);
 			const { skip, allow } = "allow" in rule ? rule : { skip: 0, allow: rule };
+			check(parent.depth <= maxDepth, "boxes nest too deeply");
 			const depth = parent.depth + 1;
-			check(depth <= maxDepth, "boxes nest too deeply");
 			check(parent.data.length >= skip, `${parent.type} is too short`);
 			const result: Box[] = [];
 			let at = skip;

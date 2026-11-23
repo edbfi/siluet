@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { qualifiedVerifier, verifyVideo } from "./native";
 
-const qualification = "src/lib/server/services/video-media/qualification.mp4";
+const qualification = "tests/fixtures/video/h264-aac.mp4";
 const silent = "tests/fixtures/video/silent.mp4";
 const configured = process.env.SILUET_FFMPEG_DIR;
 test("an unqualified installation keeps native verification unavailable", async () => {

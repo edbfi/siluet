@@ -1,170 +1,290 @@
-// Check the stored ISO BMFF sample tables independently of FFmpeg's demuxer.
-// Offsets below are relative to the payload (including FullBox version/flags).
-export const videoByteLimit = 64 * 1024 * 1024;
-export function ensure(condition: unknown): asserts condition {
-	if (!condition) throw new Error("Unsupported video.");
+import { checkAacConfig } from "./aac";
+import { checkAvcConfig } from "./avc";
+import { check } from "./errors";
+import { areaLimit, edgeLimit, presentedSecondsLimit } from "./limits";
+import { type Box, boxWalker, fields, movieRules, only } from "./mp4-boxes";
+
+// Checks a buffered `moov` against the file's `mdat` spans (D6). Sample tables must
+// map every sample into media data, and each track's timeline must agree with its
+// header and edit list. The browser validates the coded samples when it plays them.
+
+export type Span = { start: number; end: number };
+type Walker = ReturnType<typeof boxWalker>;
+/** A duration in movie-timescale ticks, as the fraction num / den. */
+type Ticks = { num: bigint; den: bigint };
+
+const brands = ["isom", "iso2", "iso4", "iso5", "iso6", "mp41", "mp42", "avc1", "M4V "];
+// Twelve seconds at 60 frames per second, and at 48 kHz AAC plus encoder priming.
+const sampleLimit = { video: 720, audio: 580 } as const;
+
+/** Timescale and duration from an `mvhd` or `mdhd` payload. */
+function header(box: Box) {
+	const read = fields(box);
+	const version = read.u8(0);
+	check(version <= 1, `${box.type} version`);
+	const scale = version ? read.u32(20) : read.u32(12);
+	const duration = version ? read.u64(24) : read.u32(16);
+	check(scale > 0, `${box.type} timescale`);
+	return { scale, duration };
 }
-type Box = { type: string; data: Buffer; start: number; end: number };
-function boxes(bytes: Buffer, offset = 0) {
-	const result: Box[] = [];
-	while (offset < bytes.length) {
-		ensure(result.length < 4096 && offset + 8 <= bytes.length);
-		let size = bytes.readUInt32BE(offset);
-		const type = bytes.toString("latin1", offset + 4, offset + 8);
-		let header = 8;
-		if (size === 1) {
-			size = Number(bytes.readBigUInt64BE(offset + 8));
-			header = 16;
-		}
-		ensure(size >= header && size <= bytes.length - offset);
-		const start = offset + header;
-		const end = offset + size;
-		result.push({ type, data: bytes.subarray(start, end), start, end });
-		offset = end;
+
+/** Entries of a full-box table whose rows are `width` bytes after an entry count. */
+function table(box: Box, width: number, max: number) {
+	const read = fields(box);
+	const count = read.u32(4);
+	check(count > 0 && count <= max && read.length === 8 + count * width, `${box.type} entries`);
+	return { read, count, row: (i: number) => 8 + i * width };
+}
+
+function sampleEntry(walk: Walker, stbl: Box[], video: boolean) {
+	const description = only(stbl, "stsd");
+	check(fields(description).u32(4) === 1, "one sample description");
+	const entries = walk.children(description);
+	check(entries.length === 1, "one sample description");
+	const [entry] = entries;
+	check(
+		entry.type === (video ? "avc1" : "mp4a"),
+		`${entry.type} in a ${video ? "video" : "sound"} track`,
+	);
+	const read = fields(entry);
+	check(read.u16(6) === 1, "data reference index");
+	const extensions = walk.children(entry);
+	if (!video) {
+		check(read.u16(8) === 0, "sound sample entry version");
+		checkAacConfig(only(extensions, "esds").data);
+		return null;
 	}
-	return result;
-}
-function only(list: Box[], type: string) {
-	const matches = list.filter((box) => box.type === type);
-	ensure(matches.length === 1);
-	return matches[0].data;
-}
-function rows(box: Buffer, width: number, max: number) {
-	const count = box.readUInt32BE(4);
-	ensure(count > 0 && count <= max && box.length === 8 + count * width);
-	return Array.from({ length: count }, (_, i) => box.subarray(8 + i * width, 8 + (i + 1) * width));
-}
-function track(trak: Box, media: Box[], occupied: { start: number; end: number }[]) {
-	const mdia = boxes(only(boxes(trak.data), "mdia"));
-	const handler = only(mdia, "hdlr").toString("latin1", 8, 12);
-	ensure(handler === "vide" || handler === "soun");
-	const video = handler === "vide";
-	const limit = video ? 720 : 580; // Twelve seconds at 48 kHz plus encoder priming.
-	const minf = boxes(only(mdia, "minf"));
-	const dref = only(boxes(only(minf, "dinf")), "dref");
-	ensure(dref.readUInt32BE(0) === 0 && dref.readUInt32BE(4) === 1);
-	const references = boxes(dref, 8);
-	ensure(
-		references.length === 1 &&
-			references[0].type === "url " &&
-			references[0].data.equals(Buffer.from([0, 0, 0, 1])),
+	const width = read.u16(24);
+	const height = read.u16(26);
+	check(
+		width > 0 &&
+			height > 0 &&
+			width <= edgeLimit &&
+			height <= edgeLimit &&
+			width * height <= areaLimit,
+		"picture size",
 	);
-	const table = boxes(only(minf, "stbl"));
-	// Only the ordinary, unencrypted sample-table representation is qualified.
-	ensure(
-		table.every((b) =>
-			[
-				"stsd",
-				"stts",
-				"ctts",
-				"stss",
-				"stsc",
-				"stsz",
-				"stco",
-				"co64",
-				"sdtp",
-				"sgpd",
-				"sbgp",
-			].includes(b.type),
-		),
-	);
-	for (const group of table.filter((b) => b.type === "sgpd" || b.type === "sbgp"))
-		ensure(["roll", "prol"].includes(group.data.toString("latin1", 4, 8)));
-	const description = only(table, "stsd");
-	ensure(description.readUInt32BE(4) === 1);
-	const entries = boxes(description, 8);
-	ensure(
-		entries.length === 1 &&
-			entries[0].type === (video ? "avc1" : "mp4a") &&
-			entries[0].data.readUInt16BE(6) === 1,
-	);
-	const extensions = boxes(entries[0].data, video ? 78 : 28);
-	ensure(
-		extensions.every((b) =>
-			(video ? ["avcC", "btrt", "pasp", "colr", "clap"] : ["esds", "btrt"]).includes(b.type),
-		),
-	);
-	only(extensions, video ? "avcC" : "esds");
+	checkAvcConfig(only(extensions, "avcC").data, width, height);
 	for (const color of extensions.filter((b) => b.type === "colr")) {
-		ensure(["nclx", "nclc"].includes(color.data.toString("latin1", 0, 4)));
-		ensure([1, 2, 4, 5, 6, 13].includes(color.data.readUInt16BE(6)));
+		const value = fields(color);
+		check(["nclx", "nclc"].includes(value.latin1(0, 4)), "colour description");
+		check([1, 2, 4, 5, 6, 13].includes(value.u16(6)), "HDR or unknown transfer");
 	}
-	const sizes = only(table, "stsz");
-	const fixed = sizes.readUInt32BE(4);
-	const samples = sizes.readUInt32BE(8);
-	ensure(samples > 0 && samples <= limit && sizes.length === 12 + (fixed ? 0 : samples * 4));
-	for (const type of ["stts", "ctts"]) {
-		if (type === "ctts" && !table.some((b) => b.type === type)) continue;
-		const counts = rows(only(table, type), 8, limit);
-		ensure(
-			counts.every(
-				(row) => row.readUInt32BE(0) > 0 && (type !== "stts" || row.readUInt32BE(4) > 0),
-			),
-		);
-		ensure(counts.reduce((sum, row) => sum + row.readUInt32BE(0), 0) === samples);
+	return { width, height };
+}
+
+/** Each sample's decode time, composition offset and duration, in media ticks. */
+function timing(stbl: Box[], samples: number, limit: number) {
+	const decode = table(only(stbl, "stts"), 8, limit);
+	const durations: number[] = [];
+	for (let i = 0; i < decode.count; i++) {
+		const count = decode.read.u32(decode.row(i));
+		const delta = decode.read.u32(decode.row(i) + 4);
+		check(count > 0 && delta > 0 && durations.length + count <= samples, "stts entries");
+		for (let j = 0; j < count; j++) durations.push(delta);
 	}
-	const offsets = table.filter((b) => b.type === "co64" || b.type === "stco");
-	ensure(offsets.length === 1);
+	check(durations.length === samples, "stts sample count");
+	const offsets = new Array<number>(samples).fill(0);
+	const ctts = stbl.filter((b) => b.type === "ctts");
+	check(ctts.length <= 1, "one ctts");
+	if (ctts.length) {
+		const composition = table(ctts[0], 8, limit);
+		const signed = composition.read.u8(0) === 1;
+		check(composition.read.u8(0) <= 1, "ctts version");
+		let sample = 0;
+		for (let i = 0; i < composition.count; i++) {
+			const count = composition.read.u32(composition.row(i));
+			const offset = signed
+				? composition.read.i32(composition.row(i) + 4)
+				: composition.read.u32(composition.row(i) + 4);
+			check(count > 0 && sample + count <= samples, "ctts entries");
+			for (let j = 0; j < count; j++) offsets[sample++] = offset;
+		}
+		check(sample === samples, "ctts sample count");
+	}
+	return { durations, offsets };
+}
+
+/** Map every sample into one `mdat` span and record its byte range. */
+function placement(stbl: Box[], media: Span[], occupied: Span[], limit: number) {
+	const sizes = fields(only(stbl, "stsz"));
+	const fixed = sizes.u32(4);
+	const samples = sizes.u32(8);
+	check(samples > 0 && samples <= limit, "sample count");
+	check(sizes.length === 12 + (fixed ? 0 : samples * 4), "stsz entries");
+	const offsets = stbl.filter((b) => b.type === "co64" || b.type === "stco");
+	check(offsets.length === 1, "one chunk offset table");
 	const wide = offsets[0].type === "co64";
-	const chunks = rows(offsets[0].data, wide ? 8 : 4, limit);
-	const mapping = rows(only(table, "stsc"), 12, chunks.length);
+	const chunks = table(offsets[0], wide ? 8 : 4, limit);
+	const mapping = table(only(stbl, "stsc"), 12, chunks.count);
 	let previous = 0;
-	for (const row of mapping) {
-		const first = row.readUInt32BE(0);
-		ensure(
+	for (let i = 0; i < mapping.count; i++) {
+		const first = mapping.read.u32(mapping.row(i));
+		check(
 			first > previous &&
-				first <= chunks.length &&
-				row.readUInt32BE(4) > 0 &&
-				row.readUInt32BE(8) === 1,
+				first <= chunks.count &&
+				mapping.read.u32(mapping.row(i) + 4) > 0 &&
+				mapping.read.u32(mapping.row(i) + 8) === 1,
+			"stsc entries",
 		);
 		previous = first;
 	}
-	ensure(mapping[0].readUInt32BE(0) === 1);
+	check(mapping.read.u32(mapping.row(0)) === 1, "stsc starts at the first chunk");
 	let sample = 0;
 	let run = 0;
-	for (const [i, chunk] of chunks.entries()) {
-		if (mapping[run + 1]?.readUInt32BE(0) === i + 1) run++;
-		const start = wide ? Number(chunk.readBigUInt64BE()) : chunk.readUInt32BE();
+	for (let i = 0; i < chunks.count; i++) {
+		if (run + 1 < mapping.count && mapping.read.u32(mapping.row(run + 1)) === i + 1) run++;
+		const start = wide ? chunks.read.u64(chunks.row(i)) : chunks.read.u32(chunks.row(i));
+		const count = mapping.read.u32(mapping.row(run) + 4);
+		check(sample + count <= samples, "chunk map exceeds the sample count");
 		let end = start;
-		const count = mapping[run].readUInt32BE(4);
-		ensure(sample + count <= samples);
 		for (let j = 0; j < count; j++, sample++) {
-			const length = fixed || sizes.readUInt32BE(12 + sample * 4);
-			ensure(length > 0);
+			const length = fixed || sizes.u32(12 + sample * 4);
+			check(length > 0, "empty sample");
 			end += length;
 		}
-		ensure(media.some((b) => start >= b.start && end <= b.end));
+		check(
+			media.some((span) => start >= span.start && end <= span.end),
+			"chunk outside media data",
+		);
 		occupied.push({ start, end });
 	}
-	ensure(sample === samples);
-	return { type: video ? ("video" as const) : ("audio" as const), samples };
+	check(sample === samples, "chunk map misses samples");
+	return samples;
 }
-export function inspectMp4(bytes: Buffer) {
-	ensure(bytes.length <= videoByteLimit);
-	const top = boxes(bytes);
-	const ftyp = only(top, "ftyp");
-	ensure(
-		ftyp.length >= 8 &&
-			ftyp.length % 4 === 0 &&
-			["isom", "iso2", "iso4", "iso5", "iso6", "mp41", "mp42", "avc1", "M4V "].includes(
-				ftyp.toString("latin1", 0, 4),
-			),
+
+/** The presented duration of one track in movie ticks, from its composition timeline and edits. */
+function presentation(
+	walk: Walker,
+	trak: Box[],
+	movieScale: number,
+	media: { scale: number; durations: number[]; offsets: number[] },
+): Ticks {
+	let decode = 0;
+	let earliest = Number.POSITIVE_INFINITY;
+	let end = Number.NEGATIVE_INFINITY;
+	const starts: number[] = [];
+	const ends: number[] = [];
+	for (const [i, duration] of media.durations.entries()) {
+		const start = decode + media.offsets[i];
+		starts.push(start);
+		ends.push(start + duration);
+		earliest = Math.min(earliest, start);
+		end = Math.max(end, start + duration);
+		decode += duration;
+	}
+	const edits = trak.filter((b) => b.type === "edts");
+	check(edits.length <= 1, "one edit box");
+	const movie = BigInt(movieScale);
+	const scale = BigInt(media.scale);
+	if (!edits.length) {
+		check(earliest >= 0, "composition before the presentation start");
+		return { num: BigInt(end) * movie, den: scale };
+	}
+	const list = fields(only(walk.children(edits[0]), "elst"));
+	const version = list.u8(0);
+	check(version <= 1, "elst version");
+	const width = version ? 20 : 12;
+	const count = list.u32(4);
+	check(count >= 1 && count <= 2 && list.length === 8 + count * width, "edit list shape");
+	const edit = (i: number) => {
+		const at = 8 + i * width;
+		return {
+			segment: version ? list.u64(at) : list.u32(at),
+			time: version ? list.i64(at + 8) : list.i32(at + 4),
+			rate: list.u32(at + (version ? 16 : 8)),
+		};
+	};
+	const empty = count === 2 ? edit(0) : null;
+	check(!empty || empty.time === -1, "only one leading empty edit");
+	const { segment, time, rate } = edit(count - 1);
+	check(rate === 0x10000, "edit rate other than 1");
+	check(segment > 0, "empty presented edit");
+	// The edit starts inside the composition timeline and ends within one movie tick of it.
+	check(time >= earliest && time < end, "edit starts outside the composition timeline");
+	const first = BigInt(time);
+	const length = BigInt(segment);
+	check(
+		(length - 1n) * scale <= (BigInt(end) - first) * movie,
+		"edit ends past the composition timeline",
 	);
-	ensure(top.every((b) => ["ftyp", "moov", "mdat", "free", "wide", "skip"].includes(b.type)));
-	const movie = boxes(only(top, "moov"));
-	ensure(movie.every((b) => ["mvhd", "trak", "udta", "meta", "free"].includes(b.type)));
-	const tracks = movie.filter((b) => b.type === "trak");
-	ensure(tracks.length >= 1 && tracks.length <= 2);
-	const occupied: { start: number; end: number }[] = [];
-	const info = tracks.map((t) =>
-		track(
-			t,
-			top.filter((b) => b.type === "mdat"),
-			occupied,
+	check(
+		starts.some(
+			(start, i) => BigInt(start) * movie < first * movie + length * scale && ends[i] > time,
 		),
+		"edit selects no sample",
 	);
-	ensure(info.filter((t) => t.type === "video").length === 1);
+	return { num: BigInt(segment + (empty?.segment ?? 0)), den: 1n };
+}
+
+function track(walk: Walker, trak: Box, media: Span[], occupied: Span[], movieScale: number) {
+	const parts = walk.children(trak);
+	only(parts, "tkhd");
+	const mdia = walk.children(only(parts, "mdia"));
+	const { scale, duration } = header(only(mdia, "mdhd"));
+	const handler = fields(only(mdia, "hdlr")).latin1(8, 4);
+	check(handler === "vide" || handler === "soun", `${handler} track`);
+	const video = handler === "vide";
+	const limit = sampleLimit[video ? "video" : "audio"];
+	const minf = walk.children(only(mdia, "minf"));
+	const dref = only(walk.children(only(minf, "dinf")), "dref");
+	check(fields(dref).u32(0) === 0 && fields(dref).u32(4) === 1, "one data reference");
+	const references = walk.children(dref);
+	check(
+		references.length === 1 && references[0].data.equals(Buffer.from([0, 0, 0, 1])),
+		"external media reference",
+	);
+	const stbl = walk.children(only(minf, "stbl"));
+	for (const group of stbl.filter((b) => b.type === "sgpd" || b.type === "sbgp"))
+		check(["roll", "prol"].includes(fields(group).latin1(4, 4)), "sample group");
+	const picture = sampleEntry(walk, stbl, video);
+	const samples = placement(stbl, media, occupied, limit);
+	const { durations, offsets } = timing(stbl, samples, limit);
+	check(
+		durations.reduce((sum, value) => sum + value, 0) === duration,
+		"stts duration differs from mdhd",
+	);
+	const presented = presentation(walk, parts, movieScale, { scale, durations, offsets });
+	check(
+		presented.num > 0n &&
+			presented.num <= BigInt(presentedSecondsLimit) * BigInt(movieScale) * presented.den,
+		"presented duration",
+	);
+	return { type: video ? ("video" as const) : ("audio" as const), samples, picture, presented };
+}
+
+/** Check `ftyp` and `moov` (complete boxes) against the file's `mdat` spans. */
+export function inspectMovie(ftyp: Buffer, moov: Buffer, media: Span[]) {
+	const walk = boxWalker(movieRules);
+	const type = fields(walk.root(ftyp).data);
+	check(
+		type.length >= 8 && type.length % 4 === 0 && brands.includes(type.latin1(0, 4)),
+		"file type",
+	);
+	const movie = walk.root(moov);
+	check(movie.type === "moov", "movie box");
+	const parts = walk.children(movie);
+	const { scale, duration } = header(only(parts, "mvhd"));
+	const traks = parts.filter((b) => b.type === "trak");
+	check(traks.length >= 1 && traks.length <= 2, "track count");
+	const occupied: Span[] = [];
+	const tracks = traks.map((t) => track(walk, t, media, occupied, scale));
+	const picture = tracks.find((t) => t.type === "video")?.picture;
+	check(picture && tracks.filter((t) => t.type === "video").length === 1, "one video track");
 	occupied.sort((a, b) => a.start - b.start);
-	ensure(occupied.every((span, i) => !i || span.start >= occupied[i - 1].end));
-	return info;
+	check(
+		occupied.every((span, i) => !i || span.start >= occupied[i - 1].end),
+		"overlapping samples",
+	);
+	// mvhd must equal the longest presented track within one movie tick.
+	const longest = tracks
+		.map((t) => t.presented)
+		.reduce((a, b) => (a.num * b.den >= b.num * a.den ? a : b));
+	const gap = BigInt(duration) * longest.den - longest.num;
+	check(gap <= longest.den && gap >= -longest.den, "mvhd duration differs from the tracks");
+	return {
+		...picture,
+		duration: Number(longest.num) / Number(longest.den) / scale,
+		tracks: tracks.map(({ type, samples }) => ({ type, samples })),
+	};
 }

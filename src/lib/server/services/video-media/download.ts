@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { open } from "node:fs/promises";
 import { DeliveryUnavailable, direct, mediaResponse } from "../gallery/download";
-import { ensure, videoByteLimit } from "./mp4";
+import { videoByteLimit } from "./limits";
+
+class VideoTransferError extends Error {}
+function ensure(condition: unknown): asserts condition {
+	if (!condition) throw new VideoTransferError("The video transfer was refused.");
+}
 
 export type VideoDelivery = { url: string; fallback: string | null };
 async function headers(url: string, transport: typeof direct, signal: AbortSignal) {

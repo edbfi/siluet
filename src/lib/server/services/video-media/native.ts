@@ -4,8 +4,13 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
-import { ensure, inspectMp4, videoByteLimit } from "./mp4";
+import { videoByteLimit } from "./limits";
 import { runtimeIdentity } from "./runtime-identity";
+import { verifyVideoFile } from "./verify-video";
+
+function ensure(condition: unknown): asserts condition {
+	if (!condition) throw new Error("Unsupported video.");
+}
 
 type Verifier = { ffmpeg: string; ffprobe: string; identity: string };
 const run = promisify(execFile);
@@ -89,7 +94,7 @@ export async function qualifiedVerifier(dir = process.env.SILUET_FFMPEG_DIR) {
 					root,
 					import.meta.env?.PROD
 						? "build/server/qualification.mp4"
-						: "src/lib/server/services/video-media/qualification.mp4",
+						: "tests/fixtures/video/h264-aac.mp4",
 				),
 				verifier,
 			);
@@ -126,7 +131,7 @@ function sdr(value: { color_transfer?: string; side_data_list?: { side_data_type
 export async function verifyVideo(path: string, verifier: Verifier, budgetMs = 60_000) {
 	const deadline = performance.now() + Math.min(budgetMs, 60_000);
 	ensure((await stat(path)).size <= videoByteLimit);
-	const tracks = inspectMp4(await readFile(path));
+	const { tracks } = await verifyVideoFile(path);
 	const input = [
 		"-v",
 		"warning",

@@ -70,7 +70,7 @@ test("children follow each container's allowlist, depth and box budget", () => {
 	expect(String(refusal)).toContain("tref");
 
 	let nested = box("deep");
-	for (let i = 0; i < 7; i++) nested = box("nest", nested);
+	for (let i = 0; i < 8; i++) nested = box("nest", nested);
 	const deep = boxWalker({ nest: ["nest", "deep"] });
 	let level = [deep.root(nested)];
 	const descend = () => {
@@ -78,7 +78,7 @@ test("children follow each container's allowlist, depth and box budget", () => {
 	};
 	const tooDeep = thrown(descend);
 	expect(tooDeep).toBeInstanceOf(UnsupportedVideoError);
-	expect(String(tooDeep)).toContain("deep");
+	expect(String(tooDeep)).toContain("nest too deeply");
 
 	const many = box("moov", ...Array.from({ length: 4097 }, () => box("free")));
 	expect(thrown(() => boxWalker(movieRules).children(walk.root(many)))).toBeInstanceOf(
