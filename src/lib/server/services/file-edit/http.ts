@@ -2,7 +2,7 @@ import { json, type RequestEvent } from "@sveltejs/kit";
 import { privateMediaResponse } from "../media/private-response";
 import { PreparationError } from "../media-cleanup/preparation";
 import { opaqueId } from "../media-staging/opaque-id";
-import { maxStageBytes, StageError } from "../media-staging/stages";
+import { CleaningChangedError, maxStageBytes, StageError } from "../media-staging/stages";
 import { sessionDigest } from "../owner/credentials";
 
 function scopeFor({ locals, cookies }: RequestEvent, draft: unknown) {
@@ -26,22 +26,45 @@ export async function stageFile(event: RequestEvent) {
 	if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxStageBytes))
 		return new Response(null, { status: 413 });
 	const token = event.cookies.get(locals.studio.cookieName);
-	try {
-		const stage = await locals.studio.prepareMedia(request.body, request.signal, (media, stop) =>
-			locals.studio.stages.put(scope, media, {
-				...stop,
-				valid: async () => (await locals.studio.access.session(token)) === scope.owner,
-			}),
+	// The revision this preparation was admitted under, so another tab can tell when a
+	// change in Settings made this copy or refusal stale.
+	let revision: number | null = null;
+	const current = () =>
+		locals.studio.cleaning.read().then(
+			({ revision }) => revision,
+			() => null,
 		);
-		return json(stage);
+	try {
+		const stage = await locals.studio.prepareMedia(
+			request.body,
+			request.signal,
+			(media, stop) =>
+				locals.studio.stages.put(scope, media, {
+					...stop,
+					valid: async () => (await locals.studio.access.session(token)) === scope.owner,
+				}),
+			(setting) => {
+				revision = setting?.revision ?? null;
+			},
+		);
+		return json({ stage, revision });
 	} catch (error) {
+		if (error instanceof CleaningChangedError)
+			return json(
+				{
+					error: "The cleaning setting changed.",
+					code: "cleaning-changed",
+					revision: await current(),
+				},
+				{ status: 409 },
+			);
 		const [code, message] =
 			error instanceof PreparationError
 				? [error.code, `${error.message} ${error.advice}`]
 				: error instanceof StageError
 					? ["stage", error.message]
 					: ["unavailable", "Image preparation unavailable."];
-		return json({ error: message, code }, { status: 422 });
+		return json({ error: message, code, revision: revision ?? (await current()) }, { status: 422 });
 	}
 }
 

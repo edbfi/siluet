@@ -217,7 +217,10 @@ export class LocalCopy {
 				});
 				const result: unknown = await response.json().catch(() => null);
 				if (this.#preparing !== abort) return;
-				staged = response.ok ? parseStageDescriptor(result) : null;
+				staged =
+					response.ok && result && typeof result === "object" && "stage" in result
+						? parseStageDescriptor(result.stage)
+						: null;
 				if (staged?.draft === this.#draftId) {
 					this.#show(staged, Date.parse(response.headers.get("date") ?? "") || Date.now());
 					return;

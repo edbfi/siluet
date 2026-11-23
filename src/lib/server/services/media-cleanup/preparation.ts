@@ -111,6 +111,8 @@ export function createMediaPreparation(
 		source: Uint8Array | ReadableStream<Uint8Array>,
 		signal: AbortSignal,
 		commit: (media: PreparedMedia, stop: PreparationStop) => Promise<T>,
+		/** Called with the setting this preparation was admitted under, once it is read. */
+		noted?: (setting: CleaningSetting) => void,
 	): Promise<T> {
 		const deadline = monotonic() + deadlineMs;
 		const timeout = new AbortController();
@@ -160,6 +162,7 @@ export function createMediaPreparation(
 			const cleaning = await race(readCleaning()).catch((error) => {
 				throw stopped.aborted ? error : failure("failed");
 			});
+			noted?.(cleaning);
 			const cleaned = !cleaning.enabled
 				? await race(cleaners.original(input, { signal: stopped }))
 				: mime === "image/jpeg"

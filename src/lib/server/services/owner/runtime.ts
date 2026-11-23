@@ -1,4 +1,5 @@
 import type { EventEmitter } from "node:events";
+import { mediaCleaning } from "../../db/media-cleaning";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
 import { saveIntentStore } from "../../db/save-intent";
@@ -66,7 +67,11 @@ async function openOwner(dev: boolean) {
 		// Owner changes that remove sessions also retire their staged copies.
 		const ownerInstallation = { ...installation, retireSessions: stages.retireSessions };
 		const shutdown = new AbortController();
-		const prepareMedia = createMediaPreparation(installation, { shutdown: shutdown.signal });
+		const cleaning = mediaCleaning(installation);
+		const prepareMedia = createMediaPreparation(installation, {
+			shutdown: shutdown.signal,
+			readCleaning: cleaning.read,
+		});
 		const access = createOwnerAccess(ownerInstallation, Date.now, origin.origin);
 		await access.security.initialize();
 		const store = providerStore(installation);
@@ -155,6 +160,7 @@ async function openOwner(dev: boolean) {
 		return {
 			close,
 			stages,
+			cleaning,
 			prepareMedia,
 			origin,
 			checkAccess,
