@@ -52,6 +52,8 @@ export type JobSummary = {
 	provider: ProviderId;
 	model: string;
 	operation: ImageJob["operation"];
+	/** A local-file edit's upload and edit boundary. */
+	filePhase?: NonNullable<ImageJob["file_phase"]>;
 	state: JobState | "unsent";
 	createdAt: number;
 	updatedAt: number;
@@ -199,7 +201,9 @@ export function summarizeJob(
 			"This attempt may still cost credits. Check provider history before authorizing another request.";
 		message = message ? `${message} ${warning}` : warning;
 	}
-	if (job.skipped === "retry-evidence")
+	if ((job.file_phase === "unsent" || job.file_phase === "stored") && job.retry_at !== null)
+		message = `Provider cooldown until ${new Date(job.retry_at).toISOString()}. Review again before queuing.`;
+	else if (job.skipped === "retry-evidence")
 		message = "Not submitted. New task evidence ruled out this retry.";
 	else if (job.skipped)
 		message =
@@ -244,6 +248,7 @@ export function summarizeJob(
 			job.retry_state === "watch",
 		provider: job.provider,
 		model: job.model,
+		...(job.file_phase && { filePhase: job.file_phase }),
 		operation: job.operation,
 		state: job.skipped ? "unsent" : job.state,
 		createdAt: job.created_at,

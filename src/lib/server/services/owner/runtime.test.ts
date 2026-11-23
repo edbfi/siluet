@@ -128,3 +128,37 @@ test("initializeOwner refuses a foreign platform before creating data", async ()
 		Object.defineProperty(process, "platform", platform);
 	}
 });
+
+test("startup settles an earlier runtime's file attempts by phase before ordinary recovery", async () => {
+	const { openInstallation } = await import("../../db/installation");
+	const { sql } = await import("drizzle-orm");
+	const seeded = await openInstallation(directory);
+	try {
+		await seeded.use(async (db) => {
+			const insert = (id: string, phase: string | null) =>
+				db.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,file_owner,file_phase)
+					VALUES(${id},${id},'toapis',0,'{}','submitting','doubao-seedream-5-5',1,120001,${phase && "earlier"},${phase})`);
+			await insert("claimed", "claimed");
+			await insert("uploading", "uploading");
+			await insert("uploaded", "uploaded");
+			await insert("url", null);
+		});
+	} finally {
+		await seeded.close();
+	}
+	const runtime = await initializeOwner(true);
+	try {
+		await runtime.checkAccess().catch(() => {});
+		const jobs = Object.fromEntries(
+			(await runtime.jobs.list()).map((job) => [job.id, [job.state, job.filePhase]]),
+		);
+		expect(jobs).toEqual({
+			claimed: ["rejected", "unsent"],
+			uploading: ["unknown", "upload-unknown"],
+			uploaded: ["rejected", "stored"],
+			url: ["unknown", undefined],
+		});
+	} finally {
+		await runtime.close();
+	}
+});

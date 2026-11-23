@@ -9,6 +9,7 @@ import {
 	type TaskFailureReason,
 	type TaskState,
 } from "../providers/image-job";
+import type { FilePhase } from "./file-attempt";
 import { markWalletOverlap } from "./image-batch-store";
 import {
 	type CredentialAccess,
@@ -37,6 +38,9 @@ export function isReadPaused(note: StatusNote | null) {
 const unpausedSql = sql`(image_job.pause_reason IS NULL OR image_job.pause_reason IN ('temporary','result-unavailable'))`;
 
 export type ImageJob = {
+	/** A local-file edit's upload and edit boundary (null for every other job). */
+	file_phase: FilePhase | null;
+	file_owner: string | null;
 	batch_id: string | null;
 	transient_failure: "service_busy" | "request_rate_limited" | null;
 	slot: number | null;
@@ -179,7 +183,7 @@ export async function skipImageSend(
 	until: number | null,
 ) {
 	await tx.run(sql`UPDATE image_job SET state='rejected',skipped=${reason},updated_at=${now},retry_at=${until},
-		submission_recorded_at=${now},wallet_open=0,retry_state=NULL WHERE id=${id} AND state='submitting' AND submission_recorded_at IS NULL`);
+		submission_recorded_at=${now},wallet_open=0,retry_state=NULL WHERE id=${id} AND file_phase IS NULL AND state='submitting' AND submission_recorded_at IS NULL`);
 }
 
 export function imageJobStore({ use }: Installation) {
@@ -199,8 +203,9 @@ export function imageJobStore({ use }: Installation) {
 						);
 						await tx.run(sql`UPDATE image_job SET retry_state=NULL WHERE batch_id IS NOT NULL`);
 						// An interrupted attempt may have been accepted without a durable task ID.
+						// File attempts recover through their own phases first.
 						await tx.run(sql`UPDATE image_job SET state='unknown', updated_at=${now}
-						WHERE state='submitting' AND task_id IS NULL`);
+						WHERE state='submitting' AND file_phase IS NULL AND task_id IS NULL`);
 						// A second server can start while a live server finishes its after-balance.
 						await tx.run(sql`UPDATE image_job SET wallet_open=0
 						WHERE wallet_open=1 AND wallet_finish_by<=${now}`);
@@ -210,13 +215,14 @@ export function imageJobStore({ use }: Installation) {
 			);
 		},
 
-		beginDispatch(id: string, provider: ProviderId, now: number) {
+		beginDispatch(id: string, provider: ProviderId, now: number, fileOwner?: string) {
 			return use((db) =>
 				db.transaction(
 					async (tx) => {
 						const job = await tx.get<{ id: string }>(sql`UPDATE image_job
 						SET dispatch_started_at=${now}, updated_at=${now}, wallet_open=${Number(provider === "poyo")}
 						WHERE id=${id} AND provider=${provider} AND state='submitting' AND dispatch_started_at IS NULL
+						AND ${fileOwner ? sql`file_owner=${fileOwner} AND file_phase='claimed'` : sql`file_phase IS NULL`}
 						RETURNING id`);
 						if (!job || provider !== "poyo") return job;
 						// Replacement keys can still debit the same wallet. An uncertain send
@@ -244,6 +250,7 @@ export function imageJobStore({ use }: Installation) {
 			now: number,
 			initialWait: number,
 			throttleUntil = 0,
+			fileOwner?: string,
 		) {
 			return use((db) =>
 				db.transaction(
@@ -265,6 +272,7 @@ export function imageJobStore({ use }: Installation) {
 							await tx.run(sql`UPDATE image_batch SET closed_reason='rejection', closed_at=${now}
 					WHERE id=${job.batch_id} AND closed_reason IS NULL`);
 						return tx.get<ImageJob>(sql`UPDATE image_job SET state=${state}, task_id=${taskId},
+					file_phase=${fileOwner ? (state === "unknown" ? "edit-unknown" : "edit-recorded") : null},
 					rejection=${rejection}, next_read_at=CASE WHEN business_id IS NOT NULL THEN MAX(COALESCE(next_read_at,0),${now + initialWait}) ELSE ${taskId ? now + initialWait : null} END,
 				video_poll_deadline=CASE WHEN business_id IS NOT NULL AND ${taskId} IS NOT NULL THEN ${now + videoJobPollingWindowMs} END,
 					updated_at=${now}, submission_recorded_at=${now}, throttle=${Number(result.kind === "throttled")},
@@ -273,6 +281,7 @@ export function imageJobStore({ use }: Installation) {
 					poll_deadline=CASE WHEN ${taskId} IS NOT NULL THEN ${now + imageJobPollingWindowMs} ELSE poll_deadline END,
 					wallet_finish_by=CASE WHEN batch_id IS NULL AND wallet_open=1 AND ${state}='rejected' THEN ${now + walletFinishWindowMs} END
 					WHERE id=${id} AND dispatch_started_at IS NOT NULL AND submission_recorded_at IS NULL
+						AND ${fileOwner ? sql`file_owner=${fileOwner} AND file_phase='editing'` : sql`file_phase IS NULL`}
 						AND state IN ('submitting','unknown') AND task_id IS NULL RETURNING *`);
 					},
 					{ behavior: "immediate" },
@@ -280,12 +289,20 @@ export function imageJobStore({ use }: Installation) {
 			);
 		},
 
-		finishWallet(id: string, balance: string | null, now: number) {
+		/** Whether a file attempt's dispatcher may still read the closing balance under its key. */
+		canReadFileWallet(id: string, owner: string, now: number) {
+			return use((db) =>
+				db.get(sql`SELECT 1 FROM image_job WHERE id=${id} AND file_owner=${owner}
+				AND wallet_open=1 AND wallet_finish_by>${now} AND ${currentCredential}`),
+			);
+		},
+
+		finishWallet(id: string, balance: string | null, now: number, fileOwner?: string) {
 			return use((db) =>
 				db.run(sql`UPDATE image_job SET wallet_open=0,
 				wallet_after=CASE WHEN ${currentCredential} AND wallet_finish_by>${now} THEN ${balance} END,
 				wallet_after_at=CASE WHEN ${currentCredential} AND wallet_finish_by>${now} AND ${balance} IS NOT NULL THEN ${now} END
-				WHERE id=${id} AND wallet_open=1`),
+				WHERE id=${id} AND wallet_open=1 ${fileOwner ? sql`AND file_owner=${fileOwner}` : sql.empty()}`),
 			);
 		},
 

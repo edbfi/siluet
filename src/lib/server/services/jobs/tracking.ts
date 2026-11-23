@@ -315,6 +315,17 @@ export function createJobTracking(
 		}
 	}
 
+	// Dispatches still running, so close() can wait for them before storage closes.
+	const dispatches = new Set<Promise<unknown>>();
+	function supervise<T>(work: Promise<T>) {
+		dispatches.add(work);
+		void work.then(
+			() => dispatches.delete(work),
+			() => dispatches.delete(work),
+		);
+		return work;
+	}
+
 	async function summarize(rows: ImageJob[]) {
 		const readable = rows.some((job) => job.task_id || hasCorrelation(job))
 			? await credentials.jobReadability()
@@ -331,7 +342,7 @@ export function createJobTracking(
 		return rows.map((job) => summarizeJob(job, readable(job), now(), gallery.get(job.id) ?? null));
 	}
 
-	return {
+	const runners = {
 		async dispatchVideo(id: string, key: string, target: VideoTarget) {
 			const { provider } = target;
 			if (closed || !(await store.beginDispatch(id, provider, now()))) return;
@@ -370,6 +381,33 @@ export function createJobTracking(
 			} else if (provider === "toapis" && result.kind === "accepted")
 				await store.identityConflict(id, result.taskId);
 		},
+	};
+
+	async function dispatchAll(auth: BatchAuthorization) {
+		let reason: BatchStop = "interrupted";
+		try {
+			reason = await dispatchBatch(
+				auth,
+				batches,
+				(id, attempt, before) =>
+					send(id, auth.provider, auth.key, auth.request, attempt, before, auth),
+				now,
+				sleep,
+				() => closed,
+			);
+		} finally {
+			if (!closed) {
+				await batches.close(auth.id, reason, now());
+				await finishBatchWallet(auth.id);
+			}
+		}
+	}
+
+	return {
+		dispatchVideo: (...args: Parameters<typeof runners.dispatchVideo>) =>
+			supervise(runners.dispatchVideo(...args)),
+		/** Track a job a file dispatcher recorded, as Queue does for its own submissions. */
+		schedule: (job: ImageJob) => schedule(job),
 		async lookup(id: string) {
 			await readStatus(id, false, true, true);
 		},
@@ -402,29 +440,14 @@ export function createJobTracking(
 			// No read ran (the provider gate refused it, even if it has opened since): wait without a try.
 			return after ?? { kind: "cooldown", until: now() + saveReadRetryMs };
 		},
-		async dispatch(id: string, provider: ProviderId, key: string, request: ReviewedImageRequest) {
-			if (closed || !(await store.beginDispatch(id, provider, now()))) return;
-			await send(id, provider, key, request, 1, provider === "poyo");
-		},
-		async dispatchBatch(auth: BatchAuthorization) {
-			let reason: BatchStop = "interrupted";
-			try {
-				reason = await dispatchBatch(
-					auth,
-					batches,
-					(id, attempt, before) =>
-						send(id, auth.provider, auth.key, auth.request, attempt, before, auth),
-					now,
-					sleep,
-					() => closed,
-				);
-			} finally {
-				if (!closed) {
-					await batches.close(auth.id, reason, now());
-					await finishBatchWallet(auth.id);
-				}
-			}
-		},
+		dispatch: (id: string, provider: ProviderId, key: string, request: ReviewedImageRequest) =>
+			supervise(
+				(async () => {
+					if (closed || !(await store.beginDispatch(id, provider, now()))) return;
+					await send(id, provider, key, request, 1, provider === "poyo");
+				})(),
+			),
+		dispatchBatch: (auth: BatchAuthorization) => supervise(dispatchAll(auth)),
 		batches: batches.list,
 
 		resume() {
@@ -436,10 +459,12 @@ export function createJobTracking(
 			return start;
 		},
 
+		/** Stop new work, then settle every dispatch and status read before storage closes. */
 		close() {
 			closed = true;
 			for (const cancel of timers.values()) cancel();
 			timers.clear();
+			return Promise.allSettled([...dispatches, ...inFlight.values()]);
 		},
 
 		list: async () => summarize(await store.list()),

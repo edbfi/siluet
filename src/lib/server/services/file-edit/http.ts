@@ -4,6 +4,7 @@ import { PreparationError } from "../media-cleanup/preparation";
 import { opaqueId } from "../media-staging/opaque-id";
 import { CleaningChangedError, maxStageBytes, StageError } from "../media-staging/stages";
 import { sessionDigest } from "../owner/credentials";
+import { parseFileRequest } from "./request";
 
 function scopeFor({ locals, cookies }: RequestEvent, draft: unknown) {
 	const token = cookies.get(locals.studio.cookieName);
@@ -83,4 +84,17 @@ export async function stagedPreview(event: RequestEvent) {
 	const lease = await event.locals.studio.stages.openPreview(scope, handle).catch(() => null);
 	if (!lease) return new Response(null, { status: 404 });
 	return privateMediaResponse(event.request, lease);
+}
+
+const statusFor = { busy: 503, stale: 409, cooldown: 409, limit: 413, invalid: 400 } as const;
+
+/** Review or Queue one staged file for a Seedream edit. */
+export async function fileAction(event: RequestEvent, operation: "review" | "submit") {
+	if (event.request.headers.get("content-type")?.split(";")[0] !== "application/json")
+		return json({ error: "invalid" }, { status: 415 });
+	const live = parseFileRequest(await event.request.json().catch(() => null));
+	const scope = scopeFor(event, live?.stage.draft);
+	if (!scope || !live) return json({ error: "invalid" }, { status: 400 });
+	const result = await event.locals.studio.files[operation](scope, live);
+	return json(result, { status: "error" in result ? statusFor[result.error] : 200 });
 }
