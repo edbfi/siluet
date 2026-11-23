@@ -555,6 +555,70 @@ test("a short body without Content-Length counts a try and never holds the job",
 	expect(await leftovers()).toEqual([]);
 });
 
+test("a failed write that settles an attempt gives the claim back without counting a try", async () => {
+	const use = installation.use;
+	let failNext = false;
+	installation.use = ((work) => {
+		if (!failNext) return use(work);
+		failNext = false;
+		return Promise.reject(
+			Object.assign(new Error("Fixture database full"), { code: "SQLITE_FULL" }),
+		);
+	}) as typeof use;
+	let refuse = true;
+	let failAfterRead = false;
+	runtime = open({
+		// The transfer fails, then the write that records its outcome fails too.
+		transferImage: async (url, transport, signal) => {
+			if (!refuse) return downloadImage(url, transport, signal);
+			failNext = true;
+			throw new Error("Fixture CDN reset");
+		},
+		readForSave: async (id) => {
+			const read = await (runtime as ReturnType<typeof open>).jobs.readForSave(id);
+			failNext = failAfterRead;
+			return read;
+		},
+	});
+	await runtime.start();
+	await complete("image");
+	expect(await job("image")).toEqual({
+		save_due: start,
+		save_hold: null,
+		save_attempt: null,
+		save_tries: 0,
+	});
+	expect(await summary("image")).toMatchObject({ library: "waiting" });
+	refuse = false;
+	now += 2_000;
+	runtime.autoSave.start();
+	await settle();
+	expect((await summary("image"))?.library).toBe("saved");
+	expect(reads).toEqual(["image", "image"]);
+
+	// A recovery read's cooldown whose deferral fails is given back the same way.
+	await insert("image-2", "completed");
+	await installation.use((db) =>
+		db.run(sql`UPDATE image_job SET save_due=0, next_read_at=${now + 5_000} WHERE id='image-2'`),
+	);
+	failAfterRead = true;
+	runtime.autoSave.start();
+	await settle();
+	expect(await job("image-2")).toEqual({
+		save_due: 0,
+		save_hold: null,
+		save_attempt: null,
+		save_tries: 0,
+	});
+	failAfterRead = false;
+	now += 5_000;
+	runtime.autoSave.start();
+	await settle();
+	expect((await summary("image-2"))?.library).toBe("saved");
+	expect(reads).toEqual(["image", "image", "image-2"]);
+	expect(posts).toBe(0);
+});
+
 test("complete files outside the profile are held as unsupported or WebM", async () => {
 	const webm = Buffer.concat([
 		Buffer.from("1a45dfa38b42868101428284", "hex"),

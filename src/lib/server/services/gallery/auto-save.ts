@@ -34,6 +34,7 @@ type AutoSaveDependencies = {
 const caps = { image: 2, video: 1 };
 // The longest delay setTimeout accepts; a longer one fires at once.
 const timerLimit = 2_147_483_647;
+const nothing = () => false;
 
 /** A complete file outside the Gallery profile; another download cannot change it. */
 function refusal(error: unknown): SaveHold | null {
@@ -42,6 +43,13 @@ function refusal(error: unknown): SaveHold | null {
 		return error.reason === "webm" ? "webm" : "unsupported";
 	return null;
 }
+
+/** A database write that records an attempt's outcome failed; it never counts as a try. */
+class SettleFailure extends Error {}
+const settling = <T>(write: Promise<T>) =>
+	write.catch((cause: unknown) => {
+		throw new SettleFailure("The save outcome was not recorded.", { cause });
+	});
 
 /**
  * Carries out every durable save intent (D9): claims it, downloads from the delivery the
@@ -105,27 +113,29 @@ export function createAutoSave(
 		let keep: VideoDelivery | undefined;
 		try {
 			if (expired(job)) {
-				await saves.expire(id, token, now());
+				await settling(saves.expire(id, token, now()));
 				return true;
 			}
 			if (!delivery) {
 				const read = await readForSave(id);
 				if (shutdown.signal.aborted) throw shutdown.signal.reason;
 				// A read that ran without a usable link ends in Download failed: D9 allows no further read.
-				if (read.kind === "cooldown") await saves.defer(id, token, read.until, job.save_tries);
-				else if (read.kind === "paused") await saves.release(id, token);
-				else if (read.kind === "expired") await saves.expire(id, token, now());
-				else if (read.kind === "failed") await saves.hold(id, token, "failed");
+				if (read.kind === "cooldown")
+					await settling(saves.defer(id, token, read.until, job.save_tries));
+				else if (read.kind === "paused") await settling(saves.release(id, token));
+				else if (read.kind === "expired") await settling(saves.expire(id, token, now()));
+				else if (read.kind === "failed") await settling(saves.hold(id, token, "failed"));
 				if (read.kind !== "delivered") return true;
 				delivery = read.delivery;
 			}
 			const publication: Publication = await publish(job, token, delivery);
 			if (publication === "saved") deliveries.delete(id);
 			// A replaced key leaves the claim in place; give it back. Remove already cleared it.
-			else await saves.release(id, token);
+			else await settling(saves.release(id, token));
 		} catch (error) {
 			// Shutdown never counts as a failure.
 			if (shutdown.signal.aborted) await saves.release(id, token).catch(() => {});
+			else if (error instanceof SettleFailure) throw error;
 			else {
 				const hold = refusal(error);
 				const tries = job.save_tries + 1;
@@ -147,7 +157,10 @@ export function createAutoSave(
 		const video = isVideoJob(job);
 		const token = crypto.randomUUID();
 		const done = attempt(job.id, token)
-			.catch(() => true)
+			// A failed database write gives the claim back so the intent is claimable or retryable
+			// again; startup clears it if this write fails too. It does not look again at once, so a
+			// failing database is not retried in a loop.
+			.catch(() => saves.release(job.id, token).then(nothing, nothing))
 			.then((changed) => {
 				active.delete(job.id);
 				// A finished attempt, or a missed claim that frees a slot a due job waits for, looks
