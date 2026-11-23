@@ -32,7 +32,6 @@ bun run start
 Open the setup URL printed in the terminal, paste the claim token, and choose a password. Later starts open at `http://127.0.0.1:3000`.
 
 - Data lives in `~/.local/share/siluet` (or `$XDG_DATA_HOME/siluet`). Set `SILUET_DATA_DIR` for a separate installation, and back up the whole directory while Siluet is stopped.
-- Saving videos needs the qualified FFmpeg build. Set `SILUET_FFMPEG_DIR` as described in [D6](docs/decisions.md#d6--verify-stored-video-samples-before-gallery-publication).
 - Locked out? Stop Siluet and run `bun run owner:recover`.
 - Refresh price estimates with `bun run pricing:refresh` (add `--provider toapis` for ToAPIs) before the expiry Review shows.
 
@@ -45,7 +44,7 @@ Open the setup URL printed in the terminal, paste the claim token, and choose a 
 | Runtime | Bun, with `@sveltejs/adapter-bun` bound to loopback |
 | Database | Embedded Turso with Drizzle ORM |
 | Styling | Panda CSS and Ark UI for Svelte |
-| Media | sharp for images; FFmpeg and ffprobe for video |
+| Media | sharp for images; TypeScript MP4 checks for video |
 | Checks | Biome, `svelte-check`, prek, Bun's test runner and Playwright |
 
 ## Development

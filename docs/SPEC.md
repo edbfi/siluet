@@ -30,7 +30,7 @@ The baseline includes the releases through [#37](https://github.com/edbfi/siluet
 - Jobs tracks durable acknowledgements, distinguishes uncertain submissions from failures, shows reported billing and supports an isolated Poyo.ai wallet comparison. Gallery verifies PNG and JPEG with a full decode, saves on request and reopens or removes images offline. [First saved image](SPEC-first-saved-image.md) · [D5](decisions.md#d5--verify-gallery-images-before-saving)
 - The offline registry resolves the reviewed operations for the model picker, Review and Queue. [Media catalog](SPEC-media-catalog.md) ([#32](https://github.com/edbfi/siluet/pull/32))
 - Poyo.ai Z-Image queues text-to-image and one public-URL edit with one attempt each, then saves the result. [Z-Image](SPEC-z-image.md) ([#34](https://github.com/edbfi/siluet/pull/34))
-- ToAPIs Seedance 2.5 supports one text-to-video generation. New Queue and Save operations require a D6-qualified verifier. Saved clips play offline. [First saved video](SPEC-first-saved-video.md) ([#36](https://github.com/edbfi/siluet/pull/36)) · [D6](decisions.md#d6--verify-stored-video-samples-before-gallery-publication)
+- ToAPIs Seedance 2.5 supports one text-to-video generation. Save checks the MP4 structure in TypeScript with no native tools, and saved clips play offline. [First saved video](SPEC-first-saved-video.md) ([#36](https://github.com/edbfi/siluet/pull/36)) · [D6](decisions.md#d6--verify-downloaded-video-structure-in-typescript)
 - The owner can require an authenticator at sign-in and recover access on the host with the service stopped. [Owner authenticator](SPEC-owner-authenticator.md) ([#37](https://github.com/edbfi/siluet/pull/37))
 
 ### Remaining deliverables and release checks

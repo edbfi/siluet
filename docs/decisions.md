@@ -20,6 +20,10 @@ Claim one owner with a single-use console token, then set a local password and o
 
 Deferred on 2026-11-22: external OIDC and LDAP sign-in move to the backlog. Tinyauth linking remains blocked on subject evidence.
 
+### No native tools
+
+Siluet ships, provisions and calls no native tool or helper, and adds no package for work the stack already covers (Bun, SvelteKit, TypeScript, sharp, Turso with Drizzle, Panda with Ark UI). ExifTool is a test-only CI oracle. Supported platforms are Linux and macOS (D8).
+
 ## D2 · Full image and video model coverage
 
 Approved by the owner on 2026-11-21. Siluet aims to support the image and video models of ToAPIs and Poyo.ai, including the operations and input options each exposes. A creator can use either platform independently. Text prompts, captions and other documented inputs belong to the image or video operation that accepts them. Standalone text models and other non-media model catalogs are outside this scope.
@@ -76,11 +80,9 @@ Siluet omits a field the schema forbids only on that acknowledged path. It never
 
 A damaged image can have valid dimensions and headers. Gallery needs a complete pixel decode and access to decoder warnings. Bun 1.4.5 exposes metadata and encoded output. Use sharp with libvips to verify every pixel within the size limits and reject warnings before publishing the original PNG or JPEG bytes.
 
-## D6 · Verify stored video samples before Gallery publication
+## D6 · Verify downloaded video structure in TypeScript
 
-Video Save uses locally provisioned FFmpeg and ffprobe 9.0.2. The first qualified build is Linuxbrew 9.0.2_1 on glibc Linux ARM64. Set `SILUET_FFMPEG_DIR` to its trusted absolute bin directory. The server checks both executable fingerprints and decodes the bundled synthetic H.264/AAC specimen under the same limits used by Save. A changed installation must qualify again. Other builds and platforms can Review offline and serve saved clips.
-
-Qualification reads back both inherited address-space limits. Both native tools run under the system setpriv and prlimit with a 512 MiB address-space ceiling, bounded output and a shared 60-second deadline. On this build the glibc allocator needs bounded arenas and explicit worker counts. The Gallery verifier checks MP4 sample tables and presentation timing, probes stored packets and decoded frames with edit lists disabled, then counts each video frame and AAC sample through the null muxer. Siluet retains the verified original MP4.
+Video Save keeps the provider's original bytes. The download must be identity-encoded, match any declared length and stay within 64 MiB. Siluet sniffs the container. For MP4 it walks the top-level boxes from file headers, buffers only `ftyp` and `moov` (≤ 4 MiB) and checks `mdat` spans against the file size. It requires one self-contained `moov` with one `avc1` video track and at most one `mp4a` track. Every sample lies inside `mdat` with no overlap. For each track the `stts` decode duration equals `mdhd`; `ctts` offsets and the edit list (at most one leading empty edit and one rate-1 edit) stay within the track's composition timeline, each in its own timescale, and the edit selects at least one sample; the presented duration is > 0 and ≤ 12 s. `mvhd` equals the longest presented track within rounding. Every SPS in `avcC` (at least one SPS and one PPS) is Baseline, Main or High, 4:2:0 and 8-bit, with a cropped size equal to the sample entry, within 1,920 px per edge and 2,073,600 px. `esds` declares AAC-LC (object type 0x40, audio object type 2) with a sample rate > 0 and ≤ 48 kHz and one or two channels. These checks cover the declared configuration; the browser validates samples when it plays. A truncated download counts as a failed download. Fragmented, encrypted, externally referenced or over-limit files fail closed. WebM and Matroska are recognised by their EBML header and refused with their own message. Gallery explains when the browser cannot play a clip and keeps Download. Video saves run one at a time in the single runtime. Startup removes leftover scratch.
 
 Gallery compares an opened clip’s size, device, inode and change time with its saved record. When the size matches but the file identity has changed, opening the clip, loading its Gallery entry or starting Siluet verifies the bytes against the saved SHA-256 digest. A match refreshes the cached identity. A content mismatch makes the clip unavailable. A media HEAD request reads metadata only and returns 404 for a changed identity until one of those checks succeeds.
 
