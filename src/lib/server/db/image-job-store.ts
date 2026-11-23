@@ -366,9 +366,16 @@ export function imageJobStore({ use }: Installation) {
 						// The first transition into completed records the intent to save, or its hold (D9).
 						const first = sql`state<>'completed' AND ${update.state}='completed' AND save_hold IS NULL
 					AND ${noGalleryItemSql}`;
+						// A later read (recovery, Retry or Refresh) that finds an unsupported clip holds a
+						// pending intent the same way; no download of that result can succeed.
+						const unsupported = sql`state='completed' AND ${update.state}='completed'
+					AND ${update.saveHold}='unsupported' AND save_due IS NOT NULL AND save_hold IS NULL
+					AND ${noGalleryItemSql}`;
 						const saved = await tx.get<ImageJob>(sql`UPDATE image_job SET state=${update.state},
-				save_due=CASE WHEN ${first} THEN CASE WHEN ${update.saveHold} IS NULL THEN ${now} END ELSE save_due END,
-				save_hold=CASE WHEN ${first} THEN ${update.saveHold} ELSE save_hold END,
+				save_due=CASE WHEN ${first} THEN CASE WHEN ${update.saveHold} IS NULL THEN ${now} END
+					WHEN ${unsupported} THEN NULL ELSE save_due END,
+				save_hold=CASE WHEN ${first} THEN ${update.saveHold} WHEN ${unsupported} THEN 'unsupported'
+					ELSE save_hold END,
 				task_id=COALESCE(task_id,${update.recoveredTask ?? null}),
 				submission_recorded_at=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now} ELSE submission_recorded_at END,
 				poll_deadline=CASE WHEN task_id IS NULL AND ${update.recoveredTask ?? null} IS NOT NULL THEN ${now + imageJobPollingWindowMs} ELSE poll_deadline END,

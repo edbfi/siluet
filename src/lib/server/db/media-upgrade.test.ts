@@ -144,10 +144,14 @@ test("a #37 installation upgrades to automatic Save intents and holds, then save
 			await job("removing", "completed", null, null);
 			await job("missing", "completed", null, null);
 			await job("unsupported", "completed", null, null);
+			await job("unsupported-clip", "completed", "unsupported-business", null);
 			await job("expired", "completed", null, 5);
 			await job("running", "running", null, null);
 			await db.run(
 				sql`UPDATE image_job SET gallery_reason='unsupported-image' WHERE id='unsupported'`,
+			);
+			await db.run(
+				sql`UPDATE image_job SET pause_reason='unsupported-video-result' WHERE id='unsupported-clip'`,
 			);
 			await writeFile(join(directory, `gallery-${digest("saved-image")}`), referencePng, {
 				mode: 0o600,
@@ -189,6 +193,7 @@ test("a #37 installation upgrades to automatic Save intents and holds, then save
 					["unsaved-image", 0, null],
 					["unsaved-video", 0, null],
 					["unsupported", null, "unsupported"],
+					["unsupported-clip", null, "unsupported"],
 				].map(([job, due, hold]) => ({
 					id: job,
 					save_due: due,
@@ -286,6 +291,7 @@ test("a #37 installation upgrades to automatic Save intents and holds, then save
 				"unsaved-image": "saved",
 				"unsaved-video": "saved",
 				unsupported: "unsupported",
+				"unsupported-clip": "unsupported",
 			});
 			const rows = await upgraded.use((db) => db.all(sql`SELECT * FROM image_job`));
 			expect(JSON.stringify([rows, summaries])).not.toContain("signed-sentinel");

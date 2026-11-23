@@ -37,7 +37,7 @@ const released = [
 		"20261122122000_owner_authenticator",
 	],
 	[
-		"25b5c74e03f5e5062837df2543de05a0a8d5f31c6f79628f7376c792c833ff9f",
+		"d6ff8b8e4f564be35a674aa09c183cc9538401a6aa7381bdc0db29f39ac60073",
 		"20261123120000_automatic_save",
 	],
 ] as const;

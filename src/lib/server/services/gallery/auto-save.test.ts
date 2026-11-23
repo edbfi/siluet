@@ -495,6 +495,45 @@ test("a Retry or a recovery whose read has no usable link makes one read and sho
 	expect(posts).toBe(0);
 });
 
+test("a Retry or a recovery read that finds an unsupported video result holds it as unsupported", async () => {
+	const twoClips = (id: string) =>
+		Response.json({
+			code: 200,
+			data: {
+				task_id: `${id}-task`,
+				status: "finished",
+				files: [1, 2].map(() => ({ file_type: "video", file_url: signed(id) })),
+			},
+		});
+	status = (id) => finished(id, null);
+	runtime = open();
+	await runtime.start();
+	await complete("video");
+	expect(await summary("video")).toMatchObject({ library: "failed", retryable: true });
+	status = twoClips;
+	now += 5_000;
+	expect(await runtime.autoSave.retry("video")).toBe(true);
+	await settle();
+	expect(await job("video")).toMatchObject({ save_hold: "unsupported", save_due: null });
+	expect(await summary("video")).toMatchObject({ library: "unsupported", retryable: false });
+
+	await insert("video-2", "completed");
+	await installation.use((db) =>
+		db.run(sql`UPDATE image_job SET save_due=0, next_read_at=0 WHERE id='video-2'`),
+	);
+	await reopen();
+	expect(await job("video-2")).toMatchObject({ save_hold: "unsupported", save_due: null });
+	expect(await summary("video-2")).toMatchObject({ library: "unsupported", retryable: false });
+	// Refresh reads again but never reopens the held intent.
+	now += 5_000;
+	await runtime.jobs.refresh("video-2");
+	await settle();
+	expect(await summary("video-2")).toMatchObject({ library: "unsupported", retryable: false });
+	expect(reads).toEqual(["video", "video", "video-2", "video-2"]);
+	expect(transfers).toEqual([]);
+	expect(posts).toBe(0);
+});
+
 test("a due time beyond the timer limit waits instead of looping", async () => {
 	await insert("image", "completed");
 	await installation.use((db) =>

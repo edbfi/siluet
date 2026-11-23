@@ -274,12 +274,13 @@ test("recovery reserves a single GET, retains Retry-After across reopen, attache
 	reply = () => Response.json({ ...response, result: { type: "video", data: [{}, {}] } });
 	expect(await jobs.readForSave(id)).toEqual({ kind: "paused", note: "unsupported-video-result" });
 	const [unsupported] = await jobs.list();
-	expect(unsupported.library).toBe("paused");
+	expect(unsupported).toMatchObject({ library: "unsupported", retryable: false });
 	expect(unsupported.message).toContain("unsupported video result");
+	// The held result stays held even when a later read finds one clip.
 	now += 5000;
 	reply = () => Response.json(response);
 	await jobs.refresh(id);
-	expect((await jobs.list())[0].library).toBe("waiting");
+	expect((await jobs.list())[0]).toMatchObject({ library: "unsupported", retryable: false });
 	expect(posts).toBe(1);
 	expect(JSON.stringify(await imageJobStore(db).get(id))).not.toContain("?private");
 });
