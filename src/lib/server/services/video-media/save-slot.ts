@@ -4,6 +4,9 @@ import { sql } from "drizzle-orm";
 import type { RuntimeInstallation } from "../../db/runtime-installation";
 
 const scratchName = /^video-[a-f0-9-]{36}\.part$/;
+/** Log only the scratch file name; the next startup retries it. */
+const unremoved = (name: string) =>
+	console.error(`Unable to remove leftover video scratch ${name}.`);
 
 /**
  * One video Save at a time in the single runtime that holds the installation.
@@ -12,7 +15,8 @@ const scratchName = /^video-[a-f0-9-]{36}\.part$/;
  */
 export function videoSaveSlot({ directory, use }: RuntimeInstallation) {
 	let turn = Promise.resolve();
-	const scratch = (token: string) => join(directory, `video-${token}.part`);
+	const fileName = (token: string) => `video-${token}.part`;
+	const scratch = (token: string) => join(directory, fileName(token));
 	/** Wait for the slot, then run `work` while holding it. */
 	async function exclusive<T>(work: () => Promise<T>) {
 		const previous = turn;
@@ -38,7 +42,7 @@ export function videoSaveSlot({ directory, use }: RuntimeInstallation) {
 				try {
 					return await work({ path: scratch(token), token });
 				} finally {
-					await rm(scratch(token), { force: true });
+					await rm(scratch(token), { force: true }).catch(() => unremoved(fileName(token)));
 					await use((db) => db.run(sql`DELETE FROM video_save WHERE token=${token}`));
 				}
 			});
@@ -49,10 +53,7 @@ export function videoSaveSlot({ directory, use }: RuntimeInstallation) {
 				await use((db) => db.run(sql`DELETE FROM video_save`));
 				for (const name of await readdir(directory)) {
 					if (!scratchName.test(name)) continue;
-					await rm(join(directory, name), { force: true }).catch(() => {
-						// The next startup retries it.
-						console.error(`Unable to remove leftover video scratch ${name}.`);
-					});
+					await rm(join(directory, name), { force: true }).catch(() => unremoved(name));
 				}
 			});
 		},

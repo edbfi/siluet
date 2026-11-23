@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { h264Aac, setField } from "../../../../../tests/fixtures/video/mp4-boxes";
@@ -136,6 +136,37 @@ test("startup removes leftover scratch and finishes interrupted removal", () =>
 		expect(
 			(await readdir(directory)).filter((p) => p.startsWith("gallery-") || p.endsWith(".part")),
 		).toEqual([stuck]);
+	}));
+
+test("a scratch file that cannot be removed does not block the next Save", () =>
+	withRuntime(async (db, directory) => {
+		let stuck = "";
+		const gallery = createGallery(
+			db,
+			async () => null,
+			undefined,
+			async (source, path) => {
+				if (source.url.endsWith("/stuck")) {
+					// A directory at the scratch path makes the non-recursive unlink fail.
+					stuck = basename(path);
+					await mkdir(join(path, "child"), { recursive: true });
+					throw new Error("Fixture transfer failed");
+				}
+				await writeFile(path, sample, { flag: "wx", mode: 0o600 });
+				return { size: sample.length, digest };
+			},
+		);
+		const logged = spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const stuckDelivery = async () => ({ url: "https://93.184.216.34/stuck", fallback: null });
+			expect(await gallery.saveVideo("one", stuckDelivery)).toContain("write failed");
+			expect(logged.mock.calls).toEqual([[`Unable to remove leftover video scratch ${stuck}.`]]);
+		} finally {
+			logged.mockRestore();
+		}
+		expect(await db.use((c) => c.all(sql`SELECT * FROM video_save`))).toBeEmpty();
+		expect(await gallery.saveVideo("two", delivery)).toBe("Saved to Gallery.");
+		expect(await scratchFiles(directory)).toEqual([stuck]);
 	}));
 
 test("a second runtime on the same directory is refused", () =>
