@@ -8,6 +8,7 @@
  */
 import { createHash } from "node:crypto";
 import { installationMigrations } from "../../src/lib/server/db/migrations";
+import { releasedMigrations } from "../../src/lib/server/db/released-migrations";
 
 const releasedPath = "src/lib/server/db/released-migrations.ts";
 const migrationsPath = "src/lib/server/db/migrations.ts";
@@ -54,18 +55,30 @@ export function quotedMigrationKeys(text: string) {
 
 export const sqlDigest = (value: string) => createHash("sha256").update(value).digest("hex");
 
-/** Problems that make the head rewrite or drop something the base released. */
+/**
+ * Problems that make the head rewrite, drop or reorder something the base released.
+ * Startup requires applied migrations to be a prefix of the sorted names, so a new
+ * migration must sort after every released one.
+ */
 export function appendOnlyProblems(
 	baseReleased: ReadonlyMap<string, string>,
 	baseMigrationKeys: ReadonlySet<string>,
 	head: Readonly<Record<string, string>>,
+	headReleased: ReadonlyMap<string, string>,
 ) {
 	const problems: string[] = [];
 	for (const [name, digest] of baseReleased) {
 		const sql = head[name];
 		if (sql === undefined) problems.push(`${name} was released and is missing.`);
 		else if (sqlDigest(sql) !== digest) problems.push(`${name} changed after its release.`);
+		const recorded = headReleased.get(name);
+		if (recorded === undefined) problems.push(`${name} is missing from the released record.`);
+		else if (recorded !== digest) problems.push(`${name} changed in the released record.`);
 	}
+	const base = new Set([...baseReleased.keys(), ...baseMigrationKeys]);
+	const last = [...base].sort().at(-1) ?? "";
+	for (const name of Object.keys(head).sort())
+		if (!base.has(name) && name < last) problems.push(`${name} sorts before the released ${last}.`);
 	for (const name of baseMigrationKeys)
 		if (!baseReleased.has(name))
 			problems.push(`${name} is in the base migrations but not released.`);
@@ -87,6 +100,7 @@ export async function main(argv: readonly string[]) {
 		parseReleased(await show(base, releasedPath)),
 		quotedMigrationKeys(await show(base, migrationsPath)),
 		installationMigrations,
+		releasedMigrations,
 	);
 	if (problems.length) throw new Error(problems.join("\n"));
 }

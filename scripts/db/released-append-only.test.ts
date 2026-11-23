@@ -33,22 +33,59 @@ test("an untouched release passes", () => {
 			releasedMigrations,
 			new Set(releasedMigrations.keys()),
 			installationMigrations,
+			releasedMigrations,
 		),
 	).toEqual([]);
+});
+
+test("a new migration that sorts before a released one fails", () => {
+	const head = { ...installationMigrations, "20261121100000_backdated": "SELECT 1;" };
+	expect(
+		appendOnlyProblems(
+			releasedMigrations,
+			new Set(releasedMigrations.keys()),
+			head,
+			releasedMigrations,
+		),
+	).toEqual([
+		"20261121100000_backdated sorts before the released 20261123180000_seedream_file_edit.",
+	]);
+	const later = { ...installationMigrations, "20991231000000_later": "SELECT 1;" };
+	expect(
+		appendOnlyProblems(
+			releasedMigrations,
+			new Set(releasedMigrations.keys()),
+			later,
+			releasedMigrations,
+		),
+	).toEqual([]);
+});
+
+test("a released entry removed or changed in the head's record fails", () => {
+	const keys = new Set(releasedMigrations.keys());
+	const removed = new Map(releasedMigrations);
+	removed.delete(first);
+	expect(appendOnlyProblems(releasedMigrations, keys, installationMigrations, removed)).toEqual([
+		`${first} is missing from the released record.`,
+	]);
+	const changed = new Map(releasedMigrations).set(first, "0".repeat(64));
+	expect(appendOnlyProblems(releasedMigrations, keys, installationMigrations, changed)).toEqual([
+		`${first} changed in the released record.`,
+	]);
 });
 
 test("edited SQL, a removed key or a rewritten hash fails", () => {
 	const keys = new Set(releasedMigrations.keys());
 	const edited = { ...installationMigrations, [first]: `${installationMigrations[first]} ` };
-	expect(appendOnlyProblems(releasedMigrations, keys, edited)).toEqual([
+	expect(appendOnlyProblems(releasedMigrations, keys, edited, releasedMigrations)).toEqual([
 		`${first} changed after its release.`,
 	]);
 	const { [first]: _, ...removed } = installationMigrations;
-	expect(appendOnlyProblems(releasedMigrations, keys, removed)).toEqual([
+	expect(appendOnlyProblems(releasedMigrations, keys, removed, releasedMigrations)).toEqual([
 		`${first} was released and is missing.`,
 	]);
 	const rewritten = new Map(releasedMigrations).set(first, "0".repeat(64));
-	expect(appendOnlyProblems(rewritten, keys, installationMigrations)).toEqual([
+	expect(appendOnlyProblems(rewritten, keys, installationMigrations, rewritten)).toEqual([
 		`${first} changed after its release.`,
 	]);
 });
@@ -57,7 +94,12 @@ test("a base migration absent from the base's released map fails", () => {
 	const base = new Map(releasedMigrations);
 	base.delete("20261123120000_automatic_save");
 	expect(
-		appendOnlyProblems(base, new Set(releasedMigrations.keys()), installationMigrations),
+		appendOnlyProblems(
+			base,
+			new Set(releasedMigrations.keys()),
+			installationMigrations,
+			releasedMigrations,
+		),
 	).toEqual(["20261123120000_automatic_save is in the base migrations but not released."]);
 });
 
