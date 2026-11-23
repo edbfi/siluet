@@ -1,10 +1,16 @@
 import type { Installation } from "../../db/installation";
 import { downloadVideo, type VideoDelivery } from "../video-media/download";
-import { qualifiedVerifier, verifyVideo } from "../video-media/native";
+import { UnsupportedVideoError } from "../video-media/errors";
 import { videoSaveSlot } from "../video-media/save-slot";
+import { verifyVideoFile } from "../video-media/verify-video";
 import { downloadImage } from "./download";
 import { galleryStorage } from "./storage";
 import { UnsupportedGalleryImage, verifyImage } from "./verify-image";
+
+const unsupported = {
+	profile: "This completed video is outside the supported Gallery profile.",
+	webm: "This completed video is WebM or Matroska. Gallery keeps MP4 files only.",
+};
 
 export function createGallery(
 	installation: Installation,
@@ -40,8 +46,6 @@ export function createGallery(
 			if (pending) return pending;
 			const work = (async () => {
 				if ((await storage.get(id))?.available) return "Saved to Gallery.";
-				const verifier = await qualifiedVerifier();
-				if (!verifier) return "The local video verifier is unavailable.";
 				const active = await slot.reserve(id);
 				if (!active) return "Another video Save is active. Try again after it finishes.";
 				if (active.kind === "join") {
@@ -56,8 +60,11 @@ export function createGallery(
 					if (!delivery)
 						return "The current task has no verified, unexpired video link. Check status and retry Save.";
 					const bytes = await transferVideo(delivery, active.path);
-					const info = await verifyVideo(active.path, verifier).catch(() => null);
-					if (!info) return "This completed video is outside the supported Gallery profile.";
+					const info = await verifyVideoFile(active.path).catch((error) => {
+						if (error instanceof UnsupportedVideoError) return error;
+						throw error;
+					});
+					if (info instanceof UnsupportedVideoError) return unsupported[info.reason];
 					return (await storage.publishVideo(id, active.path, active.token, { ...bytes, ...info }))
 						? "Saved to Gallery."
 						: "The video could not be saved.";
