@@ -117,7 +117,7 @@ jobs:
       - run: bun ci
       - name: Provision the pinned ExifTool for independent inspection
         run: bun scripts/media-cleanup/exiftool.ts >> "$GITHUB_ENV"
-      - run: bun test --timeout 60000 ./src/lib/server/services/media-cleanup ./src/lib/server/services/media-staging ./src/lib/server/db/runtime-installation.test.ts ./src/lib/server/db/recovery-lock.test.ts ./src/lib/server/db/media-cleaning.test.ts ./src/lib/server/db/file-attempt.test.ts ./src/lib/server/services/file-edit
+      - run: bun test --timeout 60000 ./src/lib/server/services/media-cleanup ./src/lib/server/services/media-staging ./src/lib/server/db/runtime-installation.test.ts ./src/lib/server/db/recovery-lock.test.ts ./src/lib/server/db/media-cleaning.test.ts ./src/lib/server/db/file-attempt.test.ts ./src/lib/server/db/poyo-upload-window.test.ts ./src/lib/server/services/file-edit
       - run: bun run --bun build
       - name: Drive staging, shutdown and restart on the built server
         run: bun test --timeout 60000 ./tests/media-cleanup
