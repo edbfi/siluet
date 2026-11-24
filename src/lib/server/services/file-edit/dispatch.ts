@@ -68,68 +68,80 @@ export function fileDispatcher(
 		const sent = new Map<string, number>();
 		for (const [index, slot] of live.slots.entries())
 			if (slot.kind === "url") sent.set(slot.url, index + 1);
-		try {
-			if (!(await jobs.beginDispatch(id, provider, now(), owner))) return;
-			if (provider === "poyo")
-				await jobs.recordBefore(id, await balance(key).catch(() => null), now());
-			for (const [index, { position, stage }] of live.files.entries()) {
-				if (closing()) return await stop({ stop: "interrupted", slot: position });
-				const bytes = await held.next(index).catch(() => null);
-				if (!bytes) return await stop({ stop: "stage-changed", slot: position });
-				const read = await pin(fileUploadRoutes[provider], 60_000).catch(() => null);
-				if (!read) return await stop({ stop: "destination", slot: position });
-				// Shutdown is checked again at transport handoff, after the marker commits.
-				const guard = guardFilePost(read, interrupted);
-				let uploadStart: number | undefined;
-				const handoff = await fileSendBoundary<Awaited<ReturnType<typeof upload>>, SendStop>(
-					db,
-					provider,
-					"upload",
-					now,
-					async (tx, time) => {
-						if (closing()) return { reason: "interrupted" };
-						if (provider === "poyo") {
-							const until = await nextPoyoUploadStart(tx, time);
-							if (until > time) return { reason: "cooldown", until };
-						}
-						if (!(await startFileUpload(tx, id, owner, position, time)))
-							return { reason: "interrupted" };
-						if (provider === "poyo") uploadStart = await recordPoyoUploadStart(tx, time);
-					},
-					() => upload(provider, key, stage, bytes, guard.read),
-					{
-						check: guard.check,
-						undo: async (tx, time) => {
-							await undoFileUpload(tx, id, owner, position, time);
-							if (uploadStart !== undefined) await undoPoyoUploadStart(tx, uploadStart, time);
+		// A stop inside the upload loop records its phase there; its closing wallet read
+		// waits until the buffer and the Poyo.ai upload slot are free.
+		let stopped: { job: ImageJob | undefined } | undefined;
+		const halt = async (end: StopFileJob) => {
+			stopped = { job: await phases.stop(id, end, now()) };
+		};
+		const ready = await (async () => {
+			try {
+				if (!(await jobs.beginDispatch(id, provider, now(), owner))) return false;
+				if (provider === "poyo")
+					await jobs.recordBefore(id, await balance(key).catch(() => null), now());
+				for (const [index, { position, stage }] of live.files.entries()) {
+					if (closing()) return await halt({ stop: "interrupted", slot: position });
+					const bytes = await held.next(index).catch(() => null);
+					if (!bytes) return await halt({ stop: "stage-changed", slot: position });
+					const read = await pin(fileUploadRoutes[provider], 60_000).catch(() => null);
+					if (!read) return await halt({ stop: "destination", slot: position });
+					// Shutdown is checked again at transport handoff, after the marker commits.
+					const guard = guardFilePost(read, interrupted);
+					let uploadStart: number | undefined;
+					const handoff = await fileSendBoundary<Awaited<ReturnType<typeof upload>>, SendStop>(
+						db,
+						provider,
+						"upload",
+						now,
+						async (tx, time) => {
+							if (closing()) return { reason: "interrupted" };
+							if (provider === "poyo") {
+								const until = await nextPoyoUploadStart(tx, time);
+								if (until > time) return { reason: "cooldown", until };
+							}
+							if (!(await startFileUpload(tx, id, owner, position, time)))
+								return { reason: "interrupted" };
+							if (provider === "poyo") uploadStart = await recordPoyoUploadStart(tx, time);
 						},
-					},
-				);
-				if (handoff.stop) {
-					const { reason } = handoff.stop;
-					const until = reason === "cooldown" ? handoff.stop.until : null;
-					return await stop({ stop: reason, slot: position, until });
+						() => upload(provider, key, stage, bytes, guard.read),
+						{
+							check: guard.check,
+							undo: async (tx, time) => {
+								await undoFileUpload(tx, id, owner, position, time);
+								if (uploadStart !== undefined) await undoPoyoUploadStart(tx, uploadStart, time);
+							},
+						},
+					);
+					if (handoff.stop) {
+						const { reason } = handoff.stop;
+						const until = reason === "cooldown" ? handoff.stop.until : null;
+						return await halt({ stop: reason, slot: position, until });
+					}
+					const uploaded = await handoff.receipt.catch(() => ({ kind: "unknown" }) as const);
+					if (uploaded.kind === "unknown") return await halt({ outcome: "unknown" });
+					if (uploaded.kind === "rejected")
+						return await halt({ outcome: "rejected", rejection: uploaded.reason });
+					if (uploaded.kind === "stored") {
+						const reason: FileStop =
+							uploaded.reason === "expired-link" ? "expired-link" : "unusable";
+						return await halt({ outcome: "unusable", stop: reason, slot: position });
+					}
+					// A hosted URL equal to a reviewed URL or an earlier receipt makes the edit impossible.
+					const other = sent.get(uploaded.url);
+					if (other !== undefined)
+						return await halt({ outcome: "stored", stop: "duplicate", slot: position, other });
+					sent.set(uploaded.url, position);
+					hosted.set(position, uploaded);
+					if (!(await phases.stored(id, position, now()))) return false;
 				}
-				const uploaded = await handoff.receipt.catch(() => ({ kind: "unknown" }) as const);
-				if (uploaded.kind === "unknown") return await stop({ outcome: "unknown" });
-				if (uploaded.kind === "rejected")
-					return await stop({ outcome: "rejected", rejection: uploaded.reason });
-				if (uploaded.kind === "stored") {
-					const reason: FileStop = uploaded.reason === "expired-link" ? "expired-link" : "unusable";
-					return await stop({ outcome: "unusable", stop: reason, slot: position });
-				}
-				// A hosted URL equal to a reviewed URL or an earlier receipt makes the edit impossible.
-				const other = sent.get(uploaded.url);
-				if (other !== undefined)
-					return await stop({ outcome: "stored", stop: "duplicate", slot: position, other });
-				sent.set(uploaded.url, position);
-				hosted.set(position, uploaded);
-				if (!(await phases.stored(id, position, now()))) return;
+				return true;
+			} finally {
+				// Frees the buffer, the Poyo.ai upload slot and every copy not yet read.
+				await held.release();
 			}
-		} finally {
-			// Frees the buffer, the Poyo.ai upload slot and every copy not yet read.
-			await held.release();
-		}
+		})();
+		if (stopped) return finishWallet(stopped.job);
+		if (!ready) return;
 		const urls = live.slots.map((slot, index) =>
 			slot.kind === "url" ? slot.url : (hosted.get(index + 1)?.url ?? ""),
 		);

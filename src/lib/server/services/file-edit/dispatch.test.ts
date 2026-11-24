@@ -347,6 +347,41 @@ test("a Poyo pin expiring before physical upload consumes neither an upload star
 	}
 });
 
+test("a stop frees the buffer and the Poyo upload slot before its closing wallet read", async () => {
+	const root = await createOwnerDirectory();
+	const db = await openInstallation(root);
+	try {
+		const live = await claimedFile(db, "poyo");
+		const events: string[] = [];
+		const dispatch = fileDispatcher(db, "runtime", () => {}, {
+			now: () => 10,
+			pin: async () => async () => {
+				throw new Error("unexpected transport");
+			},
+			balance: async () => {
+				events.push("balance");
+				return "10";
+			},
+			upload: async () => ({ kind: "rejected", reason: "quota" }),
+			edit: async () => ({ kind: "unknown" }),
+		});
+		await dispatch(
+			"file",
+			"fixture",
+			live,
+			heldBytes(new Uint8Array(1), () => events.push("release")),
+		);
+		expect(events).toEqual(["balance", "release", "balance"]);
+		expect(await imageJobStore(db).get("file")).toMatchObject({
+			wallet_open: 0,
+			wallet_after: "10",
+		});
+	} finally {
+		await db.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("a shutdown that begins after the upload marker sends nothing and undoes the Poyo window entry", async () => {
 	const root = await createOwnerDirectory();
 	const db = await openInstallation(root);
