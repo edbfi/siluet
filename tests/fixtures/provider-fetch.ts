@@ -1,3 +1,5 @@
+import { createRequire, syncBuiltinESMExports } from "node:module";
+
 // Bun preloads this module only in the fixture launcher and its built server.
 const fixtureOrigin = process.env.SILUET_TEST_PROVIDER_ORIGIN;
 const endpoints = new Map([
@@ -15,13 +17,28 @@ if (fixtureTime !== undefined) {
 	Date.now = () => systemTime() + offset;
 }
 
+// Record each server DNS resolution attempt as `/dns/<host>`, bypassing the proxy below.
+const direct = globalThis.fetch;
+const record = (hostname: string) =>
+	direct(new URL(`/dns/${encodeURIComponent(hostname)}`, fixtureOrigin), { method: "POST" });
+
 // File POSTs connect to a pinned numeric address carrying the original TLS and Host
 // identity. Resolve only the two upload hosts, to a public documentation address.
 Bun.dns.lookup = async (hostname) => {
+	await record(hostname);
 	if (hostname !== "api.poyo.ai" && hostname !== "toapis.com")
 		throw new Error("Unexpected fixture DNS lookup");
 	return [{ address: "93.184.216.34", family: 4, ttl: 30 }];
 };
+
+// Gallery downloads resolve through node:dns/promises; record those attempts too.
+const dnsPromises = createRequire(import.meta.url)("node:dns/promises");
+const resolve = dnsPromises.lookup;
+dnsPromises.lookup = async (hostname: string, ...rest: unknown[]) => {
+	await record(hostname);
+	return resolve(hostname, ...rest);
+};
+syncBuiltinESMExports();
 
 globalThis.fetch = new Proxy(globalThis.fetch, {
 	async apply(read: typeof fetch, _receiver, [input, init]: Parameters<typeof fetch>) {
