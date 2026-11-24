@@ -8,12 +8,13 @@ const source = (model: string) => ({
 });
 
 export const toapisRates = {
-	version: 1,
+	version: 2,
 	provider: "toapis",
 	observedAt: "2026-11-20T12:00:00Z",
 	creditsPerUsd: "200",
 	conversionSourceUrl: "https://toapis.com/pricing",
 	conversionCacheAgeSeconds: null,
+	receiptDelaySeconds: { conversion: 0, image: 0, video: 0 },
 	rates: [
 		...["1K", "1.5K", "2K"].map((size) => ({
 			model: "doubao-seedream-5-5",
@@ -24,6 +25,15 @@ export const toapisRates = {
 			approximateCredits: size === "2K" ? "5.6" : "3.2",
 			source: source("doubao-seedream-5-5"),
 		})),
+		{
+			model: "doubao-seedream-5-5",
+			operations: ["generate", "edit"],
+			unit: "reference-image",
+			conditions: { freeAllowance: 0 },
+			usd: "0.0064",
+			approximateCredits: "1.28",
+			source: source("doubao-seedream-5-5"),
+		},
 		...[false, true].map((videoInput) => ({
 			model: "seedance-2-5",
 			operations: ["generate", "edit"],

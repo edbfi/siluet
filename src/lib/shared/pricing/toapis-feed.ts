@@ -33,6 +33,12 @@ export type ToapisRate = Rate &
 				conditions: { size: Size; outputCount: 1; layerDecomposition: false };
 		  }
 		| {
+				// Each reference image in `image_urls`, charged on top of the output tier.
+				model: typeof imageModel;
+				unit: "reference-image";
+				conditions: { freeAllowance: 0 };
+		  }
+		| {
 				model: typeof videoModel;
 				unit: "million-total-tokens";
 				conditions: { videoInput: boolean };
@@ -45,12 +51,12 @@ const gaps = [
 ] as const;
 
 export type ToapisPricingFeed = Readonly<{
-	version: 1;
+	version: 1 | 2;
 	provider: "toapis";
 	observedAt: string;
 	creditsPerUsd: string;
 	conversionSourceUrl: typeof toapisConversionUrl;
-	// Whole seconds from each response's receipt to observedAt. Older bundles omit this field.
+	// Whole seconds from each response's receipt to observedAt. Older v1 bundles omit this field.
 	receiptDelaySeconds?: Readonly<{ conversion: number; image: number; video: number }>;
 	conversionCacheAgeSeconds: number | null;
 	rates: readonly ToapisRate[];
@@ -141,6 +147,14 @@ function decodeRate(value: unknown, observedMs: number): ToapisRate | undefined 
 			};
 	}
 	if (
+		model === imageModel &&
+		unit === "reference-image" &&
+		hasKeys(conditions, ["freeAllowance"]) &&
+		conditions.freeAllowance === 0
+	) {
+		return { model, unit, conditions: { freeAllowance: 0 }, ...rate };
+	}
+	if (
 		model === videoModel &&
 		unit === "million-total-tokens" &&
 		hasKeys(conditions, ["videoInput"]) &&
@@ -150,10 +164,16 @@ function decodeRate(value: unknown, observedMs: number): ToapisRate | undefined 
 	}
 }
 
-function rateKey(rate: ToapisRate): number {
-	return rate.unit === "image"
-		? sizes.indexOf(rate.conditions.size)
-		: sizes.length + Number(rate.conditions.videoInput);
+/** The rate's position: the tiers, the reference image (v2 only), then the two video inputs. */
+function rateKey(rate: ToapisRate, referenceRates: 0 | 1): number {
+	switch (rate.unit) {
+		case "image":
+			return sizes.indexOf(rate.conditions.size);
+		case "reference-image":
+			return referenceRates ? sizes.length : -1;
+		case "million-total-tokens":
+			return sizes.length + referenceRates + Number(rate.conditions.videoInput);
+	}
 }
 
 export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | undefined {
@@ -182,7 +202,8 @@ export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | und
 		conversionCacheAgeSeconds,
 	} = value;
 	if (
-		version !== 1 ||
+		(version !== 1 && version !== 2) ||
+		(version === 2 && !hasDelays) ||
 		provider !== "toapis" ||
 		creditsPerUsd !== "200" ||
 		conversionSourceUrl !== toapisConversionUrl ||
@@ -217,9 +238,10 @@ export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | und
 	}
 	const rawRates: unknown = value.rates;
 	const rawGaps: unknown = value.gaps;
+	const referenceRates = version === 2 ? 1 : 0;
 	if (
 		!Array.isArray(rawRates) ||
-		rawRates.length !== sizes.length + 2 ||
+		rawRates.length !== sizes.length + referenceRates + 2 ||
 		!Array.isArray(rawGaps) ||
 		rawGaps.length !== gaps.length ||
 		!gaps.every(({ model, reason }, index) => {
@@ -231,16 +253,18 @@ export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | und
 	const rates: ToapisRate[] = [];
 	for (const raw of rawRates as unknown[]) {
 		const rate = decodeRate(raw, observedMs);
-		if (!rate || rateKey(rate) !== rates.length) return;
+		if (!rate || rateKey(rate, referenceRates) !== rates.length) return;
 		if (effectiveRateObservationMs(observedMs, receiptDelaySeconds, rate) < 0) return;
 		rates.push(rate);
 	}
-	const [one, oneAndHalf, two, withoutVideo, withVideo] = rates;
+	const [one, oneAndHalf] = rates;
+	// The reference rate comes from the same Seedream page as the tiers.
+	const seedream = rates.slice(0, sizes.length + referenceRates);
+	const [withoutVideo, withVideo] = rates.slice(sizes.length + referenceRates);
 	if (
 		one.usd !== oneAndHalf.usd ||
 		one.approximateCredits !== oneAndHalf.approximateCredits ||
-		one.source.cacheAgeSeconds !== oneAndHalf.source.cacheAgeSeconds ||
-		one.source.cacheAgeSeconds !== two.source.cacheAgeSeconds ||
+		seedream.some((rate) => rate.source.cacheAgeSeconds !== one.source.cacheAgeSeconds) ||
 		withoutVideo.source.cacheAgeSeconds !== withVideo.source.cacheAgeSeconds
 	)
 		return;
@@ -262,7 +286,7 @@ function effectiveRateObservationMs(
 	delays: ToapisPricingFeed["receiptDelaySeconds"],
 	rate: ToapisRate,
 ): number {
-	const delay = rate.unit === "image" ? delays?.image : delays?.video;
+	const delay = rate.model === imageModel ? delays?.image : delays?.video;
 	return observedMs - ((delay ?? 0) + (rate.source.cacheAgeSeconds ?? 0)) * 1000;
 }
 

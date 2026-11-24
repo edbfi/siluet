@@ -148,7 +148,7 @@ test("rejects inconsistent paired rates and per-model age plus noncanonical obse
 		{
 			...toapisRates,
 			rates: toapisRates.rates.map((rate, index) =>
-				index === 2 || index === 3
+				index === 2 || index === 4
 					? { ...rate, source: { ...rate.source, cacheAgeSeconds: 25 } }
 					: rate,
 			),
@@ -166,15 +166,80 @@ test("receipt delays and reported cache ages both count toward rate expiry", () 
 		receiptDelaySeconds: { conversion: 4, image: 2, video: 0 },
 		rates: toapisRates.rates.map((rate) => ({
 			...rate,
-			source: { ...rate.source, cacheAgeSeconds: rate.unit === "image" ? 9 : null },
+			source: {
+				...rate.source,
+				cacheAgeSeconds: rate.model === "doubao-seedream-5-5" ? 9 : null,
+			},
 		})),
 	});
 	if (!feed) throw new Error("Valid staggered feed was rejected.");
 	const observed = Date.parse(feed.observedAt);
 	expect(toapisEffectiveObservations(feed).map((value) => (observed - value) / 1000)).toEqual([
-		4, 11, 11, 11, 0, 0,
+		4, 11, 11, 11, 11, 0, 0,
 	]);
 	const expiry = observed + 30 * 86400 * 1000;
 	expect(toapisRateExpiryMs(feed, feed.rates[0])).toBe(expiry - 11000);
-	expect(toapisRateExpiryMs(feed, feed.rates[3])).toBe(expiry - 4000);
+	expect(toapisRateExpiryMs(feed, feed.rates[4])).toBe(expiry - 4000);
+});
+
+test("the reference-image rate ages with the Seedream page, not the Seedance page", () => {
+	const feed = decodeToapisPricingFeed({
+		...toapisRates,
+		receiptDelaySeconds: { conversion: 3, image: 2, video: 0 },
+	});
+	if (!feed) throw new Error("Valid staggered feed was rejected.");
+	const observed = Date.parse(feed.observedAt);
+	const reference = feed.rates.find((rate) => rate.unit === "reference-image");
+	if (!reference) throw new Error("Missing reference-image rate.");
+	expect(toapisEffectiveObservations(feed).map((value) => (observed - value) / 1000)).toEqual([
+		3, 2, 2, 2, 2, 0, 0,
+	]);
+	expect(toapisRateExpiryMs(feed, reference)).toBe(observed + 30 * 86400 * 1000 - 3000);
+});
+
+test("decodes the v2 feed with one flat reference-image rate and no free allowance", () => {
+	const feed = decodeToapisPricingFeed(toapisRates);
+	expect(feed?.version).toBe(2);
+	expect(feed?.rates[3]).toMatchObject({
+		model: "doubao-seedream-5-5",
+		operations: ["generate", "edit"],
+		unit: "reference-image",
+		conditions: { freeAllowance: 0 },
+		usd: "0.0064",
+		approximateCredits: "1.28",
+		source: toapisRates.rates[0].source,
+	});
+});
+
+test.each([
+	["a nonzero free allowance", { conditions: { freeAllowance: 1 } }],
+	["an extra condition", { conditions: { freeAllowance: 0, size: "1K" } }],
+	["an extra rate key", { note: "per image" }],
+	["a zero amount", { usd: "0", approximateCredits: "0" }],
+	["the wrong conversion", { approximateCredits: "1.3" }],
+	["another model", { model: "seedance-2-5", source: toapisRates.rates[5].source }],
+	[
+		"a source cache age that differs from the tiers",
+		{ source: { ...toapisRates.rates[3].source, cacheAgeSeconds: 5 } },
+	],
+])("rejects a reference-image rate with %s", (_reason, change) => {
+	const rates = toapisRates.rates.map((rate, index) =>
+		index === 3 ? { ...rate, ...change } : rate,
+	);
+	expect(decodeToapisPricingFeed({ ...toapisRates, rates })).toBeUndefined();
+});
+
+test("rejects a v2 feed without the reference rate, out of order, or without receipt delays", () => {
+	const { receiptDelaySeconds: _delays, ...withoutDelays } = toapisRates;
+	const [one, oneAndHalf, two, reference, ...video] = toapisRates.rates;
+	for (const invalid of [
+		{ ...toapisRates, rates: [one, oneAndHalf, two, ...video] },
+		{ ...toapisRates, rates: [reference, one, oneAndHalf, two, ...video] },
+		{ ...toapisRates, rates: [one, oneAndHalf, two, ...video, reference] },
+		{ ...toapisRates, rates: [one, oneAndHalf, two, reference, reference, ...video] },
+		withoutDelays,
+		{ ...toapisRates, version: 3 },
+	]) {
+		expect(decodeToapisPricingFeed(invalid)).toBeUndefined();
+	}
 });

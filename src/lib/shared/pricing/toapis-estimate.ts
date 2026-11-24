@@ -117,13 +117,14 @@ export function estimateToapis(
 	if (!feed) return unknown("missing-feed");
 	const sourceDate = feed.observedAt;
 	if (nowMs < parsePricingInstant(sourceDate)) return unknown("invalid-clock");
+	// Match each rate by its unit, so the reference-image charge never stands in for a tier.
 	const rate = feed.rates.find(
 		(rate) =>
 			rate.model === model &&
 			rate.operations.some((operation) => operation === wireOperation) &&
-			(rate.unit === "image"
-				? rate.conditions.size === options.size
-				: rate.conditions.videoInput === videoInput),
+			(isImage
+				? rate.unit === "image" && rate.conditions.size === options.size
+				: rate.unit === "million-total-tokens" && rate.conditions.videoInput === videoInput),
 	);
 	if (!rate) return unknown("rate-unavailable");
 	const expiry = toapisRateExpiryMs(feed, rate);

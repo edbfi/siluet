@@ -432,7 +432,7 @@ test("rejects newer ToAPIs wrappers over older model or conversion evidence", as
 		{
 			...later,
 			rates: later.rates.map((rate) =>
-				rate.unit === "image"
+				rate.model === "doubao-seedream-5-5"
 					? { ...rate, source: { ...rate.source, cacheAgeSeconds: 3601 } }
 					: rate,
 			),
