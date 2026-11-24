@@ -1,12 +1,13 @@
 import { constants } from "node:fs";
 import { type FileHandle, open } from "node:fs/promises";
 import { refuseEbml, sniffBytes } from "./container";
+import { checkContentCredentials, contentCredentialsPrefix } from "./content-credentials";
 import { check, TruncatedVideoError } from "./errors";
 import { movieByteLimit, videoByteLimit } from "./limits";
 import { inspectMovie, type Span } from "./mp4";
 import { boxHeader } from "./mp4-boxes";
 
-const topLevel = new Set(["ftyp", "moov", "mdat", "free", "skip", "wide"]);
+const topLevel = new Set(["ftyp", "moov", "mdat", "free", "skip", "wide", "uuid"]);
 const fileTypeByteLimit = 4096;
 const topLevelBoxLimit = 4096;
 const truncated = () => new TruncatedVideoError();
@@ -24,9 +25,9 @@ async function readAt(file: FileHandle, position: number, length: number) {
 
 /**
  * Verify a downloaded video's structure (D6). Reads top-level box headers from the
- * file and buffers only `ftyp` and `moov`. Throws `TruncatedVideoError` when the file
- * ends inside a box or before `moov` or `mdat`, and `UnsupportedVideoError` for anything
- * outside the profile.
+ * file and buffers only `ftyp`, `moov` and the first bytes of one C2PA manifest box.
+ * Throws `TruncatedVideoError` when the file ends inside a box or before `moov` or `mdat`,
+ * and `UnsupportedVideoError` for anything outside the profile.
  */
 export async function verifyVideoFile(path: string) {
 	const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -37,6 +38,7 @@ export async function verifyVideoFile(path: string) {
 		let ftyp: Buffer | undefined;
 		let moov: Buffer | undefined;
 		const media: Span[] = [];
+		let credentials = false;
 		let boxes = 0;
 		for (let at = 0; at < size; ) {
 			check(++boxes <= topLevelBoxLimit, "too many boxes");
@@ -54,6 +56,12 @@ export async function verifyVideoFile(path: string) {
 				check(!moov, "one movie box");
 				check(length <= movieByteLimit, "movie box over 4 MiB");
 				moov = await readAt(file, at, length);
+			} else if (type === "uuid") {
+				const prefix = await readAt(file, at, Math.min(length, contentCredentialsPrefix));
+				checkContentCredentials(prefix, header, length);
+				check(!credentials, "one content credentials box");
+				check(ftyp && !moov && !media.length, "content credentials position");
+				credentials = true;
 			} else if (type === "mdat") media.push({ start: at + header, end: at + length });
 			at += length;
 		}

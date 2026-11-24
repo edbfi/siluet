@@ -3,15 +3,20 @@ import { mkdtemp, open, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	afterFileType,
 	appendChild,
 	box,
+	type ContentCredentialsShape,
+	c2paBox,
 	h264Aac,
 	locate,
 	payload,
+	topLevelBox,
 	undecodableH264Aac,
 } from "../../../../../tests/fixtures/video/mp4-boxes";
+import { h3MaxShape } from "../../../../../tests/fixtures/video/real-clips";
 import { TruncatedVideoError, UnsupportedVideoError } from "./errors";
-import { movieByteLimit } from "./limits";
+import { contentCredentialsByteLimit, movieByteLimit } from "./limits";
 import { verifyVideoFile } from "./verify-video";
 
 const directory = await mkdtemp(join(tmpdir(), "siluet-verify-video-"));
@@ -81,8 +86,8 @@ test("trailing boxes, fragments, oversized movies and oversized files are refuse
 	expect((await refusal(large)).message).toMatch(/file size/);
 });
 
-test("a 60 MiB mdat is checked from headers with at most 4 MiB buffered", async () => {
-	const source = h264Aac();
+/** Grow `source`'s mdat by 60 MiB of holes and record every read verification makes. */
+async function readsOfGrown(source: Buffer) {
 	const mdat = locate(source, "mdat")[0];
 	const extra = 60 * 1024 * 1024;
 	const grown = Buffer.from(source);
@@ -103,6 +108,11 @@ test("a 60 MiB mdat is checked from headers with at most 4 MiB buffered", async 
 	} finally {
 		spy.mockRestore();
 	}
+	return reads;
+}
+
+test("a 60 MiB mdat is checked from headers with at most 4 MiB buffered", async () => {
+	const reads = await readsOfGrown(h264Aac());
 	expect(Math.max(...reads)).toBeLessThanOrEqual(movieByteLimit);
 	expect(reads.reduce((a, b) => a + b, 0)).toBeLessThan(64 * 1024);
 });
@@ -130,4 +140,94 @@ test("a file cut at a box boundary before moov or mdat is truncated", async () =
 		expect(await refusal(bytes)).toBeInstanceOf(TruncatedVideoError);
 	const noFileType = source.subarray(ftyp.size);
 	expect(await refusal(noFileType)).toBeInstanceOf(UnsupportedVideoError);
+});
+
+test("an H3 Max-shaped clip with a C2PA box verifies", async () => {
+	expect(await verifyVideoFile(await file(h3MaxShape()))).toMatchObject({
+		width: 96,
+		height: 64,
+		duration: 2,
+	});
+});
+
+test("C2PA boxes with 64-bit headers and one of exactly 1 MiB verify", async () => {
+	for (const credentials of [
+		c2paBox(4096, { wideBox: true }),
+		c2paBox(4096, { wideStore: true }),
+		c2paBox(contentCredentialsByteLimit),
+	])
+		expect(await verifyVideoFile(await file(afterFileType(h264Aac(), credentials)))).toMatchObject({
+			duration: 2,
+		});
+});
+
+/** A 4 KiB C2PA box cut to `size` bytes, its store resized to fill what is left. */
+function cutC2pa(size: number) {
+	const out = Buffer.from(c2paBox(4096).subarray(0, size));
+	out.writeUInt32BE(size, 0);
+	if (size >= 49) out.writeUInt32BE(size - 45, 45);
+	return out;
+}
+
+test("every other uuid and every misframed or misplaced C2PA box is refused", async () => {
+	const source = h264Aac();
+	const shaped = (shape: ContentCredentialsShape) => afterFileType(source, c2paBox(4096, shape));
+	const xmp = "be7acfcb97a942e89c71999491e3afac";
+	// ftyp, moov, C2PA, free, mdat: the box arrives too late for chunk offsets to move.
+	const movieEnd = 32 + topLevelBox(source, "moov").length;
+	const afterMovie = Buffer.concat([
+		source.subarray(0, movieEnd),
+		c2paBox(4096),
+		source.subarray(movieEnd),
+	]);
+	const cases: [string, Buffer, RegExp][] = [
+		["XMP", shaped({ extendedType: xmp }), /uuid at the top level/],
+		["merkle", shaped({ purpose: "merkle" }), /content credentials purpose/],
+		["update", shaped({ purpose: "update" }), /content credentials purpose/],
+		["original", shaped({ purpose: "original" }), /content credentials purpose/],
+		["version 1", shaped({ versionFlags: 0x0100_0000 }), /content credentials version/],
+		["flags 1", shaped({ versionFlags: 1 }), /content credentials version/],
+		["Merkle offset", shaped({ merkleOffset: 1n }), /content credentials Merkle offset/],
+		["non-jumb", shaped({ storeBox: "free" }), /content credentials store\./],
+		[
+			"store type",
+			shaped({ storeType: "6332706100110010800000aa00389b72" }),
+			/content credentials description/,
+		],
+		["label", shaped({ label: "c2pb" }), /content credentials description/],
+		["toggles", shaped({ toggles: 7 }), /content credentials description/],
+		["jumb size 0", shaped({ storeSize: 0 }), /content credentials store size/],
+		["40 bytes", afterFileType(source, cutC2pa(40)), /box is too short/],
+		["82 bytes", afterFileType(source, cutC2pa(82)), /content credentials store size/],
+		["trailing", shaped({ storeSize: 4096 - 45 - 8 }), /store must fill its box/],
+		["overrun", shaped({ storeSize: 4096 - 45 + 8 }), /store must fill its box/],
+		[
+			"1 MiB + 1",
+			afterFileType(source, c2paBox(contentCredentialsByteLimit + 1)),
+			/content credentials over 1 MiB/,
+		],
+		[
+			"second box",
+			afterFileType(source, c2paBox(4096), c2paBox(4096)),
+			/one content credentials box/,
+		],
+		["after moov", afterMovie, /content credentials position/],
+		["after mdat", Buffer.concat([source, c2paBox(4096)]), /content credentials position/],
+		["before ftyp", Buffer.concat([c2paBox(4096), source]), /content credentials position/],
+	];
+	for (const [label, bytes, reason] of cases) {
+		const error = await refusal(bytes);
+		expect(error, label).toBeInstanceOf(UnsupportedVideoError);
+		expect(error.message, label).toMatch(reason);
+	}
+});
+
+test("a file that ends inside the C2PA box is truncated", async () => {
+	expect(await refusal(h3MaxShape().subarray(0, 32 + 5000))).toBeInstanceOf(TruncatedVideoError);
+});
+
+test("a 1 MiB C2PA box and a 60 MiB mdat verify with under 64 KiB read", async () => {
+	const reads = await readsOfGrown(afterFileType(h264Aac(), c2paBox(contentCredentialsByteLimit)));
+	expect(Math.max(...reads)).toBeLessThanOrEqual(movieByteLimit);
+	expect(reads.reduce((a, b) => a + b, 0)).toBeLessThan(64 * 1024);
 });
