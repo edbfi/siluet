@@ -268,6 +268,25 @@ test("a save whose answer is lost shows what was stored", async ({ page }) => {
 	});
 });
 
+test("Continue with the default whose answer is lost reports it saved", async ({ page }) => {
+	await withStudio(async (studio) => {
+		const { origin } = studio;
+		await claim(page, studio);
+		await page.getByRole("link", { name: "Skip for now" }).click();
+		await expect(page).toHaveURL(/\/settings\/files\?offer$/);
+		await page.route("**/settings/files?offer", async (route) => {
+			if (route.request().method() !== "POST") return route.fallback();
+			await route.fetch({ maxRedirects: 0 });
+			return route.abort();
+		});
+		// Keeping the default saves nothing new: the stored value matches at the same revision.
+		await page.getByRole("button", { name: "Continue to studio" }).click();
+		await expect(page.getByRole("status")).toHaveText("Saved.");
+		await expect(cleaningSwitch(page)).toBeChecked();
+		expect(await stored(page, origin.href)).toEqual({ enabled: true, revision: 0 });
+	});
+});
+
 async function secondTab(browser: Browser, page: Page, origin: string) {
 	const context = await browser.newContext({ storageState: await page.context().storageState() });
 	const other = await context.newPage();

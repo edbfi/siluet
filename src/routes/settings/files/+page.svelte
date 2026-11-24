@@ -102,7 +102,8 @@ const action = css({ justifySelf: "start", minHeight: "44px", paddingInline: "1r
 							"Siluet could not confirm whether this setting was saved. Reload Settings to check.";
 						return;
 					}
-					const committed = current.revision !== stored.revision && current.enabled === enabled;
+					// The stored value matches the choice: saved, or already stored (a kept default).
+					const committed = current.enabled === enabled;
 					stored = current;
 					if (!data.offer) enabled = stored.enabled;
 					status = committed
