@@ -245,3 +245,86 @@ test("a reason on a task that has not failed is never recorded", async () => {
 		failureReason: null,
 	});
 });
+
+// Source-video edit evidence, accessed 2026-11-24:
+// https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation
+//   video_with_roles items take `url` and role `reference_video`; an edit uses duration -1 and
+//   adaptive framing; for an edit "a constraint mismatch returns an error immediately at submit
+//   time" with no documented code, so only the codes below are confirmed.
+// https://docs.toapis.com/docs/en/api-reference/errors
+//   invalid_private_assets covers unreadable URLs and over-limit media; video_edit_parameters_required
+//   is a task reason for an invalid edit combination, which Siluet discards like other reasons.
+const editBody = {
+	model: "seedance-2-5",
+	prompt: "fixture",
+	video_operation: "edit",
+	duration: -1,
+	aspect_ratio: "adaptive",
+	resolution: "720p",
+	generate_audio: true,
+	output_format: "mp4",
+	return_last_frame: false,
+	disable_nsfw: false,
+	video_with_roles: [
+		{ url: "https://clips.example.com/a.mp4?X-Amz-Signature=secret", role: "reference_video" },
+	],
+} as const;
+const editRefusal = (code: string, extra: object = {}) => ({
+	success: false,
+	error: { code, type: "invalid_request_error", message: "refused" },
+	request_id: "request-1",
+	...extra,
+});
+
+test.each([
+	["invalid_private_assets", editRefusal("invalid_private_assets"), "media-input"],
+	["invalid_request", editRefusal("invalid_request"), "validation"],
+	["unsupported_value", editRefusal("unsupported_value"), "validation"],
+	["content_policy_violation", editRefusal("content_policy_violation"), "filtering"],
+	["an undocumented task-type code", editRefusal("InvalidParameter.TaskTypeConstraint"), null],
+	["video_edit_parameters_required", editRefusal("video_edit_parameters_required"), null],
+	[
+		"invalid_private_assets with task attributes",
+		editRefusal("invalid_private_assets", { id: "task_one", object: "generation.task" }),
+		null,
+	],
+] as const)("an edit submit refused with %s", async (_, response, reason) => {
+	let posts = 0;
+	const adapter = createToapisVideo(async (_url, init) => {
+		posts++;
+		expect(JSON.parse(String(init.body))).toEqual({
+			...editBody,
+			client_business_id: "siluet-abc",
+		});
+		return Response.json(response, { status: 400 });
+	});
+	expect(await adapter.submit("fixture", editBody, "siluet-abc")).toEqual(
+		reason ? { kind: "rejected", reason } : { kind: "unknown" },
+	);
+	expect(posts).toBe(1);
+});
+
+test.each([
+	["reference_media_unreadable", "reference_media_unreadable"],
+	["video_edit_parameters_required", null],
+	["InvalidParameter.TaskTypeConstraint", null],
+	["https://clips.example.com/a.mp4?X-Amz-Signature=secret", null],
+])("a failed edit task with reason %s", async (reason, kept) => {
+	const adapter = createToapisVideo(async () =>
+		Response.json({
+			...envelope,
+			status: "failed",
+			error: { code: "generation_failed", reason, message: `fetch ${reason}` },
+			billing: { status: "settled", credits: "4", cost_usd: "0.02" },
+		}),
+	);
+	const observed = await adapter.status("fixture", "siluet-abc", "task_one");
+	expect(observed).toMatchObject({
+		kind: "observed",
+		state: "failed",
+		failureReason: kept,
+		billing: { status: "settled", credits: "4", usd: "0.02" },
+	});
+	expect(JSON.stringify(observed)).not.toContain("secret");
+	expect(JSON.stringify(observed)).not.toContain("TaskTypeConstraint");
+});

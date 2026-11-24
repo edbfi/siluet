@@ -53,7 +53,7 @@ function videoBilling(value: unknown): TaskBilling {
 		return { status: "unknown" };
 	return amount;
 }
-function refusal(status: number, value: unknown, frames: boolean): Submission {
+function refusal(status: number, value: unknown, media: boolean): Submission {
 	if (
 		!isRecord(value) ||
 		!isRecord(value.error) ||
@@ -73,8 +73,9 @@ function refusal(status: number, value: unknown, frames: boolean): Submission {
 			type === "invalid_request_error" ||
 			type === code)
 	) {
-		// A frame URL refused before a task exists; text-to-video sends no media, so it stays uncertain.
-		if (frames && code === "invalid_private_assets")
+		// A frame or source URL refused before a task exists; text-to-video sends no media, so it
+		// stays uncertain.
+		if (media && code === "invalid_private_assets")
 			return { kind: "rejected", reason: "media-input" };
 		if (code === "invalid_request" || code === "unsupported_value")
 			return { kind: "rejected", reason: "validation" };
@@ -115,7 +116,11 @@ export function createToapisVideo(read: CheckFetch = fetch) {
 					: { kind: "unknown" };
 			if (submitThrottled(response.status, response.category, response.body))
 				return { kind: "throttled", retryAfter: response.retryAfter };
-			return refusal(response.status, response.body, "image_with_roles" in body);
+			return refusal(
+				response.status,
+				response.body,
+				"image_with_roles" in body || "video_with_roles" in body,
+			);
 		},
 		async status(key: string, business: string, taskId: string | null): Promise<Observation> {
 			const response = await requestImageJson(

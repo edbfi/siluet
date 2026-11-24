@@ -366,3 +366,55 @@ test("an unreadable input on a failed task is worded by operation", () => {
 	] as const)
 		expect(summarizeJob(job, true, now).message).toBe(expected);
 });
+
+test("a source-video edit names the source clip in every failure and refusal", () => {
+	const edit = {
+		...h3,
+		provider: "toapis",
+		model: "seedance-2-5",
+		operation: "video-edit",
+		business_id: "siluet-1",
+	} as const;
+	const checkSource = "Check the source clip against the limits shown at Review.";
+	const failed = (change: Partial<ImageJob>) =>
+		summarizeJob({ ...edit, state: "failed", ...change }, true, now).message;
+	expect(
+		summarizeJob({ ...edit, task_id: null, state: "rejected", rejection: "media-input" }, true, now)
+			.message,
+	).toBe(
+		"ToAPIs refused the source clip before creating a task. Check that the URL is publicly reachable, points to a readable video within 100 MiB and has no credentials.",
+	);
+	expect(failed({ failure_reason: "reference_media_unreadable" })).toBe(
+		"The provider could not read the source clip.",
+	);
+	expect(failed({ failure_reason: null })).toBe(
+		`The provider reported that the job failed. ${checkSource}`,
+	);
+	// Other operations and legacy rows keep their wording.
+	for (const operation of ["text-to-video", "first-frame-to-video", null] as const)
+		expect(failed({ operation })).toBe("The provider reported that the job failed.");
+	expect(
+		summarizeJob({ ...edit, state: "rejected", rejection: "validation" }, true, now).message,
+	).toBe("The provider rejected the request parameters.");
+});
+
+test("a valid edit outside the Gallery profile is held, not retryable, with billing kept", () => {
+	const held = summarizeJob(
+		{
+			...h3,
+			provider: "toapis",
+			model: "seedance-2-5",
+			operation: "video-edit",
+			business_id: "siluet-1",
+			save_hold: "unsupported",
+			billing: JSON.stringify({ status: "settled", credits: "40", usd: "0.2" }),
+		},
+		true,
+		now,
+	);
+	expect(held).toMatchObject({
+		library: "unsupported",
+		retryable: false,
+		billing: { status: "settled", credits: "40", usd: "0.2" },
+	});
+});
