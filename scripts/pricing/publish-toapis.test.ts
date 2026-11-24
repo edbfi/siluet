@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import shippedToapis from "../../pricing/v2/toapis.json";
 import { decodeToapisPricingFeed } from "../../src/lib/shared/pricing/toapis-feed";
 
 const ref = "refs/heads/pricing-data-toapis";
@@ -107,6 +108,24 @@ function publisher(sandbox: string, local: string) {
 		});
 	};
 }
+
+test("the bundled v2 feed decodes unchanged and passes the publisher's validator", () => {
+	// Compare structurally, so the bundle keeps its reviewable key order.
+	expect<unknown>(decodeToapisPricingFeed(shippedToapis)).toEqual(shippedToapis);
+	const output = Bun.spawnSync(
+		[
+			"jq",
+			"-RsceS",
+			"-L",
+			import.meta.dir,
+			"-f",
+			resolve(import.meta.dir, "providers/toapis/publish-v2.jq"),
+		],
+		{ stdin: new TextEncoder().encode(JSON.stringify(shippedToapis)), stdout: "pipe" },
+	);
+	expect(output.success).toBe(true);
+	expect(JSON.parse(output.stdout.toString())).toEqual(shippedToapis);
+});
 
 test("publishes one ToAPIs feed and preserves the last good observation on invalid or stale input", () => {
 	const sandbox = mkdtempSync(resolve(tmpdir(), "siluet-toapis-pricing-"));
