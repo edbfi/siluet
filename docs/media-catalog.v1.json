@@ -60,14 +60,7 @@
 		{
 			"id": "z-image",
 			"label": "Alibaba / Z-Image",
-			"models": [
-				{
-					"id": "z-image",
-					"label": "Z-Image",
-					"poyo": ["z-image"],
-					"toapis": []
-				}
-			]
+			"models": [{ "id": "z-image", "label": "Z-Image", "poyo": ["z-image"], "toapis": [] }]
 		},
 		{
 			"id": "seedream",
@@ -1206,9 +1199,7 @@
 					],
 					"contract": "documented",
 					"sources": ["h3-max", "catalog"],
-					"support": {
-						"text-to-video": "h3-max-generate"
-					},
+					"support": { "text-to-video": "h3-max-generate" },
 					"catalogD4": "declared",
 					"catalogCategory": "video",
 					"d4": "declared"
