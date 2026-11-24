@@ -69,7 +69,11 @@ Approved by the owner on 2026-11-21. The first approved feature that needs persi
 
 ### Layer storage
 
-Agreed with the council on 2026-11-22; lands with layer decomposition. Gallery stores the base image and each layer as private files named by digest, and the database keeps a manifest of order, placement, digest and identity. Siluet stages the whole item before publishing it and reconciles orphaned files on restart, so Gallery never shows a partial decomposition.
+Agreed with the council on 2026-11-22; lands with layer decomposition. Gallery stores the base image and each layer as private files, and the database keeps a manifest of order, placement, identity and each file's digest. The layer spec chooses file naming. Siluet stages the whole item before publishing it and reconciles orphaned files on restart, so Gallery never shows a partial decomposition.
+
+### Delivery and migrations
+
+Agreed with the council on 2026-11-22. Lanes run in parallel, but one integrator merges slices in order and owns the migrations and the recovery fingerprint, so no lane can reorder the chain. A slice's migration is named at merge time so it sorts after every released one. Released migrations are append-only, and `scripts/db/released-append-only.test.ts` fails CI when one is changed, removed or backdated.
 
 ## D4 · Optional filtering on media requests
 
@@ -122,12 +126,19 @@ Siluet cleans every attached file automatically (owner decision 2026-11-22). The
 
 ## D11 · v0.1.0 is a scoped preview
 
-Approved by the owner on 2026-11-24. The first release, v0.1.0, is a preview for one local creator containing everything verified on main when it is tagged. Its notes list each operation as verified, Review-only or pending, so the preview is not mistaken for full D2 coverage. GitHub generates the release notes from the Conventional Commits; there is no CHANGELOG file. `package.json` takes the version at tag time. The orchestrator prepares the release and the owner tags it.
+Approved by the owner on 2026-11-24. The first release, v0.1.0, is a preview for one local creator containing everything verified on main when it is tagged. GitHub generates the change list from the Conventional Commits; there is no CHANGELOG file. Release preparation adds a hand-written coverage table that lists each operation as verified, Review-only or pending and cites each video family's real-clip result, so the preview is not mistaken for full D2 coverage. `package.json` takes the version at tag time. The orchestrator prepares the release and the owner tags it.
 
-Tag only when the tagged commit passes the local and hosted checks, the pricing feeds are fresh, one real provider clip per shipped video family passes `verifyVideoFile`, a cross-cutting security review is recorded and the README covers what a creator must know. Real clips are required because the built-app video journeys use a synthetic fixture clip.
+Tag only when the commit to tag meets every gate:
 
-v1.0 means D2 is complete for a dated baseline under the [coverage acceptance](SPEC.md#d2-coverage-acceptance), or the owner approves a scope change. The [plan](../tasks/plan.md) holds the release order.
+- The local checks and hosted `ci-ok` pass.
+- The published and bundled Poyo.ai v2 and ToAPIs v2 feeds have at least 14 days left under `scripts/pricing/freshness.ts --fail-within-days 14`, as the weekly backstop runs it, and price every shipped priced operation.
+- The untouched 2026-11-24 real clips, one per shipped video family, pass `verifyVideoFile`, and CI fixtures built from their structure pass while the refusals hold. The built-app video journeys use a synthetic clip, so only real clips prove Save.
+- Per-mode video Save limits merge, then the Seedance URL edit ([#62](https://github.com/edbfi/siluet/pull/62)), in the order the owner approved.
+- A cross-cutting security review is recorded here as one short entry with its scope, date, findings and their dispositions. Every blocker is resolved or explicitly accepted by the owner.
+- The README covers what a creator must know.
 
-## D12 · Upgrade dependencies, never defer them
+v1.0 means D2 is complete for a dated baseline under the [coverage acceptance](SPEC.md#d2-coverage-acceptance), or the owner approves a scope change (owner delegated 2026-11-24; council recommendation). The [plan](../tasks/plan.md) holds the release order.
 
-Owner correction on 2026-11-22. Do not pin or ignore a dependency version to defer an upgrade. Leave the Dependabot PR open, failing if necessary, until the ecosystem supports it, as in the owner's other repositories. An open PR keeps the pending upgrade visible, where an ignore rule hides it. The owner chose on 2026-11-24 to leave the closed TypeScript 7 PR (#3) closed for now.
+## D12 · Never pin or ignore a version to defer an upgrade
+
+Owner correction on 2026-11-22. Leave the Dependabot PR open, failing if necessary, until the ecosystem supports it, as in the owner's other repositories. An open PR keeps the pending upgrade visible, where an ignore rule hides it. The closed TypeScript 7 PR ([#3](https://github.com/edbfi/siluet/pull/3)) stays closed until the owner reopens it (owner, 2026-11-24).

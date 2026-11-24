@@ -1,24 +1,38 @@
 # Plan: road to v0.1.0
 
-Source: [capability map](../docs/SPEC.md#production-capability-map) and [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview). Tasks are tracked in [todo.md](todo.md#v010-scoped-preview).
+Source: [capability map](../docs/SPEC.md#production-capability-map) and [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview). Tasks are tracked in [todo.md](todo.md#v010-scoped-preview). Merges follow the [delivery rules](../docs/decisions.md#delivery-and-migrations).
 
 ## Overview
 
-v0.1.0 is a scoped preview of what main verifies when it is tagged. The steps below close the release gates in dependency order, then later work follows. Retire this plan when v0.1.0 is tagged.
+v0.1.0 is a scoped preview of what main verifies when it is tagged. The phases below close the D11 gates in dependency order, then later work follows. This documentation sync is done when its PR merges. Retire this plan when v0.1.0 is tagged.
 
-## Lanes
+## Phase 1 · in parallel
 
-Lanes run in parallel where the order allows. One integrator merges in order and owns migrations and the recovery fingerprint. Port each candidate branch onto current main slice by slice, and name a slice's migration at merge time so it sorts after every released one.
+1. **Pricing recovery.** Refresh the bundled Poyo.ai v2 feed with `h3-max` first. Then publish a ToAPIs v2 feed that prices Seedream 5.5 reference images ($0.0064 each, added 2026-11-24), with the collector still failing closed on any other change, and bundle it.
+2. **Real clips save.** The owner-approved clips from 2026-11-24 (Poyo.ai H3 Max, 50 credits; ToAPIs Seedance 2.5, 77.66 credits) both fail `verifyVideoFile` on `5321d7f`: a top-level C2PA `uuid` box on both, and on Seedance an AAC track whose `mdhd` excludes its one priming access unit. Accept exactly these structures under a council-confirmed D6 revision and re-arm the clips Save already held for them. The originals stay outside git in the orchestration audit directory (`audit/realclip/`), identified by SHA-256.
 
-## Order to v0.1.0
+### Checkpoint: real clips
 
-1. **Pricing recovery.** Refresh the bundled Poyo.ai feed with `h3-max` first. Then publish a ToAPIs v2 feed that prices Seedream 5.5 reference images ($0.0064 each, added 2026-11-24), with the collector still failing closed on any other change.
-2. **Documentation sync.** Capability map, promoted decisions and this plan.
-3. **Real clips save.** The owner-approved clips from 2026-11-24 (Poyo.ai H3 Max, 50 credits; ToAPIs Seedance 2.5, 77.66 credits) both fail `verifyVideoFile`: a top-level C2PA `uuid` box, and a Seedance AAC track whose `mdhd` is one frame shorter than `stts`. Accept exactly these structures under D6 and prove it with fixtures built from their recorded structure.
-4. **Per-mode video Save limits.** Spec, council, implementation. Then rebase [#62](https://github.com/edbfi/siluet/pull/62) (Seedance URL edit) without its over-12 s disclosure and merge it.
-5. **Cross-cutting security review**, recorded with its findings and dispositions.
-6. **README essentials** for a creator.
-7. **Release preparation.** Release notes list each operation as verified, Review-only or pending. Set `package.json` to `0.1.0` and hand the tag to the owner.
+- [ ] The D6 revision is council-confirmed.
+- [ ] Both untouched originals pass `verifyVideoFile` from `src/`.
+- [ ] `ci-ok` is green on the merged commit.
+
+## Phase 2 · after the real-clip fix
+
+Both changes touch `mp4.ts`, so this phase waits for Phase 1's real-clip fix.
+
+3. **Per-mode video Save limits.** Spec, council, implementation.
+4. **Seedance URL edit.** Rebase [#62](https://github.com/edbfi/siluet/pull/62) onto the per-mode limits without its over-12 s disclosure, then merge it.
+
+### Checkpoint: video modes
+
+- [ ] Review states each mode's limits, and #62 is merged with green checks.
+
+## Phase 3 · last
+
+5. **Cross-cutting security review**, recorded as one short entry in [decisions](../docs/decisions.md).
+6. **README re-check** against shipped behaviour.
+7. **Release preparation.** Write the coverage table for the GitHub-generated notes, citing the real-clip results from Phase 1. Set `package.json` to `0.1.0` and hand the tag to the owner.
 
 ### Checkpoint: release
 
@@ -26,19 +40,20 @@ Lanes run in parallel where the order allows. One integrator merges in order and
 
 ## After v0.1.0
 
-1. Slice G, the catalog engine, spec first.
-2. R6a WAV audio reference: public URL, then local WAV.
-3. R10 layer decomposition.
-4. R5b source-video edit from one local MP4.
-5. R11 Happy Horse.
-6. R12 extension, after its spec is re-reviewed.
+1. Catalog engine (slice G), spec first.
+2. WAV audio reference (R6a): public URL, then local WAV.
+3. Layer decomposition (R10).
+4. Source-video edit from one local MP4 (R5b).
+5. Happy Horse (R11).
+6. Extension (R12), after its spec is re-reviewed.
 
-Deferred: R7 external sign-in, passkeys, MKV, metadata export, Gallery paging, cancellation and ToAPIs balance.
+Deferred: external sign-in (R7), passkeys, MKV, metadata export, Gallery paging, cancellation and ToAPIs balance.
 
 ## Risks
 
 | Risk | Mitigation |
 | --- | --- |
-| A real clip fails `verifyVideoFile` | Fix the verifier or the per-mode limits before tagging; do not ship the family as verified. |
+| A new mode or the Seedance URL edit (#62) produces a structure the verifier refuses | The tag waits ([D11](../docs/decisions.md#d11--v010-is-a-scoped-preview)). Fix the verifier or the mode's limits; never ship the family as verified. |
+| The real-clip originals are lost | Regenerating them needs express owner approval. Keep them by SHA-256 outside git. |
 | macOS runners stay unavailable, so `ci-ok` fails on main | Rerun the cancelled jobs; the tagged commit needs a green run. |
-| Feeds age past 30 days before the tag | Refresh the bundle in release preparation. |
+| Feeds fall within 14 days of expiry before the tag | Refresh the published and bundled feeds in release preparation. |
