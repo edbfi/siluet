@@ -26,8 +26,8 @@ Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scop
 - [x] Generate one real clip per shipped video family with owner approval (2026-11-24): Poyo.ai H3 Max 5 s 480p for 50 credits, ToAPIs Seedance 2.5 4 s 480p for 77.66 credits. Both fail `verifyVideoFile` on `5321d7f`. Originals are kept outside git in `audit/realclip/`, SHA-256 `0942ac5a…be96d` (H3 Max) and `bad803dc…76363` (Seedance).
 - [ ] The council confirms the D6 revision for these structures.
 - [ ] On the release candidate, both untouched originals pass `verifyVideoFile` from `src/`, with its output and their SHA-256 recorded, and the saved bytes stay the provider's.
-- [ ] CI fixtures built from the recorded structures pass, while another `uuid` box, a bad JUMBF or `jumd`, a C2PA box over 1 MiB and, under the AAC priming exception, over-priming, non-1,024-sample AAC frames and an edit past the first sample are refused.
-- [ ] Completed, unsaved clips held for an MP4 refusal the fix now accepts re-arm once: those with unexpired links save with one status read and no generation call; expired ones settle as expired with zero status reads.
+- [x] CI fixtures built from the recorded structures pass, while another `uuid` box, a bad JUMBF or `jumd`, a C2PA box over 1 MiB and, under the AAC priming exception, over-priming, non-1,024-sample AAC frames and an edit past the first sample are refused.
+- [x] Completed, unsaved clips held for an MP4 refusal the fix now accepts re-arm once: those with unexpired links save with one status read and no generation call; expired ones settle as expired with zero status reads.
 - [ ] The council confirms the per-mode video Save limits spec, the implementation merges, and Review states each mode's limits.
 - [ ] [#62](https://github.com/edbfi/siluet/pull/62) is rebased onto the per-mode limits without its over-12 s disclosure, passes its checks and merges.
 - [ ] A cross-cutting security review is recorded as one short entry in `docs/decisions.md` with its scope, date, findings and their dispositions, and every blocker is resolved or explicitly accepted by the owner.
