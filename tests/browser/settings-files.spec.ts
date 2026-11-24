@@ -238,6 +238,36 @@ test("the access Retry link and a back-forward restore keep the offer", async ({
 	});
 });
 
+test("a save whose answer is lost shows what was stored", async ({ page }) => {
+	await withStudio(async (studio) => {
+		const { origin } = studio;
+		await claim(page, studio);
+		await page.goto(new URL("/settings/files", origin).href);
+		let stateFails = false;
+		await page.route("**/settings/files", async (route) => {
+			if (route.request().method() !== "POST") return route.fallback();
+			// The save reaches the server and commits; its answer is lost.
+			await route.fetch();
+			return route.abort();
+		});
+		await page.route("**/settings/files/state", (route) =>
+			stateFails ? route.abort() : route.fallback(),
+		);
+		await cleaningSwitch(page).click();
+		await expect(page.getByRole("status")).toHaveText("Saved.");
+		await expect(cleaningSwitch(page)).not.toBeChecked();
+		await expect(page.getByText(/Siluet sends each file exactly as attached/)).toBeVisible();
+		expect(await stored(page, origin.href)).toEqual({ enabled: false, revision: 1 });
+		// When the stored value cannot be read either, the page says so.
+		stateFails = true;
+		await cleaningSwitch(page).click();
+		await expect(page.getByRole("status")).toHaveText(
+			"Siluet could not confirm whether this setting was saved. Reload Settings to check.",
+		);
+		expect(await stored(page, origin.href)).toEqual({ enabled: true, revision: 2 });
+	});
+});
+
 async function secondTab(browser: Browser, page: Page, origin: string) {
 	const context = await browser.newContext({ storageState: await page.context().storageState() });
 	const other = await context.newPage();

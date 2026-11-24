@@ -28,6 +28,17 @@ $effect(() => {
 onMount(() => {
 	enhanced = true;
 });
+async function readStored() {
+	const response = await fetch("/settings/files/state", { cache: "no-store" }).catch(() => null);
+	const value: { enabled?: unknown; revision?: unknown } | null = response?.ok
+		? await response.json().catch(() => null)
+		: null;
+	return typeof value?.enabled === "boolean" &&
+		typeof value.revision === "number" &&
+		Number.isSafeInteger(value.revision)
+		? { enabled: value.enabled, revision: value.revision }
+		: null;
+}
 const panel = css({
 	maxWidth: "40rem",
 	display: "grid",
@@ -65,19 +76,38 @@ const action = css({ justifySelf: "start", minHeight: "44px", paddingInline: "1r
 			use:enhance={() => {
 				pending = true;
 				return async ({ result }) => {
-					pending = false;
-					if (result.type === "redirect") return applyAction(result);
+					if (result.type === "redirect") {
+						pending = false;
+						return applyAction(result);
+					}
 					const saved = (
 						(result.type === "success" || result.type === "failure") && result.data
 							? result.data
 							: {}
 					) as { enabled?: boolean; revision?: number; message?: string };
-					if (typeof saved.revision === "number")
+					if (typeof saved.revision === "number") {
 						stored = { enabled: !!saved.enabled, revision: saved.revision };
-					// A save that failed outright leaves the stored value; outside the offer the
-					// switch shows it again. The offer keeps the choice until Continue.
-					if (typeof saved.revision === "number" || !data.offer) enabled = stored.enabled;
-					status = saved.message ?? "Siluet could not save this setting. Try again.";
+						enabled = stored.enabled;
+						status = saved.message ?? null;
+						pending = false;
+						return;
+					}
+					// With no stored value in the answer the save may still have committed, so
+					// read it. Outside the offer the switch shows it; the offer keeps the choice
+					// until Continue.
+					const current = await readStored();
+					pending = false;
+					if (!current) {
+						status =
+							"Siluet could not confirm whether this setting was saved. Reload Settings to check.";
+						return;
+					}
+					const committed = current.revision !== stored.revision && current.enabled === enabled;
+					stored = current;
+					if (!data.offer) enabled = stored.enabled;
+					status = committed
+						? "Saved."
+						: (saved.message ?? "Siluet could not save this setting. Try again.");
 				};
 			}}
 		>
