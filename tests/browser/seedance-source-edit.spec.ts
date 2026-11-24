@@ -193,6 +193,10 @@ test("a source-video edit reviews by keyboard, queues once, saves automatically 
 		await expect
 			.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
 			.toBeGreaterThan(0);
+		await video.press("ArrowRight");
+		await expect
+			.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
+			.toBeGreaterThan(1);
 		const [file] = await Promise.all([
 			page.waitForEvent("download"),
 			page.getByRole("link", { name: "Download video" }).press("Enter"),
@@ -201,9 +205,8 @@ test("a source-video edit reviews by keyboard, queues once, saves automatically 
 		// Zero source-host reads from the browser, and zero server fetches or DNS resolutions.
 		expect(browserReads.filter((url) => url.includes(sourceHost))).toEqual([]);
 		expect(fixture.requests.filter((request) => request.path === "/unexpected")).toEqual([]);
-		expect(
-			fixture.requests.filter((request) => request.path.startsWith("/dns/")).map((r) => r.path),
-		).not.toContainEqual(`/dns/${sourceHost}`);
+		// Nothing in this journey resolves a name, so any lookup at all is a regression.
+		expect(fixture.requests.filter((request) => request.path.startsWith("/dns/"))).toEqual([]);
 		expect(fixture.requests.filter((request) => request.path.includes("source-sentinel"))).toEqual(
 			[],
 		);
