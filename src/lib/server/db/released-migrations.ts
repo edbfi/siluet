@@ -48,6 +48,10 @@ const released = [
 		"e1429b7904954e458f4e00f0648f04bac254dd7ae8deedbead819601edf6e4c5",
 		"20261124120000_seedream_ordered_files",
 	],
+	[
+		"c4d05c681441475cfd9520da666e80060d1cc0b22d486918644187243e39b317",
+		"20261125120000_video_profile_rearm",
+	],
 ] as const;
 
 /** Released migration name → SQL digest. */

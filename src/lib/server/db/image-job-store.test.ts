@@ -59,7 +59,13 @@ test("no business_id truthiness test remains outside the job helpers", async () 
 	const sqlSites: Record<string, number> = {};
 	const root = resolve(import.meta.dir, "../../../..");
 	for await (const path of new Glob("src/**/*.{ts,svelte}").scan(root)) {
-		if (path.endsWith(".test.ts") || path.endsWith("video-schema.ts")) continue;
+		// Released migrations are fixed SQL text, so they spell the video test out.
+		if (
+			path.endsWith(".test.ts") ||
+			path.endsWith("video-schema.ts") ||
+			path.endsWith("video-profile-rearm.ts")
+		)
+			continue;
 		const text = await Bun.file(resolve(root, path)).text();
 		if (truthiness.test(text)) offenders.push(path);
 		const count = text.match(sqlTest)?.length ?? 0;

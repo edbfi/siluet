@@ -11,6 +11,8 @@ import { migrationsAs2 } from "../../../../tests/fixtures/db/migrations-as2";
 import { migrationsR1b } from "../../../../tests/fixtures/db/migrations-r1b";
 import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
 import { referencePng } from "../../../../tests/fixtures/reference-image";
+import { box, h264Aac } from "../../../../tests/fixtures/video/mp4-boxes";
+import { h3MaxShape, seedanceShape } from "../../../../tests/fixtures/video/real-clips";
 import { createAutoSave } from "../services/gallery/auto-save";
 import { galleryStorage } from "../services/gallery/storage";
 import { createJobTracking } from "../services/jobs/tracking";
@@ -538,3 +540,219 @@ test("the R2 migration names every released file phase, so none falls through", 
 	for (const phase of filePhases) expect(backfill).toContain(`WHEN '${phase}' THEN`);
 	expect(backfill).not.toContain("ELSE");
 });
+
+// Every migration released before the real-clip version; their digests are pinned in
+// released-migrations.ts.
+const realClipHistory = Object.fromEntries(
+	Object.entries(installationMigrations).filter(
+		([name]) => name <= "20261124120000_seedream_ordered_files",
+	),
+);
+
+test("refused MP4 clips are re-armed once and save with one status read and no POST", async () => {
+	const directory = await createOwnerDirectory();
+	const start = Date.parse("2026-11-25T00:00:00Z");
+	let now = start;
+	try {
+		await createInstallation37(
+			directory,
+			async (db) => {
+				const job = (
+					id: string,
+					video: "poyo" | "toapis" | null,
+					hold: string,
+					pause: string | null = null,
+					expires: number | null = null,
+				) =>
+					db.run(sql`INSERT INTO image_job
+						(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,submission_recorded_at,
+						task_id,business_id,video_terms,save_hold,pause_reason,expires_at)
+						VALUES (${id},${`${id}-binding`},${video === "toapis" ? "toapis" : "poyo"},1,'{}','completed',
+						${video === "toapis" ? "seedance-2-5" : video === "poyo" ? "h3-max" : "seedream-5.5"},
+						1,120002,2,${`${id}-task`},${video === "toapis" ? `${id}-business` : null},
+						${video === "poyo" ? "[]" : null},${hold},${pause},${expires})`);
+				await job("poyo-held", "poyo", "unsupported");
+				await job("toapis-held", "toapis", "unsupported");
+				await job("still-bad", "toapis", "unsupported");
+				await job("provider-flagged", "toapis", "unsupported", "unsupported-video-result");
+				// Flagged by the provider, then a later read replaced the note (recordStatus).
+				await job("flag-overwritten", "toapis", "unsupported", "unknown-status");
+				await job("expired-held", "toapis", "unsupported", null, 5);
+				await job("webm", "toapis", "webm");
+				await job("removed", "poyo", "removed");
+				await job("failed", "toapis", "failed");
+				await job("image-unsupported", null, "unsupported");
+				await job("has-item", "toapis", "unsupported");
+				await db.run(sql`INSERT INTO gallery_image (job_id,state,mime,width,height,size,digest,saved_at)
+					VALUES ('has-item','unavailable','image/png',1,1,1,'d',3)`);
+			},
+			undefined,
+			realClipHistory,
+		);
+
+		const served = {
+			"/h3.mp4": Buffer.from(h3MaxShape()),
+			"/seedance.mp4": Buffer.from(seedanceShape()),
+			"/junk.mp4": Buffer.concat([h264Aac(), box("junk")]),
+		} as Record<string, Buffer<ArrayBuffer>>;
+		const clip = (name: string) => `https://93.184.216.34${name}?sig=signed-sentinel`;
+		const toapisResult: Record<string, unknown> = {
+			"toapis-held": { type: "video", data: [{ url: clip("/seedance.mp4") }] },
+			"still-bad": { type: "video", data: [{ url: clip("/junk.mp4") }] },
+			"flag-overwritten": { type: "image", data: [{ url: clip("/image.png") }] },
+		};
+		const requests: string[] = [];
+		const transfers: string[] = [];
+		type Tracking = ReturnType<typeof createJobTracking>;
+		type Runtime = Awaited<ReturnType<typeof openRuntimeInstallation>>;
+		/** Open the runtime, let automatic Save finish, then `work` before closing. */
+		const run = async (work: (jobs: Tracking, installation: Runtime) => Promise<void>) => {
+			const installation = await openRuntimeInstallation(directory);
+			const store = providerStore(installation);
+			let jobs: Tracking | undefined;
+			let autoSave: ReturnType<typeof createAutoSave> | undefined;
+			try {
+				jobs = createJobTracking(installation, store, {
+					now: () => now,
+					random: () => 0,
+					fetch: async (url, init) => {
+						const path = new URL(url).pathname;
+						requests.push(`${init.method ?? "GET"} ${path}`);
+						const id =
+							path
+								.split("/")
+								.at(-1)
+								?.replace(/-task$/, "") ?? "";
+						if (path.startsWith("/v1/videos/generations/"))
+							return Response.json({
+								id: `${id}-task`,
+								object: "generation.task",
+								model: "seedance-2-5",
+								client_business_id: `${id}-business`,
+								status: "completed",
+								progress: 100,
+								result: toapisResult[id],
+							});
+						return Response.json({
+							code: 200,
+							data: {
+								task_id: `${id}-task`,
+								status: "finished",
+								files: [{ file_type: "video", file_url: clip("/h3.mp4") }],
+							},
+						});
+					},
+				});
+				await galleryStorage(installation).recover();
+				await saveIntentStore(installation).clearAbandoned();
+				await jobs.resume();
+				autoSave = createAutoSave(installation, {
+					readForSave: jobs.readForSave,
+					readability: store.jobReadability,
+					now: () => now,
+					transport: {
+						resolve: async () => "93.184.216.34",
+						request: async (url) => {
+							transfers.push(url.pathname);
+							return new Response(served[url.pathname]);
+						},
+					},
+				});
+				autoSave.start();
+				await Bun.sleep(5);
+				await autoSave.idle();
+				await work(jobs, installation);
+			} finally {
+				jobs?.close();
+				await autoSave?.close();
+				await installation.close();
+			}
+		};
+		const library = async (jobs: Tracking) =>
+			Object.fromEntries((await jobs.list()).map((job) => [job.id, job.library]));
+
+		// The upgrade alone re-arms the five held video rows and leaves every other hold.
+		const upgraded = await openRuntimeInstallation(directory);
+		try {
+			expect(await upgraded.use((db) => schemaFingerprint(db))).toBe(currentSchema);
+			const rows = await upgraded.use((db) =>
+				db.all<{ id: string; save_due: number | null; save_hold: string | null }>(
+					sql`SELECT id, save_due, save_hold FROM image_job ORDER BY id`,
+				),
+			);
+			expect(
+				Object.fromEntries(rows.map((row) => [row.id, [row.save_due, row.save_hold]])),
+			).toEqual({
+				"expired-held": [0, null],
+				failed: [null, "failed"],
+				"flag-overwritten": [0, null],
+				"has-item": [null, "unsupported"],
+				"image-unsupported": [null, "unsupported"],
+				"poyo-held": [0, null],
+				"provider-flagged": [null, "unsupported"],
+				removed: [null, "removed"],
+				"still-bad": [0, null],
+				"toapis-held": [0, null],
+				webm: [null, "webm"],
+			});
+			const store = providerStore(upgraded);
+			await store.save("poyo", "fixture-poyo", start, true, 0);
+			await store.save("toapis", "fixture-toapis", start, false, 0);
+		} finally {
+			await upgraded.close();
+		}
+
+		await run(async (jobs, installation) => {
+			// One status read per re-armed, readable clip and no generation request.
+			expect(requests.toSorted()).toEqual([
+				"GET /api/generate/status/poyo-held-task",
+				"GET /v1/videos/generations/still-bad-task",
+				"GET /v1/videos/generations/toapis-held-task",
+			]);
+			expect(transfers.toSorted()).toEqual(["/h3.mp4", "/junk.mp4", "/seedance.mp4"]);
+			expect(await library(jobs)).toEqual({
+				"expired-held": "expired",
+				failed: "failed",
+				"flag-overwritten": "paused",
+				"has-item": "unavailable",
+				"image-unsupported": "unsupported",
+				"poyo-held": "saved",
+				"provider-flagged": "unsupported",
+				removed: "removed",
+				"still-bad": "unsupported",
+				"toapis-held": "saved",
+				webm: "webm",
+			});
+			const gallery = galleryStorage(installation);
+			for (const [id, path] of [
+				["poyo-held", "/h3.mp4"],
+				["toapis-held", "/seedance.mp4"],
+			] as const) {
+				const saved = await gallery.openVideo(id);
+				try {
+					expect(await saved?.handle.readFile()).toEqual(served[path]);
+				} finally {
+					await saved?.handle.close();
+				}
+			}
+			// Past the provider's read spacing, Refresh reads the overwritten row once; the
+			// provider still reports no video.
+			now = start + 60_000;
+			await jobs.refresh("flag-overwritten");
+			expect((await library(jobs))["flag-overwritten"]).toBe("unsupported");
+			const rows = await installation.use((db) => db.all(sql`SELECT * FROM image_job`));
+			expect(JSON.stringify(rows)).not.toContain("signed-sentinel");
+		});
+		expect(requests).toHaveLength(4);
+		expect(requests).toContain("GET /v1/videos/generations/flag-overwritten-task");
+
+		// A restart reads and downloads nothing more.
+		await run(async (jobs) => {
+			expect((await library(jobs))["toapis-held"]).toBe("saved");
+		});
+		expect(requests).toHaveLength(4);
+		expect(transfers).toHaveLength(3);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}, 30_000);
