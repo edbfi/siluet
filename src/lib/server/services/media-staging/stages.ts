@@ -244,8 +244,8 @@ export function createStages(
 		draft: d.draft,
 	});
 	/**
-	 * Check every stage (live, unclaimed, unchanged, in its own draft and, when given,
-	 * prepared under `revision`) before extending any deadline. A stale stage extends
+	 * Check every stage (live, unchanged, in its own draft and, when given, prepared under
+	 * `revision`) before extending any deadline. A stale stage extends
 	 * nothing and answers with the indexes to prepare again.
 	 */
 	function reviewAll<D extends MediaDescriptor>(
@@ -259,7 +259,6 @@ export function createStages(
 				return stage &&
 					same(stage.scope, scoped(scope, d)) &&
 					live(stage) &&
-					!stage.holder &&
 					matches(stage.descriptor, d) &&
 					(revision === undefined || stage.revision === revision)
 					? stage
