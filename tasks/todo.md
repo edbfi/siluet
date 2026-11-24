@@ -114,3 +114,13 @@ Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scop
 - [x] Explain a refused or unreadable frame by operation; follow asset review past automatic tracking to Save and Retry download with one POST (`video.test.ts`, `summary.test.ts`, `tracking.test.ts`).
 - [x] Review both modes by keyboard at desktop and 320 px, queue once, save and reopen offline with zero frame-host reads (`seedance-keyframes.spec.ts`).
 - [x] Hosted `smoke` (Linux x64) passes the keyframe journey; `native-owner` (macOS) keeps passing its existing video checks.
+
+## Seedance source-video edit (R5a)
+
+- [x] Register Edit video on ToAPIs after the keyframes, with a partial ledger profile (`ledger.test.ts`).
+- [x] Send one source URL exactly as trimmed in `video_with_roles` with `duration: -1` and adaptive framing; refuse a duration, ratio, 1080p, wrong role or slot count, 2,049-byte URL and non-public source with zero calls (`source-edit.test.ts`, `request.test.ts`).
+- [x] Quote the $6 video-input rate, bind the six disclosures and exact source to Review, and keep source URLs and hosts out of job rows (`video.test.ts`).
+- [x] Name the source clip in confirmed refusals and failures; keep undocumented codes uncertain; follow asset review to Save, Retry download, expiry and a held 15-second edit with one POST (`video.test.ts`, `summary.test.ts`, `tracking.test.ts`).
+- [x] Review by keyboard at desktop and 320 px, queue once, save and reopen offline with zero source-host reads or DNS resolutions (`seedance-source-edit.spec.ts`).
+- [ ] The owner confirms disclosure and consent for edits Gallery cannot save (over 12 seconds) before merge; a decline ships Edit video Review-only.
+- [ ] Hosted `smoke` (Linux x64) passes the edit journey; `native-owner` (macOS) keeps passing its existing video checks.
