@@ -6,7 +6,9 @@ import { createStages, type StageOptions } from "../media-staging/stages";
 export async function openTestStages(installation: RuntimeInstallation, options?: StageOptions) {
 	const pool = createScratchPool(installation);
 	await pool.reclaim();
-	return createStages(await pool.scope("image"), options);
+	const scratch = await pool.scope("image");
+	// The scratch directory lets a test change a staged file behind the store's back.
+	return Object.assign(createStages(scratch, options), { directory: scratch.directory });
 }
 
 /** A claim handle over fixed bytes, as the stage store hands one to the dispatcher. */

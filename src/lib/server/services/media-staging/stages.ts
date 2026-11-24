@@ -38,8 +38,8 @@ export type ClaimHandle = {
 };
 export type ClaimResult =
 	| { held: ClaimHandle }
-	/** Indexes whose stages are missing, expired, changed or retired. */
-	| { stale: number[] }
+	/** Indexes whose stages are missing, expired, changed or retired; `changed` when a read failed verification. */
+	| { stale: number[]; changed?: true }
 	/** The commit refused for its own reasons; every stage stays staged. */
 	| { refused: true }
 	/** An identical claim held these stages. Look up its job before admitting again. */
@@ -397,8 +397,12 @@ export function createStages(
 			}
 		} catch (error) {
 			if (!committed) {
+				// A changed, missing or expired stage names its positions.
+				const stale = invalid();
+				if (stale.length && error instanceof ChangedStage) return { stale, changed: true };
+				if (stale.length && error instanceof StageError) return { stale };
 				const aborted = claimed.some((stage) => stage.readers.signal.aborted);
-				if (aborted && !(error instanceof ChangedStage)) return { stale: invalid() };
+				if (aborted && !(error instanceof ChangedStage)) return { stale };
 			}
 			throw error;
 		} finally {
@@ -453,6 +457,7 @@ export function createStages(
 			crypto.randomUUID(),
 			(valid, durable, modes) => commit(valid, durable, modes[0]),
 		);
+		if ("changed" in result) throw new ChangedStage();
 		if (!("held" in result)) return null;
 		const { held } = result;
 		return { bytes: await held.next(0), release: () => void held.release() };

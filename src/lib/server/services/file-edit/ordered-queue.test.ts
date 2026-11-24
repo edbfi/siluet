@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash, createHmac } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { filePlaceholder } from "../../../shared/image-studio/file-edit";
@@ -11,7 +12,7 @@ import { imageJobStore } from "../../db/image-job-store";
 import type { Installation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation } from "../../db/runtime-installation";
-import type { StageOptions } from "../media-staging/stages";
+import { type StageOptions, stageIdleMs } from "../media-staging/stages";
 import { acceptedFileBinding, r1bReviewSignature } from "./accepted-binding";
 import { fileDispatcher } from "./dispatch";
 import { createFileQueue } from "./queue";
@@ -210,6 +211,66 @@ test("Review extends nothing when one slot is stale, and Queue names an expired 
 	await h.stages.discardDraft({ ...owner, draft: d.draft });
 	expect(await h.queue.submit(owner, click)).toEqual({ error: "stale", positions: [2] });
 	expect(await jobs(h)).toEqual([]);
+});
+
+test("a corrupt scratch copy at claim answers stale with its position", async () => {
+	const h = await harness("toapis");
+	const [a, b, c] = [await h.stage(1), await h.stage(2), await h.stage(3)];
+	const { click } = await h.review(h.request([a, b, c]));
+	await writeFile(join(h.stages.directory, c.handle), new Uint8Array([9]));
+	expect(await h.queue.submit(owner, click)).toEqual({ error: "stale", positions: [3] });
+	expect(await jobs(h)).toEqual([]);
+	expect(h.uploads).toEqual([]);
+});
+
+test("a slot that expires after the job row is written answers stale with its position", async () => {
+	let stageClock = Date.now();
+	let expireAfterInsert = false;
+	const h = await harness("toapis", {
+		stages: { now: () => stageClock },
+		// The job row's INSERT is the only statement in the claim that returns an id.
+		wrap: (db) => ({
+			...db,
+			use: (work) =>
+				db.use((tx) =>
+					work(
+						new Proxy(tx, {
+							get(target, key) {
+								if (key !== "transaction") return Reflect.get(target, key);
+								return (run: (trx: unknown) => Promise<unknown>, options: unknown) =>
+									target.transaction(
+										(trx) =>
+											run(
+												new Proxy(trx, {
+													get(inner, name) {
+														if (name !== "get") return Reflect.get(inner, name);
+														return async (query: Parameters<typeof inner.get>[0]) => {
+															const row = await inner.get(query);
+															if (
+																expireAfterInsert &&
+																row &&
+																typeof row === "object" &&
+																"id" in row
+															)
+																stageClock += stageIdleMs + 1;
+															return row;
+														};
+													},
+												}),
+											) as never,
+										options as never,
+									);
+							},
+						}),
+					),
+				),
+		}),
+	});
+	const { click } = await h.review(h.request([url, await h.stage(2)]));
+	expireAfterInsert = true;
+	expect(await h.queue.submit(owner, click)).toEqual({ error: "stale", positions: [2] });
+	expect(await jobs(h)).toEqual([]);
+	expect(h.uploads).toEqual([]);
 });
 
 test("an unreadable setting answers unavailable before and inside the claim", async () => {
