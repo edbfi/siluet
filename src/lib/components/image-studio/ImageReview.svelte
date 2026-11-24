@@ -155,8 +155,9 @@ let submitted = $state.raw<{ body: object; stage: StageDescriptor } | null>(null
 let authorized = $state.raw<{ request: QueueInput; terms: ReviewTerms } | null>(null);
 let pending = $state<"review" | "queue" | null>(null);
 let acceptedToken = $state<string | null>(null);
-// About `request`, or with `request: null` about the earlier request a Retry resends.
-let feedback = $state.raw<{ request: QueueInput | null; message: string } | null>(null);
+let feedback = $state.raw<{ request: QueueInput; message: string } | null>(null);
+// The answer to a Retry. It concerns the earlier request, never this form's Review.
+let retryMessage = $state<string | null>(null);
 let tabValue = $state("review");
 let mounted = true;
 onDestroy(() => {
@@ -194,7 +195,7 @@ $effect(() => {
 		authorized = null;
 		acceptedToken = null;
 	}
-	if (feedback?.request && feedback.request !== request) feedback = null;
+	if (feedback && feedback.request !== request) feedback = null;
 });
 
 function post(path: string, body: object) {
@@ -250,6 +251,7 @@ async function inspect() {
 	acceptedToken = null;
 	authorized = null;
 	feedback = null;
+	retryMessage = null;
 	tabValue = "review";
 	try {
 		const response = await post(input.stage ? "/image/file-review" : "/image/review", {
@@ -294,8 +296,10 @@ async function inspect() {
 async function sendFile(body: object, stage: StageDescriptor, input: QueueInput | null) {
 	pending = "queue";
 	feedback = null;
+	retryMessage = null;
 	const tell = (message: string) => {
-		feedback = { request: input, message };
+		if (input) feedback = { request: input, message };
+		else retryMessage = message;
 	};
 	const refused = () => {
 		submitted = null;
@@ -310,7 +314,9 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 			return;
 		}
 		if (response.status === 413) {
-			tell(fileLimitMessage(await response.json().catch(() => null), fileWord));
+			// The words describe the copy this body carries, which a Retry may not share with the form.
+			const sent = stage.transform === "original" ? "file" : "cleaned copy";
+			tell(fileLimitMessage(await response.json().catch(() => null), sent));
 			return;
 		}
 		if (response.status === 409) {
@@ -328,12 +334,19 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 				);
 				return;
 			}
-			if (!input) return refused();
+			if (!input) {
+				if (result?.error !== "stale") throw new Error();
+				return refused();
+			}
 			renewFile();
 			return;
 		}
 		if (response.status === 400) {
-			if (!input) return refused();
+			if (!input) {
+				const result: { error?: unknown } | null = await response.json().catch(() => null);
+				if (result?.error !== "invalid") throw new Error();
+				return refused();
+			}
 			authorized = null;
 			acceptedToken = null;
 			tell("Review the file again before queuing.");
@@ -727,26 +740,29 @@ $effect(() => {
 		>
 			{pending === "queue" ? "Queuing…" : `Queue ${count} ${count === 1 ? "request" : "requests"}`}
 		</button>
-		{#if submitted}
-			<button
-				type="button"
-				class={styles.queue}
-				disabled={!!pending}
-				onclick={retrySubmitted}
-				aria-describedby={`${headingId}-retry`}
-			>
-				Retry
-			</button>
-			<p id={`${headingId}-retry`} class={styles.exposure}>
-				Retry resends the earlier reviewed request unchanged, whatever this form now shows.
-			</p>
+		{#if submitted || retryMessage}
+			{#if submitted}
+				<button
+					type="button"
+					class={styles.queue}
+					disabled={!!pending}
+					onclick={retrySubmitted}
+					aria-describedby={`${headingId}-retry`}
+				>
+					Retry
+				</button>
+				<p id={`${headingId}-retry`} class={styles.exposure}>
+					Retry resends the earlier reviewed request unchanged, whatever this form now shows.
+				</p>
+			{/if}
+			<p class={styles.exposure} aria-live="polite">{retryMessage ?? ""}</p>
 		{/if}
 		<p id={`${headingId}-exposure`} class={styles.exposure} aria-live="polite">
 			Up to {maxAttempts} potentially billable {maxAttempts === 1 ? "submission" : "submissions"}.
 		</p>
 	</div>
 	<p id={`${headingId}-availability`} class={styles.note} role="status">
-		{#if feedback && (feedback.request === null || feedback.request === request)}
+		{#if feedback && feedback.request === request}
 			{feedback.message}
 		{:else if unavailable}
 			{unavailable}

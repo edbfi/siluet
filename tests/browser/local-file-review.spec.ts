@@ -157,6 +157,62 @@ test("a lost Queue response keeps the request, and Retry sends exactly it again"
 	});
 });
 
+test("Retry's answers stay beside Retry and only a definite refusal drops the request", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
+		const { file, inspect, consent, queue, review } = await openEdit(page, origin);
+		await file.setInputFiles(await markedFile("png"));
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+		await inspect.press("Enter");
+		await consent.press("Space");
+		const answers = [
+			{ status: 409, body: "" },
+			{
+				status: 413,
+				contentType: "application/json",
+				body: JSON.stringify({ error: "limit", provider: "toapis", limit: 30e6, size: 31e6 }),
+			},
+			{ status: 409, contentType: "application/json", body: JSON.stringify({ error: "stale" }) },
+		];
+		let lost = true;
+		await page.route("**/image/file-queue", (route) => {
+			if (lost) {
+				lost = false;
+				return route.abort();
+			}
+			const answer = answers.shift();
+			return answer ? route.fulfill(answer) : route.fallback();
+		});
+		await queue.press("Enter");
+		await expect(review.getByRole("status")).toContainText("Queue confirmation is unavailable");
+		// The earlier request carries the cleaned copy; the form now prepares an original.
+		await changeElsewhere(page, origin, false);
+		await shown(page);
+		await expect(file).toHaveAccessibleDescription(/File checked · Not cleaned\./);
+		const retry = review.getByRole("button", { name: "Retry", exact: true });
+		// An answer that cannot be read is not a refusal.
+		await retry.press("Enter");
+		await expect(review.getByText("Queue confirmation is unavailable")).toBeVisible();
+		await expect(retry).toBeVisible();
+		await retry.press("Enter");
+		await expect(
+			review.getByText(
+				"ToAPIs accepts files up to 30.0 MB; this cleaned copy is 31.0 MB. Export a smaller image.",
+			),
+		).toBeVisible();
+		await retry.press("Enter");
+		await expect(review.getByText("The earlier request was not queued.")).toBeVisible();
+		await expect(retry).toHaveCount(0);
+		// The refusal concerns the earlier request; this form's status and Review stay.
+		await expect(review.getByRole("status")).toHaveText(
+			"Review the completed request to confirm its current terms.",
+		);
+		await expect(inspect).toBeEnabled();
+		expect(fixtures.uploads).toHaveLength(0);
+	});
+});
+
 test("a single WebP keeps the URL-only reason", async ({ page }) => {
 	await withEditStudio(page, "toapis", "completed", async ({ origin }) => {
 		const { file, queue, inspect } = await openEdit(page, origin);
@@ -241,7 +297,7 @@ test("a refused Retry keeps a newer Review and its consent", async ({ page }) =>
 		await expect(queue).toBeEnabled();
 		const retry = review.getByRole("button", { name: "Retry", exact: true });
 		await retry.press("Enter");
-		await expect(review.getByRole("status")).toContainText("The earlier request was not queued.");
+		await expect(review.getByText("The earlier request was not queued.")).toBeVisible();
 		await expect(retry).toHaveCount(0);
 		await expect(consent).toBeChecked();
 		await expect(queue).toBeEnabled();
@@ -278,7 +334,7 @@ test("Retry after an edit resends the earlier request and says so", async ({ pag
 		// With no valid request in the composer, a Retry's lost answer is still reported.
 		await promptBox.fill("");
 		await retry.press("Enter");
-		await expect(review.getByRole("status")).toContainText("Queue confirmation is unavailable");
+		await expect(review.getByText(/^Queue confirmation is unavailable/)).toBeVisible();
 		await retry.press("Enter");
 		await expect(page).toHaveURL(/\/jobs/);
 		expect(bodies).toHaveLength(3);
