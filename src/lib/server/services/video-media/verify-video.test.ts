@@ -14,7 +14,11 @@ import {
 	topLevelBox,
 	undecodableH264Aac,
 } from "../../../../../tests/fixtures/video/mp4-boxes";
-import { h3MaxShape, seedanceShape } from "../../../../../tests/fixtures/video/real-clips";
+import {
+	h3MaxShape,
+	recordedClip,
+	seedanceShape,
+} from "../../../../../tests/fixtures/video/real-clips";
 import { TruncatedVideoError, UnsupportedVideoError } from "./errors";
 import { contentCredentialsByteLimit, movieByteLimit } from "./limits";
 import { verifyVideoFile } from "./verify-video";
@@ -246,4 +250,25 @@ test("a 1 MiB C2PA box and a 60 MiB mdat verify with under 64 KiB read", async (
 	const reads = await readsOfGrown(afterFileType(h264Aac(), c2paBox(contentCredentialsByteLimit)));
 	expect(Math.max(...reads)).toBeLessThanOrEqual(movieByteLimit);
 	expect(reads.reduce((a, b) => a + b, 0)).toBeLessThan(64 * 1024);
+});
+
+test("the recorded H3 Max and Seedance structures verify", async () => {
+	expect(await verifyVideoFile(await file(recordedClip("h3-max")))).toEqual({
+		width: 832,
+		height: 480,
+		duration: 5.166666666666667,
+		tracks: [
+			{ type: "video", samples: 124 },
+			{ type: "audio", samples: 162 },
+		],
+	});
+	expect(await verifyVideoFile(await file(recordedClip("seedance")))).toEqual({
+		width: 854,
+		height: 480,
+		duration: 4.064,
+		tracks: [
+			{ type: "video", samples: 97 },
+			{ type: "audio", samples: 128 },
+		],
+	});
 });
