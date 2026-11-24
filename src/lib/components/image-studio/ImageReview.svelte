@@ -806,7 +806,9 @@ $effect(() => {
 					(acceptedToken = event.currentTarget.checked ? (current?.token ?? null) : null)}
 			>
 			{current.files?.length
-				? `I accept the unknown total cost of the ${current.files.length === 1 ? "upload" : "uploads"} and edit.`
+				? current.files.length === 1
+					? "I accept the unknown total cost of the upload and edit, the provider access and retention terms above, and that the uploaded copy may stay accessible even if the edit never runs."
+					: "I accept the unknown total cost of the uploads and edit, the provider access and retention terms above, and that uploaded copies may stay accessible even if the edit never runs."
 				: count > 1 || retryLimit > 0
 					? "I accept unknown costs for this batch, including authorized retries and any applicable fallback."
 					: selectedProvider !== "toapis"

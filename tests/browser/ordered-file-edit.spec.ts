@@ -117,7 +117,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 						await expect(outgoing).not.toContainText(marker);
 					await review.getByRole("tab", { name: "Review", exact: true }).press("Enter");
 					await expect(consent).toHaveAccessibleName(
-						"I accept the unknown total cost of the uploads and edit.",
+						"I accept the unknown total cost of the uploads and edit, the provider access and retention terms above, and that uploaded copies may stay accessible even if the edit never runs.",
 					);
 					await consent.press("Space");
 					// Preparation and Review make no provider calls.

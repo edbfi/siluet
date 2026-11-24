@@ -56,7 +56,11 @@ for (const provider of ["poyo", "toapis"] as const) {
 					);
 					await expect(review.getByText(/\[hosted upload URL\]/)).toBeVisible();
 					await review.getByRole("tab", { name: "Review", exact: true }).press("Enter");
-					await review.getByRole("checkbox", { name: /unknown total cost/ }).press("Space");
+					const consent = review.getByRole("checkbox", { name: /unknown total cost/ });
+					await expect(consent).toHaveAccessibleName(
+						"I accept the unknown total cost of the upload and edit, the provider access and retention terms above, and that the uploaded copy may stay accessible even if the edit never runs.",
+					);
+					await consent.press("Space");
 					// Preparation and Review make no provider calls.
 					expect(fixtures.requests.length).toBe(before);
 					await review.getByRole("button", { name: "Queue 1 request" }).press("Enter");
