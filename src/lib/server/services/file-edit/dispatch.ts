@@ -1,7 +1,9 @@
 import { fileUploadRoutes } from "../../../shared/image-studio/file-edit";
 import { buildSeedreamRequest } from "../../../shared/image-studio/seedream";
 import {
+	type FileStop,
 	fileAttemptStore,
+	type StopFileJob,
 	startFileEdit,
 	startFileUpload,
 	undoFileEdit,
@@ -16,13 +18,20 @@ import {
 } from "../../db/poyo-upload-window";
 import { guardFilePost, pinFilePost } from "../../providers/file-post";
 import { createPoyoImage } from "../../providers/poyo/image";
+import type { ClaimHandle } from "../media-staging/stages";
 import { submitRetryAt } from "../queue/submit-gate";
 import type { FileRequest } from "./request";
 import { fileSendBoundary, recordEditCooldown } from "./send-boundary";
 import { sendFileEdit, uploadFile } from "./transfer";
 
 type SendStop = { reason: "interrupted" | "expired-link" } | { reason: "cooldown"; until: number };
-export type FileBuffer = { bytes: Uint8Array<ArrayBuffer>; release: () => void };
+type Hosted = { url: string; expiresAt?: number };
+
+/**
+ * Send one claimed file job: each file slot's upload in reference order, then one edit
+ * with every hosted URL in its slot. Each send boundary checks shutdown, the provider
+ * cooldown and, on Poyo.ai, the upload window. Any failure stops later uploads and the edit.
+ */
 export function fileDispatcher(
 	db: Installation,
 	owner: string,
@@ -38,82 +47,97 @@ export function fileDispatcher(
 ) {
 	const phases = fileAttemptStore(db, owner);
 	const jobs = imageJobStore(db);
-	return async (id: string, key: string, live: FileRequest, held: FileBuffer) => {
+	return async (
+		id: string,
+		key: string,
+		live: FileRequest,
+		held: ClaimHandle,
+		closing: () => boolean = () => false,
+	) => {
 		const provider = live.input.provider;
 		const finishWallet = async (job: ImageJob | undefined) => {
-			if (!job?.wallet_open) return;
+			if (!job?.wallet_open || job.state === "unknown") return;
 			const readable = await jobs.canReadFileWallet(id, owner, now());
 			const after = readable ? await balance(key).catch(() => null) : null;
 			await jobs.finishWallet(id, after, now(), owner);
 		};
-		let uploaded: Awaited<ReturnType<typeof uploadFile>>;
+		const stop = async (end: StopFileJob) => finishWallet(await phases.stop(id, end, now()));
+		const hosted = new Map<number, Hosted>();
+		// Every exact URL the edit will carry so far, by its 1-based position.
+		const sent = new Map<string, number>();
+		for (const [index, slot] of live.slots.entries())
+			if (slot.kind === "url") sent.set(slot.url, index + 1);
 		try {
 			if (!(await jobs.beginDispatch(id, provider, now(), owner))) return;
 			if (provider === "poyo")
 				await jobs.recordBefore(id, await balance(key).catch(() => null), now());
-			const read = await pin(fileUploadRoutes[provider], 60_000).catch(() => null);
-			if (!read) {
-				await phases.stop(id, { stop: "destination", slot: 1 }, now());
-				return;
-			}
-			const guard = guardFilePost(read);
-			let uploadStart: number | undefined;
-			const handoff = await fileSendBoundary<Awaited<ReturnType<typeof upload>>, SendStop>(
-				db,
-				provider,
-				"upload",
-				now,
-				async (tx, time) => {
-					if (provider === "poyo") {
-						const until = await nextPoyoUploadStart(tx, time);
-						if (until > time) return { reason: "cooldown", until };
-					}
-					if (!(await startFileUpload(tx, id, owner, 1, time))) return { reason: "interrupted" };
-					if (provider === "poyo") uploadStart = await recordPoyoUploadStart(tx, time);
-				},
-				() => upload(provider, key, live.stage, held.bytes, guard.read),
-				{
-					check: guard.check,
-					undo: async (tx, time) => {
-						await undoFileUpload(tx, id, owner, 1, time);
-						if (uploadStart !== undefined) await undoPoyoUploadStart(tx, uploadStart, time);
+			for (const [index, { position, stage }] of live.files.entries()) {
+				if (closing()) return await stop({ stop: "interrupted", slot: position });
+				const bytes = await held.next(index).catch(() => null);
+				if (!bytes) return await stop({ stop: "stage-changed", slot: position });
+				const read = await pin(fileUploadRoutes[provider], 60_000).catch(() => null);
+				if (!read) return await stop({ stop: "destination", slot: position });
+				const guard = guardFilePost(read);
+				let uploadStart: number | undefined;
+				const handoff = await fileSendBoundary<Awaited<ReturnType<typeof upload>>, SendStop>(
+					db,
+					provider,
+					"upload",
+					now,
+					async (tx, time) => {
+						if (closing()) return { reason: "interrupted" };
+						if (provider === "poyo") {
+							const until = await nextPoyoUploadStart(tx, time);
+							if (until > time) return { reason: "cooldown", until };
+						}
+						if (!(await startFileUpload(tx, id, owner, position, time)))
+							return { reason: "interrupted" };
+						if (provider === "poyo") uploadStart = await recordPoyoUploadStart(tx, time);
 					},
-				},
-			);
-			if (handoff.stop) {
-				const { reason } = handoff.stop;
-				const until = reason === "cooldown" ? handoff.stop.until : null;
-				await phases.stop(id, { stop: reason, slot: 1, until }, now());
-				return;
+					() => upload(provider, key, stage, bytes, guard.read),
+					{
+						check: guard.check,
+						undo: async (tx, time) => {
+							await undoFileUpload(tx, id, owner, position, time);
+							if (uploadStart !== undefined) await undoPoyoUploadStart(tx, uploadStart, time);
+						},
+					},
+				);
+				if (handoff.stop) {
+					const { reason } = handoff.stop;
+					const until = reason === "cooldown" ? handoff.stop.until : null;
+					return await stop({ stop: reason, slot: position, until });
+				}
+				const uploaded = await handoff.receipt.catch(() => ({ kind: "unknown" }) as const);
+				if (uploaded.kind === "unknown") return await stop({ outcome: "unknown" });
+				if (uploaded.kind === "rejected")
+					return await stop({ outcome: "rejected", rejection: uploaded.reason });
+				if (uploaded.kind === "stored") {
+					const reason: FileStop = uploaded.reason === "expired-link" ? "expired-link" : "unusable";
+					return await stop({ outcome: "unusable", stop: reason, slot: position });
+				}
+				// A hosted URL equal to a reviewed URL or an earlier receipt makes the edit impossible.
+				const other = sent.get(uploaded.url);
+				if (other !== undefined)
+					return await stop({ outcome: "stored", stop: "duplicate", slot: position, other });
+				sent.set(uploaded.url, position);
+				hosted.set(position, uploaded);
+				if (!(await phases.stored(id, position, now()))) return;
 			}
-			uploaded = await handoff.receipt.catch(() => ({ kind: "unknown" }) as const);
 		} finally {
-			held.release();
+			// Frees the buffer, the Poyo.ai upload slot and every copy not yet read.
+			await held.release();
 		}
-		if (uploaded.kind !== "ready") {
-			const job = await phases.stop(
-				id,
-				uploaded.kind === "unknown"
-					? { outcome: "unknown" }
-					: uploaded.kind === "stored"
-						? { outcome: "unusable", stop: "unusable", slot: 1 }
-						: { outcome: "rejected", rejection: uploaded.reason },
-				now(),
-			);
-			if (job?.state !== "unknown") await finishWallet(job);
-			return;
-		}
-		if (!(await phases.stored(id, 1, now()))) return;
-		const request = buildSeedreamRequest(live.input, () => uploaded.url);
+		const urls = live.slots.map((slot, index) =>
+			slot.kind === "url" ? slot.url : (hosted.get(index + 1)?.url ?? ""),
+		);
+		const request = buildSeedreamRequest(live.input, (_reference, index) => urls[index]);
 		const read = await pin(request.url, 30_000).catch(() => null);
-		if (!read) {
-			await finishWallet(await phases.stop(id, { stop: "destination" }, now()));
-			return;
-		}
+		if (!read) return stop({ stop: "destination" });
+		const expired = () =>
+			[...hosted].find(([, link]) => link.expiresAt !== undefined && now() >= link.expiresAt)?.[0];
 		const guard = guardFilePost(read, () =>
-			uploaded.expiresAt !== undefined && now() >= uploaded.expiresAt
-				? { reason: "expired-link" as const }
-				: undefined,
+			expired() !== undefined ? { reason: "expired-link" as const } : undefined,
 		);
 		const handoff = await fileSendBoundary<Awaited<ReturnType<typeof edit>>, SendStop>(
 			db,
@@ -121,7 +145,8 @@ export function fileDispatcher(
 			"edit",
 			now,
 			async (tx, time) => {
-				if (!(await startFileEdit(tx, id, owner, time))) return { reason: "interrupted" } as const;
+				if (closing() || !(await startFileEdit(tx, id, owner, time)))
+					return { reason: "interrupted" } as const;
 			},
 			() => edit(provider, key, request, guard.read),
 			{
@@ -131,15 +156,11 @@ export function fileDispatcher(
 		);
 		if (handoff.stop) {
 			const { reason } = handoff.stop;
-			const until = reason === "cooldown" ? handoff.stop.until : null;
-			await finishWallet(
-				await phases.stop(
-					id,
-					{ stop: reason, slot: reason === "expired-link" ? 1 : null, until },
-					now(),
-				),
-			);
-			return;
+			return stop({
+				stop: reason,
+				slot: reason === "expired-link" ? expired() : null,
+				until: reason === "cooldown" ? handoff.stop.until : null,
+			});
 		}
 		const result = await handoff.receipt.catch(() => ({ kind: "unknown" }) as const);
 		const time = now();

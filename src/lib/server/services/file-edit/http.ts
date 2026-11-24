@@ -12,11 +12,15 @@ const settingFields = (setting: CleaningSetting | null) => ({
 	revision: setting?.revision ?? null,
 });
 
-function scopeFor({ locals, cookies }: RequestEvent, draft: unknown) {
+/** The signed-in owner and this session, from the cookie. */
+function ownerScope({ locals, cookies }: RequestEvent) {
 	const token = cookies.get(locals.studio.cookieName);
-	return locals.owner && token && opaqueId(draft)
-		? { owner: locals.owner, session: sessionDigest(token), draft }
-		: null;
+	return locals.owner && token ? { owner: locals.owner, session: sessionDigest(token) } : null;
+}
+
+function scopeFor(event: RequestEvent, draft: unknown) {
+	const scope = ownerScope(event);
+	return scope && opaqueId(draft) ? { ...scope, draft } : null;
 }
 
 /**
@@ -97,15 +101,20 @@ const statusFor = {
 	cooldown: 409,
 	limit: 413,
 	invalid: 400,
+	duplicate: 400,
 } as const;
 
-/** Review or Queue one staged file for a Seedream edit. */
+/** Review or Queue one Seedream edit with ordered staged files and public URLs. */
 export async function fileAction(event: RequestEvent, operation: "review" | "submit") {
 	if (event.request.headers.get("content-type")?.split(";")[0] !== "application/json")
 		return json({ error: "invalid" }, { status: 415 });
-	const live = parseFileRequest(await event.request.json().catch(() => null));
-	const scope = scopeFor(event, live?.stage.draft);
-	if (!scope || !live) return json({ error: "invalid" }, { status: 400 });
-	const result = await event.locals.studio.files[operation](scope, live);
+	const parsed = parseFileRequest(await event.request.json().catch(() => null));
+	const scope = ownerScope(event);
+	// Positions are answered only to the signed-in owner's session.
+	if (!scope || !parsed) return json({ error: "invalid" }, { status: 400 });
+	if ("error" in parsed) return json(parsed, { status: statusFor[parsed.error] });
+	if (!parsed.files.every(({ stage }) => opaqueId(stage.draft)))
+		return json({ error: "invalid" }, { status: 400 });
+	const result = await event.locals.studio.files[operation](scope, parsed);
 	return json(result, { status: "error" in result ? statusFor[result.error] : 200 });
 }

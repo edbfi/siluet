@@ -8,3 +8,9 @@ export async function openTestStages(installation: RuntimeInstallation, options?
 	await pool.reclaim();
 	return createStages(await pool.scope("image"), options);
 }
+
+/** A claim handle over fixed bytes, as the stage store hands one to the dispatcher. */
+export const heldBytes = (bytes: Uint8Array<ArrayBuffer>, release = () => {}) => ({
+	next: async () => bytes,
+	release: async () => release(),
+});

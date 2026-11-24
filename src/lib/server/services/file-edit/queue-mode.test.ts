@@ -3,12 +3,9 @@ import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
-import {
-	filePlaceholder,
-	notCleanedLead,
-	originalRotationNote,
-} from "../../../shared/image-studio/file-edit";
+import { notCleanedLead, originalRotationNote } from "../../../shared/image-studio/file-edit";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
+import type { MediaDescriptor } from "../../../shared/media-staging/descriptor";
 import { accessStore } from "../../db/access-store";
 import { imageJobStore } from "../../db/image-job-store";
 import { mediaCleaning } from "../../db/media-cleaning";
@@ -18,6 +15,7 @@ import type { FileStages } from "../media-staging/stages";
 import { fileDispatcher } from "./dispatch";
 import { createFileQueue } from "./queue";
 import { type FileRequest, parseFileRequest } from "./request";
+import { clickFor, orderedBody, parsedRequest } from "./request.fixture";
 import { openTestStages } from "./stages.fixture";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -94,47 +92,32 @@ async function stage(
 	});
 }
 
-function request(stageDescriptor: unknown, extra: Record<string, unknown> = {}) {
-	const live = parseFileRequest({
-		stage: stageDescriptor,
-		draft: {
-			...createSeedreamDraft("toapis", "edit"),
-			prompt: "Paint the harbour",
-			references: [{ kind: "upload", url: filePlaceholder }],
-		},
-		count: 1,
-		retryLimit: 0,
-		acceptUnknown: false,
-		...extra,
-	});
-	if (!live) throw new Error("Invalid fixture");
-	return live;
+function request(stageDescriptor: MediaDescriptor, provider: "poyo" | "toapis" = "toapis") {
+	return parsedRequest(
+		orderedBody({ ...createSeedreamDraft(provider, "edit"), prompt: "Paint the harbour" }, [
+			stageDescriptor,
+		]),
+	);
 }
 
 async function reviewed(files: Awaited<ReturnType<typeof createFileQueue>>, live: FileRequest) {
 	const terms = await files.review(scope, live);
 	if (!("token" in terms)) throw new Error(`Review refused: ${JSON.stringify(terms)}`);
-	return { terms, click: { ...live, stage: terms.stage, token: terms.token, acceptUnknown: true } };
+	return { terms, click: clickFor(live, terms) };
 }
 
 test("count 2 or one retry is invalid for a file", async () => {
 	const h = await harness();
 	cleanup.push(h.close);
 	const staged = await stage(h.stages, h.db);
-	const body = {
-		stage: staged,
-		draft: {
-			...createSeedreamDraft("toapis", "edit"),
-			prompt: "x",
-			references: [{ kind: "upload", url: filePlaceholder }],
-		},
-		retryLimit: 0,
-		count: 1,
-		acceptUnknown: false,
-	};
-	expect(parseFileRequest({ ...body, count: 2 })).toBeNull();
-	expect(parseFileRequest({ ...body, retryLimit: 1 })).toBeNull();
-	expect(parseFileRequest({ ...body, stage: { ...staged, transform: undefined } })).toBeNull();
+	const draft = { ...createSeedreamDraft("toapis", "edit"), prompt: "x" };
+	expect(parseFileRequest(orderedBody(draft, [staged], { count: 2 }))).toBeNull();
+	expect(parseFileRequest(orderedBody(draft, [staged], { retryLimit: 1 }))).toBeNull();
+	expect(
+		parseFileRequest(
+			orderedBody(draft, [{ ...staged, transform: undefined } as unknown as MediaDescriptor]),
+		),
+	).toBeNull();
 });
 
 test("cleaning off sends the attached bytes once, and the terms carry the setting and disclosure", async () => {
@@ -160,7 +143,10 @@ test("a cleaned Review never shows Not cleaned and a mode that disagrees with th
 	expect(terms.editDisclosure.some((line) => line.startsWith(notCleanedLead))).toBe(false);
 	// An original staged while the setting says on (a forged or stale copy) cannot be reviewed.
 	const original = await stage(h.stages, h.db, { transform: "original" });
-	expect(await h.files.review(scope, request(original))).toEqual({ error: "stale" });
+	expect(await h.files.review(scope, request(original))).toEqual({
+		error: "stale",
+		positions: [1],
+	});
 });
 
 test("a rotated original's terms carry the orientation note and it queues", async () => {
@@ -184,10 +170,11 @@ test("a setting change between Review and Queue sends nothing", async () => {
 	const { click } = await reviewed(h.files, request(staged));
 	const flipped = await mediaCleaning(h.db).set(false, 0);
 	// Without the stage store's retirement, the claim itself re-reads the setting.
-	expect(await h.files.submit(scope, click)).toEqual({ error: "stale" });
+	const restage = { error: "stale" as const, positions: [1] };
+	expect(await h.files.submit(scope, click)).toEqual(restage);
 	await h.stages.retireAll(flipped.revision);
-	expect(await h.files.submit(scope, click)).toEqual({ error: "stale" });
-	expect(await h.files.review(scope, request(staged))).toEqual({ error: "stale" });
+	expect(await h.files.submit(scope, click)).toEqual(restage);
+	expect(await h.files.review(scope, request(staged))).toEqual(restage);
 	expect(h.sent).toEqual({ upload: [], edit: 0 });
 	expect(await imageJobStore(h.db).list()).toEqual([]);
 });
@@ -207,18 +194,13 @@ test("a copy over Poyo.ai's limit is refused at Review with the limit and size",
 		rotated: false,
 	});
 	const live = request(staged);
-	const poyo = request(staged, {
-		draft: {
-			...createSeedreamDraft("poyo", "edit"),
-			prompt: "Paint the harbour",
-			references: [{ kind: "upload", url: filePlaceholder }],
-		},
-	});
+	const poyo = request(staged, "poyo");
 	expect(await h.files.review(scope, poyo)).toEqual({
 		error: "limit",
 		provider: "poyo",
 		limit: 10_000_000,
 		size: 10_000_001,
+		position: 1,
 	});
 	expect(await h.files.review(scope, live)).toHaveProperty("token");
 });

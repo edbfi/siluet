@@ -14,6 +14,7 @@ import { loadBundledPricing } from "../pricing/studio-feeds";
 import { fileDispatcher } from "./dispatch";
 import { createFileQueue } from "./queue";
 import { parseFileRequest } from "./request";
+import { bodyOf, clickFor, orderedBody, parsedRequest } from "./request.fixture";
 import { openTestStages } from "./stages.fixture";
 
 test("one claim returns while upload is pending, keeps the reviewed key and replays after restart", async () => {
@@ -37,23 +38,13 @@ test("one claim returns while upload is pending, keeps the reviewed key and repl
 			revision: 0,
 			rotated: false,
 		});
-		const draft = {
-			...createSeedreamDraft("poyo", "edit"),
-			prompt: "Draw a peaceful meadow",
-			references: [{ kind: "upload", url: filePlaceholder }],
-		};
-		const request = parseFileRequest({
-			stage,
-			draft,
-			count: 1,
-			retryLimit: 0,
-			acceptUnknown: false,
-		});
-		if (!request) throw new Error("Invalid fixture");
+		const draft = { ...createSeedreamDraft("poyo", "edit"), prompt: "Draw a peaceful meadow" };
+		const request = parsedRequest(orderedBody(draft, [stage]));
 		const release = Promise.withResolvers<void>();
 		const started = Promise.withResolvers<void>();
 		const beforeUpload = Promise.withResolvers<void>();
 		const continueUpload = Promise.withResolvers<void>();
+		const edited = Promise.withResolvers<void>();
 		const posts: string[] = [];
 		const dispatch = fileDispatcher(db, "runtime", () => {}, {
 			pin: async () => async () => {
@@ -77,6 +68,7 @@ test("one claim returns while upload is pending, keeps the reviewed key and repl
 				received.push(key);
 				posts.push("edit");
 				expect(JSON.stringify(wire.body)).toContain("https://storage.example.org/ref");
+				edited.resolve();
 				return { kind: "accepted", taskId: "fixture-id" };
 			},
 		});
@@ -86,21 +78,16 @@ test("one claim returns while upload is pending, keeps the reviewed key and repl
 		const review = await api.review(scope, request);
 		const other = await api.review(scope, request);
 		if (!("token" in review) || !("token" in other)) throw new Error("Missing file Review");
-		const click = parseFileRequest({
-			draft,
-			count: 1,
-			retryLimit: 0,
-			stage: review.stage,
-			token: review.token,
-			acceptUnknown: true,
-		});
-		if (!click) throw new Error("Invalid browser Queue fixture");
+		const click = clickFor(request, review);
 		expect(await api.submit(scope, { ...click, acceptUnknown: false })).toEqual({
 			error: "invalid",
 		});
-		expect(await api.submit(scope, { ...click, stage: { ...click.stage, size: 3 } })).toEqual({
-			error: "invalid",
+		const [file] = review.files;
+		const resized = clickFor(request, {
+			...review,
+			files: [{ ...file, stage: { ...file.stage, size: 3 } }],
 		});
+		expect(await api.submit(scope, resized)).toEqual({ error: "invalid" });
 		expect(await api.submit({ ...scope, session: "other" }, click)).toEqual({ error: "invalid" });
 		// Legacy single-file jobs share this provider's rolling upload allowance.
 		await db.use((tx) =>
@@ -131,19 +118,23 @@ test("one claim returns while upload is pending, keeps the reviewed key and repl
 				await db.use((tx) => tx.get(sql`SELECT count(*) AS n FROM poyo_upload_start`)),
 			).toEqual({ n: 1 });
 			await db.use((tx) => tx.run(sql`DELETE FROM provider_start WHERE kind='submit'`));
-			expect(await api.submit(scope, { ...click, stage: other.stage, token: other.token })).toEqual(
-				{ error: "stale" },
-			);
+			// The first claim detached the stage: the other Review must prepare slot 1 again.
+			expect(await api.submit(scope, clickFor(request, other))).toEqual({
+				error: "stale",
+				positions: [1],
+			});
 			await credentials.remove("poyo");
 			// A removed key is not a stale copy: preparing the file again would not help.
 			expect(await api.review(scope, request)).toEqual({ error: "unavailable" });
-			expect(await api.submit(scope, { ...click, stage: other.stage, token: other.token })).toEqual(
-				{ error: "unavailable" },
-			);
+			expect(await api.submit(scope, clickFor(request, other))).toEqual({
+				error: "unavailable",
+			});
 		} finally {
 			continueUpload.resolve();
 			release.resolve();
 		}
+		// Shutdown stops at the next send boundary, so let this edit go first.
+		await edited.promise;
 		await api.close();
 		// Shutting down is never a definite refusal: the browser keeps a claimed
 		// request for its exact Retry after the restart.
@@ -176,7 +167,10 @@ test("one claim returns while upload is pending, keeps the reviewed key and repl
 		await db.use((tx) => tx.run(insertSession(next.session, Date.now())));
 		expect(await reopened.submit(next, click)).toEqual(one);
 		expect(
-			await reopened.submit(next, { ...click, draft: { ...click.draft, prompt: "changed" } }),
+			await reopened.submit(
+				next,
+				parsedRequest({ ...bodyOf(click), draft: { ...bodyOf(click).draft, prompt: "changed" } }),
+			),
 		).toEqual({ error: "invalid" });
 		expect(await reopened.submit({ ...next, owner: "another" }, click)).not.toEqual(one);
 		await accessStore(db).revoke(scope.session);
@@ -217,12 +211,8 @@ test("revocation, changed terms and replacement prevent first use without dispat
 		await accessStore(db).claim(scope.owner, "unused", scope.session, now, () => {});
 		await credentials.save("toapis", "first-credential", now, true, 0);
 		const stage = await stages.put(scope, media);
-		const draft = {
-			...createSeedreamDraft("toapis", "edit"),
-			prompt: "Color the tree",
-			references: [{ kind: "upload", url: filePlaceholder }],
-		};
-		const body = { stage, draft, count: 1, retryLimit: 0, acceptUnknown: true };
+		const draft = { ...createSeedreamDraft("toapis", "edit"), prompt: "Color the tree" };
+		const body = orderedBody(draft, [stage], { acceptUnknown: true });
 		for (const changed of [
 			{
 				operationKey: {
@@ -231,17 +221,21 @@ test("revocation, changed terms and replacement prevent first use without dispat
 					route: "POST /api/generate/submit",
 					operation: "reference-image-edit",
 				},
-				draft: { ...draft, provider: "poyo", options: {} },
+				draft: { ...body.draft, provider: "poyo", options: {} },
 			},
 			{ retryLimit: 1 },
 			{ count: 2 },
-			{ draft: { ...draft, references: [...draft.references, ...draft.references] } },
-			{ draft: { ...draft, references: [{ kind: "url", url: filePlaceholder }] } },
+			{ draft: { ...body.draft, references: [{ kind: "url", url: filePlaceholder }] } },
 		]) {
 			expect(parseFileRequest({ ...body, ...changed })).toBeNull();
 		}
-		const live = parseFileRequest(body);
-		if (!live) throw new Error("Invalid fixture");
+		expect(
+			parseFileRequest({
+				...body,
+				draft: { ...body.draft, references: [...body.draft.references, ...body.draft.references] },
+			}),
+		).toEqual({ error: "duplicate", positions: [1, 2] });
+		const live = parsedRequest(body);
 		const queue = await createFileQueue(
 			db,
 			"runtime",
@@ -249,7 +243,7 @@ test("revocation, changed terms and replacement prevent first use without dispat
 			credentials.credential,
 			async (_id, _key, _live, held) => {
 				posts++;
-				held.release();
+				await held.release();
 			},
 			{
 				loadFeeds: async () => {
@@ -265,7 +259,7 @@ test("revocation, changed terms and replacement prevent first use without dispat
 		const review = async () => {
 			const reviewed = await queue.review(scope, live);
 			if (!("token" in reviewed)) throw new Error("Missing reviewed terms");
-			return { ...live, stage: reviewed.stage, token: reviewed.token };
+			return { ...clickFor(live, reviewed), deadline: reviewed.files[0].stage.deadline };
 		};
 		const priceReview = await review();
 		const rates = await loadBundledPricing("toapis");
@@ -291,15 +285,15 @@ test("revocation, changed terms and replacement prevent first use without dispat
 		const first = await review();
 		now += 100;
 		const second = await review();
-		now = first.stage.deadline;
-		expect(await queue.submit(scope, first)).toEqual({ error: "stale" });
+		now = first.deadline;
+		expect(await queue.submit(scope, first)).toEqual({ error: "stale", positions: [1] });
 		pause = true;
 		const waiting = queue.submit(scope, second);
 		await loaded.promise;
 		await stages.revoke(scope.session);
 		await accessStore(db).revoke(scope.session);
 		release.resolve();
-		expect(await waiting).toEqual({ error: "stale" });
+		expect(await waiting).toEqual({ error: "stale", positions: [1] });
 		await stages.revoke(scope.session);
 		expect(await stages.preview(scope, stage.handle)).toBeNull();
 		expect(await imageJobStore(db).list()).toEqual([]);
