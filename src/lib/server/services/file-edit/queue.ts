@@ -298,8 +298,12 @@ export async function createFileQueue(
 												live.files.map(({ position }) => position),
 												live.slots.length,
 											);
-											// After the last write, so no slot expires unseen before the commit.
+											// After the last write: an expiry or a shutdown during the writes rolls back.
 											if (!valid()) throw new StageError("Review expired.");
+											if (closed) {
+												refused = closing;
+												throw new StageError("Shutting down.");
+											}
 											return true;
 										},
 										{ behavior: "immediate" },

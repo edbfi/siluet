@@ -74,24 +74,28 @@ async function harness(
 			return { kind: "accepted", taskId: "task" };
 		},
 	});
-	const queue = await createFileQueue(
-		wrap(db),
-		"runtime",
-		stages,
-		credentials.credential,
-		(...args) => {
-			const work = dispatcher(...args);
-			settled.push(work);
-			return work;
-		},
-		{
-			loadFeeds: async () => ({}),
-			now: () => clock,
-			...(readCleaning && { readCleaning }),
-			...(shutdown && { shutdown }),
-		},
-	);
-	cleanup.push(() => queue.close());
+	const open = async (installation: Installation, signal?: AbortSignal) => {
+		const opened = await createFileQueue(
+			installation,
+			"runtime",
+			stages,
+			credentials.credential,
+			(...args) => {
+				const work = dispatcher(...args);
+				settled.push(work);
+				return work;
+			},
+			{
+				loadFeeds: async () => ({}),
+				now: () => clock,
+				...(readCleaning && { readCleaning }),
+				...(signal && { shutdown: signal }),
+			},
+		);
+		cleanup.push(() => opened.close());
+		return opened;
+	};
+	const queue = await open(wrap(db), shutdown);
 	const stage = (...values: number[]) => {
 		const bytes = new Uint8Array(values);
 		return stages.put(
@@ -126,6 +130,8 @@ async function harness(
 		stage,
 		request,
 		review,
+		/** A new admission over the same storage and staged copies, as after a restart. */
+		reopen: () => open(db),
 		advance: (ms: number) => {
 			clock += ms;
 		},
@@ -309,6 +315,27 @@ test("siluet:stopping closes file admission before storage closes", async () => 
 	expect(await h.queue.submit(owner, click)).toEqual({ error: "closing" });
 	expect(await jobs(h)).toEqual([]);
 	expect(h.uploads).toEqual([]);
+});
+
+test("shutdown during the slot writes answers closing and the Review queues after restart", async () => {
+	const stopping = new AbortController();
+	let stopDuringWrites = false;
+	const h = await harness("toapis", {
+		shutdown: stopping.signal,
+		// The claim's only writes are its file slots and their reference count.
+		wrap: inClaim("run", () => {
+			if (stopDuringWrites) stopping.abort();
+		}),
+	});
+	const { click } = await h.review(h.request([await h.stage(1), url]));
+	stopDuringWrites = true;
+	expect(await h.queue.submit(owner, click)).toEqual({ error: "closing" });
+	expect(await jobs(h)).toEqual([]);
+	expect(h.uploads).toEqual([]);
+	const restarted = await h.reopen();
+	expect(await restarted.submit(owner, click)).toHaveProperty("jobId");
+	await Promise.all(h.settled);
+	expect(h.uploads).toEqual([[1]]);
 });
 
 test("an unreadable setting answers unavailable before and inside the claim", async () => {
