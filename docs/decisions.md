@@ -73,7 +73,7 @@ Agreed with the council on 2026-11-22; lands with layer decomposition. Gallery s
 
 ### Delivery and migrations
 
-Agreed with the council on 2026-11-22. Lanes run in parallel, but one integrator merges slices in order and owns the migrations and the recovery fingerprint, so no lane can reorder the chain. A slice's migration is named at merge time so it sorts after every released one. Released migrations are append-only, and `scripts/db/released-append-only.test.ts` fails CI when one is changed, removed or backdated.
+Agreed with the council on 2026-11-22. Lanes run in parallel, but one integrator merges slices in order and owns the migrations and the recovery fingerprint, so no lane can reorder the chain. A slice's migration is named at merge time so it sorts after every released one. Released migrations are append-only: `scripts/db/released-append-only.ts` compares a candidate with its base in CI and fails when a released migration is changed, removed or backdated, and `scripts/db/released-append-only.test.ts` covers it.
 
 ## D4 · Optional filtering on media requests
 
@@ -126,12 +126,12 @@ Siluet cleans every attached file automatically (owner decision 2026-11-22). The
 
 ## D11 · v0.1.0 is a scoped preview
 
-Approved by the owner on 2026-11-24. The first release, v0.1.0, is a preview for one local creator containing everything verified on main when it is tagged. GitHub generates the change list from the Conventional Commits; there is no CHANGELOG file. Release preparation adds a hand-written coverage table that lists each operation as verified, Review-only or pending and cites each video family's real-clip result, so the preview is not mistaken for full D2 coverage. `package.json` takes the version at tag time. The orchestrator prepares the release and the owner tags it.
+Approved by the owner on 2026-11-24. The first release, v0.1.0, is a preview for one local creator containing everything verified on main when it is tagged. GitHub generates the change list from the merged pull requests; there is no CHANGELOG file. Release preparation adds a hand-written coverage table that lists each operation as verified, Review-only or pending and cites each video family's real-clip result, so the preview is not mistaken for full D2 coverage. `package.json` takes the version at tag time. The orchestrator prepares the release and the owner tags it.
 
 Tag only when the commit to tag meets every gate:
 
 - The local checks and hosted `ci-ok` pass.
-- The published and bundled Poyo.ai v2 and ToAPIs v2 feeds have at least 14 days left under `scripts/pricing/freshness.ts --fail-within-days 14`, as the weekly backstop runs it, and price every shipped priced operation.
+- On the commit to tag, `scripts/pricing/freshness.ts --fail-within-days 14` passes for the published and bundled Poyo.ai v2 and ToAPIs v2 feeds, so each has more than 14 days left (the weekly backstop's threshold; that job checks only the published feeds), and the feeds price every shipped priced operation.
 - The untouched 2026-11-24 real clips, one per shipped video family, pass `verifyVideoFile`, and CI fixtures built from their structure pass while the refusals hold. The built-app video journeys use a synthetic clip, so only real clips prove Save.
 - Per-mode video Save limits merge, then the Seedance URL edit ([#62](https://github.com/edbfi/siluet/pull/62)), in the order the owner approved.
 - A cross-cutting security review is recorded here as one short entry with its scope, date, findings and their dispositions. Every blocker is resolved or explicitly accepted by the owner.

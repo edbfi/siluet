@@ -14,12 +14,12 @@ v0.1.0 is a scoped preview of what main verifies when it is tagged. The phases b
 ### Checkpoint: real clips
 
 - [ ] The D6 revision is council-confirmed.
-- [ ] Both untouched originals pass `verifyVideoFile` from `src/`.
+- [ ] Both untouched originals pass `verifyVideoFile` from `src/`, with the output and SHA-256 recorded; the fixture refusals and the one-time re-arm hold ([todo](todo.md#v010-scoped-preview)).
 - [ ] `ci-ok` is green on the merged commit.
 
 ## Phase 2 · after the real-clip fix
 
-Both changes touch `mp4.ts`, so this phase waits for Phase 1's real-clip fix.
+Per-mode limits and Phase 1's real-clip fix both touch `mp4.ts`, so limits wait for the real-clip fix; #62 follows the limits in the owner-approved order.
 
 3. **Per-mode video Save limits.** Spec, council, implementation.
 4. **Seedance URL edit.** Rebase [#62](https://github.com/edbfi/siluet/pull/62) onto the per-mode limits without its over-12 s disclosure, then merge it.
