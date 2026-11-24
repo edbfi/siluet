@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import poyoV1 from "../../pricing/v1/feed.json";
 import poyoV2 from "../../pricing/v2/poyo.json";
+import toapisV2 from "../../pricing/v2/toapis.json";
 import { loadBundledPricing, loadLocalPricing, pricingBundledPath } from "./local-feed";
 
 const checkout = join(import.meta.dir, "..", "..");
@@ -26,6 +27,11 @@ test("the CLI reads the bundled v2 feed and falls back to v1 without it", async 
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
+});
+
+test("the CLI reads only the bundled ToAPIs v2 feed", async () => {
+	expect(pricingBundledPath("toapis")).toEndWith(join("pricing", "v2", "toapis.json"));
+	expect<unknown>(await loadBundledPricing("toapis")).toEqual(toapisV2);
 });
 
 test("the CLI starts from a checkout without the bundled v2 feed", async () => {

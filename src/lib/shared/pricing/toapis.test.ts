@@ -229,6 +229,19 @@ test.each([
 	expect(decodeToapisPricingFeed({ ...toapisRates, rates })).toBeUndefined();
 });
 
+test("rejects the frozen v1 feed and v1 data labelled as v2", () => {
+	const { receiptDelaySeconds: _delays, ...fields } = toapisRates;
+	const rates = toapisRates.rates.filter((rate) => rate.unit !== "reference-image");
+	for (const invalid of [
+		{ ...fields, version: 1, rates },
+		{ ...toapisRates, version: 1, rates },
+		{ ...toapisRates, version: 1 },
+		{ ...toapisRates, rates },
+	]) {
+		expect(decodeToapisPricingFeed(invalid)).toBeUndefined();
+	}
+});
+
 test("rejects a v2 feed without the reference rate, out of order, or without receipt delays", () => {
 	const { receiptDelaySeconds: _delays, ...withoutDelays } = toapisRates;
 	const [one, oneAndHalf, two, reference, ...video] = toapisRates.rates;

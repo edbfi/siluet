@@ -1,10 +1,15 @@
 {
-	"version": 1,
+	"version": 2,
 	"provider": "toapis",
-	"observedAt": "2026-11-21T15:07:33Z",
+	"observedAt": "2026-11-24T23:14:58Z",
 	"creditsPerUsd": "200",
 	"conversionSourceUrl": "https://toapis.com/pricing",
 	"conversionCacheAgeSeconds": null,
+	"receiptDelaySeconds": {
+		"conversion": 1,
+		"image": 0,
+		"video": 0
+	},
 	"rates": [
 		{
 			"model": "doubao-seedream-5-5",
@@ -57,6 +62,24 @@
 			},
 			"usd": "0.028",
 			"approximateCredits": "5.6",
+			"source": {
+				"url": "https://toapis.com/model-guide/doubao-seedream-5-5",
+				"scope": "public-advertised",
+				"region": "global-site",
+				"tier": null,
+				"publishedAt": null,
+				"cacheAgeSeconds": null
+			}
+		},
+		{
+			"model": "doubao-seedream-5-5",
+			"operations": ["generate", "edit"],
+			"unit": "reference-image",
+			"conditions": {
+				"freeAllowance": 0
+			},
+			"usd": "0.0064",
+			"approximateCredits": "1.28",
 			"source": {
 				"url": "https://toapis.com/model-guide/doubao-seedream-5-5",
 				"scope": "public-advertised",

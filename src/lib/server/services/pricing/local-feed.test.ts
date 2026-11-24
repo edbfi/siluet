@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import poyoFeed from "../../../../../pricing/v1/feed.json";
-import toapisFeed from "../../../../../pricing/v1/toapis.json";
 import poyoV2Bundle from "../../../../../pricing/v2/poyo.json";
+import toapisFeed from "../../../../../pricing/v2/toapis.json";
 import h3Fixture from "../../../../../tests/fixtures/h3-rate.v2.json";
 import { decodePoyoV2Feed } from "../../../shared/pricing/poyo-feed";
 import { pricingCachePath, pricingFeedConflict } from "./local-feed";
@@ -62,6 +62,30 @@ test("Studio resolves each provider from embedded pricing and a valid newer loca
 			toapis: toapisFeed,
 		});
 	}
+});
+
+test("ToAPIs rates live under pricing/v2, and a v1 ToAPIs cache is never read", async () => {
+	expect(pricingCachePath("/custom/cache", "toapis")).toBe(
+		"/custom/cache/siluet/pricing/v2/toapis.json",
+	);
+	const observed = Date.parse(toapisFeed.observedAt);
+	const now = observed + 2 * day;
+	const checkedAt = new Date(now).toISOString();
+	// An installation upgraded from v1 still holds a newer v1 ToAPIs cache.
+	const { receiptDelaySeconds: _delays, ...v1Fields } = toapisFeed;
+	const v1 = {
+		...v1Fields,
+		version: 1,
+		observedAt: iso(observed + day),
+		rates: toapisFeed.rates.filter((rate) => rate.unit !== "reference-image"),
+	};
+	await writeCache(join(directory, "siluet", "pricing", "v1", "toapis.json"), {
+		checkedAt,
+		feed: v1,
+	});
+	expect<unknown>((await loadStudioPricingFeeds(now, directory)).toapis).toEqual(toapisFeed);
+	await writeCache(pricingCachePath(directory, "toapis"), { checkedAt, feed: v1 });
+	expect<unknown>((await loadStudioPricingFeeds(now, directory)).toapis).toEqual(toapisFeed);
 });
 
 describe("confirmed PoYo v2 cache", () => {

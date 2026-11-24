@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
+import toapisBundle from "../../../../../pricing/v2/toapis.json";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import {
 	type SeedanceOperation,
@@ -35,7 +36,8 @@ let jobs: ReturnType<typeof createJobTracking> | undefined;
 beforeEach(async () => {
 	directory = await createOwnerDirectory();
 	db = await openInstallation(directory);
-	now = Date.parse("2026-11-22T00:00:00Z");
+	// One day after the bundled ToAPIs observation, so its rates are current.
+	now = Date.parse(toapisBundle.observedAt) + 86_400_000;
 });
 afterEach(async () => {
 	jobs?.close();

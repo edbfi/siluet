@@ -29,7 +29,7 @@ export const pricingFeedUrl =
 export const poyoV2PricingFeedUrl =
 	"https://raw.githubusercontent.com/edbfi/siluet/pricing-data/pricing/v2/poyo.json";
 export const toapisPricingFeedUrl =
-	"https://raw.githubusercontent.com/edbfi/siluet/pricing-data-toapis/pricing/v1/toapis.json";
+	"https://raw.githubusercontent.com/edbfi/siluet/pricing-data-toapis/pricing/v2/toapis.json";
 const refreshTimeoutMs = 5_000;
 /** The published v2 feed, including its trailing LF, fits in 64 KiB. */
 export const poyoV2WireByteLimit = 64 * 1024;
@@ -237,6 +237,10 @@ export async function refreshPricingFeed({
 		void response.body?.cancel().catch(() => {});
 		file = "poyo";
 		response = await requestFeed(file, fetchFeed, signal);
+	} else if (file === "toapis" && response.status === 404) {
+		// The v1 feed lacks the reference-image rate, so there is nothing to fall back to.
+		void response.body?.cancel().catch(() => {});
+		throw new Error("ToAPIs v2 rates are not published yet; bundled rates stay in use.");
 	}
 	const feed = await readFeed(file, response, signal);
 	const nowMs = now();
