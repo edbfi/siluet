@@ -82,7 +82,7 @@ export class LocalCopy {
 	#resume = false;
 	// The setting revision the server admitted the latest preparation under.
 	#revision: number | null = null;
-	// The newest revision another check reported, so a late response can be retired.
+	// The newest revision a settings check reported, so a late response can be retired.
 	#known: number | null = null;
 	#checking = false;
 
@@ -184,7 +184,6 @@ export class LocalCopy {
 		try {
 			const current = await this.#readSetting();
 			if (current === null || !this.file) return;
-			this.#known = Math.max(this.#known ?? current, current);
 			const admitted = this.#revision ?? this.#cleaning()?.revision ?? null;
 			// A preparation still in flight is compared when its response arrives; the
 			// mode it describes meanwhile already follows the newer setting.
@@ -216,7 +215,10 @@ export class LocalCopy {
 		const response = await fetch("/settings/files/state", { cache: "no-store" });
 		const result: unknown = response.ok ? await response.json().catch(() => null) : null;
 		this.#learn(result);
-		return revisionOf(result);
+		const revision = revisionOf(result);
+		// A preparation admitted under an older revision is retired when it answers.
+		if (revision !== null) this.#known = Math.max(this.#known ?? revision, revision);
+		return revision;
 	}
 
 	// Retire the copy but keep the file, which a restored page prepares again.
