@@ -5,6 +5,11 @@ import { cicpTag, gainTag, hagcType, icc, lutTag } from "./original.fixture";
 test.each([
 	["PQ cicp", icc([cicpTag(9, 16)])],
 	["HLG cicp", icc([cicpTag(9, 18)])],
+	// A reader such as skcms takes the first 12 bytes of a larger element.
+	[
+		"PQ cicp padded to 16 bytes",
+		icc([["cicp", Buffer.concat([cicpTag(9, 16)[1], Buffer.alloc(4)])]]),
+	],
 	["an ADGC tag", icc([gainTag])],
 	["a hagc element", icc([hagcType])],
 	["a gain curve after other tags", icc([lutTag, gainTag])],

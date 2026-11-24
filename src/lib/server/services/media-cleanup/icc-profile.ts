@@ -135,14 +135,15 @@ function isXyz(element: Buffer | undefined): boolean {
 	);
 }
 
-// An element that declares HDR: an adaptive gain curve, or a cicp tag with a PQ or HLG transfer.
+// An element that declares HDR: an adaptive gain curve, or a cicp tag with a PQ or HLG
+// transfer. A larger cicp element counts too: readers take its first 12 bytes.
 // https://media.color.org/icc1_amendment_headroom_adaptive_gain_curve.pdf
 function tagHdr(profile: Buffer, tag: string, offset: number, size: number) {
 	const type = profile.toString("latin1", offset, offset + 4);
 	if (tag === "ADGC" || tag === "HAGC" || type === "adgc" || type === "hagc") return true;
 	return (
 		(tag === "cicp" || type === "cicp") &&
-		size === 12 &&
+		size >= 12 &&
 		cicpProblem(profile.subarray(offset + 8, offset + 12), true) === "hdr"
 	);
 }
