@@ -186,43 +186,50 @@ export async function createFileQueue(
 		}
 		try {
 			let cooldown = 0;
-			const held = await stages.claim(scope, live.stage, async (valid, durable, stage) => {
-				const feeds = await loadFeeds(now());
-				return db.use((tx) =>
-					durable(() =>
-						tx.transaction(
-							async (trx) => {
-								const time = now();
-								// The setting is read again inside the claim, with the stage's own revision.
-								const setting = await readCleaningIn(trx);
-								if (setting.revision !== stage.revision) return false;
-								const termsNow = termsFor(live, saved.revision, feeds, {
-									setting,
-									transform: live.stage.transform,
-									rotated: stage.rotated,
-								});
-								if (termsNow?.terms !== terms || closed || !valid()) return false;
-								cooldown = Math.max(
-									await submitCooldown(trx, provider),
-									provider === "poyo" ? await nextPoyoUploadStart(trx, time) : 0,
-								);
-								if (cooldown > time) return false;
-								const inserted =
-									await trx.get(sql`INSERT INTO image_job(id,binding,provider,revision,quote,accepted_unknown,state,created_at,model,operation,poll_deadline,file_owner,file_phase)
+			const claim = await stages.claimAll(
+				scope,
+				[live.stage],
+				binding,
+				async (valid, durable, [stage]) => {
+					const feeds = await loadFeeds(now());
+					return db.use((tx) =>
+						durable(() =>
+							tx.transaction(
+								async (trx) => {
+									const time = now();
+									// The setting is read again inside the claim, with the stage's own revision.
+									const setting = await readCleaningIn(trx);
+									if (setting.revision !== stage.revision) return false;
+									const termsNow = termsFor(live, saved.revision, feeds, {
+										setting,
+										transform: live.stage.transform,
+										rotated: stage.rotated,
+									});
+									if (termsNow?.terms !== terms || closed || !valid()) return false;
+									cooldown = Math.max(
+										await submitCooldown(trx, provider),
+										provider === "poyo" ? await nextPoyoUploadStart(trx, time) : 0,
+									);
+									if (cooldown > time) return false;
+									const inserted =
+										await trx.get(sql`INSERT INTO image_job(id,binding,provider,revision,quote,accepted_unknown,state,created_at,model,operation,poll_deadline,file_owner,file_phase)
 						SELECT ${id},${binding},${provider},${saved.revision},${JSON.stringify(termsNow.quote)},1,'submitting',${time},${live.input.model},${live.entry.key.operation},${time + imageJobPollingWindowMs},${nonce},'claimed'
 						WHERE EXISTS(SELECT 1 FROM provider_credential WHERE provider=${provider} AND revision=${saved.revision} AND seedream=1 AND ciphertext IS NOT NULL)
 						AND ${authenticated(time)} RETURNING id`);
-								if (inserted && !valid()) throw new StageError("Review expired.");
-								if (inserted) await claimFileSlots(trx, id, [1], 1);
-								return !!inserted;
-							},
-							{ behavior: "immediate" },
+									if (inserted && !valid()) throw new StageError("Review expired.");
+									if (inserted) await claimFileSlots(trx, id, [1], 1);
+									return !!inserted;
+								},
+								{ behavior: "immediate" },
+							),
 						),
-					),
-				);
-			});
-			if (held) {
-				supervise(dispatch(id, saved.key, live, held));
+					);
+				},
+			);
+			if ("held" in claim) {
+				const { held } = claim;
+				const bytes = await held.next(0);
+				supervise(dispatch(id, saved.key, live, { bytes, release: () => void held.release() }));
 				return { jobId: id };
 			}
 			if (cooldown > now()) return { error: "cooldown", until: cooldown } as const;

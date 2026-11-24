@@ -503,3 +503,196 @@ test("concurrent flips never lower the generation; off, on, off refuses the firs
 	await expect(stages.put(owner, media(2, 3))).rejects.toBeInstanceOf(CleaningChangedError);
 	expect(await stages.put(owner, media(3, 3))).toMatchObject({ size: 1 });
 });
+
+const owner = { owner: "creator", session: "session" };
+const stageMany = async (stages: Awaited<ReturnType<typeof setup>>["stages"], count: number) => {
+	const staged: MediaDescriptor[] = [];
+	for (let i = 0; i < count; i++)
+		staged.push(await stages.put({ ...owner, draft: crypto.randomUUID() }, png(i + 1, i + 2)));
+	return staged;
+};
+const claimed = async (
+	stages: Awaited<ReturnType<typeof setup>>["stages"],
+	descriptors: MediaDescriptor[],
+	binding = "binding",
+) => {
+	const result = await stages.claimAll(owner, descriptors, binding, async () => true);
+	if (!("held" in result)) throw new Error(`Expected a claim, got ${JSON.stringify(result)}`);
+	return result.held;
+};
+
+test("reviewAll extends no deadline when one stage is stale, and names it", async () => {
+	let clock = 10;
+	const { stages } = await setup(64, { now: () => clock });
+	const [a, b, c] = await stageMany(stages, 3);
+	clock += 5;
+	await stages.discardDraft({ ...owner, draft: b.draft });
+	expect(await stages.reviewAll(owner, [a, b, c])).toEqual({ stale: [1] });
+	// A stage from another session, or prepared under another setting revision, is stale too.
+	expect(await stages.reviewAll({ ...owner, session: "other" }, [a])).toEqual({ stale: [0] });
+	expect(await stages.reviewAll(owner, [a, c], 1)).toEqual({ stale: [0, 1] });
+	const reviewed = await stages.reviewAll(owner, [a, c], 0);
+	if (!("reviewed" in reviewed)) throw new Error("Expected a Review");
+	expect(reviewed.reviewed.map((r) => r.descriptor.deadline)).toEqual([
+		clock + stageIdleMs,
+		clock + stageIdleMs,
+	]);
+	// The stale attempt extended nothing: the first Review still set every deadline.
+	expect(a.deadline).toBe(10 + stageIdleMs);
+});
+
+test("ten small files claim once with one buffer of the largest size", async () => {
+	const { stages, files } = await setup(64, { buffers: 3 });
+	const staged = await stageMany(stages, 10);
+	const held = await claimed(stages, staged);
+	expect(stages.buffered).toBe(2);
+	for (const [index, descriptor] of staged.entries())
+		expect([...(await held.next(index))]).toEqual([index + 1, index + 2].slice(0, descriptor.size));
+	expect(await files()).toEqual([]);
+	await held.release();
+	expect(stages.buffered).toBe(0);
+});
+
+test("reversed overlapping Reviews: one claims, the other is busy; the same binding joins", async () => {
+	const { stages } = await setup(64);
+	const [a, b] = await stageMany(stages, 2);
+	const gate = Promise.withResolvers<void>();
+	const first = stages.claimAll(owner, [a, b], "first", async (_valid, durable) =>
+		durable(async () => {
+			await gate.promise;
+			return true;
+		}),
+	);
+	await expect(stages.claimAll(owner, [b, a], "second", async () => true)).rejects.toThrow(
+		"Upload busy",
+	);
+	const joined = stages.claimAll(owner, [a, b], "first", async () => true);
+	gate.resolve();
+	const won = await first;
+	expect(await joined).toEqual({ joined: true });
+	if (!("held" in won)) throw new Error("Expected the first claim");
+	// A claimed stage is no longer reviewable or claimable.
+	expect(await stages.reviewAll(owner, [a])).toEqual({ stale: [0] });
+	expect(await stages.claimAll(owner, [b], "second", async () => true)).toEqual({ stale: [0] });
+	await won.held.release();
+});
+
+test("a refused commit keeps every stage; a winner that rolls back leaves the joiner to admit again", async () => {
+	const { stages } = await setup(64);
+	const [a, b] = await stageMany(stages, 2);
+	const gate = Promise.withResolvers<void>();
+	const first = stages.claimAll(owner, [a, b], "same", async (_valid, durable) =>
+		durable(async () => {
+			await gate.promise;
+			return false;
+		}),
+	);
+	const joined = stages.claimAll(owner, [a, b], "same", async () => true);
+	gate.resolve();
+	expect(await first).toEqual({ refused: true });
+	expect(await joined).toEqual({ joined: true });
+	expect(stages.buffered).toBe(0);
+	const held = await claimed(stages, [a, b], "same");
+	await held.release();
+});
+
+test("detached stages survive every remover until their dispatcher reads them", async () => {
+	let clock = 10;
+	const { stages, files } = await setup(64, { now: () => clock });
+	const staged = await stageMany(stages, 3);
+	const held = await claimed(stages, staged);
+	expect((await files()).length).toBe(2);
+	// Sign-out, flip, discard, a new copy in the same draft and expiry.
+	await stages.revoke("session");
+	await stages.retireAll(5);
+	await stages.put({ ...owner, draft: staged[2].draft }, media(5, 9));
+	for (const d of staged.slice(0, 2)) await stages.discardDraft({ ...owner, draft: d.draft });
+	clock += stageIdleMs * 2;
+	await stages.reviewAll(owner, []);
+	expect([...(await held.next(0))]).toEqual([1, 2]);
+	expect([...(await held.next(1))]).toEqual([2, 3]);
+	expect([...(await held.next(2))]).toEqual([3, 4]);
+	await held.release();
+	expect((await files()).length).toBe(1);
+});
+
+test("next() verifies a detached stage and unlinks it; release removes the unread rest", async () => {
+	const { stages, scratch, files, pool } = await setup(64);
+	const staged = await stageMany(stages, 3);
+	const held = await claimed(stages, staged);
+	await writeFile(join(scratch.directory, staged[1].handle), new Uint8Array([9, 9]));
+	await expect(held.next(1)).rejects.toThrow("changed");
+	expect(await files()).toEqual([staged[2].handle]);
+	await held.release();
+	expect(await files()).toEqual([]);
+	expect(pool.used).toBe(0);
+	await expect(held.next(2)).rejects.toThrow("released");
+});
+
+test("the first file is verified into the buffer before commit; later edits never reach it", async () => {
+	const { stages, scratch } = await setup(64);
+	const [a, b] = await stageMany(stages, 2);
+	const result = await stages.claimAll(owner, [a, b], "binding", async () => {
+		await writeFile(join(scratch.directory, a.handle), new Uint8Array([7, 7]));
+		return true;
+	});
+	if (!("held" in result)) throw new Error("Expected a claim");
+	expect([...(await result.held.next(0))]).toEqual([1, 2]);
+	await result.held.release();
+});
+
+test("a paused preview of the last slot is aborted at claim and stays aborted through sign-out", async () => {
+	const { stages } = await setup(64);
+	const staged = await stageMany(stages, 3);
+	const preview = await stages.openPreview({ ...owner, draft: staged[2].draft }, staged[2].handle);
+	if (!preview) throw new Error("Expected a preview");
+	const held = await claimed(stages, staged);
+	expect(preview.signal.aborted).toBeTrue();
+	await stages.revoke("session");
+	expect(preview.signal.aborted).toBeTrue();
+	expect([...(await held.next(2))]).toEqual([3, 4]);
+	await held.release();
+});
+
+test("a full pool keeps sibling stages and stages again after space frees", async () => {
+	const { stages } = await setup(6);
+	const staged = await stageMany(stages, 3);
+	await expect(stages.put({ ...owner, draft: crypto.randomUUID() }, png(1))).rejects.toThrow(
+		"Local scratch full",
+	);
+	expect(await stages.reviewAll(owner, staged)).toMatchObject({ reviewed: expect.any(Array) });
+	await stages.discardDraft({ ...owner, draft: staged[0].draft });
+	expect(await stages.put({ ...owner, draft: crypto.randomUUID() }, png(1))).toMatchObject({
+		size: 1,
+	});
+	expect(await stages.reviewAll(owner, staged.slice(1))).toMatchObject({
+		reviewed: expect.any(Array),
+	});
+});
+
+test("a reservation that cannot be taken is busy and charges nothing", async () => {
+	const { stages } = await setup(64);
+	const [a] = await stageMany(stages, 1);
+	await expect(
+		stages.claimAll(
+			owner,
+			[a],
+			"binding",
+			async () => true,
+			() => null,
+		),
+	).rejects.toThrow("Upload busy");
+	expect(stages.buffered).toBe(0);
+	let freed = 0;
+	const result = await stages.claimAll(
+		owner,
+		[a],
+		"binding",
+		async () => true,
+		() => () => freed++,
+	);
+	if (!("held" in result)) throw new Error("Expected a claim");
+	expect(freed).toBe(0);
+	await result.held.release();
+	expect(freed).toBe(1);
+});
