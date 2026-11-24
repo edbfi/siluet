@@ -200,7 +200,7 @@ function submit(id: string, action: Action): SubmitFunction {
 						{entry.label} ·
 					{/if}
 					Created {@render date(job.createdAt)}
-					{job.taskId && job.batchId ? ` · Task ${job.taskId}` : ""}
+					{job.taskId && (job.batchId || job.file) ? ` · Task ${job.taskId}` : ""}
 				</p>
 			</header>
 			{#if job.progress != null}
@@ -224,7 +224,12 @@ function submit(id: string, action: Action): SubmitFunction {
 					{/each}
 				</ul>
 			{/if}
-			{#if job.file?.hosted && (job.state === "unknown" || job.state === "rejected")}
+			<!-- A copy may stay hosted whenever the edit ended without a result, even after acknowledgement. -->
+			{#if job.file?.hosted &&
+				(job.state === "unknown" ||
+					job.state === "rejected" ||
+					job.state === "failed" ||
+					job.state === "unsent")}
 				<p class={styles.note}>
 					An uploaded file may remain accessible. Check provider history before attaching it again.
 					A new attempt can create another copy and incur charges.

@@ -189,6 +189,16 @@ test("Jobs reports each file slot, its stop and the hosted-copy warning", async 
 						sql`INSERT INTO file_slot VALUES('ordered',1,'stored'),('ordered',3,'stored'),('ordered',4,'unsent'),('cooldown',1,'unsent')`,
 					),
 				);
+				// An acknowledged edit whose task later failed.
+				await db.use((tx) =>
+					tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,file_owner,file_phase,submission_recorded_at,file_references,task_id)
+						VALUES('acknowledged','acknowledged','poyo',1,'{"status":"unknown","reason":"missing-feed"}','failed','seedream-5.5',0,120001,'prior','edit-recorded',1,2,'task-acknowledged')`),
+				);
+				await db.use((tx) =>
+					tx.run(
+						sql`INSERT INTO file_slot VALUES('acknowledged',1,'stored'),('acknowledged',2,'stored')`,
+					),
+				);
 			} finally {
 				await db.close();
 			}
@@ -223,6 +233,9 @@ test("Jobs reports each file slot, its stop and the hosted-copy warning", async 
 			),
 		).toBeVisible();
 		await expect(cooldown.getByText(/An uploaded file may remain accessible/)).toHaveCount(0);
+		const acknowledged = page.locator("#job-acknowledged");
+		await expect(acknowledged.getByText(/Task task-acknowledged/)).toBeVisible();
+		await expect(acknowledged.getByText(/An uploaded file may remain accessible/)).toBeVisible();
 		expect(fixtures.requests.length).toBe(requests);
 	});
 });
