@@ -6,6 +6,7 @@ import { releasedModels, releasedOperations } from "#lib/shared/media-catalog/re
 import { enhance, type SubmitFunction } from "$app/forms";
 import { invalidate } from "$app/navigation";
 import type { PageProps } from "./$types";
+import { fileStateLabel } from "./file-state.ts";
 import { styles } from "./jobs-styles.ts";
 
 let { data, form }: PageProps = $props();
@@ -38,19 +39,6 @@ const states = {
 	completed: "Completed",
 	failed: "Job failed",
 };
-// A local-file edit's upload and edit boundary, when it says more than the job state.
-const fileStates = {
-	claimed: "Preparing upload",
-	uploading: "Uploading file",
-	uploaded: "File uploaded · preparing edit",
-	editing: "Submitting edit",
-	unsent: "No upload or edit sent",
-	stored: "File uploaded · edit not sent",
-	"upload-unknown": "Upload outcome unknown · edit not sent",
-	"edit-unknown": "May have been submitted",
-	"upload-rejected": "Upload rejected · edit not sent",
-	"edit-recorded": null,
-} as const;
 // One file slot's upload, by its 1-based reference position.
 const slotStates = {
 	unsent: "Not sent",
@@ -192,7 +180,8 @@ function submit(id: string, action: Action): SubmitFunction {
 					<span class={styles.state} data-state={job.state} aria-live="polite"
 						>{job.throttled && job.batchId
 							? "Not admitted · throttled"
-							: ((job.filePhase && fileStates[job.filePhase]) ?? states[job.state])}</span
+							: ((job.filePhase && fileStateLabel(job.filePhase, job.file?.slots ?? [])) ??
+								states[job.state])}</span
 					>
 				</div>
 				<p class={styles.meta}>
