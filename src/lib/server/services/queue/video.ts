@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import { queueEvidenceProblem } from "../../../shared/media-catalog/registry";
-import { frameReviewLabels } from "../../../shared/video-studio/keyframes";
+import { frameReviewLabels, roleMedia } from "../../../shared/video-studio/keyframes";
 import type { PoyoVideoBody } from "../../../shared/video-studio/poyo-video";
 import { previewVideo, type VideoRequest } from "../../../shared/video-studio/request";
 import { saveLimitProblem } from "../../../shared/video-studio/save-profile";
@@ -61,7 +61,7 @@ export async function createVideoQueue(
 					"descriptor" in input.operation ? input.operation.descriptor.rateKey : input.body.model,
 				options: input.options,
 				sourceCount: input.frames.length,
-				sourceKinds: input.frames.map(() => "image" as const),
+				sourceKinds: input.frames.map(({ role }) => roleMedia(role)),
 			},
 			{ count: 1, retryLimit: 0 },
 			time,
