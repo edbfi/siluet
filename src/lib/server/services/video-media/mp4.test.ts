@@ -126,3 +126,59 @@ test("samples stay inside media data and the movie is self-contained and unencry
 	refused(appendChild(h264Aac(), "moov", box("mvex")), /mvex is not allowed/);
 	refused(setField(h264Aac(), `${stbl(audio)}/stsc`, 12, 2), /stsc|chunk map|overlapping/);
 });
+
+// AAC priming as some muxers write it: the audio mdhd leaves out the one access unit
+// (1,024 samples at 48 kHz) that the edit skips.
+const primed = (bytes: Buffer) => setField(bytes, `${audio}/mdia/mdhd`, 16, 97_024 - 1024);
+const audioEdit = (bytes: Buffer, time: number, segment: number) =>
+	setField(setField(bytes, `${audio}/edts/elst`, 12, time), `${audio}/edts/elst`, 8, segment);
+const audioCtts = (offset: number) => box("ctts", rows([95, offset]));
+/** The fixture's AudioSpecificConfig with frameLengthFlag set: 960-sample frames. */
+const shortFrames = (bytes: Buffer) =>
+	rewrite(bytes, `${stbl(audio)}/stsd/mp4a/esds`, (data) => {
+		const at = data.indexOf(Buffer.from([0x05, 0x80, 0x80, 0x80, 0x05, 0x11, 0x88]));
+		if (at < 0) throw new Error("Fixture esds moved.");
+		const out = Buffer.from(data);
+		out[at + 6] |= 0x04;
+		return out;
+	});
+/** Audio decode deltas whose first sample ends before the edit's media time. */
+const shortFirstSample = (bytes: Buffer) =>
+	rewrite(bytes, `${stbl(audio)}/stts`, () => rows([1, 512], [1, 1536], [92, 1024], [1, 768]));
+
+test("an AAC header that excludes one access unit of edit priming passes", () => {
+	expect(inspect(primed(h264Aac()))).toEqual(inspect(h264Aac()));
+	expect(inspect(appendChild(primed(h264Aac()), stbl(audio), audioCtts(0)))).toMatchObject({
+		duration: 2,
+	});
+	// The edit may end one movie tick before the decode end.
+	expect(inspect(audioEdit(primed(h264Aac()), 1024, 96_000 - 1))).toMatchObject({ duration: 2 });
+});
+
+test("priming is excused only for one AAC access unit skipped by the single edit", () => {
+	const differs = /stts duration differs from mdhd/;
+	refused(setField(h264Aac(), `${video}/mdia/mdhd`, 16, 24_576 - 2048), differs);
+	refused(setField(h264Aac(), `${audio}/mdia/mdhd`, 16, 97_023), differs);
+	refused(setField(h264Aac(), `${audio}/mdia/mdhd`, 16, 97_025), differs);
+	refused(replaceBox(primed(h264Aac()), `${audio}/edts`, null), differs);
+	const leadingEmpty = rewrite(primed(h264Aac()), `${audio}/edts/elst`, (data) => {
+		const empty = Buffer.alloc(12);
+		empty.writeInt32BE(-1, 4);
+		empty.writeUInt32BE(0x10000, 8);
+		const out = Buffer.concat([data.subarray(0, 8), empty, data.subarray(8)]);
+		out.writeUInt32BE(2, 4);
+		return out;
+	});
+	refused(leadingEmpty, differs);
+	refused(appendChild(primed(h264Aac()), stbl(audio), audioCtts(1)), differs);
+	refused(audioEdit(primed(h264Aac()), 1024, 96_000 - 2), differs);
+	refused(shortFrames(primed(h264Aac())), differs);
+	refused(shortFirstSample(primed(h264Aac())), differs);
+	// Two frames of priming: the edit itself is valid, so only the priming rule refuses it.
+	const twoFrames = audioEdit(h264Aac(), 2048, 94_976);
+	expect(inspect(twoFrames)).toMatchObject({ duration: 2 });
+	refused(setField(twoFrames, `${audio}/mdia/mdhd`, 16, 97_024 - 2048), differs);
+	// Neither guard refuses a clip whose header already equals its decode duration.
+	expect(inspect(shortFrames(h264Aac()))).toMatchObject({ duration: 2 });
+	expect(inspect(shortFirstSample(h264Aac()))).toMatchObject({ duration: 2 });
+});

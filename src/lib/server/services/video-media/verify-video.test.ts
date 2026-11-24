@@ -14,7 +14,7 @@ import {
 	topLevelBox,
 	undecodableH264Aac,
 } from "../../../../../tests/fixtures/video/mp4-boxes";
-import { h3MaxShape } from "../../../../../tests/fixtures/video/real-clips";
+import { h3MaxShape, seedanceShape } from "../../../../../tests/fixtures/video/real-clips";
 import { TruncatedVideoError, UnsupportedVideoError } from "./errors";
 import { contentCredentialsByteLimit, movieByteLimit } from "./limits";
 import { verifyVideoFile } from "./verify-video";
@@ -148,6 +148,22 @@ test("an H3 Max-shaped clip with a C2PA box verifies", async () => {
 		height: 64,
 		duration: 2,
 	});
+});
+
+test("a Seedance-shaped clip verifies", async () => {
+	const bytes = seedanceShape();
+	expect(
+		["ftyp", "uuid", "free", "mdat", "moov"].map((type) => locate(bytes, type)[0].start),
+	).toEqual([
+		0,
+		32,
+		32 + 21_456,
+		32 + 21_456 + 8,
+		bytes.length - topLevelBox(bytes, "moov").length,
+	]);
+	expect(await verifyVideoFile(await file(bytes))).toEqual(
+		await verifyVideoFile(await file(h264Aac())),
+	);
 });
 
 test("C2PA boxes with 64-bit headers and one of exactly 1 MiB verify", async () => {

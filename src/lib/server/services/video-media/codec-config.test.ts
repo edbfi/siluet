@@ -131,21 +131,37 @@ function esds({ oti = 0x40, asc = [0x11, 0x90] }: { oti?: number; asc?: number[]
 	const es = [0, 1, 0, 0x04, decoder.length, ...decoder];
 	return Buffer.from([0, 0, 0, 0, 0x03, es.length, ...es]);
 }
-/** AudioSpecificConfig bits: object type, rate index (with optional explicit rate), channels. */
-function asc(type: number, index: number, channels: number, explicit = 0) {
+/**
+ * AudioSpecificConfig bits: object type, rate index (with optional explicit rate), channels,
+ * then GASpecificConfig's frameLengthFlag and two clear flags.
+ */
+function asc(type: number, index: number, channels: number, explicit = 0, shortFrames = false) {
 	const w = bitWriter();
 	w.put(type, 5);
 	w.put(index, 4);
 	if (index === 15) w.put(explicit, 24);
 	w.put(channels, 4);
+	w.put(shortFrames ? 0b100 : 0, 3);
 	return w.bytes().slice(0, index === 15 ? 5 : 2);
 }
 const refuses = (work: () => unknown) => expect(work).toThrow(UnsupportedVideoError);
 
 test("the fixture declares 8-bit 4:2:0 High profile video and AAC-LC 48 kHz mono", () => {
 	expect(() => checkAvcConfig(fixtureAvcC, 96, 64)).not.toThrow();
-	expect(checkAacConfig(fixtureEsds)).toEqual({ sampleRate: 48000, channels: 1 });
-	expect(checkAacConfig(esds({ asc: asc(2, 3, 2) }))).toEqual({ sampleRate: 48000, channels: 2 });
+	expect(checkAacConfig(fixtureEsds)).toEqual({
+		sampleRate: 48000,
+		channels: 1,
+		frameLength: 1024,
+	});
+	expect(checkAacConfig(esds({ asc: asc(2, 3, 2) }))).toEqual({
+		sampleRate: 48000,
+		channels: 2,
+		frameLength: 1024,
+	});
+	// GASpecificConfig's frameLengthFlag selects 960-sample frames.
+	expect(checkAacConfig(esds({ asc: asc(2, 3, 2, 0, true) }))).toMatchObject({
+		frameLength: 960,
+	});
 });
 
 test("SPS reading crops 1080p, skips scaling lists and survives emulation prevention", () => {

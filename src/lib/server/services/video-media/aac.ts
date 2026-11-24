@@ -11,7 +11,10 @@ const mpeg4Audio = 0x40;
 const audioStream = 5;
 const aacLc = 2;
 
-/** Read the descriptors in an `esds` payload and accept only AAC-LC, ≤ 48 kHz, mono or stereo. */
+/**
+ * Read the descriptors in an `esds` payload and accept only AAC-LC, ≤ 48 kHz, mono or stereo.
+ * Returns the samples per access unit from GASpecificConfig's frameLengthFlag.
+ */
 export function checkAacConfig(esds: Buffer) {
 	const read = fields(esds);
 	check(read.u32(0) === 0, "esds version");
@@ -49,5 +52,6 @@ export function checkAacConfig(esds: Buffer) {
 	check(sampleRate > 0 && sampleRate <= 48000, "audio sample rate");
 	const channels = bits.bits(4);
 	check(channels === 1 || channels === 2, "audio channel count");
-	return { sampleRate, channels };
+	const frameLength = bits.bit() ? 960 : 1024;
+	return { sampleRate, channels, frameLength };
 }
