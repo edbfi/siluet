@@ -61,5 +61,13 @@
 - [x] Clean JPEG and PNG in process. Keep upright JPEG entropy data byte-identical and verify re-encoded rotations against mapped source samples.
 - [x] Hold one preparation slot per installation from admission through the stage write. Reserve staged copies in the shared 128 MiB scratch pool.
 - [x] Retire staged copies with their sessions, and reclaim scratch only under the installation lock.
-- [x] Clean one attached local copy automatically and preview it in Review while Queue stays URL-only.
-- [ ] Pass the hosted media-cleanup matrix on Linux x64 and ARM64 and macOS.
+- [x] Clean one attached local copy automatically and preview it in Review.
+- [x] Pass the hosted media-cleanup matrix on Linux x64 and ARM64 and macOS.
+
+## Queue the attached file (R1b)
+
+- [x] Queue one attached JPEG or PNG as a Seedream edit on Poyo.ai or ToAPIs: one upload of the staged bytes, then one edit (`queue.test.ts`, `local-file-review.spec.ts`).
+- [x] Turn cleaning off only in Settings or during setup (D10); send an original only when it is one still SDR JPEG or PNG (`original.test.ts`, `settings-files.spec.ts`).
+- [x] Retire staged copies when the setting changes, and prepare again in other tabs (`local-file-review.spec.ts`).
+- [x] Keep a lost Queue answer replayable byte-for-byte without a second charge (`queue.test.ts`, `local-file-review.spec.ts`).
+- [x] Fail CI when a released migration is changed, removed or backdated (`scripts/db/released-append-only.test.ts`).
