@@ -31,7 +31,8 @@ function iso(ms: number) {
 }
 
 test("Studio resolves each provider from embedded pricing and a valid newer local cache", async () => {
-	const sourceTime = Date.parse(poyoFeed.sourceDate);
+	// A cache replaces the bundle only when its source is newer than the bundled v2 feed.
+	const sourceTime = Math.max(Date.parse(poyoFeed.sourceDate), Date.parse(poyoV2Bundle.sourceDate));
 	const now = sourceTime + 2 * day;
 	const check = new Date(now).toISOString();
 	const candidate = {

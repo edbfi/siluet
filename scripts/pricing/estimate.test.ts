@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import bundledToapis from "../../pricing/v1/toapis.json";
 import bundledV2 from "../../pricing/v2/poyo.json";
 import { estimatePrice } from "../../src/lib/shared/pricing/estimate";
 import h3Feed from "../../tests/fixtures/h3-rate.v2.json";
@@ -148,7 +149,10 @@ test("the release bundles estimate both providers offline with an empty cache", 
 			],
 			["toapis", ["--model", "doubao-seedream-5-5", "--size", "2K"], "5.6"],
 		] as const) {
-			const now = Date.parse("2026-11-21T16:00:00Z");
+			// One hour after the newer bundle, so both are fresh whatever their dates.
+			const now =
+				Math.max(Date.parse(bundledV2.sourceDate), Date.parse(bundledToapis.observedAt)) +
+				3_600_000;
 			const feed = await loadLocalPricing(now, {
 				provider,
 				cachePath: pricingCachePath(directory, provider),
