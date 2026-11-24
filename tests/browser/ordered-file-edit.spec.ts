@@ -1,6 +1,13 @@
 import { expect, type Page, test } from "@playwright/test";
 import { cmykJpeg, localImageMarker, markedFile } from "../fixtures/local-image";
-import { editedPng, secondSignedReference, signedReference } from "../fixtures/reference-edit";
+import {
+	editedPng,
+	referenceFragmentMarker,
+	referencePathMarker,
+	referenceQueryMarker,
+	secondSignedReference,
+	signedReference,
+} from "../fixtures/reference-edit";
 import { prompt, providerPayload, withEditStudio } from "./edit-studio-fixture";
 
 const providerName = { poyo: "Poyo.ai", toapis: "ToAPIs" } as const;
@@ -98,6 +105,16 @@ for (const provider of ["poyo", "toapis"] as const) {
 					await expect(review.getByText(/Multipart file/)).toHaveCount(2);
 					await expect(review.getByText(/\[hosted upload URL for reference 1\]/)).toBeVisible();
 					await expect(review.getByText(/\[hosted upload URL for reference 3\]/)).toBeVisible();
+					// The user's signed URL stays redacted; only the provider receives it.
+					const outgoing = review.locator("pre code");
+					const shown = JSON.parse((await outgoing.textContent()) ?? "");
+					expect((shown.input ?? shown).image_urls).toEqual([
+						"[hosted upload URL for reference 1]",
+						"[remote URL hidden]",
+						"[hosted upload URL for reference 3]",
+					]);
+					for (const marker of [referencePathMarker, referenceQueryMarker, referenceFragmentMarker])
+						await expect(outgoing).not.toContainText(marker);
 					await review.getByRole("tab", { name: "Review", exact: true }).press("Enter");
 					await expect(consent).toHaveAccessibleName(
 						"I accept the unknown total cost of the uploads and edit.",

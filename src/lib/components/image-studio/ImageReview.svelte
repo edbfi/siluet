@@ -201,23 +201,20 @@ const canQueue = $derived(current && (!current.requiresConsent || acceptedToken 
 const fileWord = $derived(localCopies?.cleaned === false ? "file" : "cleaned copy");
 // One upload per file and one edit, each potentially billable.
 const fileRequests = $derived(request?.files ? request.files.length + 1 : 0);
+// The redacted preview body, with each file position naming its hosted upload instead.
 const outgoingBody = $derived.by(() => {
 	const body = review?.outgoing.body;
 	const files = request?.files;
 	if (!body || !files) return body;
 	const hosted = new Set(files.map(({ position }) => position));
-	const image_urls = (request.draft as FileDraft).references.map((reference, index) =>
-		hosted.has(index + 1)
-			? files.length === 1
+	const image_urls = (body.input ?? body).image_urls?.map((redacted, index) =>
+		!hosted.has(index + 1)
+			? redacted
+			: files.length === 1
 				? "[hosted upload URL]"
-				: `[hosted upload URL for reference ${index + 1}]`
-			: reference.kind === "url"
-				? reference.url
-				: "",
+				: `[hosted upload URL for reference ${index + 1}]`,
 	);
-	return "input" in body && body.input && typeof body.input === "object"
-		? { ...body, input: { ...body.input, image_urls } }
-		: { ...body, image_urls };
+	return body.input ? { ...body, input: { ...body.input, image_urls } } : { ...body, image_urls };
 });
 const positionsText = (positions: readonly number[]) =>
 	positions.length === 1
