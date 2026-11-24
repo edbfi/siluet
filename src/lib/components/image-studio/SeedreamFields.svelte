@@ -26,7 +26,7 @@ import { createReferenceDraft, type ReferenceDraft, referenceLabel } from "./dra
 import ImagePrompt from "./ImagePrompt.svelte";
 import ImageReferenceGuidance from "./ImageReferenceGuidance.svelte";
 import ImageReferenceSlot from "./ImageReferenceSlot.svelte";
-import type { LocalCopy } from "./local-copy.svelte.ts";
+import type { LocalCopies } from "./local-copy.svelte.ts";
 import {
 	requestControl,
 	requestError,
@@ -83,7 +83,7 @@ let {
 	previewIndex = $bindable(),
 	focusPreview,
 	duplicateWarning,
-	localCopy,
+	localCopies,
 	referenceDraft = $bindable(),
 	draft = $bindable(),
 	validation,
@@ -94,7 +94,7 @@ let {
 	previewIndex: number;
 	focusPreview: () => void;
 	duplicateWarning: string | null;
-	localCopy: LocalCopy;
+	localCopies: LocalCopies;
 	referenceDraft: ReferenceDraft;
 	draft: SeedreamDraft;
 	validation: ReturnType<typeof validateSeedreamDraft>;
@@ -116,6 +116,8 @@ const rememberedOptions = new Map<string, SeedreamDraft["options"]>();
 let selectionStatus = $state("");
 
 const errors = $derived(validation.ok ? {} : validation.errors);
+// What Siluet does with each attached JPEG or PNG under the current setting.
+const preparation = $derived(localCopies.cleaned ? "cleans" : "checks and sends unchanged");
 
 $effect(() => {
 	const provider =
@@ -282,15 +284,12 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 			<legend class={requestLegend}>Reference images</legend>
 			<p class={requestHelp} id={`${id}-reference-help`}>
 				{#if provider}
-					Queue supports 1–{maxSeedreamReferences} public image URLs, or one local JPEG or PNG that
-					Siluet {localCopy.cleaned ? "cleans" : "checks and sends unchanged"} before upload.
-					Several files or other formats stay available for offline Review ({referenceFileHelp(
-						provider,
-					)}
-					each).
+					Queue supports 1–{maxSeedreamReferences} references in order: public image URLs or local
+					JPEG and PNG files that Siluet {preparation} before upload. Other formats stay available
+					for offline Review ({referenceFileHelp(provider)} each).
 				{:else}
 					Queue needs a connected provider. For offline Review, Siluet
-					{localCopy.cleaned ? "cleans a local copy of" : "checks"} one
+					{localCopies.cleaned ? "cleans a local copy of" : "checks"} each
 					{referenceFileHelp(provider)} when you attach it.
 				{/if}
 			</p>
@@ -311,7 +310,7 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 					fileId={`${id}-reference-${slot.key}`}
 					helpId={`${id}-reference-help`}
 					reference={draft.references[index]}
-					{localCopy}
+					localCopy={localCopies.forSlot(slot.key)}
 					canMoveDown={index < draft.references.length - 1}
 					{reserveIdentity}
 					onSelect={(reference, privateName, replacementIdentity) =>

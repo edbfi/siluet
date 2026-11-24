@@ -3,7 +3,16 @@ import type { MediaDescriptor } from "#lib/shared/media-staging/descriptor.ts";
 import type { LocalCopy } from "./local-copy.svelte.ts";
 import * as styles from "./local-copy-styles.ts";
 
-let { copy, headingId }: { copy: LocalCopy; headingId: string } = $props();
+let {
+	copy,
+	headingId,
+	position = null,
+}: {
+	copy: LocalCopy;
+	headingId: string;
+	/** The reference position this copy fills, named when the edit has several files. */
+	position?: number | null;
+} = $props();
 
 const resource = (staged: MediaDescriptor) => `/image/files/${staged.draft}/${staged.handle}`;
 const caption = $derived.by(() => {
@@ -17,7 +26,9 @@ const caption = $derived.by(() => {
 
 <!-- The reference slot announces the cleaning status and offers Try again. Review repeats it as information. -->
 <section class={styles.section} aria-labelledby={`${headingId}-local-copy`}>
-	<h3 class={styles.heading} id={`${headingId}-local-copy`}>Local copy</h3>
+	<h3 class={styles.heading} id={`${headingId}-local-copy`}>
+		{position === null ? "Local copy" : `Local copy · reference ${position}`}
+	</h3>
 	<p class={styles.note}>
 		{#if copy.cleaned}
 			Siluet cleans a private copy on this computer as soon as you attach the file. Cleaning makes

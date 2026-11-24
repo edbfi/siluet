@@ -58,8 +58,9 @@ export const localFilenameMarker = "private-local-filename";
  * An upright JPEG or PNG carrying a planted comment, named with a private marker. The
  * cleaner removes the comment; an original keeps it.
  */
-export async function markedFile(format: "jpeg" | "png") {
-	const image = picture(40, 30);
+export async function markedFile(format: "jpeg" | "png", variant = 0) {
+	// Each variant is one pixel wider, so its bytes and digest differ.
+	const image = picture(40 + variant, 30);
 	const name = `${localFilenameMarker}.${format === "png" ? "png" : "jpg"}`;
 	if (format === "jpeg") {
 		const jpeg = await image.jpeg({ quality: 90 }).toBuffer();

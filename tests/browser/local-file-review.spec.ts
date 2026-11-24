@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, type Route, test } from "@playwright/test";
 import sharp from "sharp";
 import { cmykJpeg, markedFile } from "../fixtures/local-image";
 import { prompt, withEditStudio } from "./edit-studio-fixture";
@@ -166,15 +166,16 @@ test("Retry's answers stay beside Retry and only a definite refusal drops the re
 		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
 		await inspect.press("Enter");
 		await consent.press("Space");
-		const answers = [
+		const answers: (Parameters<Route["fulfill"]>[0] | "lost")[] = [
 			{ status: 503, contentType: "application/json", body: JSON.stringify({ error: "closing" }) },
 			{ status: 409, body: "" },
+			{ status: 409, contentType: "application/json", body: JSON.stringify({ error: "stale" }) },
+			"lost",
 			{
 				status: 413,
 				contentType: "application/json",
 				body: JSON.stringify({ error: "limit", provider: "toapis", limit: 30e6, size: 31e6 }),
 			},
-			{ status: 409, contentType: "application/json", body: JSON.stringify({ error: "stale" }) },
 		];
 		let lost = true;
 		await page.route("**/image/file-queue", (route) => {
@@ -183,6 +184,7 @@ test("Retry's answers stay beside Retry and only a definite refusal drops the re
 				return route.abort();
 			}
 			const answer = answers.shift();
+			if (answer === "lost") return route.abort();
 			return answer ? route.fulfill(answer) : route.fallback();
 		});
 		await queue.press("Enter");
@@ -203,12 +205,7 @@ test("Retry's answers stay beside Retry and only a definite refusal drops the re
 		await retry.press("Enter");
 		await expect(review.getByText("Queue confirmation is unavailable")).toBeVisible();
 		await expect(retry).toBeVisible();
-		await retry.press("Enter");
-		await expect(
-			review.getByText(
-				"ToAPIs accepts files up to 30.0 MB; this cleaned copy is 31.0 MB. Export a smaller image.",
-			),
-		).toBeVisible();
+		// A stale answer to a Retry clears only the earlier request, beside Retry.
 		await retry.press("Enter");
 		await expect(review.getByText("The earlier request was not queued.")).toBeVisible();
 		await expect(retry).toHaveCount(0);
@@ -217,6 +214,18 @@ test("Retry's answers stay beside Retry and only a definite refusal drops the re
 			"Review the completed request to confirm its current terms.",
 		);
 		await expect(inspect).toBeEnabled();
+		// A limit refusal is final for a Retry too.
+		await inspect.press("Enter");
+		await consent.press("Space");
+		await queue.press("Enter");
+		await expect(retry).toBeVisible();
+		await retry.press("Enter");
+		await expect(
+			review.getByText(
+				"ToAPIs accepts files up to 30.0 MB; this file is 31.0 MB. Export a smaller image.",
+			),
+		).toBeVisible();
+		await expect(retry).toHaveCount(0);
 		expect(fixtures.uploads).toHaveLength(0);
 	});
 });
@@ -467,7 +476,7 @@ test("Poyo.ai's file limit is explained before anything is sent", async ({ page 
 		const requests = fixtures.requests.length;
 		await inspect.press("Enter");
 		await expect(review.getByRole("status")).toHaveText(
-			/^Poyo\.ai accepts files up to 10\.0 MB; this cleaned copy is 11\.\d MB\. Choose ToAPIs or export a smaller image\.$/,
+			/^Poyo\.ai accepts files up to 10\.0 MB; the cleaned copy in reference 1 is 11\.\d MB\. Choose ToAPIs or export a smaller image\.$/,
 		);
 		expect(fixtures.requests.length).toBe(requests);
 		expect(fixtures.uploads).toHaveLength(0);

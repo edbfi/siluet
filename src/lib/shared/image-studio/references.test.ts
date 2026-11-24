@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cleanableReferenceFile, duplicateReferenceSlots } from "./references";
+import { duplicateReferenceSlots, stageableReferences } from "./references";
 
 const signed = "https://images.example.org/shot%2fa?sig=first&v=1&v=2#detail";
 const distinct = "https://images.example.org/shot%2fa?sig=second&v=1&v=2#detail";
@@ -29,21 +29,40 @@ test("keeps different signatures and URL spellings distinct even on the same hos
 	).toBeNull();
 });
 
-test("cleans exactly one local JPEG or PNG reference", () => {
+test("stages every local JPEG or PNG in order, unless another file keeps the draft offline", () => {
 	const local = (name: string, type: string) => ({
 		kind: "file" as const,
 		file: new File(["image"], name, { type }),
 	});
 	const png = local("shot.png", "image/png");
-	expect(cleanableReferenceFile([png])).toBe(png.file);
 	const jpeg = local("shot.JPEG", "");
-	expect(cleanableReferenceFile([jpeg])).toBe(jpeg.file);
 	const generic = local("shot.jpg", "application/octet-stream");
-	expect(cleanableReferenceFile([generic])).toBe(generic.file);
-	expect(cleanableReferenceFile([local("shot.webp", "image/webp")])).toBeNull();
-	expect(cleanableReferenceFile([local("shot.png", "image/webp")])).toBeNull();
-	expect(cleanableReferenceFile([local("shot.gif", "")])).toBeNull();
-	expect(cleanableReferenceFile([png, png])).toBeNull();
-	expect(cleanableReferenceFile([remote(signed)])).toBeNull();
-	expect(cleanableReferenceFile([])).toBeNull();
+	expect(stageableReferences([png])).toEqual([{ position: 1, file: png.file }]);
+	expect(stageableReferences([jpeg, remote(signed), generic])).toEqual([
+		{ position: 1, file: jpeg.file },
+		{ position: 3, file: generic.file },
+	]);
+	// The same file twice stays visible: the duplicate refusal names both positions.
+	expect(stageableReferences([png, png])).toEqual([
+		{ position: 1, file: png.file },
+		{ position: 2, file: png.file },
+	]);
+	for (const other of [
+		local("shot.webp", "image/webp"),
+		local("shot.png", "image/webp"),
+		local("shot.gif", ""),
+	]) {
+		expect(stageableReferences([other])).toBeNull();
+		expect(stageableReferences([png, other])).toBeNull();
+	}
+	expect(stageableReferences([remote(signed)])).toBeNull();
+	expect(stageableReferences([])).toBeNull();
+});
+
+test("the same attached file in two slots is a duplicate", () => {
+	const shared = { kind: "file" as const, file: new File(["image"], "a.png") };
+	expect(
+		duplicateReferenceSlots([shared, { kind: "file", file: new File(["image"], "a.png") }]),
+	).toBeNull();
+	expect(duplicateReferenceSlots([remote(signed), shared, shared])).toEqual([2, 3]);
 });

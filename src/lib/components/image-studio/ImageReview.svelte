@@ -4,7 +4,6 @@ import { onDestroy, tick } from "svelte";
 import {
 	fileByteLimit,
 	fileLimitMessage,
-	filePlaceholder,
 	fileUploadRoutes,
 	neutralFilename,
 	type StageDescriptor,
@@ -34,7 +33,7 @@ import { goto } from "$app/navigation";
 import ImageReferenceGuidance from "./ImageReferenceGuidance.svelte";
 import * as styles from "./image-review-styles.ts";
 import LocalCopyDetails from "./LocalCopyDetails.svelte";
-import type { LocalCopy } from "./local-copy.svelte.ts";
+import type { LocalCopies } from "./local-copy.svelte.ts";
 
 let {
 	modelId,
@@ -49,7 +48,7 @@ let {
 	provider = undefined,
 	operation = "generate",
 	headingId = "studio-review-title",
-	localCopy = undefined,
+	localCopies = undefined,
 }: {
 	modelId: string;
 	connected: boolean;
@@ -63,8 +62,8 @@ let {
 	provider?: PricingProvider;
 	operation?: ReviewOperation;
 	headingId?: string;
-	/** The staged copy of one attached JPEG or PNG. Review and Queue use it as the reference. */
-	localCopy?: LocalCopy;
+	/** The staged copies of the attached JPEG and PNG files, which Review and Queue send in order. */
+	localCopies?: LocalCopies;
 } = $props();
 
 const providerNames = { poyo: "Poyo.ai", toapis: "ToAPIs" };
@@ -82,24 +81,32 @@ const maxAttempts = $derived(maximumReviewAttempts(batch));
 const selectedProvider = $derived(review?.pricing.provider ?? provider);
 const providerName = $derived(selectedProvider && providerNames[selectedProvider]);
 const isEdit = $derived((review?.pricing.operation ?? operation) === "edit");
+type FileReference = { kind: "url"; url: string } | { kind: "file"; stage: StageDescriptor };
 type QueueInput = {
 	operationKey: ReleasedImageOperation["key"];
 	draft: SeedreamDraft | ZImageDraft | FileDraft;
 	count: number;
 	retryLimit: number;
-	/** The staged file a local-file edit reviews; the draft then names only its placeholder. */
-	stage?: StageDescriptor;
+	/** The staged files a file edit reviews, in reference order. */
+	files?: { position: number; stage: StageDescriptor }[];
 };
-type FileDraft = Omit<SeedreamDraft, "references"> & {
-	references: { kind: "upload"; url: string }[];
-};
-// Set only for one attached JPEG or PNG in a Seedream edit.
-const localFile = $derived(
-	modelId !== zImageModel.id && isEdit && localCopy?.file ? localCopy : null,
+type FileDraft = Omit<SeedreamDraft, "references"> & { references: FileReference[] };
+type ReviewedFile = { position: number; stage: StageDescriptor };
+// Set only for attached JPEG and PNG files in a Seedream edit, in reference order.
+const localFiles = $derived(
+	modelId !== zImageModel.id && isEdit && localCopies?.files.length ? localCopies.files : null,
 );
-const fileStage = $derived(localFile?.stage as StageDescriptor | null | undefined);
+const fileStages = $derived(
+	localFiles?.every(({ copy }) => copy.stage)
+		? localFiles.map(({ position, copy }) => ({
+				position,
+				stage: copy.stage as StageDescriptor,
+			}))
+		: null,
+);
+const fileCount = $derived(localFiles?.length ?? 0);
 type ReviewTerms = {
-	stage?: StageDescriptor;
+	files?: ReviewedFile[];
 	token: string;
 	quote: PriceEstimate;
 	requiresConsent: boolean;
@@ -111,12 +118,15 @@ const unavailable = $derived.by(() => {
 	const evidenceProblem = entry && queueEvidenceProblem(entry.evidence);
 	if (evidenceProblem) return evidenceProblem;
 	if (isEdit && duplicateWarning) return duplicateWarning;
-	if (localFile) {
+	if (localFiles) {
 		if (!connected) return "Connect Poyo.ai or ToAPIs in Settings to queue.";
 		if (count !== 1 || retryLimit !== 0)
 			return "Local-file Queue supports one request and zero additional attempts.";
-		if (!fileStage) return localFile.status || "Preparing the attached file…";
-		return null;
+		if (fileStages) return null;
+		const waiting = localFiles.find(({ copy }) => !copy.stage);
+		const status = waiting?.copy.status;
+		if (fileCount === 1) return status || "Preparing the attached file…";
+		return status ? `Reference ${waiting.position}: ${status}` : "Preparing the attached files…";
 	}
 	if (modelId === zImageModel.id && (count !== 1 || retryLimit !== 0))
 		return "Z-Image Queue supports one request and zero additional attempts.";
@@ -128,30 +138,36 @@ const unavailable = $derived.by(() => {
 			draft.references.length > maxSeedreamReferences ||
 			draft.references.some((reference) => reference.kind !== "url"))
 	) {
-		return `Queue requires 1–${maxSeedreamReferences} public image URLs. Files can be staged for offline Review.`;
+		return `Queue requires 1–${maxSeedreamReferences} public image URLs or local JPEG and PNG files. Other formats stay available for offline Review.`;
 	}
 	return null;
 });
 const request = $derived.by((): QueueInput | null => {
 	if (!review || !entry || unavailable) return null;
 	const snapshot = $state.snapshot(draft);
-	if (!fileStage || modelId === zImageModel.id)
+	if (!fileStages || modelId === zImageModel.id)
 		return { operationKey: entry.key, draft: snapshot, count, retryLimit };
-	// The flat wire format of a URL edit, with the canonical upload placeholder as its reference.
+	// Each reference in order: its exact URL, or its file's staged descriptor.
+	const staged = new Map(fileStages.map(({ position, stage }) => [position, stage]));
 	return {
 		operationKey: entry.key,
 		draft: {
 			...(snapshot as SeedreamDraft),
-			references: [{ kind: "upload", url: filePlaceholder }],
+			references: (snapshot as SeedreamDraft).references.map((reference, index) => {
+				const stage = staged.get(index + 1);
+				return stage
+					? { kind: "file", stage }
+					: { kind: "url", url: reference.kind === "url" ? reference.url : "" };
+			}),
 		},
 		count,
 		retryLimit,
-		stage: fileStage,
+		files: fileStages,
 	};
 });
 // A file Queue whose response was lost. It may already be claimed and charged, so it
 // survives edits and renewals, and Retry sends exactly this body again.
-let submitted = $state.raw<{ body: object; stage: StageDescriptor } | null>(null);
+let submitted = $state.raw<{ body: object; cleaned: boolean } | null>(null);
 let authorized = $state.raw<{ request: QueueInput; terms: ReviewTerms } | null>(null);
 let pending = $state<"review" | "queue" | null>(null);
 let acceptedToken = $state<string | null>(null);
@@ -169,7 +185,9 @@ const offlineQuote = $derived(
 );
 const expiry = $derived.by(() => {
 	const price = reviewPriceExpiry(terms?.quote ?? offlineQuote ?? undefined);
-	return terms?.stage ? Math.min(terms.stage.deadline, price ?? Infinity) : price;
+	return terms?.files?.length
+		? Math.min(...terms.files.map(({ stage }) => stage.deadline), price ?? Infinity)
+		: price;
 });
 const expired = $derived(expiry !== undefined && (browserNow ?? nowMs) >= expiry);
 const current = $derived(!expired ? terms : null);
@@ -180,15 +198,37 @@ const disclosure = $derived(
 		: current?.editDisclosure,
 );
 const canQueue = $derived(current && (!current.requiresConsent || acceptedToken === current.token));
-const fileWord = $derived(localFile?.cleaned === false ? "file" : "cleaned copy");
+const fileWord = $derived(localCopies?.cleaned === false ? "file" : "cleaned copy");
+// One upload per file and one edit, each potentially billable.
+const fileRequests = $derived(request?.files ? request.files.length + 1 : 0);
 const outgoingBody = $derived.by(() => {
 	const body = review?.outgoing.body;
-	if (!body || !request?.stage) return body;
-	const image_urls = ["[hosted upload URL]"];
+	const files = request?.files;
+	if (!body || !files) return body;
+	const hosted = new Set(files.map(({ position }) => position));
+	const image_urls = (request.draft as FileDraft).references.map((reference, index) =>
+		hosted.has(index + 1)
+			? files.length === 1
+				? "[hosted upload URL]"
+				: `[hosted upload URL for reference ${index + 1}]`
+			: reference.kind === "url"
+				? reference.url
+				: "",
+	);
 	return "input" in body && body.input && typeof body.input === "object"
 		? { ...body, input: { ...body.input, image_urls } }
 		: { ...body, image_urls };
 });
+const positionsText = (positions: readonly number[]) =>
+	positions.length === 1
+		? `reference ${positions[0]}`
+		: `references ${positions.slice(0, -1).join(", ")} and ${positions.at(-1)}`;
+const positionsOf = (answer: unknown) => {
+	const positions = (answer as { positions?: unknown } | null)?.positions;
+	return Array.isArray(positions) && positions.every((p) => Number.isSafeInteger(p))
+		? (positions as number[])
+		: [];
+};
 
 $effect(() => {
 	if (authorized && authorized.request !== request) {
@@ -206,12 +246,18 @@ function post(path: string, body: object) {
 	});
 }
 
-// A file Review or Queue found its copy stale: prepare the attached file again. The
-// copy's own status describes the preparation.
-function renewFile() {
+// A file Review or Queue found copies stale. Listed positions are prepared again, and
+// their copies' own status describes the preparation; with none listed only the terms
+// changed, so every staged copy stays and a fresh Review is needed.
+function renewFiles(input: QueueInput, positions: readonly number[]) {
 	authorized = null;
 	acceptedToken = null;
-	localFile?.renew();
+	if (positions.length) localCopies?.renew(positions);
+	else
+		feedback = {
+			request: input,
+			message: "The terms changed. Review again before queuing.",
+		};
 }
 
 function applyTerms(input: QueueInput, terms: ReviewTerms) {
@@ -244,6 +290,9 @@ async function focusReview(trigger: "inspect" | "queue") {
 	}
 }
 
+// The JSON a Review or Queue POST carries: the request without its local bookkeeping.
+const wire = ({ files: _files, ...input }: QueueInput) => input;
+
 async function inspect() {
 	const input = request;
 	if (!input || pending) return;
@@ -254,31 +303,35 @@ async function inspect() {
 	retryMessage = null;
 	tabValue = "review";
 	try {
-		const response = await post(input.stage ? "/image/file-review" : "/image/review", {
-			...input,
+		const response = await post(input.files ? "/image/file-review" : "/image/review", {
+			...wire(input),
 			acceptUnknown: false,
 		});
-		// A response for a copy that is no longer current is dropped.
+		// A response for copies that are no longer current is dropped.
 		if (!mounted || input !== request) return;
-		if (input.stage && response.status === 409) {
-			renewFile();
+		if (input.files && response.status === 409) {
+			renewFiles(input, positionsOf(await response.json().catch(() => null)));
 			return;
 		}
-		if (input.stage && response.status === 413) {
-			feedback = {
-				request: input,
-				message: fileLimitMessage(await response.json().catch(() => null), fileWord),
-			};
-			return;
+		if (input.files && (response.status === 413 || response.status === 400)) {
+			const answer: unknown = await response.json().catch(() => null);
+			const duplicate = (answer as { error?: unknown } | null)?.error === "duplicate";
+			if (response.status === 413 || duplicate) {
+				feedback = {
+					request: input,
+					message: duplicate
+						? duplicateMessage(positionsOf(answer))
+						: fileLimitMessage(answer, fileWord),
+				};
+				return;
+			}
 		}
 		if (!response.ok) throw new Error();
 		const terms: ReviewTerms = await response.json();
 		if (input !== request) return;
-		if (input.stage && terms.stage)
-			localFile?.extend(
-				terms.stage.deadline,
-				Date.parse(response.headers.get("date") ?? "") || Date.now(),
-			);
+		const serverNow = Date.parse(response.headers.get("date") ?? "") || Date.now();
+		for (const { position, stage } of terms.files ?? [])
+			localCopies?.at(position)?.extend(stage.deadline, serverNow);
 		if (applyTerms(input, terms)) await focusReview("inspect");
 	} catch {
 		feedback = {
@@ -290,10 +343,17 @@ async function inspect() {
 	}
 }
 
+function duplicateMessage(positions: readonly number[]) {
+	return positions.length
+		? `${positionsText(positions).replace(/^r/, "R")} are the same. Remove the repeat before queuing.`
+		: "Two references are the same. Remove the repeat before queuing.";
+}
+
 // One file Queue POST. An answer that cannot be read keeps the body for an exact Retry.
 // `input` is null for that Retry: its outcome concerns the earlier request, never the
-// current Review, and only a definite refusal (stale or invalid) clears it.
-async function sendFile(body: object, stage: StageDescriptor, input: QueueInput | null) {
+// current Review, its stages or its consent, and only a parsed `stale`, `invalid`,
+// `limit` or `duplicate` clears it.
+async function sendFile(body: object, cleaned: boolean, input: QueueInput | null) {
 	pending = "queue";
 	feedback = null;
 	retryMessage = null;
@@ -301,9 +361,9 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 		if (input) feedback = { request: input, message };
 		else retryMessage = message;
 	};
-	const refused = () => {
-		submitted = null;
-		tell("The earlier request was not queued. Nothing was sent for it.");
+	const final = (message: string) => {
+		if (!input) submitted = null;
+		tell(message);
 	};
 	try {
 		const response = await post("/image/file-queue", body);
@@ -329,9 +389,13 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 			return;
 		}
 		if (response.status === 413) {
-			// The words describe the copy this body carries, which a Retry may not share with the form.
-			const sent = stage.transform === "original" ? "file" : "cleaned copy";
-			tell(fileLimitMessage(await response.json().catch(() => null), sent));
+			// The words describe the copies this body carries, which a Retry may not share with the form.
+			final(
+				fileLimitMessage(
+					await response.json().catch(() => null),
+					cleaned ? "cleaned copy" : "file",
+				),
+			);
 			return;
 		}
 		if (response.status === 409) {
@@ -339,33 +403,27 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 				.json()
 				.catch(() => null);
 			if (result?.error === "cooldown") {
-				if (input) {
-					authorized = null;
-					acceptedToken = null;
-				}
+				// Nothing was claimed: the Review and its consent queue it after the cooldown.
 				const until = typeof result.until === "number" ? new Date(result.until) : null;
 				tell(
-					`The provider is cooling down. Nothing was sent. ${input ? "Review" : "Retry"} again${until ? ` after ${until.toISOString().slice(0, 19).replace("T", " ")} UTC` : " shortly"}.`,
+					`The provider is cooling down. Nothing was sent. ${input ? "Queue" : "Retry"} again${until ? ` after ${until.toISOString().slice(0, 19).replace("T", " ")} UTC` : " shortly"}.`,
 				);
 				return;
 			}
-			if (!input) {
-				if (result?.error !== "stale") throw new Error();
-				return refused();
-			}
-			// An answer about a copy that is no longer current is dropped.
-			if (mounted && input === request) renewFile();
+			if (result?.error !== "stale") throw new Error();
+			if (!input) return final("The earlier request was not queued. Nothing was sent for it.");
+			// An answer about copies that are no longer current is dropped.
+			if (mounted && input === request) renewFiles(input, positionsOf(result));
 			return;
 		}
 		if (response.status === 400) {
-			if (!input) {
-				const result: { error?: unknown } | null = await response.json().catch(() => null);
-				if (result?.error !== "invalid") throw new Error();
-				return refused();
-			}
+			const result: { error?: unknown } | null = await response.json().catch(() => null);
+			if (result?.error === "duplicate") return final(duplicateMessage(positionsOf(result)));
+			if (result?.error !== "invalid") throw new Error();
+			if (!input) return final("The earlier request was not queued. Nothing was sent for it.");
 			authorized = null;
 			acceptedToken = null;
-			tell("Review the file again before queuing.");
+			tell(`Review the ${fileCount === 1 ? "file" : "files"} again before queuing.`);
 			return;
 		}
 		if (!response.ok) throw new Error();
@@ -374,7 +432,7 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 		submitted = null;
 		if (mounted) await goto(`/jobs#job-${encodeURIComponent(jobId)}`);
 	} catch {
-		submitted = { body, stage };
+		submitted = { body, cleaned };
 		tell("Queue confirmation is unavailable. Check Jobs, or Retry to send the same request again.");
 	} finally {
 		pending = null;
@@ -384,32 +442,41 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 function retrySubmitted() {
 	const lost = submitted;
 	if (!lost || pending) return;
-	void sendFile(lost.body, lost.stage, null);
+	void sendFile(lost.body, lost.cleaned, null);
 }
 
 async function queue() {
 	const input = request;
 	if (!input || !current || !canQueue || pending || tabValue !== "review") return;
-	if (input.stage && current.stage) {
+	if (input.files && current.files) {
+		const reviewed = new Map(current.files.map(({ position, stage }) => [position, stage]));
+		const draft = input.draft as FileDraft;
 		await sendFile(
 			{
-				...input,
-				stage: current.stage,
+				...wire(input),
+				draft: {
+					...draft,
+					references: draft.references.map((reference, index) => {
+						const stage = reviewed.get(index + 1);
+						return stage ? { kind: "file", stage } : reference;
+					}),
+				},
 				token: current.token,
 				acceptUnknown: acceptedToken === current.token,
 			},
-			current.stage,
+			input.files.some(({ stage }) => stage.transform !== "original"),
 			input,
 		);
 		return;
 	}
+
 	pending = "queue";
 	feedback = null;
 	retryMessage = null;
 	const token = current.token;
 	try {
 		const response = await post("/image/queue", {
-			...input,
+			...wire(input),
 			token,
 			acceptUnknown: acceptedToken === token,
 		});
@@ -477,7 +544,7 @@ $effect(() => {
 			acceptedToken = null;
 			feedback = {
 				request: input,
-				message: reviewed.stage
+				message: reviewed.files?.length
 					? "File Review expired. Review the request again before queuing."
 					: "The reviewed rates expired. Review the request again before queuing.",
 			};
@@ -581,8 +648,11 @@ $effect(() => {
 				<div class={styles.fact}>
 					<dt class={styles.term}>Price</dt>
 					<dd class={styles.detail} data-studio-price aria-live="polite">
-						{#if request?.stage}
-							<p>Upload cost unknown. The estimate below covers the edit.</p>
+						{#if request?.files}
+							<p>
+								{fileCount === 1 ? "Upload cost" : "Upload costs"} unknown. The estimate below
+								covers the edit.
+							</p>
 						{/if}
 						{#if selectedProvider === "toapis"}
 							<span class={styles.note}>Standard-route pricing</span>
@@ -630,14 +700,19 @@ $effect(() => {
 						: "The provider does not enforce the estimated spend as a cap."}
 				</p>
 			{/if}
-			{#if localCopy?.file}
-				<LocalCopyDetails copy={localCopy} {headingId} />
-			{/if}
-			{#if current?.stage}
+			{#each localFiles ?? [] as { position, key, copy } (key)}
+				<LocalCopyDetails
+					{copy}
+					headingId={`${headingId}-file-${key}`}
+					position={fileCount === 1 ? null : position}
+				/>
+			{/each}
+			{#if current?.files?.length}
+				{@const deadline = Math.min(...current.files.map(({ stage }) => stage.deadline))}
 				<p class={styles.note}>
 					Review valid until
-					<time datetime={new Date(current.stage.deadline).toISOString()}
-						>{new Date(current.stage.deadline).toISOString().slice(11, 19)} UTC</time
+					<time datetime={new Date(deadline).toISOString()}
+						>{new Date(deadline).toISOString().slice(11, 19)} UTC</time
 					>.
 				</p>
 			{/if}
@@ -680,16 +755,23 @@ $effect(() => {
 		<Tabs.Content value="outgoing" class={styles.tabContent}>
 			{#if review}
 				<div class={styles.wire}>
-					{#if request?.stage && selectedProvider && selectedProvider in fileUploadRoutes}
+					{#if request?.files && selectedProvider && selectedProvider in fileUploadRoutes}
 						{@const provider = selectedProvider as keyof typeof fileUploadRoutes}
-						<p>Upload</p>
-						<p><code>POST {fileUploadRoutes[provider]}</code></p>
-						<p><code>Authorization: Bearer [API key hidden]</code></p>
-						<p>
-							Multipart file · {neutralFilename(request.stage.mime)} · {request.stage.mime} ·
-							{request.stage.size.toLocaleString("en-US")} bytes (limit
-							{fileByteLimit[provider].toLocaleString("en-US")}) · default storage path and purpose
-						</p>
+						{#each request.files as { position, stage } (position)}
+							<p>
+								{fileCount === 1
+									? "Upload"
+									: `Upload ${position === request.files[0].position ? "first" : "then"} · reference ${position}`}
+							</p>
+							<p><code>POST {fileUploadRoutes[provider]}</code></p>
+							<p><code>Authorization: Bearer [API key hidden]</code></p>
+							<p>
+								Multipart file · {neutralFilename(stage.mime)} · {stage.mime} ·
+								{stage.size.toLocaleString("en-US")} bytes (limit
+								{fileByteLimit[provider].toLocaleString("en-US")}) · default storage path and
+								purpose
+							</p>
+						{/each}
 						<p>Edit</p>
 					{/if}
 					<p><code>{review.outgoing.method} {review.outgoing.url}</code></p>
@@ -724,8 +806,8 @@ $effect(() => {
 				onchange={(event) =>
 					(acceptedToken = event.currentTarget.checked ? (current?.token ?? null) : null)}
 			>
-			{current.stage
-				? "I accept the unknown total cost of the upload and edit."
+			{current.files?.length
+				? `I accept the unknown total cost of the ${current.files.length === 1 ? "upload" : "uploads"} and edit.`
 				: count > 1 || retryLimit > 0
 					? "I accept unknown costs for this batch, including authorized retries and any applicable fallback."
 					: selectedProvider !== "toapis"
@@ -775,7 +857,12 @@ $effect(() => {
 			<p class={styles.exposure} aria-live="polite">{retryMessage ?? ""}</p>
 		{/if}
 		<p id={`${headingId}-exposure`} class={styles.exposure} aria-live="polite">
-			Up to {maxAttempts} potentially billable {maxAttempts === 1 ? "submission" : "submissions"}.
+			{#if fileRequests}
+				Up to {fileRequests} potentially billable requests: {fileCount}
+				{fileCount === 1 ? "upload" : "uploads"} and one edit.
+			{:else}
+				Up to {maxAttempts} potentially billable {maxAttempts === 1 ? "submission" : "submissions"}.
+			{/if}
 		</p>
 	</div>
 	<p id={`${headingId}-availability`} class={styles.note} role="status">
