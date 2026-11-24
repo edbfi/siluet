@@ -100,6 +100,8 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 		const batchTab = review.getByRole("tab", { name: "Batch", exact: true });
 		const outgoingTab = review.getByRole("tab", { name: "Outgoing request", exact: true });
 		const facts = review.getByRole("tabpanel", { name: "Review", exact: true });
+		// The ordered reference list, apart from any staged copy's cleanup notes.
+		const references = facts.getByRole("list").first();
 		const outgoing = review.getByRole("tabpanel", { name: "Outgoing request", exact: true });
 		const price = facts.locator("[data-studio-price]");
 		const queue = (count: number) =>
@@ -572,8 +574,14 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			).toBeVisible();
 			await expect(preview.getByText("Reference image 2")).toBeVisible();
 			await expect(preview.getByText("Previews are available for local files.")).toBeVisible();
-			await expect(preview.getByRole("img")).toHaveCount(0);
-			await expect(queue(1)).toHaveAccessibleDescription(/1–10 public image URLs/i);
+			await expect(preview.filter({ hasText: "Reference image 2" }).getByRole("img")).toHaveCount(
+				0,
+			);
+			// A local PNG beside a public URL queues as an ordered file edit.
+			await expect(review.getByRole("region", { name: "Local copy", exact: true })).toBeVisible();
+			await expect(
+				review.getByRole("button", { name: "Review request", exact: true }),
+			).toBeVisible();
 
 			await settingsLink.press("Enter");
 			await expect(settingsLink).toHaveAttribute("aria-current", "page");
@@ -591,7 +599,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 		await test.step("derive the edited wire body and estimates from one validated request", async () => {
 			const promptWithUrl = `${promptText} See <${signedPromptUrl}>.`;
 			await prompt.fill(promptWithUrl);
-			await expect(facts.getByRole("listitem")).toHaveText([
+			await expect(references.getByRole("listitem")).toHaveText([
 				`1. Reference A · ${referenceImage.name} (local file)`,
 				"2. Reference B · images.example.org (URL reference)",
 			]);
@@ -626,7 +634,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(prompt).toHaveValue(promptWithUrl);
 			await prompt.fill(promptText);
 			await reviewTab.click();
-			await expect(facts.getByRole("listitem")).toHaveText([
+			await expect(references.getByRole("listitem")).toHaveText([
 				`1. Reference A · ${referenceImage.name} (local file)`,
 				"2. Reference B · images.example.org (URL reference)",
 			]);
