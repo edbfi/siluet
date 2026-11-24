@@ -371,7 +371,7 @@ async function sendFile(body: object, cleaned: boolean, input: QueueInput | null
 			if (result?.error === "closing") {
 				tell(
 					input
-						? "Siluet is shutting down · nothing sent. Queue this Review again after it restarts."
+						? "Siluet is shutting down · nothing sent. Review again after it restarts."
 						: "Siluet is shutting down · this Retry sent nothing. Check Jobs after it restarts, or Retry then.",
 				);
 				return;
