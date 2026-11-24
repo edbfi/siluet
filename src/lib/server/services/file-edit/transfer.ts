@@ -13,28 +13,55 @@ import { interpretPoyoUpload } from "../../providers/poyo/upload";
 import { createToapisImage } from "../../providers/toapis/image";
 import { interpretToapisUpload } from "../../providers/toapis/upload";
 
+// Bytes copied out of the shared dispatch buffer per pull.
+const chunkBytes = 65_536;
+
+/**
+ * Upload one staged file from the dispatcher's buffer. The body copies the buffer out in
+ * small chunks as transport pulls them and stops producing once the request settles, so
+ * this resolves only after the body has drained or stopped: the next file can then reuse
+ * the buffer without reaching bytes still in flight.
+ */
 export async function uploadFile(
 	provider: SeedreamProvider,
 	key: string,
-	file: StageDescriptor,
+	file: Pick<StageDescriptor, "mime" | "size">,
 	bytes: Uint8Array<ArrayBuffer>,
 	read: CheckFetch = filePost(fileUploadRoutes[provider], 60_000),
 ): Promise<UploadOutcome> {
 	const url = fileUploadRoutes[provider];
-	// Stream the exclusively owned, digest-checked buffer between two small MIME boundaries.
 	const boundary = `siluet-${crypto.randomUUID()}`;
 	const prefix = Buffer.from(
 		`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${neutralFilename(file.mime)}"\r\nContent-Type: ${file.mime}\r\n\r\n`,
 	);
 	const suffix = Buffer.from(`\r\n--${boundary}--\r\n`);
-	const body = new ReadableStream<Uint8Array>({
-		start(controller) {
-			controller.enqueue(prefix);
-			controller.enqueue(bytes);
-			controller.enqueue(suffix);
-			controller.close();
+	let offset = 0;
+	let stopped = false;
+	const body = new ReadableStream<Uint8Array>(
+		{
+			start(controller) {
+				controller.enqueue(prefix);
+			},
+			pull(controller) {
+				if (stopped) {
+					controller.error(new Error("Upload settled."));
+					return;
+				}
+				if (offset < bytes.length) {
+					const end = Math.min(offset + chunkBytes, bytes.length);
+					controller.enqueue(bytes.slice(offset, end));
+					offset = end;
+					return;
+				}
+				controller.enqueue(suffix);
+				controller.close();
+			},
+			cancel() {
+				stopped = true;
+			},
 		},
-	});
+		{ highWaterMark: 0 },
+	);
 	try {
 		const response = await read(url, {
 			method: "POST",
@@ -49,6 +76,9 @@ export async function uploadFile(
 		return interpret(response.status, await response.json(), file);
 	} catch {
 		return uncertainUpload;
+	} finally {
+		// From here on, no chunk of this buffer reaches the body.
+		stopped = true;
 	}
 }
 
