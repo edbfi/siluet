@@ -87,4 +87,4 @@
 - [x] Quote the advertised token rate in both modes and bind the exact frames to Review; keep frame URLs and hosts out of job rows (`video.test.ts`).
 - [x] Explain a refused or unreadable frame by operation; follow asset review past automatic tracking to Save and Retry download with one POST (`video.test.ts`, `summary.test.ts`, `tracking.test.ts`).
 - [x] Review both modes by keyboard at desktop and 320 px, queue once, save and reopen offline with zero frame-host reads (`seedance-keyframes.spec.ts`).
-- [ ] Hosted `smoke` (Linux x64) passes the keyframe journey; `native-owner` (macOS) keeps passing its existing video checks.
+- [x] Hosted `smoke` (Linux x64) passes the keyframe journey; `native-owner` (macOS) keeps passing its existing video checks.
