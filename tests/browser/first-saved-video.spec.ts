@@ -9,7 +9,9 @@ import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
 import { seedanceProvider } from "../fixtures/seedance-provider";
 import { undecodableH264Aac } from "../fixtures/video/mp4-boxes";
+import { seedanceShape } from "../fixtures/video/real-clips";
 import { startStudio } from "./built-studio";
+import { seekThenPlay } from "./saved-video-playback";
 
 test("video-only key reviews once, saves one video and reopens its original bytes offline", async ({
 	page,
@@ -17,7 +19,8 @@ test("video-only key reviews once, saves one video and reopens its original byte
 }) => {
 	test.setTimeout(100_000);
 	const directory = await createOwnerDirectory();
-	const bytes = await readFile("tests/fixtures/video/h264-aac.mp4");
+	// A clip laid out like Seedance output: C2PA box, media first and AAC priming.
+	const bytes = seedanceShape();
 	const prompt = "A blue clock rotates slowly.";
 	const draft = { ...videoDefaults, prompt, aspect_ratio: "9:16" };
 	let posts = 0;
@@ -167,16 +170,7 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			await page.goto(origin + path);
 			const video = page.getByLabel("Saved video playback");
 			await expect(video).toBeVisible();
-			expect(await video.evaluate((v: HTMLVideoElement) => v.autoplay)).toBe(false);
-			await video.focus();
-			await video.press("Space");
-			await expect
-				.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
-				.toBeGreaterThan(0);
-			await video.press("ArrowRight");
-			await expect
-				.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
-				.toBeGreaterThan(1);
+			await seekThenPlay(page, video);
 			expect(await (await page.request.get(`${media}?download=1`)).body()).toEqual(bytes);
 			const head = await page.request.head(media, { headers: { range: "bytes=0-1" } });
 			expect(head.status()).toBe(200);
