@@ -146,6 +146,8 @@ export function fileDispatcher(
 			slot.kind === "url" ? slot.url : (hosted.get(index + 1)?.url ?? ""),
 		);
 		const request = buildSeedreamRequest(live.input, (_reference, index) => urls[index]);
+		// A shutdown during the last upload stops before the edit's destination is resolved.
+		if (closing()) return stop({ stop: "interrupted" });
 		const read = await pin(request.url, 30_000).catch(() => null);
 		if (!read) return stop({ stop: "destination" });
 		const expired = () =>

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
+import { fileUploadRoutes } from "../../../shared/image-studio/file-edit";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
 import { claimFileSlots } from "../../db/file-attempt";
 import { imageJobStore } from "../../db/image-job-store";
@@ -381,6 +382,51 @@ test("a stop frees the buffer and the Poyo upload slot before its closing wallet
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+test.each(["poyo", "toapis"] as const)(
+	"%s shutdown during the last upload stops as interrupted before the edit pin",
+	async (provider) => {
+		const root = await createOwnerDirectory();
+		const db = await openInstallation(root);
+		try {
+			const live = await claimedFile(db, provider);
+			let closing = false,
+				edits = 0;
+			const pinned: string[] = [];
+			const dispatch = fileDispatcher(db, "runtime", () => {}, {
+				now: () => 10,
+				balance: async () => "10",
+				pin: async (endpoint) => {
+					pinned.push(endpoint);
+					return async () => {
+						throw new Error("unexpected transport");
+					};
+				},
+				async upload() {
+					// Shutdown begins once the last upload is in flight, after its handoff.
+					await Promise.resolve();
+					closing = true;
+					return { kind: "ready", url: "https://storage.example.org/reference" };
+				},
+				async edit() {
+					edits++;
+					return { kind: "unknown" };
+				},
+			});
+			await dispatch("file", "fixture", live, heldBytes(new Uint8Array(1)), () => closing);
+			expect(pinned).toEqual([fileUploadRoutes[provider]]);
+			expect(edits).toBe(0);
+			expect(await imageJobStore(db).get("file")).toMatchObject({
+				state: "rejected",
+				file_phase: "stored",
+				file_stop: "interrupted",
+			});
+		} finally {
+			await db.close();
+			await rm(root, { recursive: true, force: true });
+		}
+	},
+);
 
 test("a shutdown that begins after the upload marker sends nothing and undoes the Poyo window entry", async () => {
 	const root = await createOwnerDirectory();
