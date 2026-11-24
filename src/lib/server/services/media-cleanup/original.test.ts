@@ -79,6 +79,31 @@ describe("an original JPEG", () => {
 		await refused(Buffer.concat([file.subarray(0, -2), extra, file.subarray(-2)]), "hdr");
 	});
 
+	test("is refused when a PQ profile sits in an ICC set numbered out of sequence", async () => {
+		const still = await jpeg();
+		const profile = icc([cicpTag(9, 16)]);
+		const part = (sequence: number, total: number, bytes: Buffer) =>
+			segment(
+				0xe2,
+				Buffer.concat([
+					Buffer.from("ICC_PROFILE\0", "latin1"),
+					Buffer.from([sequence, total]),
+					bytes,
+				]),
+			);
+		const half = Math.ceil(profile.length / 2);
+		await refused(withSegments(still, part(0, 1, profile)), "hdr");
+		await refused(withSegments(still, part(2, 2, profile)), "hdr");
+		await refused(
+			withSegments(
+				still,
+				part(1, 2, profile.subarray(0, half)),
+				part(1, 2, profile.subarray(half)),
+			),
+			"hdr",
+		);
+	});
+
 	test("is refused when its ICC profile exceeds 1 MiB", async () => {
 		const large = icc([lutTag, ["priv", Buffer.alloc(1024 * 1024)]]);
 		await refused(withSegments(await jpeg(), ...iccSegments(large)), "limit");

@@ -15,23 +15,14 @@ const frameMarkers = new Set([0xc0, 0xc1, 0xc2]);
 const otherFrames = new Set([0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
 const starts = (data: Buffer, prefix: Buffer) => data.subarray(0, prefix.length).equals(prefix);
 
-// Reassemble APP2 ICC_PROFILE chunks by sequence number. A set that does not fit
-// together passes here; the decode then checks the profile the decoder assembles.
+// Whether APP2 ICC_PROFILE chunks declare HDR however a reader assembles them: by
+// sequence number, in file order, or one chunk alone. The decode then checks the
+// profile its own decoder assembles.
 function iccHdr(parts: Buffer[]) {
-	const total = parts.length;
-	const sorted = parts.toSorted((a, b) => a[12] - b[12]);
-	let size = 0;
-	for (const [index, part] of sorted.entries()) {
-		if (part.length <= 14 || part[12] !== index + 1 || part[13] !== total) return false;
-		size += part.length - 14;
-	}
-	return (
-		profileHdr(
-			Buffer.concat(
-				sorted.map((part) => part.subarray(14)),
-				size,
-			),
-		) === "hdr"
+	const payloads = parts.map((part) => part.subarray(14));
+	const bySequence = parts.toSorted((a, b) => a[12] - b[12]).map((part) => part.subarray(14));
+	return [Buffer.concat(bySequence), Buffer.concat(payloads), ...payloads].some(
+		(profile) => profileHdr(profile) === "hdr",
 	);
 }
 
