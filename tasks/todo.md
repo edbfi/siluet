@@ -71,3 +71,11 @@
 - [x] Retire staged copies when the setting changes, and prepare again in other tabs (`local-file-review.spec.ts`).
 - [x] Keep a lost Queue answer replayable byte-for-byte without a second charge (`queue.test.ts`, `local-file-review.spec.ts`).
 - [x] Fail CI when a released migration is changed, removed or backdated (`scripts/db/released-append-only.test.ts`).
+
+## Ordered files and URLs (R2)
+
+- [x] Edit with 1–10 ordered references mixing public URLs and local JPEG/PNG files: each file uploads once in slot order, then one edit (`ordered-queue.test.ts`, `dispatch.test.ts`, `ordered-file-edit.spec.ts`).
+- [x] Review renews every slot or none; Queue claims every staged file or none and names the slots to prepare again (`stages.test.ts`, `ordered-queue.test.ts`).
+- [x] Start the edit only when every file slot has a usable receipt, and keep the wallet open while any upload is unknown (`file-attempt.test.ts`, `dispatch.test.ts`).
+- [x] Show each file slot's outcome, the stop reason and the hosted-copy warning in Jobs (`file-state.test.ts`, `tracking.test.ts`, `file-edit.spec.ts`).
+- [x] Upgrade every R1b file job to slot 1 and keep its exact replay (`media-upgrade.test.ts`, `ordered-queue.test.ts`).
