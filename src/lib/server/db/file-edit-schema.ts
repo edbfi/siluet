@@ -1,6 +1,6 @@
 import { poyoUploadWindowSchema } from "./poyo-upload-window";
 
-const filePhases = [
+export const filePhases = [
 	"claimed",
 	"uploading",
 	"uploaded",

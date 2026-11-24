@@ -154,8 +154,8 @@ test("released migrations keep their SQL and new ones sort after the last releas
 		expect(digest(value)).toBe(releasedMigrations.get(name) ?? "");
 });
 
-test("the local-file edit migration sorts last", () => {
+test("the ordered file migration sorts last", () => {
 	expect(Object.keys(installationMigrations).sort().at(-1)).toBe(
-		"20261123180000_seedream_file_edit",
+		"20261124120000_seedream_ordered_files",
 	);
 });

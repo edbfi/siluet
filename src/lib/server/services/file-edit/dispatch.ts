@@ -1,6 +1,12 @@
 import { fileUploadRoutes } from "../../../shared/image-studio/file-edit";
 import { buildSeedreamRequest } from "../../../shared/image-studio/seedream";
-import { advanceFilePhase, fileAttemptStore, undoFilePhase } from "../../db/file-attempt";
+import {
+	fileAttemptStore,
+	startFileEdit,
+	startFileUpload,
+	undoFileEdit,
+	undoFileUpload,
+} from "../../db/file-attempt";
 import { type ImageJob, imageJobStore } from "../../db/image-job-store";
 import type { Installation } from "../../db/installation";
 import {
@@ -47,7 +53,7 @@ export function fileDispatcher(
 				await jobs.recordBefore(id, await balance(key).catch(() => null), now());
 			const read = await pin(fileUploadRoutes[provider], 60_000).catch(() => null);
 			if (!read) {
-				await phases.stopBeforeSend(id, "claimed", now());
+				await phases.stop(id, { stop: "destination", slot: 1 }, now());
 				return;
 			}
 			const guard = guardFilePost(read);
@@ -62,26 +68,22 @@ export function fileDispatcher(
 						const until = await nextPoyoUploadStart(tx, time);
 						if (until > time) return { reason: "cooldown", until };
 					}
-					if (!(await advanceFilePhase(tx, id, owner, "claimed", time)))
-						return { reason: "interrupted" };
+					if (!(await startFileUpload(tx, id, owner, 1, time))) return { reason: "interrupted" };
 					if (provider === "poyo") uploadStart = await recordPoyoUploadStart(tx, time);
 				},
 				() => upload(provider, key, live.stage, held.bytes, guard.read),
 				{
 					check: guard.check,
 					undo: async (tx, time) => {
-						await undoFilePhase(tx, id, owner, "claimed", time);
+						await undoFileUpload(tx, id, owner, 1, time);
 						if (uploadStart !== undefined) await undoPoyoUploadStart(tx, uploadStart, time);
 					},
 				},
 			);
 			if (handoff.stop) {
-				await phases.stopBeforeSend(
-					id,
-					"claimed",
-					now(),
-					handoff.stop.reason === "cooldown" ? handoff.stop.until : null,
-				);
+				const { reason } = handoff.stop;
+				const until = reason === "cooldown" ? handoff.stop.until : null;
+				await phases.stop(id, { stop: reason, slot: 1, until }, now());
 				return;
 			}
 			uploaded = await handoff.receipt.catch(() => ({ kind: "unknown" }) as const);
@@ -89,26 +91,23 @@ export function fileDispatcher(
 			held.release();
 		}
 		if (uploaded.kind !== "ready") {
-			const phase =
-				uploaded.kind === "unknown"
-					? "upload-unknown"
-					: uploaded.kind === "stored"
-						? "stored"
-						: "upload-rejected";
-			const job = await phases.endUpload(
+			const job = await phases.stop(
 				id,
-				phase,
-				uploaded.kind === "rejected" ? uploaded.reason : null,
+				uploaded.kind === "unknown"
+					? { outcome: "unknown" }
+					: uploaded.kind === "stored"
+						? { outcome: "unusable", stop: "unusable", slot: 1 }
+						: { outcome: "rejected", rejection: uploaded.reason },
 				now(),
 			);
-			if (phase !== "upload-unknown") await finishWallet(job);
+			if (job?.state !== "unknown") await finishWallet(job);
 			return;
 		}
-		if (!(await phases.advance(id, "uploading", now()))) return;
+		if (!(await phases.stored(id, 1, now()))) return;
 		const request = buildSeedreamRequest(live.input, () => uploaded.url);
 		const read = await pin(request.url, 30_000).catch(() => null);
 		if (!read) {
-			await finishWallet(await phases.stopBeforeSend(id, "uploaded", now()));
+			await finishWallet(await phases.stop(id, { stop: "destination" }, now()));
 			return;
 		}
 		const guard = guardFilePost(read, () =>
@@ -122,22 +121,22 @@ export function fileDispatcher(
 			"edit",
 			now,
 			async (tx, time) => {
-				if (!(await advanceFilePhase(tx, id, owner, "uploaded", time)))
-					return { reason: "interrupted" } as const;
+				if (!(await startFileEdit(tx, id, owner, time))) return { reason: "interrupted" } as const;
 			},
 			() => edit(provider, key, request, guard.read),
 			{
 				check: guard.check,
-				undo: (tx, time) => undoFilePhase(tx, id, owner, "uploaded", time),
+				undo: (tx, time) => undoFileEdit(tx, id, owner, time),
 			},
 		);
 		if (handoff.stop) {
+			const { reason } = handoff.stop;
+			const until = reason === "cooldown" ? handoff.stop.until : null;
 			await finishWallet(
-				await phases.stopBeforeSend(
+				await phases.stop(
 					id,
-					"uploaded",
+					{ stop: reason, slot: reason === "expired-link" ? 1 : null, until },
 					now(),
-					handoff.stop.reason === "cooldown" ? handoff.stop.until : null,
 				),
 			);
 			return;

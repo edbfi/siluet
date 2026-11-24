@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { filePlaceholder } from "../../../shared/image-studio/file-edit";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
+import { claimFileSlots } from "../../db/file-attempt";
 import { imageJobStore } from "../../db/image-job-store";
 import { openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
@@ -18,10 +19,13 @@ async function claimedFile(
 	provider: "poyo" | "toapis",
 ) {
 	await providerStore(db).save(provider, "fixture", 0, true, 0);
-	await db.use((tx) =>
-		tx.run(
-			sql`INSERT INTO image_job(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,file_owner,file_phase) VALUES('file','binding',${provider},1,'{}','submitting',${provider === "poyo" ? "seedream-5.5" : "doubao-seedream-5-5"},0,120000,'runtime','claimed')`,
-		),
+	await db.use((c) =>
+		c.transaction(async (tx) => {
+			await tx.run(
+				sql`INSERT INTO image_job(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,file_owner,file_phase) VALUES('file','binding',${provider},1,'{}','submitting',${provider === "poyo" ? "seedream-5.5" : "doubao-seedream-5-5"},0,120000,'runtime','claimed')`,
+			);
+			await claimFileSlots(tx, "file", [1], 1);
+		}),
 	);
 	const live = parseFileRequest({
 		draft: {

@@ -9,7 +9,7 @@ import {
 	type TaskFailureReason,
 	type TaskState,
 } from "../providers/image-job";
-import type { FilePhase } from "./file-attempt";
+import type { FilePhase, FileStop } from "./file-attempt";
 import { markWalletOverlap } from "./image-batch-store";
 import {
 	type CredentialAccess,
@@ -41,6 +41,12 @@ export type ImageJob = {
 	/** A local-file edit's upload and edit boundary (null for every other job). */
 	file_phase: FilePhase | null;
 	file_owner: string | null;
+	/** Every reference of a file job, URLs included. */
+	file_references: number | null;
+	file_stop: FileStop | null;
+	/** 1-based reference positions a stop names. */
+	file_stop_slot: number | null;
+	file_other_slot: number | null;
 	batch_id: string | null;
 	transient_failure: "service_busy" | "request_rate_limited" | null;
 	slot: number | null;

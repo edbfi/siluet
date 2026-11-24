@@ -12,6 +12,7 @@ import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import type { CleaningSetting } from "../../../shared/media-staging/cleaning";
 import type { ImageTransform } from "../../../shared/media-staging/descriptor";
 import { idleMs, lifetimeMs } from "../../db/access-store";
+import { claimFileSlots } from "../../db/file-attempt";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import type { Installation } from "../../db/installation";
 import { mediaCleaning, readCleaningIn } from "../../db/media-cleaning";
@@ -212,6 +213,7 @@ export async function createFileQueue(
 						WHERE EXISTS(SELECT 1 FROM provider_credential WHERE provider=${provider} AND revision=${saved.revision} AND seedream=1 AND ciphertext IS NOT NULL)
 						AND ${authenticated(time)} RETURNING id`);
 								if (inserted && !valid()) throw new StageError("Review expired.");
+								if (inserted) await claimFileSlots(trx, id, [1], 1);
 								return !!inserted;
 							},
 							{ behavior: "immediate" },

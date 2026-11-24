@@ -8,15 +8,19 @@ import { drizzle } from "drizzle-orm/tursodatabase/database";
 import { createInstallation37 } from "../../../../tests/fixtures/db/installation-37";
 import { migrations37 } from "../../../../tests/fixtures/db/migrations-37";
 import { migrationsAs2 } from "../../../../tests/fixtures/db/migrations-as2";
+import { migrationsR1b } from "../../../../tests/fixtures/db/migrations-r1b";
 import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
 import { referencePng } from "../../../../tests/fixtures/reference-image";
 import { createAutoSave } from "../services/gallery/auto-save";
 import { galleryStorage } from "../services/gallery/storage";
 import { createJobTracking } from "../services/jobs/tracking";
 import { createOwnerAccess } from "../services/owner/access";
+import { fileAttemptStore } from "./file-attempt";
+import { filePhases } from "./file-edit-schema";
 import { openInstallation } from "./installation";
 import { mediaCleaning } from "./media-cleaning";
 import { installationMigrations, migrateInstallation } from "./migrations";
+import { orderedFileMigration } from "./ordered-file-schema";
 import { providerStore } from "./provider-store";
 import { recoverOwner } from "./recover-owner";
 import { currentSchema, schemaFingerprint } from "./recovery-schema";
@@ -397,3 +401,140 @@ test.each([
 	},
 	30_000,
 );
+
+// One R1b job per released file phase, plus the two cooldown rows R1b stored as `retry_at`.
+const r1bJobs = [
+	["claimed", "claimed", "submitting", 1, null],
+	["uploading", "uploading", "submitting", 1, null],
+	["uploaded", "uploaded", "submitting", 1, null],
+	["editing", "editing", "submitting", 1, null],
+	["unsent", "unsent", "rejected", 0, null],
+	["unsent-cooldown", "unsent", "rejected", 0, 9_000],
+	["upload-unknown", "upload-unknown", "unknown", 1, null],
+	["stored", "stored", "rejected", 0, null],
+	["stored-cooldown", "stored", "rejected", 1, 9_000],
+	["upload-rejected", "upload-rejected", "rejected", 0, null],
+	["edit-unknown", "edit-unknown", "unknown", 1, null],
+	["edit-recorded", "edit-recorded", "waiting", 0, null],
+] as const;
+
+test("a populated R1b installation gives every file job one slot and recovers each phase", async () => {
+	const directory = await createOwnerDirectory();
+	try {
+		await createInstallation37(
+			directory,
+			async (db) => {
+				for (const [id, phase, state, wallet, retryAt] of r1bJobs)
+					await db.run(sql`INSERT INTO image_job
+						(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,file_owner,file_phase,wallet_open,retry_at,task_id,submission_recorded_at)
+						VALUES (${id},${`${id}-binding`},'poyo',1,'{}',${state},'seedream-5.5',1,
+						${phase === "edit-recorded" ? 120_003 : 120_001},'r1b',${phase},${wallet},${retryAt},
+						${phase === "edit-recorded" ? "task" : null},${phase === "edit-recorded" ? 3 : null})`);
+				await db.run(sql`INSERT INTO image_job
+					(id,binding,provider,revision,quote,state,model,created_at,poll_deadline)
+					VALUES ('url','url-binding','toapis',1,'{}','completed','doubao-seedream-5-5',1,120001)`);
+			},
+			undefined,
+			migrationsR1b,
+		);
+		const upgraded = await openRuntimeInstallation(directory);
+		try {
+			expect(await upgraded.use((db) => schemaFingerprint(db))).toBe(currentSchema);
+			const slots = await upgraded.use((db) =>
+				db.all<{ id: string; position: number; outcome: string }>(
+					sql`SELECT job_id AS id, position, outcome FROM file_slot ORDER BY job_id`,
+				),
+			);
+			expect(Object.fromEntries(slots.map((s) => [s.id, [s.position, s.outcome]]))).toEqual({
+				claimed: [1, "unsent"],
+				editing: [1, "stored"],
+				"edit-recorded": [1, "stored"],
+				"edit-unknown": [1, "stored"],
+				stored: [1, "stored"],
+				"stored-cooldown": [1, "stored"],
+				unsent: [1, "unsent"],
+				"unsent-cooldown": [1, "unsent"],
+				uploaded: [1, "stored"],
+				"upload-rejected": [1, "rejected"],
+				"upload-unknown": [1, "unknown"],
+				uploading: [1, "uploading"],
+			});
+			const stops = await upgraded.use((db) =>
+				db.all(
+					sql`SELECT id, file_references, file_stop, file_stop_slot, file_other_slot FROM image_job ORDER BY id`,
+				),
+			);
+			for (const row of stops as Record<string, unknown>[]) {
+				const cooldown = String(row.id).endsWith("-cooldown");
+				expect(row).toEqual({
+					id: row.id,
+					file_references: row.id === "url" ? null : 1,
+					file_stop: cooldown ? "cooldown" : null,
+					// R1b's pre-upload cooldown stopped before slot 1; its pre-edit cooldown has no slot.
+					file_stop_slot: row.id === "unsent-cooldown" ? 1 : null,
+					file_other_slot: null,
+				});
+			}
+			await fileAttemptStore(upgraded, "next").recover(10);
+			const recovered = await upgraded.use((db) =>
+				db.all<{
+					id: string;
+					file_phase: string;
+					state: string;
+					wallet_open: number;
+					file_stop: string | null;
+				}>(
+					sql`SELECT id, file_phase, state, wallet_open, file_stop FROM image_job
+						WHERE id IN ('claimed','uploading','uploaded','editing') ORDER BY id`,
+				),
+			);
+			// R1b recovers `uploaded` as stored, rejected and wallet closed; R2 keeps that outcome.
+			expect(recovered).toEqual([
+				{
+					id: "claimed",
+					file_phase: "unsent",
+					state: "rejected",
+					wallet_open: 0,
+					file_stop: "interrupted",
+				},
+				{
+					id: "editing",
+					file_phase: "edit-unknown",
+					state: "unknown",
+					wallet_open: 1,
+					file_stop: null,
+				},
+				{
+					id: "uploaded",
+					file_phase: "stored",
+					state: "rejected",
+					wallet_open: 0,
+					file_stop: "interrupted",
+				},
+				{
+					id: "uploading",
+					file_phase: "upload-unknown",
+					state: "unknown",
+					wallet_open: 1,
+					file_stop: null,
+				},
+			]);
+			expect(
+				await upgraded.use((db) =>
+					db.get(sql`SELECT outcome FROM file_slot WHERE job_id='uploading'`),
+				),
+			).toEqual({ outcome: "unknown" });
+		} finally {
+			await upgraded.close();
+		}
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}, 30_000);
+
+test("the R2 migration names every released file phase, so none falls through", () => {
+	const statements = orderedFileMigration.split("--> statement-breakpoint");
+	const backfill = statements.find((statement) => statement.includes("INSERT INTO file_slot"));
+	for (const phase of filePhases) expect(backfill).toContain(`WHEN '${phase}' THEN`);
+	expect(backfill).not.toContain("ELSE");
+});
