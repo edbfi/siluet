@@ -307,7 +307,9 @@ async function inspect() {
 		// A response for copies that are no longer current is dropped.
 		if (!mounted || input !== request) return;
 		if (input.files && response.status === 409) {
-			renewFiles(input, positionsOf(await response.json().catch(() => null)));
+			const positions = positionsOf(await response.json().catch(() => null));
+			// The request may have changed while the body arrived.
+			if (mounted && input === request) renewFiles(input, positions);
 			return;
 		}
 		if (input.files && (response.status === 413 || response.status === 400)) {

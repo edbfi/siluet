@@ -303,6 +303,50 @@ test("stale positions prepare only those slots again; stale terms keep every cop
 	});
 });
 
+test("a stale Review answer whose body arrives after a reorder prepares nothing again", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
+		const { file, review, inspect } = await openEdit(page, origin);
+		await file(1).setInputFiles(await markedFile("png"));
+		await expect(file(1)).toHaveAccessibleDescription(ready(true));
+		await file(2).setInputFiles(await markedFile("png", 1));
+		await expect(file(2)).toHaveAccessibleDescription(ready(true));
+		const staging = countStaging(page);
+		// The stale answer's headers arrive at once; its body waits for the reorder.
+		await page.evaluate(() => {
+			const send = window.fetch.bind(window);
+			const body = Promise.withResolvers<void>();
+			Object.assign(window, { releaseStaleBody: body.resolve });
+			const answer = (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input) !== "/image/file-review") return send(input, init);
+				const stream = new ReadableStream<Uint8Array>({
+					async start(controller) {
+						await body.promise;
+						controller.enqueue(new TextEncoder().encode('{"error":"stale","positions":[2]}'));
+						controller.close();
+					},
+				});
+				return Promise.resolve(
+					new Response(stream, { status: 409, headers: { "content-type": "application/json" } }),
+				);
+			};
+			window.fetch = Object.assign(answer, { preconnect: window.fetch.preconnect });
+		});
+		await inspect.press("Enter");
+		await expect(review.getByRole("button", { name: "Reviewing…" })).toBeVisible();
+		await page.getByRole("button", { name: "Move up reference image 2" }).press("Enter");
+		await page.evaluate(() =>
+			(window as unknown as { releaseStaleBody: () => void }).releaseStaleBody(),
+		);
+		await expect(inspect).toBeEnabled();
+		await expect(file(1)).toHaveAccessibleDescription(ready(true));
+		await expect(file(2)).toHaveAccessibleDescription(ready(true));
+		expect(staging).toHaveLength(0);
+		expect(fixtures.uploads).toHaveLength(0);
+	});
+});
+
 test("a lost three-file Queue answer after the edit, a restart and Retry: one job, three uploads, one edit", async ({
 	page,
 }) => {
