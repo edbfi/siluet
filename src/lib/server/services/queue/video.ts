@@ -40,7 +40,7 @@ export async function createVideoQueue(
 	const sign = await reviewSigner(installation);
 	const invalid = { error: "invalid" } as const;
 	const stale = { error: "stale" } as const;
-	// Seedance passes seedanceOperation.key here, so its signature bytes are unchanged.
+	// Each operation signs its own exact key; text-to-video keeps its original signature bytes.
 	function signature(id: string, terms: string, owner: string, input: VideoRequest) {
 		return sign("video-review-v1", id, terms, owner, input.operation.key, input.body, 1, 0);
 	}
