@@ -85,9 +85,10 @@ test("file recovery runs before job recovery, and close stops work before storag
 		spyOn(part, "close").mockImplementation(record(name, close));
 	}
 	await runtime.close();
+	// File Queue stops admitting first; claimed file and job dispatches then drain together.
 	expect(order).toEqual([
-		"jobs.close",
 		"files.close",
+		"jobs.close",
 		"stages.close",
 		"autoSave.close",
 		"installation.close",

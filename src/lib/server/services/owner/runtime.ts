@@ -148,8 +148,8 @@ async function openOwner(dev: boolean) {
 				try {
 					clearTimeout(rotation);
 					shutdown.abort();
-					await jobs.close();
-					await files.close();
+					// File Queue stops admitting at once; claimed file and job dispatches drain together.
+					await Promise.all([files.close(), jobs.close()]);
 					await runtimeEntry(installation).preparation?.settled;
 					await stages.close();
 					// Active saves give their claims back before storage closes.
