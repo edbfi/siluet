@@ -7,8 +7,9 @@ const script = resolve(import.meta.dir, "stage-feeds.sh");
 const specs = [
 	"pricing-data:pricing/v2/poyo.json:poyo-v2.json",
 	"pricing-data:pricing/v1/feed.json:poyo-v1.json",
-	"pricing-data-toapis:pricing/v1/toapis.json:toapis.json",
+	"pricing-data-toapis:pricing/v2/toapis.json:toapis.json",
 	"main:pricing/v2/poyo.json:bundled-poyo.json",
+	"main:pricing/v2/toapis.json:bundled-toapis.json",
 ];
 let sandbox: string;
 let remote: string;
@@ -82,11 +83,24 @@ test("stages every available feed when a branch or file is absent", () => {
 
 test("stages a published v2 feed beside v1", () => {
 	branch("pricing-data", { "pricing/v1/feed.json": "v1\n", "pricing/v2/poyo.json": "v2\n" });
-	branch("pricing-data-toapis", { "pricing/v1/toapis.json": "toapis\n" });
+	branch("pricing-data-toapis", {
+		"pricing/v1/toapis.json": "frozen\n",
+		"pricing/v2/toapis.json": "toapis\n",
+	});
 	const result = stage();
 	expect(result.exitCode).toBe(0);
 	expect(readdirSync(feeds).sort()).toEqual(["poyo-v1.json", "poyo-v2.json", "toapis.json"]);
 	expect(readFileSync(resolve(feeds, "poyo-v2.json"), "utf8")).toBe("v2\n");
+	expect(readFileSync(resolve(feeds, "toapis.json"), "utf8")).toBe("toapis\n");
+});
+
+test("leaves ToAPIs unstaged while only the frozen v1 feed is published", () => {
+	branch("pricing-data-toapis", { "pricing/v1/toapis.json": "frozen\n" });
+	const result = stage();
+	expect(result.out).toContain(
+		"pricing/v2/toapis.json does not exist on the pricing-data-toapis branch.",
+	);
+	expect(readdirSync(feeds)).not.toContain("toapis.json");
 });
 
 test("reports an unreadable remote as an error, not as an absent feed", () => {

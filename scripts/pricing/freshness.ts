@@ -15,8 +15,9 @@ import {
 
 const day = 24 * 60 * 60 * 1000;
 // Published blobs, trailing LF included, as publish.sh limits them. Bundled files are local.
-const publishedV2ByteLimit = 64 * 1024;
-const publishedV1ByteLimit = 4096;
+const publishedPoyoV2ByteLimit = 64 * 1024;
+const publishedPoyoV1ByteLimit = 4096;
+const publishedToapisByteLimit = 4096;
 const bundledByteLimit = 256 * 1024;
 
 type Level = "notice" | "warning" | "error";
@@ -26,6 +27,7 @@ export type FreshnessOptions = {
 	poyoV1?: string;
 	toapis?: string;
 	bundledPoyo?: string;
+	bundledToapis?: string;
 	warnWithinDays: number;
 	failWithinDays: number;
 };
@@ -42,33 +44,38 @@ function poyoEvidence(feed: PoyoPricingFeed | undefined): Evidence | undefined {
 	return { evidenceMs: poyoConfirmationMs(feed), expiresMs: poyoFeedExpiryMs(feed) };
 }
 
+/** Only v2 ToAPIs feeds decode. The frozen v1 feed is never checked. */
+function toapisEvidence(value: unknown): Evidence | undefined {
+	const feed = decodeToapisPricingFeed(value);
+	if (!feed) return;
+	return { evidenceMs: parsePricingInstant(feed.observedAt), expiresMs: toapisFeedExpiryMs(feed) };
+}
+
 const feeds = {
 	poyoV2: {
 		label: "Published PoYo v2 rates",
-		byteLimit: publishedV2ByteLimit,
+		byteLimit: publishedPoyoV2ByteLimit,
 		read: (value) => poyoEvidence(decodePoyoV2Feed(value)),
 	},
 	poyoV1: {
 		label: "Published PoYo v1 rates",
-		byteLimit: publishedV1ByteLimit,
+		byteLimit: publishedPoyoV1ByteLimit,
 		read: (value) => poyoEvidence(decodePricingFeed(value)),
 	},
 	toapis: {
-		label: "Published ToAPIs rates",
-		byteLimit: publishedV1ByteLimit,
-		read(value) {
-			const feed = decodeToapisPricingFeed(value);
-			if (!feed) return;
-			return {
-				evidenceMs: parsePricingInstant(feed.observedAt),
-				expiresMs: toapisFeedExpiryMs(feed),
-			};
-		},
+		label: "Published ToAPIs v2 rates",
+		byteLimit: publishedToapisByteLimit,
+		read: toapisEvidence,
 	},
 	bundledPoyo: {
 		label: "Bundled PoYo rates on main",
 		byteLimit: bundledByteLimit,
 		read: (value) => poyoEvidence(decodePoyoPricingFeed(value)),
+	},
+	bundledToapis: {
+		label: "Bundled ToAPIs rates on main",
+		byteLimit: bundledByteLimit,
+		read: toapisEvidence,
 	},
 } satisfies Record<string, Feed>;
 
@@ -124,6 +131,7 @@ export async function checkPricingFreshness(
 	}
 	if (options.toapis !== undefined) await check(feeds.toapis, options.toapis);
 	if (options.bundledPoyo !== undefined) await check(feeds.bundledPoyo, options.bundledPoyo);
+	if (options.bundledToapis !== undefined) await check(feeds.bundledToapis, options.bundledToapis);
 	return checks;
 }
 
@@ -142,6 +150,7 @@ export function readFreshnessArgs(args: string[]): FreshnessOptions {
 			"poyo-v1": { type: "string" },
 			toapis: { type: "string" },
 			"bundled-poyo": { type: "string" },
+			"bundled-toapis": { type: "string" },
 			"warn-within-days": { type: "string", default: "14" },
 			"fail-within-days": { type: "string", default: "7" },
 		},
@@ -151,11 +160,21 @@ export function readFreshnessArgs(args: string[]): FreshnessOptions {
 		poyoV1: values["poyo-v1"],
 		toapis: values.toapis,
 		bundledPoyo: values["bundled-poyo"],
+		bundledToapis: values["bundled-toapis"],
 		warnWithinDays: days(values["warn-within-days"], "warn-within-days"),
 		failWithinDays: days(values["fail-within-days"], "fail-within-days"),
 	};
-	if (![options.poyoV2, options.poyoV1, options.toapis, options.bundledPoyo].some(Boolean)) {
-		throw new Error("Choose at least one of --poyo-v2, --poyo-v1, --toapis or --bundled-poyo.");
+	const files = [
+		options.poyoV2,
+		options.poyoV1,
+		options.toapis,
+		options.bundledPoyo,
+		options.bundledToapis,
+	];
+	if (!files.some(Boolean)) {
+		throw new Error(
+			"Choose at least one of --poyo-v2, --poyo-v1, --toapis, --bundled-poyo or --bundled-toapis.",
+		);
 	}
 	if (options.warnWithinDays < options.failWithinDays) {
 		throw new Error("--warn-within-days must be at least --fail-within-days.");
