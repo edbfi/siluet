@@ -6,7 +6,7 @@ import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-direct
 import type { MediaDescriptor } from "../../../shared/media-staging/descriptor";
 import { openRuntimeInstallation } from "../../db/runtime-installation";
 import { createScratchPool } from "./scratch";
-import { createStages, type StageOptions, stageIdleMs } from "./stages";
+import { CleaningChangedError, createStages, type StageOptions, stageIdleMs } from "./stages";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -26,13 +26,18 @@ async function setup(bytes: number, options: StageOptions = {}) {
 	return { root, pool, scratch, stages, files: () => readdir(scratch.directory) };
 }
 
-function png(...values: number[]) {
+function png(...values: number[]): ReturnType<typeof media> {
+	return media(0, ...values);
+}
+function media(revision: number, ...values: number[]) {
 	const bytes = new Uint8Array(values);
 	return {
 		bytes,
 		size: bytes.length,
 		mime: "image/png" as const,
-		transform: "none" as const,
+		transform: "none" as "none" | "original",
+		revision,
+		rotated: false,
 		digest: createHash("sha256").update(bytes).digest("hex"),
 	};
 }
@@ -51,9 +56,9 @@ test("only the reviewing session and draft can use the verified bytes, within in
 	expect(await files()).toHaveLength(2);
 	expect(await stages.preview({ ...owner, session: "other" }, a.handle)).toBeNull();
 	expect(await stages.preview(other, a.handle)).toBeNull();
-	const earlier = await stages.review(owner, a.handle);
+	const earlier = (await stages.review(owner, a.handle))?.descriptor;
 	clock += 1;
-	const later = await stages.review(owner, a.handle);
+	const later = (await stages.review(owner, a.handle))?.descriptor;
 	if (!earlier || !later) throw new Error("Missing file Review");
 	expect(later.deadline).toBe(earlier.deadline + 1);
 	expect(
@@ -194,7 +199,7 @@ test("a later Review extends idle staging but never the first Review deadline", 
 	const owner = scope();
 	const descriptor = await stages.put(owner, png(1));
 	now += 20;
-	const fresh = await stages.review(owner, descriptor.handle);
+	const fresh = (await stages.review(owner, descriptor.handle))?.descriptor;
 	if (!fresh) throw new Error("Missing explicit Review");
 	now = descriptor.deadline;
 	expect(await stages.preview(owner, descriptor.handle)).toBeTruthy();
@@ -369,4 +374,132 @@ test("a passed preparation deadline publishes nothing even before its timer fire
 	expect(pool.used).toBe(0);
 	expect(await files()).toEqual([]);
 	await expect(stages.put(owner, png(1, 2), { deadline: 50 })).rejects.toThrow("Stage unavailable");
+});
+
+test("review reports the stage's cleaning revision and declared rotation", async () => {
+	const { stages } = await setup(16);
+	const owner = scope();
+	const staged = await stages.put(owner, {
+		...media(3, 1, 2),
+		transform: "original",
+		rotated: true,
+	});
+	expect(staged).not.toHaveProperty("revision");
+	expect(await stages.review(owner, staged.handle)).toMatchObject({
+		descriptor: { transform: "original", handle: staged.handle },
+		revision: 3,
+		rotated: true,
+	});
+});
+
+test("retireAll aborts older readers at once and removes only older stages", async () => {
+	const { stages, files, pool } = await setup(16);
+	const [old, current] = [scope(), scope()];
+	const a = await stages.put(old, media(0, 1, 2));
+	const b = await stages.put(current, media(1, 3, 4));
+	const preview = await stages.openPreview(old, a.handle);
+	const retired = stages.retireAll(1);
+	// Synchronous: the open preview stops before the removal is queued.
+	expect(preview?.signal.aborted).toBe(true);
+	await retired;
+	await preview?.handle.close();
+	expect(await files()).toEqual([b.handle]);
+	expect(pool.used).toBe(2);
+	expect(await stages.preview(old, a.handle)).toBeNull();
+	expect(await stages.review(current, b.handle)).toMatchObject({ revision: 1 });
+	// A flip is not a session retirement: the same draft can be staged again at the new revision.
+	expect(await stages.put(old, media(1, 5))).toMatchObject({ size: 1 });
+});
+
+test("a write stalled across a committed flip throws CleaningChangedError and publishes nothing", async () => {
+	const entered = Promise.withResolvers<void>();
+	const gate = Promise.withResolvers<void>();
+	const { stages, files, pool } = await setup(16, {
+		writeFile: async (path, bytes) => {
+			entered.resolve();
+			await gate.promise;
+			await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
+		},
+	});
+	const owner = scope();
+	const pending = stages.put(owner, media(0, 1, 2));
+	await entered.promise;
+	void stages.retireAll(1);
+	gate.resolve();
+	const error = await pending.catch((e: unknown) => e);
+	expect(error).toBeInstanceOf(CleaningChangedError);
+	expect(await files()).toEqual([]);
+	expect(pool.used).toBe(0);
+	// Media prepared before the flip is refused before anything is written.
+	await expect(stages.put(owner, media(0, 3))).rejects.toBeInstanceOf(CleaningChangedError);
+});
+
+test("close during a write still reports a stage error, not a cleaning change", async () => {
+	const entered = Promise.withResolvers<void>();
+	const gate = Promise.withResolvers<void>();
+	const { stages } = await setup(16, {
+		writeFile: async (path, bytes) => {
+			entered.resolve();
+			await gate.promise;
+			await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
+		},
+	});
+	const pending = stages.put(scope(), media(0, 1, 2));
+	await entered.promise;
+	const closing = stages.close();
+	gate.resolve();
+	const error = await pending.catch((e: unknown) => e);
+	expect(error).not.toBeInstanceOf(CleaningChangedError);
+	expect(String(error)).toContain("Stage unavailable");
+	await closing;
+});
+
+test("a flip during a claim's read sends nothing and releases its buffer", async () => {
+	const gate = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	const { stages } = await setup(16, {
+		buffers: 4,
+		pace: async () => {
+			entered.resolve();
+			await gate.promise;
+		},
+	});
+	const owner = scope();
+	const staged = await stages.put(owner, media(0, 1, 2, 3, 4));
+	let commits = 0;
+	const pending = stages.claim(owner, staged, async () => {
+		commits++;
+		return true;
+	});
+	await entered.promise;
+	void stages.retireAll(1);
+	gate.resolve();
+	expect(await pending).toBeNull();
+	expect(commits).toBe(0);
+	expect(stages.buffered).toBe(0);
+});
+
+test("a claim passes the stage's revision and rotation to its commit", async () => {
+	const { stages } = await setup(16);
+	const owner = scope();
+	const staged = await stages.put(owner, { ...media(2, 1), transform: "original", rotated: true });
+	let seen: unknown;
+	const held = await stages.claim(owner, staged, async (_live, _durable, stage) => {
+		seen = stage;
+		return true;
+	});
+	expect(seen).toEqual({ revision: 2, rotated: true });
+	held?.release();
+});
+
+test("concurrent flips never lower the generation; off, on, off refuses the first copy everywhere", async () => {
+	const { stages } = await setup(16);
+	const owner = scope();
+	const staged = await stages.put(owner, media(1, 1, 2));
+	await Promise.all([stages.retireAll(3), stages.retireAll(2)]);
+	expect(await stages.preview(owner, staged.handle)).toBeNull();
+	expect(await stages.review(owner, staged.handle)).toBeNull();
+	expect(await stages.claim(owner, staged, async () => true)).toBeNull();
+	await expect(stages.put(owner, media(2, 3))).rejects.toBeInstanceOf(CleaningChangedError);
+	expect(await stages.put(owner, media(3, 3))).toMatchObject({ size: 1 });
 });

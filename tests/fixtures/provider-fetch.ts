@@ -15,10 +15,31 @@ if (fixtureTime !== undefined) {
 	Date.now = () => systemTime() + offset;
 }
 
+// File POSTs connect to a pinned numeric address carrying the original TLS and Host
+// identity. Resolve only the two upload hosts, to a public documentation address.
+Bun.dns.lookup = async (hostname) => {
+	if (hostname !== "api.poyo.ai" && hostname !== "toapis.com")
+		throw new Error("Unexpected fixture DNS lookup");
+	return [{ address: "93.184.216.34", family: 4, ttl: 30 }];
+};
+
 globalThis.fetch = new Proxy(globalThis.fetch, {
 	async apply(read: typeof fetch, _receiver, [input, init]: Parameters<typeof fetch>) {
 		const url = new URL(input instanceof Request ? input.url : input);
+		if (url.hostname === "93.184.216.34" && init?.method === "POST") {
+			const host = new Headers(init.headers).get("host");
+			const transport: BunFetchRequestInit = init;
+			if (
+				(host === "api.poyo.ai" || host === "toapis.com") &&
+				transport.tls?.serverName === host &&
+				transport.proxy === false &&
+				init.redirect === "error"
+			)
+				url.hostname = host;
+		}
 		let path = endpoints.get(url.href);
+		if (url.href === "https://api.poyo.ai/api/common/upload/stream") path = "/poyo/upload";
+		if (url.href === "https://toapis.com/v1/uploads/images") path = "/toapis/upload";
 		if (url.origin === "https://api.poyo.ai") {
 			if (url.pathname === "/api/generate/submit") path = "/poyo/submit";
 			if (url.pathname.startsWith("/api/generate/status/"))

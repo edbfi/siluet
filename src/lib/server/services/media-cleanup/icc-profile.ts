@@ -135,6 +135,36 @@ function isXyz(element: Buffer | undefined): boolean {
 	);
 }
 
+// An element that declares HDR: an adaptive gain curve, or a cicp tag with a PQ or HLG
+// transfer. A larger cicp element counts too: readers take its first 12 bytes.
+// https://media.color.org/icc1_amendment_headroom_adaptive_gain_curve.pdf
+function tagHdr(profile: Buffer, tag: string, offset: number, size: number) {
+	const type = profile.toString("latin1", offset, offset + 4);
+	if (tag === "ADGC" || tag === "HAGC" || type === "adgc" || type === "hagc") return true;
+	return (
+		(tag === "cicp" || type === "cicp") &&
+		size >= 12 &&
+		cicpProblem(profile.subarray(offset + 8, offset + 12), true) === "hdr"
+	);
+}
+
+/**
+ * Whether a profile declares HDR, for an original sent unchanged. It walks only a tag
+ * table that fits the profile and never reports `color`; a profile it cannot read gives
+ * nothing.
+ */
+export function profileHdr(profile: Buffer): "hdr" | undefined {
+	if (profile.length < 132) return;
+	const count = profile.readUInt32BE(128);
+	if (count > (profile.length - 132) / 12) return;
+	for (let entry = 132; entry < 132 + count * 12; entry += 12) {
+		const offset = profile.readUInt32BE(entry + 4);
+		const size = profile.readUInt32BE(entry + 8);
+		if (size < 4 || offset + size > profile.length) continue;
+		if (tagHdr(profile, profile.toString("latin1", entry, entry + 4), offset, size)) return "hdr";
+	}
+}
+
 // ICC.1 sections 7.2–8.4 and 9.2.17.
 // https://www.color.org/specifications/ICC.1-2022-05.pdf
 export function checkIccProfile(
@@ -167,8 +197,7 @@ export function checkIccProfile(
 		ranges.push({ start: offset, end: offset + size });
 
 		const type = profile.toString("latin1", offset, offset + 4);
-		// https://media.color.org/icc1_amendment_headroom_adaptive_gain_curve.pdf
-		if (tag === "ADGC" || tag === "HAGC" || type === "adgc" || type === "hagc") refuse("hdr");
+		if (tagHdr(profile, tag, offset, size)) refuse("hdr");
 		if (tag === "cicp" || type === "cicp") {
 			if (tag !== type || size !== 12) refuse("color");
 			const problem = cicpProblem(profile.subarray(offset + 8, offset + 12), true);

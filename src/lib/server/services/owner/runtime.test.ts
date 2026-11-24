@@ -3,8 +3,10 @@ import type { EventEmitter } from "node:events";
 import { exists, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
+import * as fileAttempts from "../../db/file-attempt";
 import * as runtimeInstallation from "../../db/runtime-installation";
 import { UnsupportedPlatformError } from "../../platform";
+import * as tracking from "../jobs/tracking";
 import { initializeOwner } from "./runtime";
 
 const keys = ["SILUET_DATA_DIR", "SILUET_SERVER_PORT", "SILUET_SERVER_ORIGIN"] as const;
@@ -40,6 +42,57 @@ test("a dev reload closes the previous runtime before opening the installation a
 	}
 	const third = await initializeOwner(true);
 	await third.close();
+});
+
+test("file recovery runs before job recovery, and close stops work before storage closes", async () => {
+	const order: string[] = [];
+	const record =
+		<T extends (...args: never[]) => unknown>(name: string, run: T) =>
+		(...args: Parameters<T>) => {
+			order.push(name);
+			return run(...args) as ReturnType<T>;
+		};
+	const files = fileAttempts.fileAttemptStore;
+	spyOn(fileAttempts, "fileAttemptStore").mockImplementation((...args) => {
+		const store = files(...args);
+		return { ...store, recover: record("files.recover", store.recover) };
+	});
+	const jobs = tracking.createJobTracking;
+	spyOn(tracking, "createJobTracking").mockImplementation((...args) => {
+		const created = jobs(...args);
+		return {
+			...created,
+			resume: record("jobs.resume", created.resume),
+			close: record("jobs.close", created.close),
+		};
+	});
+	const open = runtimeInstallation.openRuntimeInstallation;
+	spyOn(runtimeInstallation, "openRuntimeInstallation").mockImplementationOnce(async (...args) => {
+		const installation = await open(...args);
+		return Object.assign(installation, {
+			close: record("installation.close", installation.close),
+		});
+	});
+	const runtime = await initializeOwner(true);
+	expect(order).toEqual(["files.recover", "jobs.resume"]);
+	order.length = 0;
+	for (const [name, part] of [
+		["files.close", runtime.files],
+		["stages.close", runtime.stages],
+		["autoSave.close", runtime.autoSave],
+	] as const) {
+		const close = part.close.bind(part);
+		spyOn(part, "close").mockImplementation(record(name, close));
+	}
+	await runtime.close();
+	// File Queue stops admitting first; claimed file and job dispatches then drain together.
+	expect(order).toEqual([
+		"files.close",
+		"jobs.close",
+		"stages.close",
+		"autoSave.close",
+		"installation.close",
+	]);
 });
 
 test("a started studio still refuses a second runtime in the same process", async () => {
@@ -126,5 +179,39 @@ test("initializeOwner refuses a foreign platform before creating data", async ()
 		expect(await exists(data)).toBe(false);
 	} finally {
 		Object.defineProperty(process, "platform", platform);
+	}
+});
+
+test("startup settles an earlier runtime's file attempts by phase before ordinary recovery", async () => {
+	const { openInstallation } = await import("../../db/installation");
+	const { sql } = await import("drizzle-orm");
+	const seeded = await openInstallation(directory);
+	try {
+		await seeded.use(async (db) => {
+			const insert = (id: string, phase: string | null) =>
+				db.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,file_owner,file_phase)
+					VALUES(${id},${id},'toapis',0,'{}','submitting','doubao-seedream-5-5',1,120001,${phase && "earlier"},${phase})`);
+			await insert("claimed", "claimed");
+			await insert("uploading", "uploading");
+			await insert("uploaded", "uploaded");
+			await insert("url", null);
+		});
+	} finally {
+		await seeded.close();
+	}
+	const runtime = await initializeOwner(true);
+	try {
+		await runtime.checkAccess().catch(() => {});
+		const jobs = Object.fromEntries(
+			(await runtime.jobs.list()).map((job) => [job.id, [job.state, job.filePhase]]),
+		);
+		expect(jobs).toEqual({
+			claimed: ["rejected", "unsent"],
+			uploading: ["unknown", "upload-unknown"],
+			uploaded: ["rejected", "stored"],
+			url: ["unknown", undefined],
+		});
+	} finally {
+		await runtime.close();
 	}
 });

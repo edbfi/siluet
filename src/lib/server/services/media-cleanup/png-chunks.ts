@@ -5,7 +5,7 @@ export const pngSignature = Buffer.from("89504e470d0a1a0a", "hex");
 export const maxPngPixels = 8_000_000;
 export const maxPngBytes = 16 * 1024 * 1024;
 const maxEdge = 16_384;
-const maxChunks = 8_192;
+export const maxChunks = 8_192;
 
 const colorTypes = {
 	0: { depths: [1, 2, 4, 8, 16], channels: 1 },
@@ -15,7 +15,7 @@ const colorTypes = {
 	6: { depths: [8, 16], channels: 4 },
 } as const;
 
-function readHeader(data: Buffer) {
+export function readHeader(data: Buffer) {
 	if (data.length !== 13) throw new PngCleanupError("invalid-png");
 	const width = data.readUInt32BE(0);
 	const height = data.readUInt32BE(4);
@@ -44,9 +44,22 @@ const colorChunks = new Set(["cHRM", "cICP", "gAMA", "iCCP", "sBIT", "sRGB"]);
 const afterPaletteChunks = new Set(["bKGD", "hIST", "tRNS"]);
 const beforeImageChunks = new Set(["eXIf", "pHYs", "sPLT"]);
 const textChunks = new Set(["iTXt", "tEXt", "zTXt"]);
-const animationChunks = new Set(["acTL", "fcTL", "fdAT"]);
+export const animationChunks = new Set(["acTL", "fcTL", "fdAT"]);
 // https://www.w3.org/TR/png-3/#11cLLI and https://github.com/w3c/png/issues/380
-const hdrChunks = new Set(["mDCV", "cLLI", "gMAP", "gDAT", "gmAP", "gdAT"]);
+export const hdrChunks = new Set(["mDCV", "cLLI", "gMAP", "gDAT", "gmAP", "gdAT"]);
+
+const knownChunks = new Set([
+	"IHDR",
+	"PLTE",
+	"IDAT",
+	"IEND",
+	"caBX",
+	"tIME",
+	...colorChunks,
+	...afterPaletteChunks,
+	...beforeImageChunks,
+	...textChunks,
+]);
 
 export function readKeywordEnd(data: Buffer, code: PngCleanupError["code"]) {
 	const end = data.subarray(0, 80).indexOf(0);
@@ -130,11 +143,13 @@ export function parsePng(bytes: Buffer) {
 	let paletteSize = 0;
 	let inIdat = false;
 	let idatSize = 0;
+	let parsed = 0;
 
 	// Keep the physical order of retained chunks and check the source including discarded chunks.
 	// https://www.w3.org/TR/png-3/#5ChunkOrdering
 	for (let offset = pngSignature.length; offset + 12 <= bytes.length; ) {
-		if (chunks.length >= maxChunks) throw new PngCleanupError("png-limit");
+		// Dropped chunks count too, so skipping cannot make the walk unbounded.
+		if (parsed++ >= maxChunks) throw new PngCleanupError("png-limit");
 		const length = bytes.readUInt32BE(offset);
 		const end = offset + 8 + length;
 		if (end + 4 > bytes.length) throw new PngCleanupError("invalid-png");
@@ -146,12 +161,19 @@ export function parsePng(bytes: Buffer) {
 			throw new PngCleanupError("invalid-png");
 		}
 		const data = bytes.subarray(offset + 8, end);
-		chunks.push({ type, data, encoded: bytes.subarray(offset, end + 4) });
+		const encoded = bytes.subarray(offset, end + 4);
 		offset = end + 4;
 
 		if (!header && type !== "IHDR") throw new PngCleanupError("invalid-png");
 		if (animationChunks.has(type)) throw new PngCleanupError("animated-png");
 		if (hdrChunks.has(type)) throw new PngCleanupError("hdr-png");
+		// A decoder may ignore an unknown ancillary chunk, so cleaning drops it, repeated or not.
+		// https://www.w3.org/TR/png-3/#5Chunk-naming-conventions
+		if (!knownChunks.has(type) && /^[a-z]/.test(type)) {
+			inIdat = false;
+			continue;
+		}
+		chunks.push({ type, data, encoded });
 		const repeatable =
 			type === "IDAT" || type === "sPLT" || type === "caBX" || textChunks.has(type);
 		const alreadySeen = seen.has(type);

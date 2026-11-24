@@ -38,6 +38,19 @@ const states = {
 	completed: "Completed",
 	failed: "Job failed",
 };
+// A local-file edit's upload and edit boundary, when it says more than the job state.
+const fileStates = {
+	claimed: "Preparing upload",
+	uploading: "Uploading file",
+	uploaded: "File uploaded · preparing edit",
+	editing: "Submitting edit",
+	unsent: "No upload or edit sent",
+	stored: "File uploaded · edit not sent",
+	"upload-unknown": "Upload outcome unknown · edit not sent",
+	"edit-unknown": "May have been submitted",
+	"upload-rejected": "Upload rejected · edit not sent",
+	"edit-recorded": null,
+} as const;
 type Job = PageProps["data"]["jobs"][number];
 // What automatic Save has done with a completed result (D9).
 function libraryText(job: Job) {
@@ -168,7 +181,9 @@ function submit(id: string, action: Action): SubmitFunction {
 							: `${releasedModels.find((model) => model.id === entry?.modelId)?.label ?? job.model} · ${provider}`}
 					</svelte:element>
 					<span class={styles.state} data-state={job.state} aria-live="polite"
-						>{job.throttled && job.batchId ? "Not admitted · throttled" : states[job.state]}</span
+						>{job.throttled && job.batchId
+							? "Not admitted · throttled"
+							: ((job.filePhase && fileStates[job.filePhase]) ?? states[job.state])}</span
 					>
 				</div>
 				<p class={styles.meta}>
@@ -187,6 +202,15 @@ function submit(id: string, action: Action): SubmitFunction {
 					{job.tracking === "paused" ? "Tracking paused. " : ""}{job.message}
 				</p>
 			{/if}
+			{#if job.filePhase &&
+				job.filePhase !== "unsent" &&
+				job.filePhase !== "upload-rejected" &&
+				(job.state === "unknown" || job.state === "rejected")}
+				<p class={styles.note}>
+					An uploaded file may remain accessible. Check provider history before attaching it again.
+					A new attempt can create another copy and incur charges.
+				</p>
+			{/if}
 			{#if job.tracking === "manual"}
 				<p class={styles.note}>
 					Automatic tracking has ended. Refresh status to check the same task.
@@ -194,13 +218,21 @@ function submit(id: string, action: Action): SubmitFunction {
 			{/if}
 			<dl class={styles.billing} aria-label="Billing">
 				<div>
-					<dt>Accepted estimate{job.provider === "toapis" ? " · standard route" : ""}</dt>
+					<dt>
+						{job.filePhase ? "Accepted edit estimate" : "Accepted estimate"}{job.provider ===
+						"toapis"
+							? " · standard route"
+							: ""}
+					</dt>
 					<dd>
 						{#if job.quote.status === "known"}
 							{job.quote.perRequest} {provider} credits
 							<span class={styles.meta}>(rates dated {job.quote.sourceDate.slice(0, 10)})</span>
 						{:else}
 							Unknown. {reviewPriceReason(job.quote)}
+						{/if}
+						{#if job.filePhase}
+							<p class={styles.meta}>Upload cost unknown. Upload settlement timing is unknown.</p>
 						{/if}
 						{#if job.provider === "toapis"}
 							<p class={styles.meta}>Fallback pricing unknown.</p>

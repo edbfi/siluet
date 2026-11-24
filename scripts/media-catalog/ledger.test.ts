@@ -29,6 +29,12 @@ test("the frozen discovery scope accounts for snapshot, regional and documentati
 	expect(ledger.supportProfiles["seedream-edit"].queue).toContain(
 		`1–${maxSeedreamReferences} ordered public HTTP(S) image URLs`,
 	);
+	expect(ledger.supportProfiles["seedream-edit"].queue).toContain(
+		"one local JPEG or PNG via provider upload, cleaned unless cleaning is off, one request, zero retries",
+	);
+	expect(poyo.sources.uploadStream).toBe(
+		"https://docs.poyo.ai/api-manual/file-series/upload-stream",
+	);
 	for (const profile of ["seedream-generate", "seedream-edit"] as const) {
 		const queue = ledger.supportProfiles[profile].queue;
 		expect(queue).toContain(`1–${reviewBatchCounts.at(-1)} requests`);

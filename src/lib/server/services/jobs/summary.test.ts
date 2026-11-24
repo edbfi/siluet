@@ -34,6 +34,8 @@ const h3: ImageJob = {
 	save_attempt: null,
 	save_tries: 0,
 	batch_id: null,
+	file_phase: null,
+	file_owner: null,
 	transient_failure: null,
 	slot: null,
 	attempt: null,

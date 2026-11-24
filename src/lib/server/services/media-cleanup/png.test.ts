@@ -348,8 +348,6 @@ describe("cleanPng", () => {
 		["gdAT", "hdr-png"],
 		["mDCV", "hdr-png"],
 		["cLLI", "hdr-png"],
-		["vpAg", "unsupported-png-chunk"],
-		["dSIG", "unsupported-png-chunk"],
 	] as const)("declines %s chunks without exposing their payload", async (type, code) => {
 		await expectFailure(png(header(), chunk(type, Buffer.from("PRIVATE_MARKER")), pixels()), code);
 	});
@@ -431,16 +429,54 @@ describe("cleanPng", () => {
 		);
 	});
 
-	test("declines malformed text and unknown private chunks", async () => {
+	test("declines malformed text and drops unknown private ancillary chunks", async () => {
 		await expectFailure(
 			png(header(), chunk("iTXt", Buffer.from("Comment\0\0\0\0\0\xff", "latin1")), pixels()),
 			"invalid-png",
 		);
+		expect(
+			await cleanPng(png(header(), chunk("prIv", Buffer.from("PRIVATE_MARKER")), pixels())),
+		).toEqual(png(header(), pixels()));
+		await expectFailure(png(header(), chunk("priv"), pixels()), "invalid-png");
+	});
+
+	test("drops unknown ancillary iDOT; output decodes without marker", async () => {
+		const marked = chunk("iDOT", Buffer.from("PRIVATE_MARKER"));
+		const output = await cleanPng(png(header(), marked, pixels()));
+		expect(output).toEqual(png(header(), pixels()));
+		expect(Buffer.from(output).includes("PRIVATE_MARKER")).toBe(false);
+		expect((await sharp(output).raw().toBuffer({ resolveWithObject: true })).info.width).toBe(1);
+	});
+
+	test.each(["vpAg", "dSIG", "caNv"])("drops unknown ancillary %s chunks", async (type) => {
+		expect(
+			await cleanPng(png(header(), chunk(type, Buffer.from("PRIVATE_MARKER")), pixels())),
+		).toEqual(png(header(), pixels()));
+	});
+
+	test("drops paired dSIG and repeated mkBT", async () => {
+		const signed = chunk("dSIG", Buffer.from("PRIVATE_MARKER"));
+		const block = chunk("mkBT", Buffer.from("PRIVATE_MARKER"));
+		expect(await cleanPng(png(header(), signed, block, block, pixels(), block, signed))).toEqual(
+			png(header(), pixels()),
+		);
+	});
+
+	test("8,192 skipped chunks still hit png-limit", async () => {
+		const skipped = Array.from({ length: 8_192 }, () => chunk("iDOT"));
+		await expectFailure(png(header(), ...skipped, pixels()), "png-limit");
+	});
+
+	test("declines unknown critical PrIv", async () => {
 		await expectFailure(
-			png(header(), chunk("prIv", Buffer.from("PRIVATE_MARKER")), pixels()),
+			png(header(), chunk("PrIv", Buffer.from("PRIVATE_MARKER")), pixels()),
 			"unsupported-png-chunk",
 		);
-		await expectFailure(png(header(), chunk("priv"), pixels()), "invalid-png");
+	});
+
+	test("an unknown ancillary chunk between IDAT chunks splits the image data", async () => {
+		const [first, second] = [pixels([0, 7]), chunk("IDAT")];
+		await expectFailure(png(header(), first, chunk("iDOT"), second), "invalid-png");
 	});
 
 	test("returns fixed cancellation feedback before and during preparation", async () => {

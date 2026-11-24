@@ -4,6 +4,7 @@ import { connect } from "@tursodatabase/database";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/tursodatabase/database";
 import { migrations37 } from "../../../../tests/fixtures/db/migrations-37";
+import { migrationsAs2 } from "../../../../tests/fixtures/db/migrations-as2";
 import { installationMigrations, migrateInstallation } from "./migrations";
 import { releasedMigrations } from "./released-migrations";
 
@@ -148,7 +149,13 @@ test("released migrations keep their SQL and new ones sort after the last releas
 	const last = released.at(-1) ?? "";
 	for (const name of Object.keys(migrations))
 		if (!releasedMigrations.has(name)) expect(name > last).toBe(true);
-	// The pinned #37 history is the released prefix, byte for byte.
-	for (const [name, value] of Object.entries(migrations37))
+	// The pinned #37 and AS2 histories are the released prefix, byte for byte.
+	for (const [name, value] of Object.entries({ ...migrations37, ...migrationsAs2 }))
 		expect(digest(value)).toBe(releasedMigrations.get(name) ?? "");
+});
+
+test("the local-file edit migration sorts last", () => {
+	expect(Object.keys(installationMigrations).sort().at(-1)).toBe(
+		"20261123180000_seedream_file_edit",
+	);
 });

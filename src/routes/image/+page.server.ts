@@ -3,9 +3,11 @@ import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const pricingNowMs = Date.now();
-	const [availability, pricingFeeds] = await Promise.all([
+	const [availability, pricingFeeds, cleaning] = await Promise.all([
 		locals.studio.providers.imageAvailability(),
 		loadStudioPricingFeeds(pricingNowMs),
+		// An unreadable setting leaves the mode unknown; preparation and Review refuse on the server.
+		locals.studio.cleaning.read().catch(() => null),
 	]);
-	return { ...availability, pricingFeeds, pricingNowMs };
+	return { ...availability, pricingFeeds, pricingNowMs, cleaning };
 };

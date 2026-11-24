@@ -60,7 +60,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 		if (e instanceof AccessError) {
 			if (cookies.get(studio.cookieName))
 				headers["set-cookie"] = cookies.serialize(...securityNotice(studio.origin));
-			const retry = route.id === "/settings/security" ? "/settings/security?resume" : "/";
+			// Built from fixed keys, never the raw query. Setup's offer survives the retry.
+			const offer = event.url.searchParams.has("offer");
+			const retry =
+				route.id === "/settings/security"
+					? `/settings/security?resume${offer ? "&offer" : ""}`
+					: route.id === "/settings/files"
+						? `/settings/files${offer ? "?offer" : ""}`
+						: "/";
 			const detail =
 				e.status === 403
 					? "Security settings changed."

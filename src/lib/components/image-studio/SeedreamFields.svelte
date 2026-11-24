@@ -282,10 +282,15 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 			<legend class={requestLegend}>Reference images</legend>
 			<p class={requestHelp} id={`${id}-reference-help`}>
 				{#if provider}
-					Queue supports 1–{maxSeedreamReferences} public image URLs. For offline Review, you can
-					also stage files ({referenceFileHelp(provider)} each).
+					Queue supports 1–{maxSeedreamReferences} public image URLs, or one local JPEG or PNG that
+					Siluet {localCopy.cleaned ? "cleans" : "checks and sends unchanged"} before upload.
+					Several files or other formats stay available for offline Review ({referenceFileHelp(
+						provider,
+					)}
+					each).
 				{:else}
-					Queue needs a connected provider. For offline Review, Siluet cleans a local copy of one
+					Queue needs a connected provider. For offline Review, Siluet
+					{localCopy.cleaned ? "cleans a local copy of" : "checks"} one
 					{referenceFileHelp(provider)} when you attach it.
 				{/if}
 			</p>

@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 import sharp from "sharp";
+import type { CleaningSetting } from "../../../shared/media-staging/cleaning";
 import type { PreparedStageMedia } from "../../../shared/media-staging/descriptor";
+import { mediaCleaning } from "../../db/media-cleaning";
 import { type RuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
 import { BodyLimitError, readBounded } from "../../http/read-bounded";
 import { cleanJpeg, JpegCleanupError } from "./jpeg";
+import { type VerifiedOriginal, verifyOriginal } from "./original";
 import { cleanPng, PngCleanupError } from "./png";
 import { failure, maxPreparationBytes, mediaMime, PreparationError } from "./preparation-bytes";
 
@@ -26,8 +29,10 @@ export type Cleaners = {
 		options: { signal: AbortSignal },
 	) => Promise<{ bytes: Uint8Array; transform: "none" | "reencoded-rotation" }>;
 	png: (bytes: Uint8Array, options: { signal: AbortSignal }) => Promise<Uint8Array>;
+	/** Verifies a file sent unchanged because the owner turned cleaning off (D10). */
+	original: (bytes: Uint8Array, options: { signal: AbortSignal }) => Promise<VerifiedOriginal>;
 };
-const qualified: Cleaners = { jpeg: cleanJpeg, png: cleanPng };
+const qualified: Cleaners = { jpeg: cleanJpeg, png: cleanPng, original: verifyOriginal };
 
 /**
  * Take the installation's one preparation slot or refuse with "busy". The slot is
@@ -85,11 +90,14 @@ export function createMediaPreparation(
 		cleaners = qualified,
 		deadlineMs = preparationMs,
 		monotonic = () => performance.now(),
+		readCleaning = mediaCleaning(installation).read,
 	}: {
 		shutdown?: AbortSignal;
 		cleaners?: Cleaners;
 		deadlineMs?: number;
 		monotonic?: () => number;
+		/** The setting in force at admission decides the mode. A failed read refuses. */
+		readCleaning?: () => Promise<CleaningSetting>;
 	} = {},
 ) {
 	/**
@@ -103,6 +111,8 @@ export function createMediaPreparation(
 		source: Uint8Array | ReadableStream<Uint8Array>,
 		signal: AbortSignal,
 		commit: (media: PreparedMedia, stop: PreparationStop) => Promise<T>,
+		/** Called with the setting this preparation was admitted under, once it is read. */
+		noted?: (setting: CleaningSetting) => void,
 	): Promise<T> {
 		const deadline = monotonic() + deadlineMs;
 		const timeout = new AbortController();
@@ -148,21 +158,39 @@ export function createMediaPreparation(
 			if (input.byteLength > maxPreparationBytes) throw failure("limit");
 			const mime = mediaMime(input);
 			if (!mime) throw failure("format");
-			const cleaned =
-				mime === "image/jpeg"
-					? await race(cleaners.jpeg(input, { signal: stopped }))
+			// The setting in force once the body arrives decides the mode for this preparation.
+			const cleaning = await race(readCleaning()).catch((error) => {
+				throw stopped.aborted ? error : failure("failed");
+			});
+			noted?.(cleaning);
+			const cleaned = !cleaning.enabled
+				? await race(cleaners.original(input, { signal: stopped }))
+				: mime === "image/jpeg"
+					? { ...(await race(cleaners.jpeg(input, { signal: stopped }))), rotated: false }
 					: {
 							bytes: await race(cleaners.png(input, { signal: stopped })),
 							transform: "none" as const,
+							rotated: false,
 						};
 			check();
 			const bytes = exact(cleaned.bytes);
 			if (mediaMime(bytes) !== mime) throw failure("failed");
 			const digest = createHash("sha256").update(bytes).digest("hex");
+			const common = {
+				bytes,
+				digest,
+				size: bytes.length,
+				revision: cleaning.revision,
+				rotated: cleaned.rotated,
+			};
 			const media: PreparedMedia =
 				mime === "image/jpeg"
-					? { bytes, digest, mime, size: bytes.length, transform: cleaned.transform }
-					: { bytes, digest, mime, size: bytes.length, transform: "none" };
+					? { ...common, mime, transform: cleaned.transform }
+					: {
+							...common,
+							mime,
+							transform: cleaned.transform === "original" ? "original" : "none",
+						};
 			committing = true;
 			return await slot.track(commit(media, { signal: stopped, deadline }));
 		} catch (error) {

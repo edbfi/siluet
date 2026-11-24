@@ -47,10 +47,12 @@ let composer = $state<ComposerDraft>(
 	),
 );
 // Siluet cleans an attached local file as soon as it is attached.
-const localCopy = new LocalCopy(() =>
-	composer.model === "seedream-5.5" && composer.request.operation === "edit"
-		? cleanableReferenceFile(composer.request.references)
-		: null,
+const localCopy = new LocalCopy(
+	() =>
+		composer.model === "seedream-5.5" && composer.request.operation === "edit"
+			? cleanableReferenceFile(composer.request.references)
+			: null,
+	() => data.cleaning,
 );
 let shell: ReturnType<typeof ImageComposer>;
 let previewIndex = $state(0);

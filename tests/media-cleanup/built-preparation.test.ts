@@ -127,7 +127,8 @@ test("the built route stages a large image and keeps 512 KiB on other routes", a
 	const png = await largePng();
 	const staged = await stage(session, png);
 	expect(staged.status).toBe(200);
-	const descriptor = await staged.json();
+	const { stage: descriptor, revision } = await staged.json();
+	expect(revision).toBe(0);
 	expect(descriptor).toMatchObject({ mime: "image/png", transform: "none", size: png.length });
 	const preview = await fetch(
 		`${session.origin}/image/files/${descriptor.draft}/${descriptor.handle}`,
@@ -168,7 +169,7 @@ test("the built route stages a large image and keeps 512 KiB on other routes", a
 test("draft discard requires the owner session, this origin and a valid draft", async () => {
 	const studio = await launch(await owner());
 	const session = await signIn(studio);
-	const staged = await (await stage(session, await largePng())).json();
+	const { stage: staged } = await (await stage(session, await largePng())).json();
 	const discard = (headers: Record<string, string>, draft: string = staged.draft) =>
 		fetch(`${session.origin}/image/files/${draft}`, { method: "DELETE", headers });
 	const preview = async () => {
@@ -201,7 +202,7 @@ test("sign-out retires an open preview and removes its scratch file", async () =
 	const directory = await owner();
 	const studio = await launch(directory);
 	const session = await signIn(studio);
-	const staged = await (await stage(session, await largePng())).json();
+	const { stage: staged } = await (await stage(session, await largePng())).json();
 	const preview = await fetch(`${session.origin}/image/files/${staged.draft}/${staged.handle}`, {
 		headers: { cookie: session.cookie },
 	});

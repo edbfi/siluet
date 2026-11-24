@@ -1015,3 +1015,28 @@ test("a closed query bucket's advertised reset outlives the task clock", async (
 	await advance(14000);
 	expect(reads).toBe(1);
 });
+
+test("close during a batch cooldown sleep settles at once and sends nothing more", async () => {
+	let posts = 0;
+	read = async (url) => {
+		if (url.endsWith("/balance")) return balance();
+		posts++;
+		return throttle("poyo");
+	};
+	const queue = await runtime();
+	const sleeping = Promise.withResolvers<void>();
+	// The cooldown sleep never ends on its own.
+	beforeSleep = () => {
+		sleeping.resolve();
+		return new Promise<void>(() => {});
+	};
+	await queue.submit("owner", await review(queue, "poyo", 2, 0));
+	await sleeping.promise;
+	const settled = await Promise.race([
+		jobs.close().then(() => "closed"),
+		Bun.sleep(2_000).then(() => "waiting"),
+	]);
+	expect(settled).toBe("closed");
+	await dispatched[0];
+	expect(posts).toBe(1);
+});

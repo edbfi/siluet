@@ -35,6 +35,7 @@ const test = base.extend<{ studio: { origin: URL; password: string } }>({
 			await page.getByLabel("Password", { exact: true }).fill(password);
 			await page.getByRole("button", { name: "Claim studio" }).click();
 			await page.getByRole("link", { name: "Skip for now" }).click();
+			await page.getByRole("button", { name: "Continue to studio" }).click();
 			await expect(page).toHaveURL(origin.href);
 
 			await page.goto(new URL("/settings/providers", origin).href);

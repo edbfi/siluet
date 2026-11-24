@@ -1,4 +1,6 @@
 import type { EventEmitter } from "node:events";
+import { fileAttemptStore } from "../../db/file-attempt";
+import { mediaCleaning } from "../../db/media-cleaning";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
 import { saveIntentStore } from "../../db/save-intent";
@@ -6,6 +8,8 @@ import { checkRequestSecurity, cleanUnusedKeys } from "../../db/security-state";
 import { requireSupportedPlatform } from "../../platform";
 import { checkPoyoConnection } from "../../providers/poyo/connection";
 import { checkToapisConnection } from "../../providers/toapis/connection";
+import { fileDispatcher } from "../file-edit/dispatch";
+import { createFileQueue } from "../file-edit/queue";
 import { createAutoSave } from "../gallery/auto-save";
 import { createGallery } from "../gallery/gallery";
 import { createJobTracking } from "../jobs/tracking";
@@ -66,7 +70,11 @@ async function openOwner(dev: boolean) {
 		// Owner changes that remove sessions also retire their staged copies.
 		const ownerInstallation = { ...installation, retireSessions: stages.retireSessions };
 		const shutdown = new AbortController();
-		const prepareMedia = createMediaPreparation(installation, { shutdown: shutdown.signal });
+		const cleaning = mediaCleaning(installation);
+		const prepareMedia = createMediaPreparation(installation, {
+			shutdown: shutdown.signal,
+			readCleaning: cleaning.read,
+		});
 		const access = createOwnerAccess(ownerInstallation, Date.now, origin.origin);
 		await access.security.initialize();
 		const store = providerStore(installation);
@@ -86,6 +94,16 @@ async function openOwner(dev: boolean) {
 		const videoQueue = await createVideoQueue(installation, videoAccess, jobs.dispatchVideo);
 		const gallery = createGallery(installation);
 		const queue = await createSubmissionQueue(installation, store.credential, jobs);
+		// File attempts carry this runtime's nonce, so a later runtime never sends for them.
+		const nonce = crypto.randomUUID();
+		const files = await createFileQueue(
+			installation,
+			nonce,
+			stages,
+			store.credential,
+			fileDispatcher(installation, nonce, jobs.schedule),
+			{ readCleaning: cleaning.read },
+		);
 		let workers: Promise<void> | undefined;
 		async function checkAccess() {
 			await checkRequestSecurity(ownerInstallation);
@@ -94,6 +112,8 @@ async function openOwner(dev: boolean) {
 				// This runtime alone holds the installation, so earlier attempts and scratch ended.
 				await gallery.recover();
 				await saveIntentStore(installation).clearAbandoned();
+				// File attempts settle through their own phases before ordinary recovery.
+				await fileAttemptStore(installation, nonce).recover(Date.now());
 				await jobs.resume();
 				autoSave.start();
 			})().catch((e) => {
@@ -128,11 +148,12 @@ async function openOwner(dev: boolean) {
 				try {
 					clearTimeout(rotation);
 					shutdown.abort();
-					jobs.close();
-					// Active saves give their claims back before storage closes.
-					await autoSave.close();
+					// File Queue stops admitting at once; claimed file and job dispatches drain together.
+					await Promise.all([files.close(), jobs.close()]);
 					await runtimeEntry(installation).preparation?.settled;
 					await stages.close();
+					// Active saves give their claims back before storage closes.
+					await autoSave.close();
 					await installation.close();
 				} finally {
 					// A later dev reload need not wait on this close again.
@@ -155,6 +176,7 @@ async function openOwner(dev: boolean) {
 		return {
 			close,
 			stages,
+			cleaning,
 			prepareMedia,
 			origin,
 			checkAccess,
@@ -164,6 +186,7 @@ async function openOwner(dev: boolean) {
 			gallery,
 			autoSave,
 			queue,
+			files,
 			access,
 			providers,
 			hasOwner: installation.hasOwner,

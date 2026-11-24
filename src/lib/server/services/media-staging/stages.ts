@@ -10,6 +10,16 @@ import { ScratchFull, type ScratchReservation, type ScratchScope } from "./scrat
 import { ChangedStage, StageError, stageReaders } from "./stage-readers";
 
 export { StageError };
+
+/** The cleaning setting changed after this copy was prepared (D10). */
+export class CleaningChangedError extends Error {
+	constructor() {
+		super("The cleaning setting changed.");
+		this.name = "CleaningChangedError";
+	}
+}
+/** What a stage's server record adds to its descriptor. Never sent to the browser. */
+export type StageMode = { revision: number; rotated: boolean };
 export type StageScope = { owner: string; session: string; draft: string };
 type Stage = {
 	scope: StageScope;
@@ -18,6 +28,10 @@ type Stage = {
 	expiry: ReturnType<typeof setTimeout>;
 	readers: ReturnType<typeof stageReaders>;
 	reservation: ScratchReservation;
+	/** The cleaning setting's revision this copy was prepared under. */
+	revision: number;
+	/** An original declares a rotation. */
+	rotated: boolean;
 	consumed?: boolean;
 	boundary?: Promise<boolean>;
 	claim?: Promise<void>;
@@ -60,7 +74,9 @@ export function createStages(
 	const stages = new Map<string, Stage>();
 	// Files whose unlink failed stay charged until a later sweep removes them.
 	const leftovers = new Map<string, ScratchReservation>();
-	const writes = new Set<{ scope: StageScope; retired: boolean }>();
+	const writes = new Set<{ scope: StageScope; retired: boolean; revision: number }>();
+	// The lowest cleaning revision a stage may have. Only ever raised.
+	let generation = 0;
 	// Drafts the browser discarded, until any write it abandoned could no longer arrive.
 	const discarded = new Map<string, number>();
 	const draftKey = ({ owner, session, draft }: StageScope) => `${owner}\n${session}\n${draft}`;
@@ -125,6 +141,7 @@ export function createStages(
 		return (
 			!closed &&
 			!stage.consumed &&
+			stage.revision >= generation &&
 			!stage.readers.signal.aborted &&
 			stages.get(stage.descriptor.handle) === stage &&
 			stage.descriptor.deadline > now()
@@ -172,12 +189,16 @@ export function createStages(
 			await handle.close();
 		}
 	}
+	type Reviewed<D> = { descriptor: D } & StageMode;
 	async function review<D extends MediaDescriptor>(
 		scope: StageScope,
 		handle: string,
 		expected: D,
-	): Promise<D | null>;
-	async function review(scope: StageScope, handle: string): Promise<MediaDescriptor | null>;
+	): Promise<Reviewed<D> | null>;
+	async function review(
+		scope: StageScope,
+		handle: string,
+	): Promise<Reviewed<MediaDescriptor> | null>;
 	async function review(scope: StageScope, handle: string, expected?: MediaDescriptor) {
 		return serialize(async () => {
 			const stage = stages.get(handle);
@@ -191,12 +212,17 @@ export function createStages(
 			clearTimeout(stage.expiry);
 			stage.descriptor.deadline = now() + stageIdleMs;
 			stage.expiry = timer(handle);
-			return { ...stage.descriptor };
+			return {
+				descriptor: { ...stage.descriptor },
+				revision: stage.revision,
+				rotated: stage.rotated,
+			};
 		});
 	}
 	type Commit = (
 		live: () => boolean,
 		durable: (write: () => Promise<boolean>) => Promise<boolean>,
+		stage: StageMode,
 	) => Promise<boolean>;
 	async function claim(scope: StageScope, descriptor: MediaDescriptor, commit: Commit) {
 		const stage = await find(scope, descriptor.handle);
@@ -241,7 +267,10 @@ export function createStages(
 		try {
 			await read(stage, bytes);
 			if (!valid()) return null;
-			const success = await commit(valid, durable);
+			const success = await commit(valid, durable, {
+				revision: stage.revision,
+				rotated: stage.rotated,
+			});
 			if (!committed && success && valid() && !released) committed = true;
 			if (!committed) return null;
 			// Removal must preserve committed transfer bytes and be final even on an unlink failure.
@@ -273,8 +302,12 @@ export function createStages(
 		media: PreparedStageMedia,
 		{ valid = async () => true, signal, deadline = Infinity }: PutOptions = {},
 	) {
-		const write = { scope: { ...scope }, retired: wasDiscarded(scope) };
-		const stopped = () => closed || write.retired || !!signal?.aborted || monotonic() >= deadline;
+		const write = { scope: { ...scope }, retired: wasDiscarded(scope), revision: media.revision };
+		// A flip is checked first, so close, abort, deadline and retirement keep their own error.
+		const stopped = () => {
+			if (write.revision < generation) throw new CleaningChangedError();
+			return closed || write.retired || !!signal?.aborted || monotonic() >= deadline;
+		};
 		writes.add(write);
 		return serialize(async () => {
 			if (stopped() || !(await valid())) throw new StageError("Stage unavailable.");
@@ -284,7 +317,7 @@ export function createStages(
 			const profile: StageProfile =
 				media.mime === "image/jpeg"
 					? { mime: media.mime, transform: media.transform }
-					: { mime: media.mime, transform: "none" };
+					: { mime: media.mime, transform: media.transform };
 			if (bytes.length !== size || !size || size > maxStageBytes) throw new ChangedStage();
 			// Checked again with no await before reserving and starting the write.
 			if (stopped()) throw new StageError("Stage unavailable.");
@@ -319,6 +352,8 @@ export function createStages(
 					descriptor,
 					path,
 					reservation,
+					revision: media.revision,
+					rotated: media.rotated,
 					readers: stageReaders(path, info, () => {
 						const current = stages.get(handle);
 						if (current) void serialize(() => remove(current)).catch(() => {});
@@ -331,6 +366,18 @@ export function createStages(
 				throw error;
 			}
 		}).finally(() => writes.delete(write));
+	}
+	/**
+	 * Retire every copy prepared before cleaning revision `revision`. Older readers stop
+	 * at once; their files are removed in order. Writes in flight fail at publication.
+	 */
+	function retireAll(revision: number) {
+		generation = Math.max(generation, revision);
+		const floor = generation;
+		for (const stage of stages.values()) if (stage.revision < floor) stage.readers.abort();
+		return serialize(async () => {
+			for (const stage of stages.values()) if (stage.revision < floor) await remove(stage);
+		});
 	}
 	function retireSessions(digests: ReadonlySet<string>) {
 		for (const write of writes) if (digests.has(write.scope.session)) write.retired = true;
@@ -351,6 +398,7 @@ export function createStages(
 		},
 		put,
 		review,
+		retireAll,
 		async openPreview(scope: StageScope, handle: string) {
 			const stage = await find(scope, handle);
 			if (!stage) return null;

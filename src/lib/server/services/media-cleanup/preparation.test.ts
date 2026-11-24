@@ -128,6 +128,7 @@ test("cancel releases only after sharp settles", async () => {
 			return decode.promise;
 		},
 		png: async (bytes) => bytes,
+		original: async (bytes) => ({ bytes, transform: "original", rotated: false }),
 	};
 	const stubbed = createMediaPreparation(installation, { cleaners });
 	const controller = new AbortController();
@@ -247,6 +248,7 @@ test("one decode in flight under 4 requests", async () => {
 			return { bytes, transform: "none" };
 		},
 		png: async (bytes) => bytes,
+		original: async (bytes) => ({ bytes, transform: "original", rotated: false }),
 	};
 	const counted = createMediaPreparation(installation, { cleaners });
 	const results = await Promise.allSettled(
@@ -318,6 +320,73 @@ test("a stage error from the commit reaches the caller unchanged", async () => {
 			throw full;
 		}),
 	).rejects.toBe(full);
+});
+
+test("PNG original keeps transform original", async () => {
+	const off = createMediaPreparation(installation, {
+		readCleaning: async () => ({ enabled: false, revision: 4 }),
+	});
+	for (const [bytes, mime] of [
+		[png, "image/png"],
+		[jpeg, "image/jpeg"],
+	] as const) {
+		const prepared = await off(bytes, signal, keep);
+		expect(prepared).toMatchObject({ mime, transform: "original", revision: 4, rotated: false });
+		expect(Buffer.from(prepared.bytes).equals(bytes)).toBe(true);
+		await held()?.settled;
+	}
+	const on = await createMediaPreparation(installation, {
+		readCleaning: async () => ({ enabled: true, revision: 5 }),
+	})(png, signal, keep);
+	expect(on).toMatchObject({ transform: "none", revision: 5, rotated: false });
+	await held()?.settled;
+});
+
+test("an unreadable cleaning setting refuses preparation and frees the slot", async () => {
+	const prepareWithout = createMediaPreparation(installation, {
+		readCleaning: async () => {
+			throw new Error("Cleaning setting unavailable.");
+		},
+	});
+	await expect(prepareWithout(png, signal, keep)).rejects.toMatchObject({ code: "failed" });
+	await held()?.settled;
+	expect(held()).toBeUndefined();
+});
+
+test("an original's cancel and timeout hold the slot until its decode settles", async () => {
+	for (const stop of ["cancel", "timeout"] as const) {
+		const decode = Promise.withResolvers<{
+			bytes: Uint8Array;
+			transform: "original";
+			rotated: boolean;
+		}>();
+		const started = Promise.withResolvers<void>();
+		const stubbed = createMediaPreparation(installation, {
+			readCleaning: async () => ({ enabled: false, revision: 0 }),
+			deadlineMs: stop === "timeout" ? 30 : 30_000,
+			cleaners: {
+				jpeg: async () => ({ bytes: jpeg, transform: "none" }),
+				png: async (bytes) => bytes,
+				original: () => {
+					started.resolve();
+					return decode.promise;
+				},
+			},
+		});
+		const controller = new AbortController();
+		const pending = stubbed(jpeg, controller.signal, keep);
+		await started.promise;
+		if (stop === "cancel") controller.abort();
+		await expect(pending).rejects.toMatchObject({
+			code: stop === "cancel" ? "cancelled" : "timeout",
+		});
+		const slot = held();
+		expect(slot).toBeDefined();
+		await expect(prepare(png)).rejects.toMatchObject({ code: "busy" });
+		decode.resolve({ bytes: jpeg, transform: "original", rotated: false });
+		await slot?.settled;
+		expect(held()).toBeUndefined();
+	}
 });
 
 test("sharp.cache off", () => {

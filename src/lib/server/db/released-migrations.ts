@@ -40,6 +40,10 @@ const released = [
 		"d6ff8b8e4f564be35a674aa09c183cc9538401a6aa7381bdc0db29f39ac60073",
 		"20261123120000_automatic_save",
 	],
+	[
+		"513b51200311b83f96ad246233f0585a10637c8ffe2bf50885253c5a56cefd68",
+		"20261123180000_seedream_file_edit",
+	],
 ] as const;
 
 /** Released migration name → SQL digest. */
