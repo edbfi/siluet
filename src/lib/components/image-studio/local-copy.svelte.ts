@@ -128,7 +128,14 @@ export class LocalCopy {
 	 */
 	renew() {
 		if (!this.file) return;
-		void this.#readSetting().catch(() => {});
+		void this.#readSetting()
+			.then((current) => {
+				// The preparation settled before this check reported a newer setting.
+				const admitted = this.#revision;
+				if (current === null || !this.file || this.pending || admitted === null) return;
+				if (admitted < current) this.#replace();
+			})
+			.catch(() => {});
 		this.#replace();
 	}
 

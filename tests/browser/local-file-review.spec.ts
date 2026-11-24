@@ -306,6 +306,33 @@ test("a renewal that learns of a later change prepares again instead of showing 
 	});
 });
 
+test("a renewal whose settings check answers after the earlier mode's refusal prepares again", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
+		await changeElsewhere(page, origin, false);
+		const { file, inspect, consent, queue } = await openEdit(page, origin);
+		await file.setInputFiles(await vendorJpeg());
+		await expect(file).toHaveAccessibleDescription(/File checked · Not cleaned\./);
+		await inspect.press("Enter");
+		await consent.press("Space");
+		await changeElsewhere(page, origin, true);
+		const read = Promise.withResolvers<void>();
+		await page.route("**/settings/files/state", async (route) => {
+			await read.promise;
+			await route.fulfill({ response: await route.fetch() });
+		});
+		// Queue finds the Review stale; the cleaner refuses under the new mode first.
+		await queue.press("Enter");
+		await expect(file).toHaveAccessibleDescription(/unclassified or unreadable metadata/);
+		// Cleaning is turned off again before the renewal's own settings check answers.
+		await changeElsewhere(page, origin, false);
+		read.resolve();
+		await expect(file).toHaveAccessibleDescription(/File checked · Not cleaned\./);
+		expect(fixtures.uploads).toHaveLength(0);
+	});
+});
+
 test("a refused Retry keeps a newer Review and its consent", async ({ page }) => {
 	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
 		const { file, inspect, consent, queue, review } = await openEdit(page, origin);
