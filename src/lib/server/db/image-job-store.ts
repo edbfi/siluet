@@ -9,7 +9,7 @@ import {
 	type TaskFailureReason,
 	type TaskState,
 } from "../providers/image-job";
-import type { FilePhase, FileStop } from "./file-attempt";
+import { type FilePhase, type FileStop, readFileSlots } from "./file-attempt";
 import { markWalletOverlap } from "./image-batch-store";
 import {
 	type CredentialAccess,
@@ -199,6 +199,16 @@ export function imageJobStore({ use }: Installation) {
 		get: (id: string) => use((db) => db.get<ImageJob>(byId(id))),
 		list: () =>
 			use((db) => db.all<ImageJob>(sql`SELECT * FROM image_job ORDER BY created_at DESC, id`)),
+		/** Every job and its file slots, read together so a phase and its slots agree. */
+		snapshot: () =>
+			use((db) =>
+				db.transaction(async (tx) => {
+					const jobs = await tx.all<ImageJob>(
+						sql`SELECT * FROM image_job ORDER BY created_at DESC, id`,
+					);
+					return { jobs, slots: await readFileSlots(tx, jobs) };
+				}),
+			),
 
 		recover(now: number) {
 			return use((db) =>

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { ProviderId } from "../../../shared/providers/connections";
+import type { FileSlotRow } from "../../db/file-attempt";
 import { type BatchStop, imageBatchStore, retryStillSupported } from "../../db/image-batch-store";
 import {
 	hasCorrelation,
@@ -27,7 +28,7 @@ import type { VideoTarget } from "../queue/video";
 import type { VideoDelivery } from "../video-media/download";
 import { batchHistory } from "./batch-history";
 import { retryEvidence, statusUpdate } from "./observation";
-import { type FileSlotSummary, type GalleryState, isActive, summarizeJob } from "./summary";
+import { type GalleryState, isActive, summarizeJob } from "./summary";
 
 export type { JobSummary } from "./summary";
 
@@ -45,6 +46,8 @@ export type SaveRead =
  */
 export type DeliveryHandoff = (id: string, delivery: VideoDelivery | null) => unknown;
 
+/** Jobs and their file slots from one read. */
+type Snapshot = { jobs: ImageJob[]; slots: FileSlotRow[] };
 type JobCredentials = Pick<ReturnType<typeof providerStore>, "credential" | "jobReadability">;
 type TrackingDependencies = {
 	fetch?: CheckFetch;
@@ -329,7 +332,7 @@ export function createJobTracking(
 		return work;
 	}
 
-	async function summarize(rows: ImageJob[]) {
+	async function summarize({ jobs: rows, slots: slotRows }: Snapshot) {
 		const readable = rows.some((job) => job.task_id || hasCorrelation(job))
 			? await credentials.jobReadability()
 			: () => false;
@@ -342,26 +345,15 @@ export function createJobTracking(
 				)
 			).map((row) => [row.job_id, row.state]),
 		);
-		const slots = new Map<string, FileSlotSummary[]>();
-		// Only the summarized file jobs' slots, a bounded number of ids per statement.
-		const fileJobs = rows.flatMap((job) => (job.file_phase ? [job.id] : []));
-		for (let offset = 0; offset < fileJobs.length; offset += 500) {
-			const ids = sql.join(
-				fileJobs.slice(offset, offset + 500).map((id) => sql`${id}`),
-				sql`,`,
-			);
-			for (const slot of await installation.use((db) =>
-				db.all<FileSlotSummary & { job_id: string }>(
-					sql`SELECT job_id, position, outcome FROM file_slot WHERE job_id IN (${ids}) ORDER BY job_id, position`,
-				),
-			))
-				slots.set(slot.job_id, [
-					...(slots.get(slot.job_id) ?? []),
-					{ position: slot.position, outcome: slot.outcome },
-				]);
-		}
+		const slots = Map.groupBy(slotRows, (slot) => slot.job_id);
 		return rows.map((job) =>
-			summarizeJob(job, readable(job), now(), gallery.get(job.id) ?? null, slots.get(job.id)),
+			summarizeJob(
+				job,
+				readable(job),
+				now(),
+				gallery.get(job.id) ?? null,
+				slots.get(job.id)?.map(({ position, outcome }) => ({ position, outcome })),
+			),
 		);
 	}
 
@@ -491,10 +483,10 @@ export function createJobTracking(
 			return Promise.allSettled([...dispatches, ...inFlight.values()]);
 		},
 
-		list: async () => summarize(await store.list()),
+		list: async () => summarize(await store.snapshot()),
 		async history() {
 			const snapshot = await batches.history();
-			const jobs = await summarize(snapshot.attempts);
+			const jobs = await summarize({ jobs: snapshot.attempts, slots: snapshot.slots });
 			const groups = Map.groupBy(jobs, (job) => job.batchId);
 			return {
 				jobs: groups.get(null) ?? [],

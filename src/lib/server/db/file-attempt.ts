@@ -51,6 +51,26 @@ export async function claimFileSlots(
 	await tx.run(sql`UPDATE image_job SET file_references=${references} WHERE id=${id}`);
 }
 
+export type FileSlotRow = { job_id: string; position: number; outcome: SlotOutcome };
+
+/** The file jobs' slots in the caller's read, a bounded number of ids per statement. */
+export async function readFileSlots(tx: Pick<Tx, "all">, jobs: readonly ImageJob[]) {
+	const ids = jobs.flatMap((job) => (job.file_phase ? [job.id] : []));
+	const rows: FileSlotRow[] = [];
+	for (let offset = 0; offset < ids.length; offset += 500) {
+		const batch = sql.join(
+			ids.slice(offset, offset + 500).map((id) => sql`${id}`),
+			sql`,`,
+		);
+		rows.push(
+			...(await tx.all<FileSlotRow>(
+				sql`SELECT job_id, position, outcome FROM file_slot WHERE job_id IN (${batch}) ORDER BY job_id, position`,
+			)),
+		);
+	}
+	return rows;
+}
+
 /**
  * At an upload's send boundary: the job moves to `uploading` and this slot from `unsent`
  * to `uploading`, in the caller's transaction. Every earlier file slot must be stored.
