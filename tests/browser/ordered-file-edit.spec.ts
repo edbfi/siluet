@@ -317,3 +317,57 @@ test("a lost three-file Queue answer after the edit, a restart and Retry: one jo
 		expect(fixtures.submissions).toHaveLength(1);
 	});
 });
+
+test("a setting change elsewhere prepares every attached file again and clears consent", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
+		const { file, inspect, consent } = await openEdit(page, origin);
+		await file(1).setInputFiles(await markedFile("png"));
+		await expect(file(1)).toHaveAccessibleDescription(ready(true));
+		await chooseUrl(page, 2, signedReference);
+		await file(3).setInputFiles(await markedFile("jpeg", 1));
+		await expect(file(3)).toHaveAccessibleDescription(ready(true));
+		await inspect.press("Enter");
+		await consent.press("Space");
+		const staging = countStaging(page);
+		await turnCleaningOff(page, origin);
+		await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+		await expect(file(1)).toHaveAccessibleDescription(ready(false));
+		await expect(file(3)).toHaveAccessibleDescription(ready(false));
+		await expect(consent).toHaveCount(0);
+		expect(staging).toHaveLength(2);
+		expect(fixtures.uploads).toHaveLength(0);
+	});
+});
+
+test("a provider cooldown at Queue keeps the Review and its consent", async ({ page }) => {
+	await withEditStudio(page, "poyo", "completed", async ({ origin, fixtures }) => {
+		const { file, review, inspect, queue, consent } = await openEdit(page, origin);
+		await file(1).setInputFiles(await markedFile("png"));
+		await expect(file(1)).toHaveAccessibleDescription(ready(true));
+		await file(2).setInputFiles(await markedFile("png", 1));
+		await expect(file(2)).toHaveAccessibleDescription(ready(true));
+		await inspect.press("Enter");
+		await consent.press("Space");
+		let cooling = true;
+		await page.route("**/image/file-queue", (route) =>
+			cooling
+				? route.fulfill({
+						status: 409,
+						contentType: "application/json",
+						body: JSON.stringify({ error: "cooldown", until: Date.parse("2026-11-24T10:00:00Z") }),
+					})
+				: route.fallback(),
+		);
+		await queue.press("Enter");
+		await expect(review.getByRole("status")).toHaveText(
+			"The provider is cooling down. Nothing was sent. Queue again after 2026-11-24 10:00:00 UTC.",
+		);
+		await expect(consent).toBeChecked();
+		cooling = false;
+		await queue.press("Enter");
+		await expect(page).toHaveURL(/\/jobs/);
+		await expect.poll(() => fixtures.uploads.length, { timeout: 20_000 }).toBe(2);
+	});
+});
