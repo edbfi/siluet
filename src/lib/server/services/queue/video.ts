@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import { queueEvidenceProblem } from "../../../shared/media-catalog/registry";
+import { frameReviewLabels } from "../../../shared/video-studio/keyframes";
 import type { PoyoVideoBody } from "../../../shared/video-studio/poyo-video";
 import { previewVideo, type VideoRequest } from "../../../shared/video-studio/request";
 import type { SeedanceBody } from "../../../shared/video-studio/seedance";
@@ -54,11 +55,12 @@ export async function createVideoQueue(
 			pricing,
 			{
 				provider,
-				operation: "generate",
+				operation: input.operation.mode,
 				model:
 					"descriptor" in input.operation ? input.operation.descriptor.rateKey : input.body.model,
 				options: input.options,
-				sourceCount: 0,
+				sourceCount: input.frames.length,
+				sourceKinds: input.frames.map(() => "image" as const),
 			},
 			{ count: 1, retryLimit: 0 },
 			time,
@@ -89,6 +91,7 @@ export async function createVideoQueue(
 				quote,
 				blockers,
 				disclosures: input.disclosures,
+				frames: frameReviewLabels(input.frames),
 				preview: previewVideo(input),
 			};
 		},

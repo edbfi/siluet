@@ -1,8 +1,13 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
-import { seedanceOperation } from "../../../shared/media-catalog/registry";
+import {
+	type SeedanceOperation,
+	seedanceKeyframeOperations,
+	seedanceOperation,
+} from "../../../shared/media-catalog/registry";
+import { keyframeDisclosures } from "../../../shared/video-studio/keyframes";
 import { parseVideo } from "../../../shared/video-studio/request";
 import { videoDefaults } from "../../../shared/video-studio/seedance";
 import { imageJobStore } from "../../db/image-job-store";
@@ -12,7 +17,7 @@ import { checkVideoInventory } from "../../providers/toapis/connection";
 import { createJobTracking } from "../jobs/tracking";
 import { loadStudioPricingFeeds } from "../pricing/studio-feeds";
 import { createVideoAccess } from "../providers/video-access";
-import { createVideoQueue } from "./video";
+import { createVideoQueue, type VideoTarget } from "./video";
 
 const raw = {
 	draft: { ...videoDefaults, prompt: "  Rotate https://private.test/?secret  " },
@@ -594,3 +599,197 @@ test.each([false, true])(
 		expect(job).toMatchObject({ state: "unknown", canLookup: true });
 	},
 );
+
+describe("Seedance keyframes", () => {
+	const start = "https://frames.example.com/start.png?X-Amz-Signature=one";
+	const end = "https://frames.example.com/end.png?X-Amz-Signature=two";
+	const [animate, interpolate] = seedanceKeyframeOperations;
+	const keyframeDraft = {
+		prompt: "Drift",
+		duration: 5,
+		resolution: "720p",
+		generate_audio: true,
+		frames: [
+			{ role: "first_frame", url: start },
+			{ role: "last_frame", url: end },
+		],
+	};
+	const parse = (operation: SeedanceOperation, frames = keyframeDraft.frames) => {
+		const parsed = parseVideo({
+			...raw,
+			operationKey: operation.key,
+			draft: { ...keyframeDraft, frames: frames.slice(0, operation.roles.length) },
+		});
+		if (!parsed) throw new Error("Invalid keyframe fixture.");
+		return parsed;
+	};
+	const durable = async () =>
+		JSON.stringify(await db.use((c) => c.all(sql`SELECT * FROM image_job`)));
+
+	test.each([
+		["animate", animate],
+		["interpolate", interpolate],
+	])("%s quotes the advertised token rate and labels frames without URLs", async (_, operation) => {
+		const { store, access } = fixture();
+		await store.save("toapis", "video-only", now, false, 0);
+		await access.check();
+		const queue = await createVideoQueue(
+			db,
+			access,
+			async () => {},
+			undefined,
+			() => now,
+		);
+		const review = await queue.review("owner", parse(operation));
+		expect(review.quote).toMatchObject({
+			status: "unknown",
+			reason: "token-usage-unknown",
+			advertisedUnitRate: { unit: "million-total-tokens", usd: "10" },
+		});
+		expect(review.frames).toEqual(
+			["Starting frame · frames.example.com", "Ending frame · frames.example.com"].slice(
+				0,
+				operation.roles.length,
+			),
+		);
+		expect(review.disclosures).toBe(keyframeDisclosures);
+		expect(review.blockers).toEqual([]);
+		expect(JSON.stringify(review)).not.toContain("X-Amz-Signature");
+	});
+
+	test("a claim binds the exact frames and stores no frame URL or host", async () => {
+		const { store, access } = fixture();
+		await store.save("toapis", "video-only", now, false, 0);
+		const sent: VideoTarget[] = [];
+		const queue = await createVideoQueue(
+			db,
+			access,
+			async (_id, _key, send) => {
+				sent.push(send);
+			},
+			undefined,
+			() => now,
+		);
+		const live = parse(interpolate);
+		const click = (token: string, input = live, acceptTerms = true) =>
+			queue.submit("owner", { ...input, token, acceptTerms });
+		// Missing access, missing consent and a stale revision send nothing.
+		const unchecked = await queue.review("owner", live);
+		expect(await click(unchecked.token)).toEqual({ error: "stale" });
+		await access.check();
+		const review = await queue.review("owner", live);
+		expect(await click(review.token, live, false)).toEqual({ error: "invalid" });
+		const swapped = parse(interpolate, [
+			{ role: "first_frame", url: end },
+			{ role: "last_frame", url: start },
+		]);
+		const replaced = parse(interpolate, [
+			{ role: "first_frame", url: start },
+			{ role: "last_frame", url: `${end}&v=2` },
+		]);
+		for (const other of [swapped, replaced, parse(animate)])
+			expect(await click(review.token, other)).toEqual({ error: "invalid" });
+		await store.save("toapis", "video-only", now, false, 1);
+		expect(await click(review.token)).toEqual({ error: "stale" });
+		expect(sent).toHaveLength(0);
+		await access.check();
+		const fresh = await queue.review("owner", live);
+		const result = await click(fresh.token);
+		if (!("jobId" in result)) throw new Error("Missing claim");
+		expect(sent).toHaveLength(1);
+		expect(sent[0]).toMatchObject({ provider: "toapis", body: live.body });
+		expect(await imageJobStore(db).get(result.jobId)).toMatchObject({
+			operation: "first-and-last-frame-to-video",
+			video_terms: JSON.stringify(keyframeDisclosures),
+		});
+		const rows = await durable();
+		for (const secret of ["X-Amz-Signature", "frames.example.com", "Drift"])
+			expect(rows).not.toContain(secret);
+	});
+
+	test("the terms digest binds the keyframe disclosures and quote", async () => {
+		const { store, access } = fixture();
+		await store.save("toapis", "video-only", now, false, 0);
+		await access.check();
+		let priced = true;
+		const queue = await createVideoQueue(
+			db,
+			access,
+			async () => {},
+			async (at) => (priced ? loadStudioPricingFeeds(at) : {}),
+			() => now,
+		);
+		const text = await queue.review("owner", live);
+		const keyframe = await queue.review("owner", parse(animate));
+		expect(keyframe.token.split(".")[1]).not.toBe(text.token.split(".")[1]);
+		priced = false;
+		expect(
+			await queue.submit("owner", { ...parse(animate), token: keyframe.token, acceptTerms: true }),
+		).toEqual({ error: "stale" });
+		expect(await imageJobStore(db).list()).toHaveLength(0);
+	});
+
+	test("an identical replay across restart returns the same job after one POST", async () => {
+		const { store, access } = fixture();
+		await store.save("toapis", "video-only", now, false, 0);
+		await access.check();
+		let posts = 0;
+		const bodies: unknown[] = [];
+		const tracker = () =>
+			createJobTracking(db, providerStore(db), {
+				now: () => now,
+				random: () => 0,
+				fetch: async (_url, init) => {
+					if (init.method !== "POST") return new Response(null, { status: 503 });
+					posts++;
+					const body = JSON.parse(String(init.body));
+					bodies.push(body);
+					return Response.json({
+						id: "task_frames",
+						object: "generation.task",
+						model: "seedance-2-5",
+						client_business_id: body.client_business_id,
+						status: "queued",
+					});
+				},
+			});
+		jobs = tracker();
+		const live = parse(interpolate);
+		const api = await createVideoQueue(db, access, jobs.dispatchVideo, undefined, () => now);
+		const review = await api.review("owner", live);
+		const click = { ...live, token: review.token, acceptTerms: true };
+		const first = await api.submit("owner", click);
+		expect(posts).toBe(1);
+		expect(bodies[0]).toMatchObject({
+			disable_nsfw: false,
+			aspect_ratio: "adaptive",
+			image_with_roles: [
+				{ url: start, role: "first_frame" },
+				{ url: end, role: "last_frame" },
+			],
+		});
+		jobs.close();
+		await db.close();
+		db = await openInstallation(directory);
+		jobs = tracker();
+		await jobs.resume();
+		const restarted = await createVideoQueue(
+			db,
+			createVideoAccess(
+				db,
+				providerStore(db),
+				checkVideoInventory(async () => Response.json({})),
+			),
+			jobs.dispatchVideo,
+			undefined,
+			() => now,
+		);
+		expect(await restarted.submit("owner", click)).toEqual(first);
+		expect(await restarted.submit("owner", { ...click, ...parse(animate) })).toEqual({
+			error: "invalid",
+		});
+		expect(posts).toBe(1);
+		expect(await imageJobStore(db).list()).toHaveLength(1);
+		expect(await durable()).not.toContain("X-Amz-Signature");
+	});
+});
