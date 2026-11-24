@@ -347,6 +347,54 @@ test("a Poyo pin expiring before physical upload consumes neither an upload star
 	}
 });
 
+test("a shutdown that begins after the upload marker sends nothing and undoes the Poyo window entry", async () => {
+	const root = await createOwnerDirectory();
+	const db = await openInstallation(root);
+	try {
+		const live = await claimedFile(db, "poyo");
+		let closing = false,
+			physical = 0,
+			edits = 0;
+		const dispatch = fileDispatcher(db, "runtime", () => {}, {
+			now: () => 10,
+			balance: async () => "10",
+			pin: async (endpoint) =>
+				pinFilePost(
+					endpoint,
+					60_000,
+					async () => "93.184.216.34",
+					async () => {
+						physical++;
+						return Response.json({});
+					},
+				),
+			// The marker has committed; shutdown begins as the transport is handed the body.
+			upload: async (provider, key, stage, bytes, read) => {
+				closing = true;
+				return uploadFile(provider, key, stage, bytes, read);
+			},
+			edit: async () => {
+				edits++;
+				return { kind: "unknown" };
+			},
+		});
+		await dispatch("file", "fixture", live, heldBytes(new Uint8Array(1)), () => closing);
+		expect([physical, edits]).toEqual([0, 0]);
+		expect(await imageJobStore(db).get("file")).toMatchObject({
+			state: "rejected",
+			file_phase: "unsent",
+			file_stop: "interrupted",
+			file_stop_slot: 1,
+			wallet_open: 0,
+		});
+		expect(await slotOutcomes(db)).toEqual([{ position: 1, outcome: "unsent" }]);
+		expect(await db.use((tx) => tx.all(sql`SELECT started FROM poyo_upload_start`))).toEqual([]);
+	} finally {
+		await db.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 const middle = "https://images.example.com/middle.png";
 /** A claimed file, URL, file job with slots 1 and 3, and a handle over each file's bytes. */
 async function claimedOrdered(
@@ -569,6 +617,8 @@ for (const provider of ["poyo", "toapis"] as const) {
 				balance: async () => "10",
 				async upload() {
 					uploads++;
+					// Shutdown begins once the second upload is in flight, after its handoff.
+					await Promise.resolve();
 					if (uploads === 2) closing = true;
 					return { kind: "ready", url: `https://storage.example.org/${uploads}` };
 				},

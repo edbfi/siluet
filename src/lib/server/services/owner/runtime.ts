@@ -102,7 +102,7 @@ async function openOwner(dev: boolean) {
 			stages,
 			store.credential,
 			fileDispatcher(installation, nonce, jobs.schedule),
-			{ readCleaning: cleaning.read },
+			{ readCleaning: cleaning.read, shutdown: shutdown.signal },
 		);
 		let workers: Promise<void> | undefined;
 		async function checkAccess() {

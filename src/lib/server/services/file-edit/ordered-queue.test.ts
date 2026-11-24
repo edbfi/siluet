@@ -35,11 +35,13 @@ async function harness(
 		wrap = (db) => db,
 		hold,
 		readCleaning,
+		shutdown,
 	}: {
 		stages?: StageOptions;
 		wrap?: (db: Installation) => Installation;
 		hold?: Promise<void>;
 		readCleaning?: () => Promise<{ enabled: boolean; revision: number }>;
+		shutdown?: AbortSignal;
 	} = {},
 ) {
 	const root = await createOwnerDirectory();
@@ -82,7 +84,12 @@ async function harness(
 			settled.push(work);
 			return work;
 		},
-		{ loadFeeds: async () => ({}), now: () => clock, ...(readCleaning && { readCleaning }) },
+		{
+			loadFeeds: async () => ({}),
+			now: () => clock,
+			...(readCleaning && { readCleaning }),
+			...(shutdown && { shutdown }),
+		},
 	);
 	cleanup.push(() => queue.close());
 	const stage = (...values: number[]) => {
@@ -269,6 +276,18 @@ test("a slot that expires after the job row is written answers stale with its po
 	const { click } = await h.review(h.request([url, await h.stage(2)]));
 	expireAfterInsert = true;
 	expect(await h.queue.submit(owner, click)).toEqual({ error: "stale", positions: [2] });
+	expect(await jobs(h)).toEqual([]);
+	expect(h.uploads).toEqual([]);
+});
+
+test("siluet:stopping closes file admission before storage closes", async () => {
+	const stopping = new AbortController();
+	const h = await harness("toapis", { shutdown: stopping.signal });
+	const live = h.request([await h.stage(1), url]);
+	const { click } = await h.review(live);
+	stopping.abort();
+	expect(await h.queue.review(owner, live)).toEqual({ error: "closing" });
+	expect(await h.queue.submit(owner, click)).toEqual({ error: "closing" });
 	expect(await jobs(h)).toEqual([]);
 	expect(h.uploads).toEqual([]);
 });

@@ -55,6 +55,8 @@ export type FileQueueOptions = {
 	loadFeeds?: typeof loadStudioPricingFeeds;
 	now?: () => number;
 	readCleaning?: () => Promise<CleaningSetting>;
+	/** The runtime's `siluet:stopping` signal: admission closes before storage does. */
+	shutdown?: AbortSignal;
 };
 
 /** A staged copy agrees with the setting: cleaned while cleaning is on, original while off. */
@@ -86,6 +88,7 @@ export async function createFileQueue(
 		loadFeeds = loadStudioPricingFeeds,
 		now = Date.now,
 		readCleaning = mediaCleaning(db).read,
+		shutdown,
 	}: FileQueueOptions = {},
 ) {
 	const row = await db.use((tx) =>
@@ -178,7 +181,14 @@ export async function createFileQueue(
 	const active = new Set<Promise<unknown>>();
 	// Identical authenticated first uses share one admission and one answer.
 	const admitting = new Map<string, Promise<Answer>>();
-	let closed = false;
+	let closed = !!shutdown?.aborted;
+	shutdown?.addEventListener(
+		"abort",
+		() => {
+			closed = true;
+		},
+		{ once: true },
+	);
 	function supervise<T>(work: Promise<T>) {
 		active.add(work);
 		void work.then(

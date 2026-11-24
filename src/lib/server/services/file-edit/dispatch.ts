@@ -62,6 +62,7 @@ export function fileDispatcher(
 			await jobs.finishWallet(id, after, now(), owner);
 		};
 		const stop = async (end: StopFileJob) => finishWallet(await phases.stop(id, end, now()));
+		const interrupted = () => (closing() ? { reason: "interrupted" as const } : undefined);
 		const hosted = new Map<number, Hosted>();
 		// Every exact URL the edit will carry so far, by its 1-based position.
 		const sent = new Map<string, number>();
@@ -77,7 +78,8 @@ export function fileDispatcher(
 				if (!bytes) return await stop({ stop: "stage-changed", slot: position });
 				const read = await pin(fileUploadRoutes[provider], 60_000).catch(() => null);
 				if (!read) return await stop({ stop: "destination", slot: position });
-				const guard = guardFilePost(read);
+				// Shutdown is checked again at transport handoff, after the marker commits.
+				const guard = guardFilePost(read, interrupted);
 				let uploadStart: number | undefined;
 				const handoff = await fileSendBoundary<Awaited<ReturnType<typeof upload>>, SendStop>(
 					db,
@@ -136,8 +138,11 @@ export function fileDispatcher(
 		if (!read) return stop({ stop: "destination" });
 		const expired = () =>
 			[...hosted].find(([, link]) => link.expiresAt !== undefined && now() >= link.expiresAt)?.[0];
-		const guard = guardFilePost(read, () =>
-			expired() !== undefined ? { reason: "expired-link" as const } : undefined,
+		const guard = guardFilePost(
+			read,
+			() =>
+				interrupted() ??
+				(expired() !== undefined ? { reason: "expired-link" as const } : undefined),
 		);
 		const handoff = await fileSendBoundary<Awaited<ReturnType<typeof edit>>, SendStop>(
 			db,
