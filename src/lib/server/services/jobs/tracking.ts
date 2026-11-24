@@ -343,16 +343,23 @@ export function createJobTracking(
 			).map((row) => [row.job_id, row.state]),
 		);
 		const slots = new Map<string, FileSlotSummary[]>();
-		if (rows.some((job) => job.file_phase))
+		// Only the summarized file jobs' slots, a bounded number of ids per statement.
+		const fileJobs = rows.flatMap((job) => (job.file_phase ? [job.id] : []));
+		for (let offset = 0; offset < fileJobs.length; offset += 500) {
+			const ids = sql.join(
+				fileJobs.slice(offset, offset + 500).map((id) => sql`${id}`),
+				sql`,`,
+			);
 			for (const slot of await installation.use((db) =>
 				db.all<FileSlotSummary & { job_id: string }>(
-					sql`SELECT job_id, position, outcome FROM file_slot ORDER BY job_id, position`,
+					sql`SELECT job_id, position, outcome FROM file_slot WHERE job_id IN (${ids}) ORDER BY job_id, position`,
 				),
 			))
 				slots.set(slot.job_id, [
 					...(slots.get(slot.job_id) ?? []),
 					{ position: slot.position, outcome: slot.outcome },
 				]);
+		}
 		return rows.map((job) =>
 			summarizeJob(job, readable(job), now(), gallery.get(job.id) ?? null, slots.get(job.id)),
 		);
