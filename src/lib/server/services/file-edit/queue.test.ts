@@ -140,9 +140,9 @@ test("one claim returns while upload is pending, keeps the reviewed key and repl
 			release.resolve();
 		}
 		await api.close();
-		// Shutting down answers busy, never a definite refusal: the browser keeps a
-		// claimed request for its exact Retry after the restart.
-		expect(await api.submit(scope, click)).toEqual({ error: "busy" });
+		// Shutting down is never a definite refusal: the browser keeps a claimed
+		// request for its exact Retry after the restart.
+		expect(await api.submit(scope, click)).toEqual({ error: "closing" });
 		expect(posts).toEqual(["upload", "edit"]);
 		expect(received).toEqual(["reviewed-credential", "reviewed-credential", "reviewed-credential"]);
 		expect(await imageJobStore(db).get(one.jobId)).toMatchObject({

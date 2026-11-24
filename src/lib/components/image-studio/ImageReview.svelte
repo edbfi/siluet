@@ -308,6 +308,15 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 	try {
 		const response = await post("/image/file-queue", body);
 		if (response.status === 503) {
+			const result: { error?: unknown } | null = await response.json().catch(() => null);
+			if (result?.error === "closing") {
+				tell(
+					input
+						? "Siluet is shutting down · nothing sent. Queue this Review again after it restarts."
+						: "Siluet is shutting down · this Retry sent nothing. Check Jobs after it restarts, or Retry then.",
+				);
+				return;
+			}
 			tell(
 				`Upload busy · nothing sent. ${input ? "Queue this Review" : "Retry"} again when another upload finishes.`,
 			);
@@ -389,6 +398,7 @@ async function queue() {
 	}
 	pending = "queue";
 	feedback = null;
+	retryMessage = null;
 	const token = current.token;
 	try {
 		const response = await post("/image/queue", {

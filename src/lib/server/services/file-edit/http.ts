@@ -89,7 +89,14 @@ export async function stagedPreview(event: RequestEvent) {
 	return privateMediaResponse(event.request, lease);
 }
 
-const statusFor = { busy: 503, stale: 409, cooldown: 409, limit: 413, invalid: 400 } as const;
+const statusFor = {
+	busy: 503,
+	closing: 503,
+	stale: 409,
+	cooldown: 409,
+	limit: 413,
+	invalid: 400,
+} as const;
 
 /** Review or Queue one staged file for a Seedream edit. */
 export async function fileAction(event: RequestEvent, operation: "review" | "submit") {

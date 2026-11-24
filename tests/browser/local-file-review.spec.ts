@@ -167,6 +167,7 @@ test("Retry's answers stay beside Retry and only a definite refusal drops the re
 		await inspect.press("Enter");
 		await consent.press("Space");
 		const answers = [
+			{ status: 503, contentType: "application/json", body: JSON.stringify({ error: "closing" }) },
 			{ status: 409, body: "" },
 			{
 				status: 413,
@@ -191,6 +192,13 @@ test("Retry's answers stay beside Retry and only a definite refusal drops the re
 		await shown(page);
 		await expect(file).toHaveAccessibleDescription(/File checked · Not cleaned\./);
 		const retry = review.getByRole("button", { name: "Retry", exact: true });
+		// Shutting down sends nothing for this Retry; the earlier request may still be in Jobs.
+		await retry.press("Enter");
+		await expect(
+			review.getByText(
+				"Siluet is shutting down · this Retry sent nothing. Check Jobs after it restarts, or Retry then.",
+			),
+		).toBeVisible();
 		// An answer that cannot be read is not a refusal.
 		await retry.press("Enter");
 		await expect(review.getByText("Queue confirmation is unavailable")).toBeVisible();

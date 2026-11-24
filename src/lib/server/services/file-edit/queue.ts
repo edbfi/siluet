@@ -28,6 +28,7 @@ import type { FileRequest } from "./request";
 const invalid = { error: "invalid" } as const;
 const stale = { error: "stale" } as const;
 const busy = { error: "busy" } as const;
+const closing = { error: "closing" } as const;
 type Mode = { setting: CleaningSetting; transform: ImageTransform; rotated: boolean };
 
 /** A staged copy agrees with the setting: cleaned while cleaning is on, original while off. */
@@ -172,7 +173,7 @@ export async function createFileQueue(
 		if (prior) return replay(prior);
 		if (!firstUseSignature()) return invalid;
 		const provider = live.input.provider;
-		if (closed) return busy;
+		if (closed) return closing;
 		const tooLarge = limit(live);
 		if (tooLarge) return tooLarge;
 		const saved = await credential(provider);
@@ -265,10 +266,10 @@ export async function createFileQueue(
 				acceptUnknown: false,
 			};
 		},
-		// While shutting down, Queue answers busy: nothing is sent, and a Retry of a
-		// claimed request stays available for after the restart.
+		// While shutting down, Queue sends nothing and answers `closing`, never a refusal,
+		// so a Retry of a claimed request stays available for after the restart.
 		submit: (scope: StageScope, live: FileRequest) =>
-			closed ? Promise.resolve(busy) : supervise(submit(scope, live)),
+			closed ? Promise.resolve(closing) : supervise(submit(scope, live)),
 		async close() {
 			closed = true;
 			while (active.size) await Promise.allSettled(active);
