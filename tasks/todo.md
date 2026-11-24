@@ -13,11 +13,11 @@
 
 Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview).
 
-- [ ] The ToAPIs pricing collector accepts the new Seedream image-input row and still fails closed on any other table change. The next pricing run publishes ToAPIs rates.
+- [ ] The ToAPIs collector publishes a v2 feed with the Seedream reference-image rate and still fails closed on any other change. Review adds $0.0064 per reference image to ToAPIs edits.
 - [ ] The bundled feeds are refreshed. `pricing/v2/poyo.json` includes `h3-max` (on `pricing-data` since 2026-11-24) and matches `pricing-data` semantically, and `check-freshness` reports about 30 days.
 - [ ] The documentation sync is merged: capability map through #61, D11 and D12, the promoted decisions and the plan.
-- [ ] A real ToAPIs Seedance 2.5 clip passes `verifyVideoFile`. Record whether it was an existing clip or an owner-approved generation.
-- [ ] A real Poyo.ai H3 Max clip passes `verifyVideoFile`, recorded the same way.
+- [x] Generate one real clip per shipped video family with owner approval (2026-11-24): Poyo.ai H3 Max 5 s 480p for 50 credits, ToAPIs Seedance 2.5 4 s 480p for 77.66 credits. Both fail `verifyVideoFile` on `5321d7f`.
+- [ ] Both real clip structures pass `verifyVideoFile`, everything else still fails closed, and the saved bytes stay the provider's.
 - [ ] The council confirms the per-mode video Save limits spec, the implementation merges, and Review states each mode's limits.
 - [ ] [#62](https://github.com/edbfi/siluet/pull/62) is rebased onto the per-mode limits without its over-12 s disclosure, passes its checks and merges.
 - [ ] A cross-cutting security review is recorded with its findings and their dispositions.

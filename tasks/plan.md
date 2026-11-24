@@ -12,9 +12,9 @@ Lanes run in parallel where the order allows. One integrator merges in order and
 
 ## Order to v0.1.0
 
-1. **Pricing recovery.** Fix the ToAPIs collector for the new Seedream image-input row; it fails closed on any table change. Refresh the bundled feeds, including Poyo.ai `h3-max`.
+1. **Pricing recovery.** Refresh the bundled Poyo.ai feed with `h3-max` first. Then publish a ToAPIs v2 feed that prices Seedream 5.5 reference images ($0.0064 each, added 2026-11-24), with the collector still failing closed on any other change.
 2. **Documentation sync.** Capability map, promoted decisions and this plan.
-3. **Real clip per shipped video family.** One ToAPIs Seedance 2.5 clip and one Poyo.ai H3 Max clip pass `verifyVideoFile`. Use existing clips first; a new generation needs owner approval per family.
+3. **Real clips save.** The owner-approved clips from 2026-11-24 (Poyo.ai H3 Max, 50 credits; ToAPIs Seedance 2.5, 77.66 credits) both fail `verifyVideoFile`: a top-level C2PA `uuid` box, and a Seedance AAC track whose `mdhd` is one frame shorter than `stts`. Accept exactly these structures under D6 and prove it with fixtures built from their recorded structure.
 4. **Per-mode video Save limits.** Spec, council, implementation. Then rebase [#62](https://github.com/edbfi/siluet/pull/62) (Seedance URL edit) without its over-12 s disclosure and merge it.
 5. **Cross-cutting security review**, recorded with its findings and dispositions.
 6. **README essentials** for a creator.

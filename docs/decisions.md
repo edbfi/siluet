@@ -130,4 +130,4 @@ v1.0 means D2 is complete for a dated baseline under the [coverage acceptance](S
 
 ## D12 · Upgrade dependencies, never defer them
 
-Owner correction on 2026-11-22. Do not pin or ignore a dependency version to defer an upgrade. Leave the Dependabot PR open, failing if necessary, until the ecosystem supports it, as in the owner's other repositories. An open PR keeps the pending upgrade visible, where an ignore rule hides it.
+Owner correction on 2026-11-22. Do not pin or ignore a dependency version to defer an upgrade. Leave the Dependabot PR open, failing if necessary, until the ecosystem supports it, as in the owner's other repositories. An open PR keeps the pending upgrade visible, where an ignore rule hides it. The owner chose on 2026-11-24 to leave the closed TypeScript 7 PR (#3) closed for now.
