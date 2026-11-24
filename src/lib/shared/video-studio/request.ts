@@ -4,7 +4,9 @@ import {
 	releasedVideoOperations,
 	resolveOperationKey,
 	seedanceOperation,
+	seedanceOperations,
 } from "../media-catalog/registry";
+import { type Frame, frameReviewLabels, keyframeDisclosures } from "./keyframes";
 import { poyoVideoBody, poyoVideoOptions } from "./poyo-video";
 import { seedanceRequest, videoDisclosures } from "./seedance";
 
@@ -47,24 +49,29 @@ export function parseVideo(value: unknown) {
 			operation: poyo,
 			body: poyoVideoBody(poyo.descriptor, prompt, options),
 			options,
+			frames: [] as Frame[],
 			disclosures: poyo.descriptor.disclosures,
 		};
 	}
-	// Keyframe operations need their reviewed frames; a text-to-video draft never stands in.
-	if (operation !== seedanceOperation) return null;
-	const seedance = seedanceRequest(d, prompt);
-	return seedance
-		? { ...terms, ...seedance, operation: seedanceOperation, disclosures: videoDisclosures }
-		: null;
+	const seedance = seedanceOperations.find((entry) => entry === operation);
+	const request = seedance && seedanceRequest(seedance, d, prompt);
+	if (!seedance || !request) return null;
+	const disclosures = seedance === seedanceOperation ? videoDisclosures : keyframeDisclosures;
+	return { ...terms, ...request, operation: seedance, disclosures };
 }
 export type VideoRequest = NonNullable<ReturnType<typeof parseVideo>>;
 
-export function previewVideo({ body }: Pick<VideoRequest, "body">) {
+/** The outgoing request with the prompt redacted and each frame URL replaced by its label. */
+export function previewVideo({ body, frames }: Pick<VideoRequest, "body" | "frames">) {
 	if ("input" in body)
 		return { ...body, input: { ...body.input, prompt: redactPrompt(String(body.input.prompt)) } };
+	const labels = frameReviewLabels(frames);
 	return {
 		...body,
 		prompt: redactPrompt(body.prompt),
+		...("image_with_roles" in body && {
+			image_with_roles: body.image_with_roles.map(({ role }, i) => ({ url: labels[i], role })),
+		}),
 		client_business_id: "[Siluet assigns a correlation ID at Queue]",
 	};
 }
