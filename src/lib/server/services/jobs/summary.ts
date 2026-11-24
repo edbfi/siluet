@@ -1,4 +1,5 @@
 import { reconcileWallet, type WalletScope } from "../../../shared/billing/wallet";
+import { seedanceKeyframeOperations } from "../../../shared/media-catalog/registry";
 import type { PriceEstimate } from "../../../shared/pricing/estimate";
 import type { ProviderId } from "../../../shared/providers/connections";
 import type { SlotOutcome } from "../../db/file-attempt";
@@ -109,12 +110,37 @@ function fileStopMessage(job: ImageJob) {
 	}
 }
 
-const rejections: Record<Rejection, string> = {
+const rejections: Record<Exclude<Rejection, "media-input">, string> = {
 	permission: "Poyo.ai refused this model for this key. The saved key is unchanged.",
 	authorization: "The provider rejected the API key or its permissions.",
 	validation: "The provider rejected the request parameters.",
 	quota: "The provider rejected the submission because of insufficient credits or quota.",
 	filtering: "The provider rejected the submission during content review.",
+};
+
+// Media wording names what the job sent: frames, reference images (every image job,
+// including legacy rows without an operation) or, for other video, nothing specific.
+type MediaKind = "frame" | "reference" | "other";
+const keyframeOperations: readonly (string | null)[] = seedanceKeyframeOperations.map(
+	(entry) => entry.key.operation,
+);
+function mediaKind(job: ImageJob, video: boolean): MediaKind {
+	if (!video) return "reference";
+	return job.provider === "toapis" && keyframeOperations.includes(job.operation)
+		? "frame"
+		: "other";
+}
+const mediaRejections: Record<MediaKind, string> = {
+	frame:
+		"ToAPIs refused a frame before creating a task. Check that each URL is publicly reachable, points to a readable still image within 30 MB, and has no credentials.",
+	reference:
+		"The provider refused a reference image before creating a task. Check that each URL is public and readable.",
+	other: "The provider rejected the request's media input.",
+};
+const unreadableMedia: Record<MediaKind, string | null> = {
+	frame: "The provider could not read a frame image.",
+	reference: "The provider could not read one or more reference images.",
+	other: null,
 };
 
 const statusNotes: Record<StatusNote, string> = {
@@ -220,9 +246,11 @@ export function summarizeJob(
 	let message = note ? statusNotes[note] : null;
 	if (job.rejection)
 		message =
-			job.provider === "toapis" && video && job.rejection === "authorization"
-				? "ToAPIs denied this submission."
-				: rejections[job.rejection];
+			job.rejection === "media-input"
+				? mediaRejections[mediaKind(job, video)]
+				: job.provider === "toapis" && video && job.rejection === "authorization"
+					? "ToAPIs denied this submission."
+					: rejections[job.rejection];
 	if (video && note === "unknown-status")
 		message = "Task identity or status could not be verified. Check provider history.";
 	if (video && note === "result-unavailable")
@@ -247,15 +275,18 @@ export function summarizeJob(
 				: "Not submitted. The dispatch window closed before sending.";
 	else if (job.throttle && job.batch_id) message = "Not admitted · throttled";
 	if (job.state === "failed") {
+		const unreadable =
+			job.failure_reason === "reference_media_unreadable"
+				? unreadableMedia[mediaKind(job, video)]
+				: null;
 		if (job.transient_failure) {
 			const reason =
 				job.transient_failure === "service_busy"
 					? "The provider reported that its service was busy."
 					: "The provider reported a task rate limit.";
 			message = message ? `${reason} ${message}` : reason;
-		} else if (job.failure_reason === "reference_media_unreadable") {
-			const failure = "The provider could not read one or more reference images.";
-			message = message ? `${failure} ${message}` : failure;
+		} else if (unreadable) {
+			message = message ? `${unreadable} ${message}` : unreadable;
 		} else {
 			message ??= "The provider reported that the job failed.";
 		}

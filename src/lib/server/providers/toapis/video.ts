@@ -53,7 +53,7 @@ function videoBilling(value: unknown): TaskBilling {
 		return { status: "unknown" };
 	return amount;
 }
-function refusal(status: number, value: unknown): Submission {
+function refusal(status: number, value: unknown, frames: boolean): Submission {
 	if (
 		!isRecord(value) ||
 		!isRecord(value.error) ||
@@ -73,6 +73,9 @@ function refusal(status: number, value: unknown): Submission {
 			type === "invalid_request_error" ||
 			type === code)
 	) {
+		// A frame URL refused before a task exists; text-to-video sends no media, so it stays uncertain.
+		if (frames && code === "invalid_private_assets")
+			return { kind: "rejected", reason: "media-input" };
 		if (code === "invalid_request" || code === "unsupported_value")
 			return { kind: "rejected", reason: "validation" };
 		if (code === "content_policy_violation") return { kind: "rejected", reason: "filtering" };
@@ -112,7 +115,7 @@ export function createToapisVideo(read: CheckFetch = fetch) {
 					: { kind: "unknown" };
 			if (submitThrottled(response.status, response.category, response.body))
 				return { kind: "throttled", retryAfter: response.retryAfter };
-			return refusal(response.status, response.body);
+			return refusal(response.status, response.body, "image_with_roles" in body);
 		},
 		async status(key: string, business: string, taskId: string | null): Promise<Observation> {
 			const response = await requestImageJson(
@@ -168,7 +171,13 @@ export function createToapisVideo(read: CheckFetch = fetch) {
 						? result.progress
 						: null,
 				billing: videoBilling(result.billing),
-				failureReason: null,
+				// Only an allowlisted reason on a verified failure is kept; messages and codes are dropped.
+				failureReason:
+					state === "failed" &&
+					isRecord(result.error) &&
+					result.error.reason === "reference_media_unreadable"
+						? "reference_media_unreadable"
+						: null,
 				expiresAt: expiry(result.expires_at),
 				resultUrl: isRecord(item) ? imageResultUrl(item.url) : null,
 				fallback: isRecord(item) ? imageResultUrl(item.fallback_url) : null,

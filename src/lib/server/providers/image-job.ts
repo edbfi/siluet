@@ -6,7 +6,13 @@ export type ReviewedImageRequest = ReturnType<
 	typeof buildSeedreamRequest | typeof buildZImageRequest
 >;
 
-export type Rejection = "validation" | "permission" | "authorization" | "quota" | "filtering";
+export type Rejection =
+	| "validation"
+	| "permission"
+	| "authorization"
+	| "quota"
+	| "filtering"
+	| "media-input";
 
 export type Submission =
 	| { kind: "accepted"; taskId: string }
