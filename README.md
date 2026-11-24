@@ -32,6 +32,9 @@ bun run start
 Open the setup URL printed in the terminal, paste the claim token, and choose a password. Later starts open at `http://127.0.0.1:3000`.
 
 - Data lives in `~/.local/share/siluet` (or `$XDG_DATA_HOME/siluet`). Set `SILUET_DATA_DIR` for a separate installation, and back up the whole directory while Siluet is stopped.
+- Image Studio and Video Studio share one Gallery. Review shows the limits a video must meet to save there.
+- Siluet removes metadata from every attached image before upload. Turn this off in Settings → Attached files.
+- An authenticator is optional. Add one in Settings → Security.
 - Locked out? Stop Siluet and run `bun run owner:recover`.
 - Refresh price estimates with `bun run pricing:refresh` (add `--provider toapis` for ToAPIs) before the expiry Review shows.
 

@@ -9,13 +9,39 @@
 - [x] Verify Dependabot security updates are enabled in the [repository settings](https://github.com/edbfi/siluet/settings/security_analysis). Checked 2026-11-22.
 - [ ] Confirm the central Bun maintenance token can open a maintenance PR for Siluet. The owner reads back the `edbfi-bun-maintenance` token: it covers `edbfi/siluet` with read-write Contents and Pull requests and has not expired. Close this item when the first real Bun maintenance PR opens. The [scheduled run](https://github.com/edbfi/edbfi-ci/actions/runs/44910073092) found Bun 1.4.5 clean on 2026-11-21, so it exercised discovery only. The [upstream setup](https://github.com/edbfi/edbfi-ci/blob/main/SETUP.md#credentials) lists the account-level grant.
 
+## v0.1.0 scoped preview
+
+Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview).
+
+- [ ] The bundled Poyo.ai v2 feed is refreshed first. `pricing/v2/poyo.json` includes `h3-max` (on `pricing-data` since `db0551e`, 2026-11-23) and matches `pricing-data` semantically.
+- [ ] The ToAPIs collector publishes a v2 feed (`pricing-data-toapis:pricing/v2/toapis.json`) with the Seedream reference-image rate, still fails closed on any other change, and is bundled. Review adds $0.0064 per reference image to ToAPIs edits. `freshness.ts --toapis` reads v2, `--bundled-toapis` exists, and both freshness jobs (`pricing.yml` `check-freshness`, `ci.yml` `pricing-freshness`) check the published v2 feed, with `check-freshness` also checking the bundled one.
+- [ ] On the commit to tag, after `git fetch origin pricing-data pricing-data-toapis`, this passes; it fails at 14 days or fewer. Leave out `--poyo-v1`, which would stand in for a missing Poyo.ai v2 feed. The feeds price every shipped priced operation, including `h3-max` and the Seedream reference image.
+  ```sh
+  git show origin/pricing-data:pricing/v2/poyo.json > /tmp/poyo-v2.json
+  git show origin/pricing-data-toapis:pricing/v2/toapis.json > /tmp/toapis-v2.json
+  bun scripts/pricing/freshness.ts --fail-within-days 14 --poyo-v2 /tmp/poyo-v2.json \
+    --toapis /tmp/toapis-v2.json --bundled-poyo pricing/v2/poyo.json --bundled-toapis pricing/v2/toapis.json
+  ```
+- [x] Documentation sync, done by this PR: capability map through #61, D11, D12, the promoted decisions and the plan.
+- [x] Generate one real clip per shipped video family with owner approval (2026-11-24): Poyo.ai H3 Max 5 s 480p for 50 credits, ToAPIs Seedance 2.5 4 s 480p for 77.66 credits. Both fail `verifyVideoFile` on `5321d7f`. Originals are kept outside git in `audit/realclip/`, SHA-256 `0942ac5a…be96d` (H3 Max) and `bad803dc…76363` (Seedance).
+- [ ] The council confirms the D6 revision for these structures.
+- [ ] On the release candidate, both untouched originals pass `verifyVideoFile` from `src/`, with its output and their SHA-256 recorded, and the saved bytes stay the provider's.
+- [ ] CI fixtures built from the recorded structures pass, while another `uuid` box, a bad JUMBF or `jumd`, a C2PA box over 1 MiB and, under the AAC priming exception, over-priming, non-1,024-sample AAC frames and an edit past the first sample are refused.
+- [ ] Completed, unsaved clips held for an MP4 refusal the fix now accepts re-arm once: those with unexpired links save with one status read and no generation call; expired ones settle as expired with zero status reads.
+- [ ] The council confirms the per-mode video Save limits spec, the implementation merges, and Review states each mode's limits.
+- [ ] [#62](https://github.com/edbfi/siluet/pull/62) is rebased onto the per-mode limits without its over-12 s disclosure, passes its checks and merges.
+- [ ] A cross-cutting security review is recorded as one short entry in `docs/decisions.md` with its scope, date, findings and their dispositions, and every blocker is resolved or explicitly accepted by the owner.
+- [ ] Re-check the README against shipped behaviour after the per-mode limits and #62.
+- [ ] The release coverage table lists each operation as verified, Review-only or pending and cites the real-clip results, and `package.json` reads `0.1.0` on the commit to tag.
+- [ ] Local checks and hosted `ci-ok` pass on the commit to tag, and the owner tags `v0.1.0`.
+
 ## R0 operations
 
 - [ ] Each R0 PR passes the local checks, `ci-ok` and `pr-policy`. The pricing PRs also pass their pricing run and the failing tests listed in each PR body.
-- [ ] Dispatch `pricing.yml`. `pricing-data` gains `pricing/v2/poyo.json` with `sourceDate` 2026-11-19T13:42:30Z and that day's `confirmedAt`, and the v1 blob ID is unchanged. A same-day rerun prints the skip notice.
+- [ ] Dispatch `pricing.yml`. `pricing-data` gains `pricing/v2/poyo.json` with `sourceDate` 2026-11-19T13:42:30Z and that day's `confirmedAt`, and the v1 blob ID is unchanged. A same-day rerun prints the skip notice. The first part holds on `pricing-data` `e763945` (2026-11-22); the skip notice is unverified.
 - [ ] `check-freshness` passes for the published feeds and reports the bundled feed. `pricing:refresh` reports "updated" with both dates.
 - [ ] Dispatch the `ci.yml` `pricing-freshness` job and see it pass. The last editors of the `pricing.yml` and `ci.yml` cron lines receive scheduled-failure email.
-- [ ] Refresh the bundled v2 feed. It matches `pricing-data` semantically, the full checks pass, and the next `check-freshness` reports about 30 days.
+- ~~Refresh the bundled v2 feed.~~ Superseded by the v0.1.0 bundle refresh.
 - [ ] The scheduled `immortality.yml` run on 2026-12-01 succeeds.
 
 ## Poyo.ai video family (R3)
@@ -26,7 +52,7 @@
 - [x] Queue, replay and track one H3 job with no second POST across restart, key changes and a late cooldown. Keep the released Seedance HMAC bytes.
 - [x] Estimate H3 from the v2 `h3-max` rate with the unknown-price consent path. Keep the v1 feed bytes.
 - [x] Save H3 through the D6 structural verifier and play it offline in the built studio.
-- [ ] After merge, a pricing run publishes `h3-max` to `pricing-data` and the bundle refresh brings it into `pricing/v2/poyo.json`.
+- [x] After merge, a pricing run publishes `h3-max` to `pricing-data` (`db0551e`, 2026-11-23). The bundle refresh is superseded by the v0.1.0 item.
 - [ ] `smoke` and `native-owner` pass both video journeys on hosted Linux and macOS.
 
 ## Automatic Save (D9)
