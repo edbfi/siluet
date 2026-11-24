@@ -31,7 +31,8 @@ function iso(ms: number) {
 }
 
 test("Studio resolves each provider from embedded pricing and a valid newer local cache", async () => {
-	const sourceTime = Date.parse(poyoFeed.sourceDate);
+	// A cache replaces the bundle only when its source is newer than the bundled v2 feed.
+	const sourceTime = Math.max(Date.parse(poyoFeed.sourceDate), Date.parse(poyoV2Bundle.sourceDate));
 	const now = sourceTime + 2 * day;
 	const check = new Date(now).toISOString();
 	const candidate = {
@@ -39,7 +40,11 @@ test("Studio resolves each provider from embedded pricing and a valid newer loca
 		revision: (poyoFeed.revision[0] === "a" ? "b" : "a").repeat(40),
 		sourceDate: new Date(sourceTime + day).toISOString(),
 	};
-	const rollback = { ...candidate, sourceDate: new Date(sourceTime - day).toISOString() };
+	// Older than the bundled v1 feed, so the v1 cache is rejected as a rollback.
+	const rollback = {
+		...candidate,
+		sourceDate: new Date(Date.parse(poyoFeed.sourceDate) - day).toISOString(),
+	};
 	const path = pricingCachePath(directory, "poyo");
 	expect<unknown>(await loadStudioPricingFeeds(now, directory)).toEqual({
 		poyo: poyoV2Bundle,

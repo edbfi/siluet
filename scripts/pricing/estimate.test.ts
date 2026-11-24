@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import bundledToapis from "../../pricing/v1/toapis.json";
 import bundledV2 from "../../pricing/v2/poyo.json";
 import { estimatePrice } from "../../src/lib/shared/pricing/estimate";
 import h3Feed from "../../tests/fixtures/h3-rate.v2.json";
@@ -146,9 +147,13 @@ test("the release bundles estimate both providers offline with an empty cache", 
 				],
 				"10.2",
 			],
+			["poyo", ["--model", "h3-max"], "80"],
 			["toapis", ["--model", "doubao-seedream-5-5", "--size", "2K"], "5.6"],
 		] as const) {
-			const now = Date.parse("2026-11-21T16:00:00Z");
+			// One hour after that provider's bundle was confirmed or observed.
+			const now =
+				Date.parse(provider === "poyo" ? bundledV2.confirmedAt : bundledToapis.observedAt) +
+				3_600_000;
 			const feed = await loadLocalPricing(now, {
 				provider,
 				cachePath: pricingCachePath(directory, provider),
@@ -170,8 +175,8 @@ test("a v2-backed CLI request for 5 s at 768p returns 80 credits", async () => {
 	try {
 		const cache = pricingCachePath(directory, "poyo-v2");
 		await mkdir(dirname(cache), { recursive: true });
-		// A later confirmation of the bundled revision whose collector added the H3 rate. An
-		// older confirmation would be a rollback, so the bundled feed would win.
+		// A later cached confirmation of the bundled revision; the cache, not the bundle, is
+		// read. An older confirmation would be a rollback, so the bundled feed would win.
 		const confirmedAt = new Date(Date.parse(bundledV2.confirmedAt) + 3_600_000)
 			.toISOString()
 			.replace(".000Z", "Z");

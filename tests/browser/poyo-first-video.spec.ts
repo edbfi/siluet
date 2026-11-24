@@ -394,7 +394,8 @@ test("an unknown H3 price needs consent naming it, and a Security change clears 
 	const fixture = poyoFixtures(new Uint8Array(0), counts);
 	let server: Studio | undefined;
 	try {
-		// The bundled v2 feed has no h3-max entry yet.
+		// The bundle prices h3-max, so a fresher cached v2 feed without it keeps the price unknown.
+		await writeReviewPricing(cache, 0);
 		server = await startStudio(directory, "0", false, { ...fixture.env, XDG_CACHE_HOME: cache });
 		const { origin } = server.origin;
 		const password = await signInWithPoyo(page, server);
