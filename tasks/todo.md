@@ -14,13 +14,19 @@
 Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview).
 
 - [ ] The bundled Poyo.ai v2 feed is refreshed first. `pricing/v2/poyo.json` includes `h3-max` (on `pricing-data` since `db0551e`, 2026-11-23) and matches `pricing-data` semantically.
-- [ ] The ToAPIs collector publishes a v2 feed with the Seedream reference-image rate, still fails closed on any other change, and is bundled. Review adds $0.0064 per reference image to ToAPIs edits.
-- [ ] On the commit to tag, `bun scripts/pricing/freshness.ts --fail-within-days 14` passes with all four feeds: the published Poyo.ai v2 (`pricing-data`) and ToAPIs v2 (`pricing-data-toapis`) feeds and the bundled `pricing/v2/poyo.json` and `pricing/v2/toapis.json` (`--bundled-toapis` arrives with the ToAPIs v2 pricing PR). It fails at 14 days or fewer. The feeds price every shipped priced operation, including `h3-max` and the Seedream reference image.
+- [ ] The ToAPIs collector publishes a v2 feed (`pricing-data-toapis:pricing/v2/toapis.json`) with the Seedream reference-image rate, still fails closed on any other change, and is bundled. Review adds $0.0064 per reference image to ToAPIs edits. `freshness.ts --toapis` reads v2, `--bundled-toapis` exists, and both freshness jobs (`pricing.yml` `check-freshness`, `ci.yml` `pricing-freshness`) check the published v2 feed, with `check-freshness` also checking the bundled one.
+- [ ] On the commit to tag, after `git fetch origin pricing-data pricing-data-toapis`, this passes; it fails at 14 days or fewer. Leave out `--poyo-v1`, which would stand in for a missing Poyo.ai v2 feed. The feeds price every shipped priced operation, including `h3-max` and the Seedream reference image.
+  ```sh
+  git show origin/pricing-data:pricing/v2/poyo.json > /tmp/poyo-v2.json
+  git show origin/pricing-data-toapis:pricing/v2/toapis.json > /tmp/toapis-v2.json
+  bun scripts/pricing/freshness.ts --fail-within-days 14 --poyo-v2 /tmp/poyo-v2.json \
+    --toapis /tmp/toapis-v2.json --bundled-poyo pricing/v2/poyo.json --bundled-toapis pricing/v2/toapis.json
+  ```
 - [x] Documentation sync, done by this PR: capability map through #61, D11, D12, the promoted decisions and the plan.
 - [x] Generate one real clip per shipped video family with owner approval (2026-11-24): Poyo.ai H3 Max 5 s 480p for 50 credits, ToAPIs Seedance 2.5 4 s 480p for 77.66 credits. Both fail `verifyVideoFile` on `5321d7f`. Originals are kept outside git in `audit/realclip/`, SHA-256 `0942ac5a…be96d` (H3 Max) and `bad803dc…76363` (Seedance).
 - [ ] The council confirms the D6 revision for these structures.
 - [ ] On the release candidate, both untouched originals pass `verifyVideoFile` from `src/`, with its output and their SHA-256 recorded, and the saved bytes stay the provider's.
-- [ ] CI fixtures built from the recorded structures pass, while another `uuid` box, a bad JUMBF or `jumd`, a C2PA box over 1 MiB, over-priming, non-1,024-sample AAC frames and an edit past the first sample are refused.
+- [ ] CI fixtures built from the recorded structures pass, while another `uuid` box, a bad JUMBF or `jumd`, a C2PA box over 1 MiB and, under the AAC priming exception, over-priming, non-1,024-sample AAC frames and an edit past the first sample are refused.
 - [ ] Completed, unsaved clips held for an MP4 refusal the fix now accepts re-arm once: those with unexpired links save with one status read and no generation call; expired ones settle as expired with zero status reads.
 - [ ] The council confirms the per-mode video Save limits spec, the implementation merges, and Review states each mode's limits.
 - [ ] [#62](https://github.com/edbfi/siluet/pull/62) is rebased onto the per-mode limits without its over-12 s disclosure, passes its checks and merges.
