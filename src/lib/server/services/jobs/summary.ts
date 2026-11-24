@@ -293,13 +293,14 @@ export function summarizeJob(
 			message = message ? `${reason} ${message}` : reason;
 		} else if (unreadable) {
 			message = message ? `${unreadable} ${message}` : unreadable;
-		} else {
-			// Any other edit failure points back at the source limits disclosed at Review.
-			message ??=
-				mediaKind(job, video) === "source"
-					? "The provider reported that the job failed. Check the source clip against the limits shown at Review."
-					: "The provider reported that the job failed.";
-		}
+		} else if (mediaKind(job, video) === "source") {
+			// Any other edit failure points back at the source limits disclosed at Review,
+			// also when a later status read adds its own note.
+			const guidance = "Check the source clip against the limits shown at Review.";
+			message = message
+				? `${guidance} ${message}`
+				: `The provider reported that the job failed. ${guidance}`;
+		} else message ??= "The provider reported that the job failed.";
 	}
 	if ((!message || video) && job.expires_at !== null && job.expires_at <= now)
 		message = `The provider's last reported ${video ? "video" : "image"} expiry has passed.`;

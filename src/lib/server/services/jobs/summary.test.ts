@@ -376,8 +376,8 @@ test("a source-video edit names the source clip in every failure and refusal", (
 		business_id: "siluet-1",
 	} as const;
 	const checkSource = "Check the source clip against the limits shown at Review.";
-	const failed = (change: Partial<ImageJob>) =>
-		summarizeJob({ ...edit, state: "failed", ...change }, true, now).message;
+	const failed = (change: Partial<ImageJob>, readable = true) =>
+		summarizeJob({ ...edit, state: "failed", ...change }, readable, now).message;
 	expect(
 		summarizeJob({ ...edit, task_id: null, state: "rejected", rejection: "media-input" }, true, now)
 			.message,
@@ -389,6 +389,13 @@ test("a source-video edit names the source clip in every failure and refusal", (
 	);
 	expect(failed({ failure_reason: null })).toBe(
 		`The provider reported that the job failed. ${checkSource}`,
+	);
+	// A later Refresh that cannot read status keeps the source guidance beside its note.
+	expect(failed({ failure_reason: null, pause_reason: "temporary" })).toBe(
+		`${checkSource} The provider status is temporarily unavailable.`,
+	);
+	expect(failed({ failure_reason: null }, false)).toBe(
+		`${checkSource} Status and downloads of unsaved results require the original API key for this job.`,
 	);
 	// Other operations and legacy rows keep their wording.
 	for (const operation of ["text-to-video", "first-frame-to-video", null] as const)
