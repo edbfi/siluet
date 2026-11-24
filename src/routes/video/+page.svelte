@@ -9,6 +9,7 @@ import {
 	requestLabel,
 	requestLegend,
 } from "#lib/components/image-studio/request-styles.ts";
+import KeyframeFields from "#lib/components/video-studio/KeyframeFields.svelte";
 import {
 	reviewPriceExpiry,
 	reviewPriceReason,
@@ -16,6 +17,12 @@ import {
 } from "#lib/shared/image-studio/review-price.ts";
 import { releasedModels, releasedVideoOperations } from "#lib/shared/media-catalog/registry.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
+import {
+	duplicateFrames,
+	type FrameRole,
+	frameUrlProblem,
+	keyframeAcceptance,
+} from "#lib/shared/video-studio/keyframes.ts";
 import { videoDefaults, videoRatios } from "#lib/shared/video-studio/seedance.ts";
 import { css, cx } from "#styled-system/css";
 import { studioButton } from "#styled-system/recipes";
@@ -24,7 +31,13 @@ import type { PageProps } from "./$types";
 
 let { data }: PageProps = $props();
 type Operation = (typeof releasedVideoOperations)[number];
-const find = (model: string) => releasedVideoOperations.find((entry) => entry.key.model === model);
+// A model's first operation is its plain generation, so a model switch starts there.
+const find = (model: string, operation?: string) =>
+	releasedVideoOperations.find(
+		(entry) => entry.key.model === model && (!operation || entry.key.operation === operation),
+	);
+const frameRoles = (operation: Operation): readonly FrameRole[] =>
+	"roles" in operation ? operation.roles : [];
 const range = (min: number, max: number) =>
 	Array.from({ length: max - min + 1 }, (_, index) => min + index);
 
@@ -48,11 +61,37 @@ function controls(operation: Operation) {
 	};
 }
 
-let operation = $state(untrack(() => find(data.initialModel) ?? releasedVideoOperations[0]));
+// Raw: registry entries are compared by identity and never mutated.
+let operation = $state.raw(untrack(() => find(data.initialModel) ?? releasedVideoOperations[0]));
 const current = $derived(controls(operation));
 const poyo = $derived(operation.key.provider === "poyo");
 const model = $derived(releasedModels.find((entry) => entry.id === operation.modelId));
 const title = $derived(`${model?.label} · ${poyo ? "Poyo.ai" : "ToAPIs"}`);
+const modes = $derived(
+	releasedVideoOperations.filter(
+		(entry) =>
+			entry.key.provider === operation.key.provider && entry.key.model === operation.key.model,
+	),
+);
+const roles = $derived(frameRoles(operation));
+// Frame URLs live only in this page's memory and the reviewed request.
+let frames = $state<Record<FrameRole, string>>({ first_frame: "", last_frame: "" });
+const frameErrors = $derived.by(() => {
+	const errors: Partial<Record<FrameRole, string>> = {};
+	for (const role of roles) {
+		const problem = frameUrlProblem(role, frames[role]);
+		if (problem) errors[role] = problem;
+	}
+	if (
+		roles.length === 2 &&
+		!errors.first_frame &&
+		!errors.last_frame &&
+		frames.first_frame.trim() === frames.last_frame.trim()
+	)
+		errors.last_frame = duplicateFrames;
+	return errors;
+});
+const frameError = $derived(roles.map((role) => frameErrors[role]).find(Boolean) ?? "");
 let draft = $state(
 	untrack(() => ({ ...videoDefaults, ...controls(operation).defaults, prompt: "" })),
 );
@@ -60,6 +99,7 @@ let reviewed = $state<{
 	token: string;
 	quote: PriceEstimate;
 	preview: Record<string, unknown>;
+	frames: string[];
 	disclosures: string[];
 	blockers: string[];
 } | null>(null);
@@ -78,11 +118,20 @@ function edit() {
 	acceptTerms = false;
 	notice = "";
 }
+// Another operation of the same model keeps the prompt and settings and clears the frames.
+function switchMode(key: string) {
+	const target = find(operation.key.model, key);
+	if (!target || target === operation) return;
+	operation = target;
+	frames = { first_frame: "", last_frame: "" };
+	edit();
+}
 // Keep the prompt and any compatible setting. Apply the target's defaults to the rest.
 function switchModel(id: string) {
 	const target = find(id);
 	if (!target || target === operation) return;
 	operation = target;
+	frames = { first_frame: "", last_frame: "" };
 	const next = controls(target);
 	draft = {
 		prompt: draft.prompt,
@@ -100,6 +149,11 @@ function switchModel(id: string) {
 	edit();
 }
 function requestDraft() {
+	if (roles.length) {
+		const { prompt, duration, resolution, generate_audio } = draft;
+		const slots = roles.map((role) => ({ role, url: frames[role] }));
+		return { prompt, duration, resolution, generate_audio, frames: slots };
+	}
 	if (current.audio) return draft;
 	const { prompt, duration, resolution, aspect_ratio } = draft;
 	return { prompt, duration, resolution, aspect_ratio };
@@ -127,7 +181,8 @@ $effect(() => {
 });
 async function act(queue: boolean, replay?: string) {
 	if (pending) return;
-	if (replay === undefined && (promptError || (queue && (!reviewed || !acceptTerms)))) return;
+	if (replay === undefined && (promptError || frameError || (queue && (!reviewed || !acceptTerms))))
+		return;
 	pending = true;
 	const body =
 		replay ??
@@ -248,7 +303,27 @@ const frame = css({
 			>
 			<p class={style.note}>{model?.family}</p>
 			<h2 class={style.heading}>{title}</h2>
-			<p>Create video</p>
+			{#if modes.length > 1}
+				<fieldset class={requestFieldset} disabled={pending}>
+					<legend class={requestLegend}>Operation</legend>
+					<div class={style.actions}>
+						{#each modes as mode (mode.key.operation)}
+							<label
+								><input
+									type="radio"
+									name="operation"
+									value={mode.key.operation}
+									checked={mode.key.operation === operation.key.operation}
+									onchange={() => switchMode(mode.key.operation)}
+								>
+								{mode.label}</label
+							>
+						{/each}
+					</div>
+				</fieldset>
+			{:else}
+				<p>{operation.label}</p>
+			{/if}
 		</header>
 		<fieldset disabled={pending} class={cx(requestFieldset, css({ display: "grid", gap: "1rem" }))}>
 			<label class={requestField}
@@ -264,24 +339,28 @@ const frame = css({
 				></textarea></label
 			>
 			<p class={style.note} id="prompt-help">{promptError || `${size} of 4,000 UTF-8 bytes`}</p>
-			<fieldset class={requestFieldset}>
-				<legend class={requestLegend}>Aspect ratio</legend>
-				<div class={style.actions}>
-					{#each current.ratios as ratio (ratio)}
-						<label
-							><input type="radio" name="ratio" value={ratio} bind:group={draft.aspect_ratio}>
-							{ratio}</label
-						>
-					{/each}
+			{#if roles.length}
+				<KeyframeFields {roles} bind:values={frames} errors={frameErrors} />
+			{:else}
+				<fieldset class={requestFieldset}>
+					<legend class={requestLegend}>Aspect ratio</legend>
+					<div class={style.actions}>
+						{#each current.ratios as ratio (ratio)}
+							<label
+								><input type="radio" name="ratio" value={ratio} bind:group={draft.aspect_ratio}>
+								{ratio}</label
+							>
+						{/each}
+					</div>
+				</fieldset>
+				<div
+					class={frame}
+					style:--frame-width={`${14 * Math.min(1, edges[0] / edges[1])}rem`}
+					style:aspect-ratio={draft.aspect_ratio.replace(":", "/")}
+				>
+					Framing · {draft.aspect_ratio}
 				</div>
-			</fieldset>
-			<div
-				class={frame}
-				style:--frame-width={`${14 * Math.min(1, edges[0] / edges[1])}rem`}
-				style:aspect-ratio={draft.aspect_ratio.replace(":", "/")}
-			>
-				Framing · {draft.aspect_ratio}
-			</div>
+			{/if}
 			<div class={requestFields}>
 				<label class={requestField}
 					>Duration (seconds)<select class={requestControl} bind:value={draft.duration}>
@@ -307,8 +386,8 @@ const frame = css({
 			<button
 				type="submit"
 				class={studioButton()}
-				disabled={!!promptError}
-				aria-describedby="prompt-help"
+				disabled={!!promptError || !!frameError}
+				aria-describedby={["prompt-help", ...roles.map((role) => `${role}-help`)].join(" ")}
 			>
 				Review request
 			</button>
@@ -330,8 +409,16 @@ const frame = css({
 			</button>
 		{/if}
 		{#if reviewed}
-			<p>Create video · {title}{poyo ? "" : " · MP4"}</p>
+			<p>{operation.label} · {title}{poyo ? "" : " · MP4"}</p>
 			<p>1 potentially billable submission</p>
+			{#if reviewed.frames.length}
+				<p>One clip, zero retries, zero uploads</p>
+				<ul aria-label="Frames">
+					{#each reviewed.frames as frame (frame)}
+						<li>{frame}</li>
+					{/each}
+				</ul>
+			{/if}
 			{#if reviewed.quote.status === "known" && reviewed.quote.unit === "poyo_credit"}
 				<p>
 					Estimated {reviewed.quote.perRequest} Poyo.ai credits ·
@@ -375,7 +462,9 @@ const frame = css({
 						? reviewed.quote.status === "known"
 							? "I accept the estimate and Gallery Save limitations."
 							: "I accept the unknown price and Gallery Save limitations."
-						: "I accept the unknown charge, routing terms and Gallery Save limitations."}</label
+						: roles.length
+							? keyframeAcceptance
+							: "I accept the unknown charge, routing terms and Gallery Save limitations."}</label
 				>
 			</div>
 			<button
