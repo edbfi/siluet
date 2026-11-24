@@ -37,6 +37,8 @@ export async function uploadFile(
 	const suffix = Buffer.from(`\r\n--${boundary}--\r\n`);
 	let offset = 0;
 	let stopped = false;
+	// The producer reached the end of the multipart body.
+	let produced = false;
 	const body = new ReadableStream<Uint8Array>(
 		{
 			start(controller) {
@@ -55,6 +57,7 @@ export async function uploadFile(
 				}
 				controller.enqueue(suffix);
 				controller.close();
+				produced = true;
 			},
 			cancel() {
 				stopped = true;
@@ -73,7 +76,11 @@ export async function uploadFile(
 			body,
 		});
 		const interpret = provider === "poyo" ? interpretPoyoUpload : interpretToapisUpload;
-		return interpret(response.status, await response.json(), file);
+		const outcome = interpret(response.status, await response.json(), file);
+		// A success before the whole body was produced cannot describe the reviewed file.
+		return produced || outcome.kind === "rejected" || outcome.kind === "unknown"
+			? outcome
+			: uncertainUpload;
 	} catch {
 		return uncertainUpload;
 	} finally {

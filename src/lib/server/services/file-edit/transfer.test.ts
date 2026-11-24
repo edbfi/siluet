@@ -32,7 +32,8 @@ test("a slow upload reads its own bytes, and a later file never reaches a body s
 	const buffer = new Uint8Array(200_000).fill(1);
 	const received: Uint8Array[] = [];
 	let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-	// The transport answers after its first chunk and keeps the stream to read later.
+	// The transport answers after its first chunk and keeps the stream to read later. A
+	// success before the provider can have received the whole file is no receipt.
 	const early: CheckFetch = async (_url, init) => {
 		reader = (init?.body as ReadableStream<Uint8Array> | undefined)?.getReader();
 		if (!reader) throw new Error("No body");
@@ -41,8 +42,7 @@ test("a slow upload reads its own bytes, and a later file never reaches a body s
 		return accepted(200_000);
 	};
 	expect(await uploadFile("poyo", "key", file(200_000), buffer, early)).toEqual({
-		kind: "ready",
-		url: "https://storage.example.org/ref",
+		kind: "unknown",
 	});
 	// The dispatcher now reuses the buffer for a smaller second file.
 	buffer.subarray(0, 3).set([7, 7, 7]);
@@ -85,4 +85,26 @@ test("a transport that fails before reading leaves no chunk to read later", asyn
 		// A stopped body errors.
 	}
 	expect(chunks).not.toContain(2);
+});
+
+test("an early refusal keeps its meaning, and a success after the whole body is a receipt", async () => {
+	const buffer = new Uint8Array(200_000).fill(1);
+	const refusing: CheckFetch = async (_url, init) => {
+		await (init.body as ReadableStream<Uint8Array>).getReader().read();
+		return Response.json(
+			{ success: false, code: 401, error: { message: "bad key" } },
+			{ status: 401 },
+		);
+	};
+	expect(await uploadFile("poyo", "key", file(200_000), buffer, refusing)).toMatchObject({
+		kind: "rejected",
+	});
+	const complete: CheckFetch = async (_url, init) => {
+		await new Response(init.body as ReadableStream<Uint8Array>).arrayBuffer();
+		return accepted(200_000);
+	};
+	expect(await uploadFile("poyo", "key", file(200_000), buffer, complete)).toEqual({
+		kind: "ready",
+		url: "https://storage.example.org/ref",
+	});
 });
