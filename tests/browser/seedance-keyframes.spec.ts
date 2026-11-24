@@ -9,7 +9,8 @@ import { seedanceProvider } from "../fixtures/seedance-provider";
 import { startStudio } from "./built-studio";
 
 // Two signed frames on one host. Nothing may read either URL.
-const frameHost = "frames-sentinel.example.com";
+// A maximal 63-character DNS label: a long signed-storage host must still fit 320 px.
+const frameHost = "frames-sentinel-0123456789abcdef0123456789abcdef0123456789abcde.example.com";
 const start = `https://${frameHost}/start.png?X-Amz-Signature=start-sentinel&X-Amz-Expires=900`;
 const end = `https://${frameHost}/end.png?X-Amz-Signature=end-sentinel#t=1`;
 const prompt = "A paper kite drifts from one frame to the next.";

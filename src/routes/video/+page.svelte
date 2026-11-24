@@ -413,7 +413,7 @@ const frame = css({
 			<p>1 potentially billable submission</p>
 			{#if reviewed.frames.length}
 				<p>One clip, zero retries, zero uploads</p>
-				<ul aria-label="Frames">
+				<ul class={cx(style.mediaList, style.detail)} aria-label="Frames">
 					{#each reviewed.frames as frame (frame)}
 						<li>{frame}</li>
 					{/each}
