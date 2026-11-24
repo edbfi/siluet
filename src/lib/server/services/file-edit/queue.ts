@@ -29,6 +29,8 @@ const invalid = { error: "invalid" } as const;
 const stale = { error: "stale" } as const;
 const busy = { error: "busy" } as const;
 const closing = { error: "closing" } as const;
+// The provider key or the setting cannot be read. Preparing the file again would not help.
+const unavailable = { error: "unavailable" } as const;
 type Mode = { setting: CleaningSetting; transform: ImageTransform; rotated: boolean };
 
 /** A staged copy agrees with the setting: cleaned while cleaning is on, original while off. */
@@ -179,7 +181,7 @@ export async function createFileQueue(
 		const saved = await credential(provider);
 		if (!saved) {
 			const winner = await lookup();
-			return winner ? replay(winner) : stale;
+			return winner ? replay(winner) : unavailable;
 		}
 		try {
 			let cooldown = 0;
@@ -232,7 +234,8 @@ export async function createFileQueue(
 	}
 	return {
 		async review(scope: StageScope, live: FileRequest) {
-			if (closed || live.stage.draft !== scope.draft) return stale;
+			if (closed) return closing;
+			if (live.stage.draft !== scope.draft) return stale;
 			const tooLarge = limit(live);
 			if (tooLarge) return tooLarge;
 			const provider = live.input.provider;
@@ -241,7 +244,7 @@ export async function createFileQueue(
 				loadFeeds(now()),
 				readCleaning().catch(() => null),
 			]);
-			if (!saved || !setting) return stale;
+			if (!saved || !setting) return unavailable;
 			const reviewed = await stages.review(scope, live.stage.handle, live.stage);
 			if (!reviewed || reviewed.revision !== setting.revision) return stale;
 			const { descriptor: stage, rotated } = reviewed;

@@ -135,6 +135,11 @@ test("one claim returns while upload is pending, keeps the reviewed key and repl
 				{ error: "stale" },
 			);
 			await credentials.remove("poyo");
+			// A removed key is not a stale copy: preparing the file again would not help.
+			expect(await api.review(scope, request)).toEqual({ error: "unavailable" });
+			expect(await api.submit(scope, { ...click, stage: other.stage, token: other.token })).toEqual(
+				{ error: "unavailable" },
+			);
 		} finally {
 			continueUpload.resolve();
 			release.resolve();

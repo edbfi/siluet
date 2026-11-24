@@ -317,6 +317,12 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 				);
 				return;
 			}
+			if (result?.error === "unavailable") {
+				tell(
+					`${input ? "Queue" : "Retry"} is unavailable. Nothing was sent. Check the provider connection and try again.`,
+				);
+				return;
+			}
 			tell(
 				`Upload busy · nothing sent. ${input ? "Queue this Review" : "Retry"} again when another upload finishes.`,
 			);
@@ -347,7 +353,8 @@ async function sendFile(body: object, stage: StageDescriptor, input: QueueInput 
 				if (result?.error !== "stale") throw new Error();
 				return refused();
 			}
-			renewFile();
+			// An answer about a copy that is no longer current is dropped.
+			if (mounted && input === request) renewFile();
 			return;
 		}
 		if (response.status === 400) {

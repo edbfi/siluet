@@ -92,6 +92,7 @@ export async function stagedPreview(event: RequestEvent) {
 const statusFor = {
 	busy: 503,
 	closing: 503,
+	unavailable: 503,
 	stale: 409,
 	cooldown: 409,
 	limit: 413,

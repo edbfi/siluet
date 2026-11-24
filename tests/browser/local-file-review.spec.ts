@@ -221,6 +221,45 @@ test("Retry's answers stay beside Retry and only a definite refusal drops the re
 	});
 });
 
+test("a provider that cannot be reached is reported without preparing the file again", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
+		const { file, inspect, consent, queue, review } = await openEdit(page, origin);
+		const staging: string[] = [];
+		page.on("request", (request) => {
+			if (request.method() === "POST" && /\/image\/files\/[^/]+$/.test(request.url()))
+				staging.push(request.url());
+		});
+		await file.setInputFiles(await markedFile("png"));
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+		const unavailable = {
+			status: 503,
+			contentType: "application/json",
+			body: JSON.stringify({ error: "unavailable" }),
+		};
+		let refuseReview = true;
+		await page.route("**/image/file-review", (route) =>
+			refuseReview ? route.fulfill(unavailable) : route.fallback(),
+		);
+		await inspect.press("Enter");
+		await expect(review.getByRole("status")).toHaveText(
+			"Review is unavailable. Check the provider connection and try again.",
+		);
+		refuseReview = false;
+		await inspect.press("Enter");
+		await consent.press("Space");
+		await page.route("**/image/file-queue", (route) => route.fulfill(unavailable));
+		await queue.press("Enter");
+		await expect(review.getByRole("status")).toHaveText(
+			"Queue is unavailable. Nothing was sent. Check the provider connection and try again.",
+		);
+		await expect(consent).toBeChecked();
+		expect(staging).toHaveLength(1);
+		expect(fixtures.uploads).toHaveLength(0);
+	});
+});
+
 test("a single WebP keeps the URL-only reason", async ({ page }) => {
 	await withEditStudio(page, "toapis", "completed", async ({ origin }) => {
 		const { file, queue, inspect } = await openEdit(page, origin);
