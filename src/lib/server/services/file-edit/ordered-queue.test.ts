@@ -230,51 +230,70 @@ test("a corrupt scratch copy at claim answers stale with its position", async ()
 	expect(h.uploads).toEqual([]);
 });
 
+/** Runs `after` with each result of `method` inside the claim transaction. */
+const inClaim =
+	(method: "get" | "run", after: (result: unknown) => void) =>
+	(db: Installation): Installation => ({
+		...db,
+		use: (work) =>
+			db.use((tx) =>
+				work(
+					new Proxy(tx, {
+						get(target, key) {
+							if (key !== "transaction") return Reflect.get(target, key);
+							return (run: (trx: unknown) => Promise<unknown>, options: unknown) =>
+								target.transaction(
+									(trx) =>
+										run(
+											new Proxy(trx, {
+												get(inner, name) {
+													if (name !== method) return Reflect.get(inner, name);
+													return async (query: Parameters<typeof inner.get>[0]) => {
+														const result = await inner[method](query);
+														after(result);
+														return result;
+													};
+												},
+											}),
+										) as never,
+									options as never,
+								);
+						},
+					}),
+				),
+			),
+	});
+
 test("a slot that expires after the job row is written answers stale with its position", async () => {
 	let stageClock = Date.now();
 	let expireAfterInsert = false;
 	const h = await harness("toapis", {
 		stages: { now: () => stageClock },
 		// The job row's INSERT is the only statement in the claim that returns an id.
-		wrap: (db) => ({
-			...db,
-			use: (work) =>
-				db.use((tx) =>
-					work(
-						new Proxy(tx, {
-							get(target, key) {
-								if (key !== "transaction") return Reflect.get(target, key);
-								return (run: (trx: unknown) => Promise<unknown>, options: unknown) =>
-									target.transaction(
-										(trx) =>
-											run(
-												new Proxy(trx, {
-													get(inner, name) {
-														if (name !== "get") return Reflect.get(inner, name);
-														return async (query: Parameters<typeof inner.get>[0]) => {
-															const row = await inner.get(query);
-															if (
-																expireAfterInsert &&
-																row &&
-																typeof row === "object" &&
-																"id" in row
-															)
-																stageClock += stageIdleMs + 1;
-															return row;
-														};
-													},
-												}),
-											) as never,
-										options as never,
-									);
-							},
-						}),
-					),
-				),
+		wrap: inClaim("get", (row) => {
+			if (expireAfterInsert && row && typeof row === "object" && "id" in row)
+				stageClock += stageIdleMs + 1;
 		}),
 	});
 	const { click } = await h.review(h.request([url, await h.stage(2)]));
 	expireAfterInsert = true;
+	expect(await h.queue.submit(owner, click)).toEqual({ error: "stale", positions: [2] });
+	expect(await jobs(h)).toEqual([]);
+	expect(h.uploads).toEqual([]);
+});
+
+test("a slot that expires during the slot writes answers stale with its position", async () => {
+	let stageClock = Date.now();
+	let expire = false;
+	const h = await harness("toapis", {
+		stages: { now: () => stageClock },
+		// The claim's only writes are its file slots and their reference count.
+		wrap: inClaim("run", () => {
+			if (expire) stageClock += stageIdleMs + 1;
+		}),
+	});
+	const { click } = await h.review(h.request([url, await h.stage(2)]));
+	expire = true;
 	expect(await h.queue.submit(owner, click)).toEqual({ error: "stale", positions: [2] });
 	expect(await jobs(h)).toEqual([]);
 	expect(h.uploads).toEqual([]);

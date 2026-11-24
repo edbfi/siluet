@@ -292,13 +292,14 @@ export async function createFileQueue(
 								WHERE EXISTS(SELECT 1 FROM provider_credential WHERE provider=${provider} AND revision=${saved.revision} AND seedream=1 AND ciphertext IS NOT NULL)
 								AND ${authenticated(scope, time)} RETURNING id`);
 											if (!inserted) return false;
-											if (!valid()) throw new StageError("Review expired.");
 											await claimFileSlots(
 												trx,
 												id,
 												live.files.map(({ position }) => position),
 												live.slots.length,
 											);
+											// After the last write, so no slot expires unseen before the commit.
+											if (!valid()) throw new StageError("Review expired.");
 											return true;
 										},
 										{ behavior: "immediate" },
