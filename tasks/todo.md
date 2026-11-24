@@ -9,6 +9,22 @@
 - [x] Verify Dependabot security updates are enabled in the [repository settings](https://github.com/edbfi/siluet/settings/security_analysis). Checked 2026-11-22.
 - [ ] Confirm the central Bun maintenance token can open a maintenance PR for Siluet. The owner reads back the `edbfi-bun-maintenance` token: it covers `edbfi/siluet` with read-write Contents and Pull requests and has not expired. Close this item when the first real Bun maintenance PR opens. The [scheduled run](https://github.com/edbfi/edbfi-ci/actions/runs/44910073092) found Bun 1.4.5 clean on 2026-11-21, so it exercised discovery only. The [upstream setup](https://github.com/edbfi/edbfi-ci/blob/main/SETUP.md#credentials) lists the account-level grant.
 
+## v0.1.0 scoped preview
+
+Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview).
+
+- [ ] The ToAPIs pricing collector accepts the new Seedream image-input row and still fails closed on any other table change. The next pricing run publishes ToAPIs rates.
+- [ ] The bundled feeds are refreshed. `pricing/v2/poyo.json` includes `h3-max` (on `pricing-data` since 2026-11-24) and matches `pricing-data` semantically, and `check-freshness` reports about 30 days.
+- [ ] The documentation sync is merged: capability map through #61, D11 and D12, the promoted decisions and the plan.
+- [ ] A real ToAPIs Seedance 2.5 clip passes `verifyVideoFile`. Record whether it was an existing clip or an owner-approved generation.
+- [ ] A real Poyo.ai H3 Max clip passes `verifyVideoFile`, recorded the same way.
+- [ ] The council confirms the per-mode video Save limits spec, the implementation merges, and Review states each mode's limits.
+- [ ] [#62](https://github.com/edbfi/siluet/pull/62) is rebased onto the per-mode limits without its over-12 s disclosure, passes its checks and merges.
+- [ ] A cross-cutting security review is recorded with its findings and their dispositions.
+- [ ] The README tells a creator about Video Studio, default cleaning with its Settings opt-out, the optional authenticator and the video Save limits shown in Review.
+- [ ] The draft release notes list each operation as verified, Review-only or pending, and `package.json` reads `0.1.0` on the commit to tag.
+- [ ] Local checks and hosted `ci-ok` pass on the commit to tag, and the owner tags `v0.1.0`.
+
 ## R0 operations
 
 - [ ] Each R0 PR passes the local checks, `ci-ok` and `pr-policy`. The pricing PRs also pass their pricing run and the failing tests listed in each PR body.

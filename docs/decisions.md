@@ -12,7 +12,7 @@ A successful first session takes a creator from selecting a model and understand
 
 Calculate estimates locally so creators can review spending offline. Publish public rates through the repository to limit traffic to each provider. Show an unknown total when the price evidence is 30 days old or the rates do not cover the selected options. Once published, Poyo.ai rates also arrive as a v2 feed. Its evidence date is the latest confirmation that the pinned catalog revision is still the newest upstream. The commit date remains the source date. An installation gets later confirmations only through `pricing:refresh`, and should refresh before the expiry that Review shows. A Poyo.ai confirmation later than the local clock is ignored, so the rates age from the source date. Keep any provider-reported charge separate from the estimate. A before-and-after wallet reading shows account-wide movement during a batch. Top-ups, reservations and other clients can change that balance. Show the movement separately from settlement and withhold comparisons for overlapping batches.
 
-An unresolved Poyo.ai submission may still debit the same wallet after a key change. While its outcome is unknown, withhold later wallet comparisons across key revisions. The provider’s media retention period gives no deadline for settlement. Estimates and provider-reported task credits remain available independently.
+An unresolved Poyo.ai submission may still debit the same wallet after a key change. While its outcome is unknown, withhold later wallet comparisons across key revisions, with no time limit (owner reconfirmed 2026-11-24). The provider’s media retention period gives no deadline for settlement. Estimates and provider-reported task credits remain available independently.
 
 ### Owner sign-in
 
@@ -55,6 +55,10 @@ Review names the verified model on the same path and the schema date, and states
 
 Live billable calls are zero by default. A new family whose responses cannot be authored from documentation may use one cheapest call. That call needs express owner approval, and its redacted response becomes a fixture.
 
+### ToAPIs model inventory
+
+Agreed with the council on 2026-11-22; lands with the catalog engine. Siluet keeps one shared inventory snapshot per provider, origin, scope and credential revision, with its check time and exact model IDs, and replaces it atomically. A model is listed, absent from a fresh snapshot or unknown. The inventory varies by account and group, and a listing is not evidence of entitlement, D4 compatibility or pricing.
+
 ### Poyo.ai video family
 
 Approved 2026-11-22 under the owner's delegation to council and orchestrator. One adapter serves Poyo.ai `POST /api/generate/submit` video: Bearer JSON `{model, input}`, the shared acknowledgement, the shared status route, one video file and D6 Save. Each model is a typed descriptor of its reviewed inputs, D4 field and v2 rate key, so the catalog engine can add rows as data. H3 Max text-to-video is the verified representative with partial coverage: 5–10 s, 480p or 768p and six fixed ratios. The other inputs stay pending. A Poyo video job has no correlation ID, so job code tells a video job (`video_terms` or a legacy `business_id`) from a ToAPIs correlation, and the ten-minute polling window runs from the durable acknowledgement. A 403 `permission_denied_error` is a permission refusal that keeps the saved key. Any uncertain Poyo job withholds later wallet comparisons. Rates come from the `h3-max` entry of the v2 feed, and without it the total is unknown and needs consent. [Spec](SPEC-poyo-first-video.md)
@@ -62,6 +66,10 @@ Approved 2026-11-22 under the owner's delegation to council and orchestrator. On
 ## D3 · Local persistence with embedded Turso and Drizzle
 
 Approved by the owner on 2026-11-21. The first approved feature that needs persistence will use embedded Turso through Drizzle ORM. An embedded database keeps setup local to the creator’s machine and requires no separate database service. Drizzle gives the TypeScript application typed queries. Each module’s spec will define the data it needs to retain.
+
+### Layer storage
+
+Agreed with the council on 2026-11-22; lands with layer decomposition. Gallery stores the base image and each layer as private files named by digest, and the database keeps a manifest of order, placement, digest and identity. Siluet stages the whole item before publishing it and reconciles orphaned files on restart, so Gallery never shows a partial decomposition.
 
 ## D4 · Optional filtering on media requests
 
@@ -84,6 +92,10 @@ Siluet omits a field the schema forbids only on that acknowledged path. It never
 
 A damaged image can have valid dimensions and headers. Gallery needs a complete pixel decode and access to decoder warnings. Bun 1.4.5 exposes metadata and encoded output. Use sharp with libvips to verify every pixel within the size limits and reject warnings before publishing the original PNG or JPEG bytes.
 
+### Still WebP and per-model output formats
+
+Decided on 2026-11-22 under the owner's delegation; lands at the start of the catalog engine. Fifteen image models in the pinned Poyo.ai catalog offer WebP. Gallery will verify still WebP, lossy and lossless, with the same full decode, warnings and size limits, keep the delivered bytes and serve `image/webp`. Animated WebP and GIF fail closed until a multi-frame Save contract exists; Review either does not offer them or marks the model unsavable. Each model's output format option comes from its own schema: only its values, sent verbatim (`jpg` stays `jpg`), defaulting to the schema default, with the expected type shown in Review. ToAPIs descriptors record their formats the same way. A model without the option may return its default, and Save fails closed with a clear Jobs message for anything outside the supported set.
+
 ## D6 · Verify downloaded video structure in TypeScript
 
 Video Save keeps the provider's original bytes. The download must be identity-encoded, match any declared length and stay within 64 MiB. Siluet sniffs the container. For MP4 it walks the top-level boxes from file headers, buffers only `ftyp` and `moov` (≤ 4 MiB) and checks `mdat` spans against the file size. It requires one self-contained `moov` with one `avc1` video track and at most one `mp4a` track. Every sample lies inside `mdat` with no overlap. For each track the `stts` decode duration equals `mdhd`; `ctts` offsets and the edit list (at most one leading empty edit and one rate-1 edit) stay within the track's composition timeline, each in its own timescale, and the edit selects at least one sample; the presented duration is > 0 and ≤ 12 s. `mvhd` equals the longest presented track within rounding. Every SPS in `avcC` (at least one SPS and one PPS) is Baseline, Main or High, 4:2:0 and 8-bit, with a cropped size equal to the sample entry, within 1,920 px per edge and 2,073,600 px. `esds` declares AAC-LC (object type 0x40, audio object type 2) with a sample rate > 0 and ≤ 48 kHz and one or two channels. These checks cover the declared configuration; the browser validates samples when it plays. A truncated download counts as a failed download. Fragmented, encrypted, externally referenced or over-limit files fail closed, as does an HDR transfer declared in `colr` or in an SPS's VUI. WebM and Matroska are recognised by their EBML header and refused with their own message. Gallery explains when the browser cannot play a clip and keeps Download. Video saves run one at a time in the single runtime. Startup removes leftover scratch.
@@ -105,3 +117,17 @@ Every completed result is downloaded into the private Gallery in the data folder
 ## D10 · Cleaning is a standing opt-out
 
 Siluet cleans every attached file automatically (owner decision 2026-11-22). The owner can turn this off in Settings or during setup. The choice is a revisioned setting that Review binds like spending consent. It is never a fallback. A preparation failure blocks Queue, and a declined file is never sent. An original must still be one complete still SDR JPEG or PNG and pass one bounded decode, so Siluet never submits a file it cannot decode. A change retires staged copies and unconsumed file Reviews. Claimed jobs keep what they reviewed.
+
+`@woss/exiftool` was considered for cleaning on 2026-11-22 and not adopted. It edits tags rather than sanitizing: its JPEG writer copies everything after the first scan verbatim, so hidden trailing bytes, fill runs and unused tables pass through. Siluet's cleaner keeps an allowlist and walks the entropy data. The package was also young and had no MP4 support. ExifTool remains the test-only oracle.
+
+## D11 · v0.1.0 is a scoped preview
+
+Approved by the owner on 2026-11-24. The first release, v0.1.0, is a preview for one local creator containing everything verified on main when it is tagged. Its notes list each operation as verified, Review-only or pending, so the preview is not mistaken for full D2 coverage. GitHub generates the release notes from the Conventional Commits; there is no CHANGELOG file. `package.json` takes the version at tag time. The orchestrator prepares the release and the owner tags it.
+
+Tag only when the tagged commit passes the local and hosted checks, the pricing feeds are fresh, one real provider clip per shipped video family passes `verifyVideoFile`, a cross-cutting security review is recorded and the README covers what a creator must know. Real clips are required because the built-app video journeys use a synthetic fixture clip.
+
+v1.0 means D2 is complete for a dated baseline under the [coverage acceptance](SPEC.md#d2-coverage-acceptance), or the owner approves a scope change. The [plan](../tasks/plan.md) holds the release order.
+
+## D12 · Upgrade dependencies, never defer them
+
+Owner correction on 2026-11-22. Do not pin or ignore a dependency version to defer an upgrade. Leave the Dependabot PR open, failing if necessary, until the ecosystem supports it, as in the owner's other repositories. An open PR keeps the pending upgrade visible, where an ignore rule hides it.
