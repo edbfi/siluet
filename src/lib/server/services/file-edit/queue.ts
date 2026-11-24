@@ -298,12 +298,13 @@ export async function createFileQueue(
 												live.files.map(({ position }) => position),
 												live.slots.length,
 											);
-											// After the last write: an expiry or a shutdown during the writes rolls back.
-											if (!valid()) throw new StageError("Review expired.");
+											// After the last write: a shutdown or an expiry during the writes rolls back.
+											// Shutdown wins: `closing` keeps a lost request's Retry, `stale` would clear it.
 											if (closed) {
 												refused = closing;
 												throw new StageError("Shutting down.");
 											}
+											if (!valid()) throw new StageError("Review expired.");
 											return true;
 										},
 										{ behavior: "immediate" },
@@ -322,8 +323,11 @@ export async function createFileQueue(
 						if (winner) return replay(winner);
 						continue;
 					}
+					// A shutdown during the claim wins over stages that expired meanwhile.
 					if ("stale" in claim)
-						return refuse(stale(claim.stale.map((index) => live.files[index].position)));
+						return refuse(
+							closed ? closing : stale(claim.stale.map((index) => live.files[index].position)),
+						);
 				} catch (error) {
 					if (error instanceof StageError && error.message === "Upload busy · nothing sent")
 						return refuse(busy);

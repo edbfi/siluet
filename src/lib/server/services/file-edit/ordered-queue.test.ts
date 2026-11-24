@@ -317,7 +317,7 @@ test("siluet:stopping closes file admission before storage closes", async () => 
 	expect(h.uploads).toEqual([]);
 });
 
-test("shutdown during the slot writes answers closing and the Review queues after restart", async () => {
+test("shutdown during the slot writes answers closing and leaves the claim unconsumed", async () => {
 	const stopping = new AbortController();
 	let stopDuringWrites = false;
 	const h = await harness("toapis", {
@@ -332,10 +332,33 @@ test("shutdown during the slot writes answers closing and the Review queues afte
 	expect(await h.queue.submit(owner, click)).toEqual({ error: "closing" });
 	expect(await jobs(h)).toEqual([]);
 	expect(h.uploads).toEqual([]);
+	// The rollback consumed nothing: a queue over the same stages admits the same click.
+	// A real restart retires unclaimed stages, so the creator reviews again.
 	const restarted = await h.reopen();
 	expect(await restarted.submit(owner, click)).toHaveProperty("jobId");
 	await Promise.all(h.settled);
 	expect(h.uploads).toEqual([[1]]);
+});
+
+test("shutdown and an expiry together during the slot writes answer closing", async () => {
+	const stopping = new AbortController();
+	let stageClock = Date.now();
+	let both = false;
+	const h = await harness("toapis", {
+		shutdown: stopping.signal,
+		stages: { now: () => stageClock },
+		wrap: inClaim("run", () => {
+			if (!both) return;
+			stageClock += stageIdleMs + 1;
+			stopping.abort();
+		}),
+	});
+	const { click } = await h.review(h.request([url, await h.stage(2)]));
+	both = true;
+	// Closing keeps a lost request's Retry; stale would clear it.
+	expect(await h.queue.submit(owner, click)).toEqual({ error: "closing" });
+	expect(await jobs(h)).toEqual([]);
+	expect(h.uploads).toEqual([]);
 });
 
 test("an unreadable setting answers unavailable before and inside the claim", async () => {
