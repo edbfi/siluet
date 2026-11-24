@@ -79,3 +79,12 @@
 - [x] Start the edit only when every file slot has a usable receipt, and keep the wallet open while any upload is unknown (`file-attempt.test.ts`, `dispatch.test.ts`).
 - [x] Show each file slot's outcome, the stop reason and the hosted-copy warning in Jobs (`file-state.test.ts`, `tracking.test.ts`, `file-edit.spec.ts`).
 - [x] Upgrade every R1b file job to slot 1 and keep its exact replay (`media-upgrade.test.ts`, `ordered-queue.test.ts`).
+
+## Seedance URL keyframes (R4)
+
+- [x] Register Animate a still and First and last frame on ToAPIs after text-to-video, with partial ledger profiles (`ledger.test.ts`).
+- [x] Send each frame URL exactly as trimmed in `image_with_roles` with adaptive framing; refuse duplicates, swapped or missing roles, 2,049-byte URLs and ratios with zero calls (`keyframes.test.ts`, `request.test.ts`).
+- [x] Quote the advertised token rate in both modes and bind the exact frames to Review; keep frame URLs and hosts out of job rows (`video.test.ts`).
+- [x] Explain a refused or unreadable frame by operation; follow asset review past automatic tracking to Save and Retry download with one POST (`video.test.ts`, `summary.test.ts`, `tracking.test.ts`).
+- [x] Review both modes by keyboard at desktop and 320 px, queue once, save and reopen offline with zero frame-host reads (`seedance-keyframes.spec.ts`).
+- [x] Hosted `smoke` (Linux x64) passes the keyframe journey; `native-owner` (macOS) keeps passing its existing video checks.

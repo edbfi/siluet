@@ -21,6 +21,18 @@
 			"queue": "one reviewed request with video access",
 			"optionCoverage": "partial"
 		},
+		"seedance-animate": {
+			"addedSinceBaseline": true,
+			"review": "one public HTTP(S) starting-frame URL up to 2,048 UTF-8 bytes, adaptive framing, 4–10 seconds at 480p or 720p",
+			"queue": "one reviewed request with video access, zero uploads, zero retries",
+			"optionCoverage": "partial"
+		},
+		"seedance-interpolate": {
+			"addedSinceBaseline": true,
+			"review": "two distinct public HTTP(S) starting- and ending-frame URLs up to 2,048 UTF-8 bytes each, adaptive framing, 4–10 seconds at 480p or 720p",
+			"queue": "one reviewed request with video access, zero uploads, zero retries",
+			"optionCoverage": "partial"
+		},
 		"z-image-generate": {
 			"addedSinceBaseline": true,
 			"review": "prompt, five aspect ratios, batch and retry estimate",
@@ -3423,7 +3435,11 @@
 						"video-extension",
 						"draft-video-generation"
 					],
-					"support": { "text-to-video": "seedance-generate" },
+					"support": {
+						"text-to-video": "seedance-generate",
+						"first-frame-to-video": "seedance-animate",
+						"first-and-last-frame-to-video": "seedance-interpolate"
+					},
 					"contract": "documented",
 					"sources": ["seedance-2-5", "seedanceDraft"],
 					"d4": "declared",

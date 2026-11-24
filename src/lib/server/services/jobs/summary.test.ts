@@ -303,3 +303,65 @@ test("interrupted and expired stops name their slot, or the edit", () => {
 		"The provider address could not be verified, so the edit was not sent.",
 	);
 });
+
+test("media input wording follows the job's operation", () => {
+	const seedance = {
+		...h3,
+		provider: "toapis",
+		model: "seedance-2-5",
+		business_id: "siluet-1",
+		task_id: null,
+	} as const;
+	const image = {
+		...h3,
+		provider: "toapis",
+		model: "doubao-seedream-5-5",
+		video_terms: null,
+	} as const;
+	const frame =
+		"ToAPIs refused a frame before creating a task. Check that each URL is publicly reachable, points to a readable still image within 30 MB, and has no credentials.";
+	const reference =
+		"The provider refused a reference image before creating a task. Check that each URL is public and readable.";
+	const generic = "The provider rejected the request's media input.";
+	for (const [job, expected] of [
+		[{ ...seedance, operation: "first-frame-to-video" }, frame],
+		[{ ...seedance, operation: "first-and-last-frame-to-video" }, frame],
+		[{ ...seedance, operation: "text-to-video" }, generic],
+		[{ ...seedance, operation: null }, generic],
+		[{ ...image, operation: "reference-image-edit" }, reference],
+		[{ ...image, operation: null }, reference],
+	] as const)
+		expect(
+			summarizeJob({ ...job, state: "rejected", rejection: "media-input" }, true, now).message,
+		).toBe(expected);
+});
+
+test("an unreadable input on a failed task is worded by operation", () => {
+	const failed = {
+		...h3,
+		provider: "toapis",
+		model: "seedance-2-5",
+		business_id: "siluet-1",
+		state: "failed",
+		failure_reason: "reference_media_unreadable",
+	} as const;
+	const image = { ...failed, model: "doubao-seedream-5-5", business_id: null, video_terms: null };
+	for (const [job, expected] of [
+		[
+			{ ...failed, operation: "first-and-last-frame-to-video" },
+			"The provider could not read a frame image.",
+		],
+		[{ ...failed, operation: "text-to-video" }, "The provider reported that the job failed."],
+		[{ ...failed, operation: null }, "The provider reported that the job failed."],
+		[
+			{ ...image, operation: "reference-image-edit" },
+			"The provider could not read one or more reference images.",
+		],
+		[{ ...image, operation: null }, "The provider could not read one or more reference images."],
+		[
+			{ ...failed, operation: "first-frame-to-video", failure_reason: null },
+			"The provider reported that the job failed.",
+		],
+	] as const)
+		expect(summarizeJob(job, true, now).message).toBe(expected);
+});

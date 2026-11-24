@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { referencePng } from "../../../../../tests/fixtures/reference-image";
+import { h264Aac } from "../../../../../tests/fixtures/video/mp4-boxes";
 import {
 	buildSeedreamRequest,
 	createSeedreamDraft,
@@ -13,7 +15,9 @@ import {
 	createZImageDraft,
 	validateZImageDraft,
 } from "../../../shared/image-studio/z-image";
+import { seedanceKeyframeOperations } from "../../../shared/media-catalog/registry";
 import type { ProviderId } from "../../../shared/providers/connections";
+import { parseVideo } from "../../../shared/video-studio/request";
 import { claimFileSlots, startFileUpload, undoFileUpload } from "../../db/file-attempt";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import { imageJobStore } from "../../db/image-job-store";
@@ -1258,3 +1262,189 @@ test("Jobs reads a file job's phase and slots from one snapshot", async () => {
 	advance = true;
 	expect((await tracker.history()).jobs.find(({ id }) => id === "file")).toMatchObject(before);
 });
+
+// A Seedance keyframe claim as Video Queue writes it: correlation ID, keyframe operation and terms.
+const frameUrls = [
+	"https://frames-sentinel.example.com/start.png?X-Amz-Signature=frame-one",
+	"https://frames-sentinel.example.com/end.png?X-Amz-Signature=frame-two",
+];
+const frameBusiness = "siluet-00000000-0000-4000-8000-00000000f0a1";
+const frameTarget = () => {
+	const [, interpolate] = seedanceKeyframeOperations;
+	const input = parseVideo({
+		draft: {
+			prompt,
+			duration: 5,
+			resolution: "720p",
+			generate_audio: true,
+			frames: [
+				{ role: "first_frame", url: frameUrls[0] },
+				{ role: "last_frame", url: frameUrls[1] },
+			],
+		},
+		operationKey: interpolate.key,
+		count: 1,
+		retryLimit: 0,
+		acceptTerms: true,
+	});
+	if (!input || "input" in input.body) throw new Error("Invalid keyframe fixture.");
+	return { provider: "toapis", body: input.body, business: frameBusiness } as const;
+};
+async function insertKeyframes(id = "frames") {
+	await installation.use((db) =>
+		db.run(sql`INSERT INTO image_job (id,binding,provider,revision,quote,state,created_at,model,operation,poll_deadline,business_id,video_terms)
+			VALUES (${id},'binding','toapis',1,${JSON.stringify(quote)},'submitting',${now},'seedance-2-5',
+				'first-and-last-frame-to-video',${now + imageJobPollingWindowMs},${frameBusiness},'["terms"]')`),
+	);
+}
+const frameTask = {
+	id: "task_frames",
+	object: "generation.task",
+	model: "seedance-2-5",
+	client_business_id: frameBusiness,
+};
+
+test("keyframe asset review outlasts automatic tracking; Refresh saves it and Retry download reads the same task", async () => {
+	const posts: unknown[] = [];
+	const reads: string[] = [];
+	let status: Record<string, unknown> = { ...frameTask, status: "queued" };
+	let saver: ReturnType<typeof createAutoSave> | undefined;
+	const jobs = makeTracking(
+		async (url, init) => {
+			if (init.method === "POST") {
+				posts.push(JSON.parse(String(init.body)));
+				return Response.json({ ...frameTask, status: "queued" });
+			}
+			reads.push(url);
+			return Response.json(status);
+		},
+		(id, delivery) => saver?.deliver(id, delivery),
+	);
+	await insertKeyframes();
+	await jobs.dispatchVideo("frames", credential, frameTarget());
+	expect(posts).toHaveLength(1);
+	expect(posts[0]).toMatchObject({
+		aspect_ratio: "adaptive",
+		disable_nsfw: false,
+		image_with_roles: [
+			{ url: frameUrls[0], role: "first_frame" },
+			{ url: frameUrls[1], role: "last_frame" },
+		],
+	});
+	expect(await latest("frames")).toMatchObject({ state: "waiting", tracking: "automatic" });
+	// Asset review keeps the task queued past the ten-minute automatic window.
+	now += videoJobPollingWindowMs + 60_000;
+	expect(await latest("frames")).toMatchObject({
+		state: "waiting",
+		tracking: "manual",
+		canRefresh: true,
+	});
+	const transfers: string[] = [];
+	const sample = h264Aac();
+	saver = createAutoSave(installation, {
+		readForSave: jobs.readForSave,
+		readability: providerStore(installation).jobReadability,
+		now: () => now,
+		backoff: [1, 1],
+		transferVideo: async (delivery, path) => {
+			transfers.push(delivery.url);
+			if (transfers.length <= 3) throw new Error("Interrupted download");
+			await Bun.write(path, sample);
+			return { size: sample.length, digest: createHash("sha256").update(sample).digest("hex") };
+		},
+	});
+	const settle = async () => {
+		await Bun.sleep(5);
+		await saver?.idle();
+	};
+	try {
+		saver.start();
+		status = {
+			...frameTask,
+			status: "completed",
+			progress: 100,
+			expires_at: Math.floor(now / 1000) + 86_400,
+			billing: { status: "settled", credits: "5", cost_usd: "0.25" },
+			result: { type: "video", data: [{ url: signedUrl }] },
+		};
+		await jobs.refresh("frames");
+		for (let i = 0; i < 3; i++) {
+			await settle();
+			now += 10;
+		}
+		await settle();
+		expect(await latest("frames")).toMatchObject({
+			state: "completed",
+			library: "failed",
+			retryable: true,
+		});
+		now += 5_000;
+		expect(await saver.retry("frames")).toBe(true);
+		await settle();
+		expect(await latest("frames")).toMatchObject({ library: "saved" });
+	} finally {
+		await saver.close();
+	}
+	expect(posts).toHaveLength(1);
+	expect(transfers).toEqual(Array(4).fill(signedUrl));
+	expect(reads.length).toBeGreaterThan(0);
+	for (const url of reads) expect(url).toBe("https://toapis.com/v1/videos/generations/task_frames");
+	const video = await createGallery(installation).openVideo("frames");
+	try {
+		expect(await video?.handle.readFile()).toEqual(sample);
+	} finally {
+		await video?.handle.close();
+	}
+	const rows = JSON.stringify(await installation.use((db) => db.all(sql`SELECT * FROM image_job`)));
+	for (const secret of [...frameUrls, "frames-sentinel", prompt, signedUrl, credential])
+		expect(rows).not.toContain(secret);
+});
+
+test.each([
+	["a matching task attaches", "match"],
+	["a missing task stays uncertain", "miss"],
+	["a mismatched task stays uncertain", "mismatch"],
+] as const)(
+	"a contradictory invalid_private_assets response is recovered by lookup: %s",
+	async (_, outcome) => {
+		let posts = 0;
+		const auth: (string | null)[] = [];
+		const jobs = makeTracking(async (_url, init) => {
+			if (init.method === "POST") {
+				posts++;
+				// Task attributes beside the rejection: the task may exist.
+				return Response.json(
+					{
+						...frameTask,
+						success: false,
+						error: { code: "invalid_private_assets", type: "invalid_request_error" },
+					},
+					{ status: 400 },
+				);
+			}
+			auth.push(new Headers(init.headers).get("authorization"));
+			if (outcome === "miss") return new Response(null, { status: 404 });
+			return Response.json({
+				...frameTask,
+				...(outcome === "mismatch" && { client_business_id: "siluet-other" }),
+				status: "in_progress",
+			});
+		});
+		await insertKeyframes();
+		await jobs.dispatchVideo("frames", credential, frameTarget());
+		expect(await imageJobStore(installation).get("frames")).toMatchObject({
+			state: "unknown",
+			rejection: null,
+		});
+		now += 5_000;
+		await jobs.lookup("frames");
+		expect(auth).toEqual([`Bearer ${credential}`]);
+		const job = await imageJobStore(installation).get("frames");
+		if (outcome === "match")
+			expect(job).toMatchObject({ state: "running", task_id: "task_frames" });
+		else expect(job).toMatchObject({ state: "unknown", task_id: null });
+		if (outcome !== "match")
+			expect((await latest("frames"))?.message).toContain("may still cost credits");
+		expect(posts).toBe(1);
+	},
+);

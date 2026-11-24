@@ -92,7 +92,34 @@ export const seedanceOperation = {
 	mode: "generate",
 	label: "Create video",
 	evidence: { d4: "declared", catalogD4: "unknown" },
+	roles: [],
 } as const;
+
+// Public-URL keyframes on the same ToAPIs route, in the order sent in image_with_roles.
+function seedanceKeyframeEntry<Operation extends string, Mode extends string, Label extends string>(
+	operation: Operation,
+	mode: Mode,
+	label: Label,
+	roles: readonly ("first_frame" | "last_frame")[],
+) {
+	return {
+		...seedanceOperation,
+		profile: `seedance-${mode}` as `seedance-${Mode}`,
+		key: { ...seedanceOperation.key, operation },
+		mode,
+		label,
+		roles,
+	} as const;
+}
+
+export const seedanceKeyframeOperations = [
+	seedanceKeyframeEntry("first-frame-to-video", "animate", "Animate a still", ["first_frame"]),
+	seedanceKeyframeEntry("first-and-last-frame-to-video", "interpolate", "First and last frame", [
+		"first_frame",
+		"last_frame",
+	]),
+] as const;
+export const seedanceOperations = [seedanceOperation, ...seedanceKeyframeOperations] as const;
 
 // The Poyo video family shares one route, envelope, status and Save contract. Each row is a
 // reviewed descriptor. H3 Max is the family's verified representative with partial options.
@@ -126,7 +153,7 @@ export const releasedImageOperations = [
 	zImageEntry("text-to-image"),
 	zImageEntry("reference-image-edit"),
 ];
-export const releasedVideoOperations = [seedanceOperation, ...poyoVideoOperations] as const;
+export const releasedVideoOperations = [...seedanceOperations, ...poyoVideoOperations] as const;
 export const releasedOperations = [...releasedImageOperations, ...releasedVideoOperations];
 export const releasedProviders = [
 	...new Set(releasedOperations.map((entry) => entry.key.provider)),
@@ -149,6 +176,7 @@ export function resolveOperationKey(value: unknown) {
 	);
 }
 
+export type SeedanceOperation = (typeof seedanceOperations)[number];
 export type ReleasedImageOperation = (typeof releasedImageOperations)[number];
 export type SeedreamOperation = ReleasedImageOperation["mode"];
 

@@ -131,3 +131,117 @@ test.each([200, 503])(
 		}
 	},
 );
+
+// Keyframe evidence, accessed 2026-11-24:
+// https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation#asset-review
+//   submit-time HTTP 400 error.code invalid_private_assets for credentials in a URL, a URL over
+//   2,048 bytes or the same URL as different media types; a failed asset review ends the task
+//   `failed` with the reason only in error.message and no video generation fee.
+// https://docs.toapis.com/docs/en/api-reference/errors
+//   invalid_private_assets also covers undecodable images and unreadable URLs; error.reason is
+//   optional ("OpenAI video format and Webhooks do not guarantee a reason") and includes
+//   reference_media_unreadable for an unreachable URL, invalid file or unsupported format.
+// https://docs.toapis.com/docs/en/api-reference/tasks/video-status
+//   lists only error.code and error.message on a failed task.
+const keyframeBody = {
+	model: "seedance-2-5",
+	prompt: "fixture",
+	video_operation: "generate",
+	duration: 5,
+	aspect_ratio: "adaptive",
+	resolution: "720p",
+	generate_audio: true,
+	output_format: "mp4",
+	return_last_frame: false,
+	disable_nsfw: false,
+	image_with_roles: [{ url: "https://frames.example.com/a.png?sig=1", role: "first_frame" }],
+} as const;
+const textBody = {
+	model: "seedance-2-5",
+	prompt: "fixture",
+	video_operation: "generate",
+	duration: 5,
+	aspect_ratio: "16:9",
+	resolution: "720p",
+	generate_audio: true,
+	output_format: "mp4",
+	return_last_frame: false,
+	disable_nsfw: false,
+} as const;
+const privateAssets = {
+	success: false,
+	error: { code: "invalid_private_assets", type: "invalid_request_error", message: "bad url" },
+	request_id: "request-1",
+};
+
+test.each([
+	["a keyframe body", keyframeBody, privateAssets, { kind: "rejected", reason: "media-input" }],
+	["text-to-video", textBody, privateAssets, { kind: "unknown" }],
+	[
+		"task attributes",
+		keyframeBody,
+		{ ...privateAssets, id: "task_one", object: "generation.task" },
+		{ kind: "unknown" },
+	],
+	[
+		"an unexpected type",
+		keyframeBody,
+		{ ...privateAssets, error: { ...privateAssets.error, type: "server_error" } },
+		{ kind: "unknown" },
+	],
+	["success true", keyframeBody, { ...privateAssets, success: true }, { kind: "unknown" }],
+] as const)("invalid_private_assets on %s", async (_, body, response, expected) => {
+	const adapter = createToapisVideo(async () => Response.json(response, { status: 400 }));
+	expect(await adapter.submit("fixture", body, "siluet-abc")).toEqual(expected);
+});
+
+test.each([
+	[
+		"reference_media_unreadable",
+		{ code: "generation_failed", reason: "reference_media_unreadable", message: "x" },
+		"reference_media_unreadable",
+	],
+	[
+		"an unknown reason with a signed URL",
+		{
+			code: "generation_failed",
+			reason: "https://frames.example.com/a.png?sig=secret",
+			message: "fetch https://frames.example.com/a.png?sig=secret",
+		},
+		null,
+	],
+	[
+		"an asynchronous task-type constraint",
+		{ code: "InvalidParameter.TaskTypeConstraint", message: "mixed task types" },
+		null,
+	],
+	["no reason", { code: "generation_failed", message: "asset review rejected" }, null],
+])("a failed keyframe task with %s", async (_, error, reason) => {
+	const adapter = createToapisVideo(async () =>
+		Response.json({
+			...envelope,
+			status: "failed",
+			error,
+			billing: { status: "refunded", credits: "0", cost_usd: "0" },
+		}),
+	);
+	const observed = await adapter.status("fixture", "siluet-abc", "task_one");
+	expect(observed).toMatchObject({
+		kind: "observed",
+		state: "failed",
+		failureReason: reason,
+		billing: { status: "refunded", credits: "0", usd: "0" },
+	});
+	expect(JSON.stringify(observed)).not.toContain("secret");
+});
+
+test("a reason on a task that has not failed is never recorded", async () => {
+	const adapter = createToapisVideo(async () =>
+		Response.json({ ...envelope, status: "queued", error: undefined, reason: "x" }),
+	);
+	expect(await adapter.status("fixture", "siluet-abc", "task_one")).toMatchObject({
+		kind: "observed",
+		state: "waiting",
+		failureReason: null,
+	});
+});

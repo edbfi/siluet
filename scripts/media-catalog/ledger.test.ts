@@ -10,7 +10,10 @@ import {
 	h3MaxOperation,
 	releasedModels,
 	releasedOperations,
+	releasedVideoOperations,
 	resolveOperationKey,
+	seedanceKeyframeOperations,
+	seedanceOperation,
 } from "../../src/lib/shared/media-catalog/registry";
 import { catalogCoverage, documentedRoutes } from "./coverage";
 
@@ -234,13 +237,40 @@ test.each(providers)(
 			unresolvedIds: provider === "poyo" ? 5 : 21,
 			documentedOperations: provider === "poyo" ? 317 : 331,
 			prerequisiteBound: provider === "poyo" ? 2 : 17,
-			review: provider === "poyo" ? 5 : 3,
-			queue: provider === "poyo" ? 5 : 3,
-			partialOptions: provider === "poyo" ? 5 : 3,
-			addedSinceBaseline: provider === "poyo" ? 3 : 1,
+			review: 5,
+			queue: 5,
+			partialOptions: 5,
+			addedSinceBaseline: 3,
 		});
 	},
 );
+
+test("Seedance keyframe keys resolve after text-to-video on ToAPIs only", () => {
+	expect(releasedVideoOperations[0]).toBe(seedanceOperation);
+	expect(
+		seedanceKeyframeOperations.map(({ key, mode, label, roles }) => [key, mode, label, roles]),
+	).toEqual([
+		[
+			{ ...seedanceOperation.key, operation: "first-frame-to-video" },
+			"animate",
+			"Animate a still",
+			["first_frame"],
+		],
+		[
+			{ ...seedanceOperation.key, operation: "first-and-last-frame-to-video" },
+			"interpolate",
+			"First and last frame",
+			["first_frame", "last_frame"],
+		],
+	]);
+	for (const operation of seedanceKeyframeOperations) {
+		expect(resolveOperationKey(operation.key)).toBe(operation);
+		expect(resolveOperationKey({ ...operation.key, provider: "poyo" })).toBeUndefined();
+		expect(resolveOperationKey({ ...operation.key, model: "seedance-2.5" })).toBeUndefined();
+		const profile = ledger.supportProfiles[operation.profile];
+		expect(profile.addedSinceBaseline).toBe(true);
+	}
+});
 
 test("H3 key never resolves to ToAPIs", () => {
 	expect(resolveOperationKey(h3MaxOperation.key)).toBe(h3MaxOperation);

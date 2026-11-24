@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import { queueEvidenceProblem } from "../../../shared/media-catalog/registry";
+import { frameReviewLabels } from "../../../shared/video-studio/keyframes";
 import type { PoyoVideoBody } from "../../../shared/video-studio/poyo-video";
 import { previewVideo, type VideoRequest } from "../../../shared/video-studio/request";
 import type { SeedanceBody } from "../../../shared/video-studio/seedance";
@@ -39,7 +40,7 @@ export async function createVideoQueue(
 	const sign = await reviewSigner(installation);
 	const invalid = { error: "invalid" } as const;
 	const stale = { error: "stale" } as const;
-	// Seedance passes seedanceOperation.key here, so its signature bytes are unchanged.
+	// Each operation signs its own exact key; text-to-video keeps its original signature bytes.
 	function signature(id: string, terms: string, owner: string, input: VideoRequest) {
 		return sign("video-review-v1", id, terms, owner, input.operation.key, input.body, 1, 0);
 	}
@@ -54,11 +55,12 @@ export async function createVideoQueue(
 			pricing,
 			{
 				provider,
-				operation: "generate",
+				operation: input.operation.mode,
 				model:
 					"descriptor" in input.operation ? input.operation.descriptor.rateKey : input.body.model,
 				options: input.options,
-				sourceCount: 0,
+				sourceCount: input.frames.length,
+				sourceKinds: input.frames.map(() => "image" as const),
 			},
 			{ count: 1, retryLimit: 0 },
 			time,
@@ -89,6 +91,7 @@ export async function createVideoQueue(
 				quote,
 				blockers,
 				disclosures: input.disclosures,
+				frames: frameReviewLabels(input.frames),
 				preview: previewVideo(input),
 			};
 		},
