@@ -108,3 +108,22 @@ test("an early refusal keeps its meaning, and a success after the whole body is 
 		url: "https://storage.example.org/ref",
 	});
 });
+
+test("a success that arrived before the whole body is no receipt, even if the body ends while its JSON is read", async () => {
+	const late: CheckFetch = async (_url, init) => {
+		const reader = (init?.body as ReadableStream<Uint8Array> | undefined)?.getReader();
+		if (!reader) throw new Error("No body");
+		await reader.read();
+		const answer = accepted(3);
+		// The rest of the body is drained only while the response body is parsed.
+		return Object.assign(answer, {
+			json: async () => {
+				while (!(await reader.read()).done);
+				return Response.prototype.json.call(answer);
+			},
+		});
+	};
+	expect(await uploadFile("poyo", "key", file(3), new Uint8Array([1, 2, 3]), late)).toEqual({
+		kind: "unknown",
+	});
+});

@@ -75,10 +75,12 @@ export async function uploadFile(
 			},
 			body,
 		});
+		// Whether the body was complete when the response arrived, not after its JSON was read.
+		const complete = produced;
 		const interpret = provider === "poyo" ? interpretPoyoUpload : interpretToapisUpload;
 		const outcome = interpret(response.status, await response.json(), file);
 		// A success before the whole body was produced cannot describe the reviewed file.
-		return produced || outcome.kind === "rejected" || outcome.kind === "unknown"
+		return complete || outcome.kind === "rejected" || outcome.kind === "unknown"
 			? outcome
 			: uncertainUpload;
 	} catch {
