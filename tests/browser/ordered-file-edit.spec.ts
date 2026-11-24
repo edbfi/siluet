@@ -347,6 +347,37 @@ test("a stale Review answer whose body arrives after a reorder prepares nothing 
 	});
 });
 
+test("stale copies at several positions are prepared again after one settings read", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin }) => {
+		const { file, inspect, queue, consent } = await openEdit(page, origin);
+		await file(1).setInputFiles(await markedFile("png"));
+		await expect(file(1)).toHaveAccessibleDescription(ready(true));
+		await file(2).setInputFiles(await markedFile("png", 1));
+		await expect(file(2)).toHaveAccessibleDescription(ready(true));
+		await inspect.press("Enter");
+		await consent.press("Space");
+		const staging = countStaging(page);
+		const reads: string[] = [];
+		page.on("request", (request) => {
+			if (request.url().endsWith("/settings/files/state")) reads.push(request.url());
+		});
+		await page.route("**/image/file-queue", (route) =>
+			route.fulfill({
+				status: 409,
+				contentType: "application/json",
+				body: JSON.stringify({ error: "stale", positions: [1, 2] }),
+			}),
+		);
+		await queue.press("Enter");
+		await expect.poll(() => staging.length).toBe(2);
+		await expect(file(1)).toHaveAccessibleDescription(ready(true));
+		await expect(file(2)).toHaveAccessibleDescription(ready(true));
+		expect(reads).toHaveLength(1);
+	});
+});
+
 test("a lost three-file Queue answer after the edit, a restart and Retry: one job, three uploads, one edit", async ({
 	page,
 }) => {

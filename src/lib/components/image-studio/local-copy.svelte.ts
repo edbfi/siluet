@@ -156,15 +156,6 @@ export class LocalCopy {
 		if (!this.pending) this.#restart();
 	}
 
-	/**
-	 * Prepare the attached file again without Try again, because a Review or Queue found
-	 * its copy stale. The setting may have changed since.
-	 */
-	renew() {
-		void this.#pool.watch.read().catch(() => {});
-		this.replace();
-	}
-
 	/** A Review moved the copy's idle deadline. Keep the same copy and its identity. */
 	extend(deadline: number, serverNow: number) {
 		const stage = this.stage;
@@ -448,10 +439,15 @@ export class LocalCopies {
 		return duplicatePositions(this.files, (copy) => copy.stage?.digest);
 	}
 
-	/** Prepare the copies at these positions again, in reference order. */
+	/**
+	 * Prepare the copies at these positions again, in reference order, without Try again,
+	 * because a Review or Queue found them stale. The setting may have changed since, so it
+	 * is read once for all of them.
+	 */
 	renew(positions: readonly number[]) {
 		const copies = new Set(positions.map((position) => this.at(position)));
-		for (const copy of this.#copies()) if (copies.has(copy)) copy.renew();
+		void this.#watch.read().catch(() => {});
+		for (const copy of this.#copies()) if (copies.has(copy)) copy.replace();
 	}
 
 	#copies() {
