@@ -5,16 +5,13 @@ import { pathToFileURL } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 
 import { exportWorkspace } from "../../design/workspace/export";
-import toapisBundle from "../../pricing/v1/toapis.json";
 import poyoBundle from "../../pricing/v2/poyo.json";
 import { loadBundledPricing } from "../../scripts/pricing/local-feed";
 import { reloadOrigin, reloadTest, reloadUrl } from "./workspace-reload";
 
 const workspace = new URL("../../design/workspace/", import.meta.url);
-// One hour after the newer bundle, so both bundled feeds are fresh whatever their dates.
-const time = new Date(
-	Math.max(Date.parse(poyoBundle.sourceDate), Date.parse(toapisBundle.observedAt)) + 3_600_000,
-);
+// One hour after the bundled Poyo.ai feed was confirmed, so it is fresh whatever its date.
+const time = new Date(Date.parse(poyoBundle.confirmedAt) + 3_600_000);
 let portableDirectory: string;
 let portableEntry: URL;
 let sourceEntry: URL;

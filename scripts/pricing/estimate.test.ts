@@ -147,11 +147,12 @@ test("the release bundles estimate both providers offline with an empty cache", 
 				],
 				"10.2",
 			],
+			["poyo", ["--model", "h3-max"], "80"],
 			["toapis", ["--model", "doubao-seedream-5-5", "--size", "2K"], "5.6"],
 		] as const) {
-			// One hour after the newer bundle, so both are fresh whatever their dates.
+			// One hour after that provider's bundle was confirmed or observed.
 			const now =
-				Math.max(Date.parse(bundledV2.sourceDate), Date.parse(bundledToapis.observedAt)) +
+				Date.parse(provider === "poyo" ? bundledV2.confirmedAt : bundledToapis.observedAt) +
 				3_600_000;
 			const feed = await loadLocalPricing(now, {
 				provider,
@@ -174,8 +175,8 @@ test("a v2-backed CLI request for 5 s at 768p returns 80 credits", async () => {
 	try {
 		const cache = pricingCachePath(directory, "poyo-v2");
 		await mkdir(dirname(cache), { recursive: true });
-		// A later confirmation of the bundled revision whose collector added the H3 rate. An
-		// older confirmation would be a rollback, so the bundled feed would win.
+		// A later cached confirmation of the bundled revision; the cache, not the bundle, is
+		// read. An older confirmation would be a rollback, so the bundled feed would win.
 		const confirmedAt = new Date(Date.parse(bundledV2.confirmedAt) + 3_600_000)
 			.toISOString()
 			.replace(".000Z", "Z");
