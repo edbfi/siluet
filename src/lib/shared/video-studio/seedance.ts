@@ -21,14 +21,19 @@ export function seedanceRequest(operation: SeedanceOperation, d: object, prompt:
 	const media = operation.roles.length > 0;
 	const edit = operation.mode === "edit";
 	const keys = edit ? editDraftKeys : media ? keyframeDraftKeys : null;
+	// ToAPIs accepts only -1 for an edit: its length matches the source.
+	const duration = edit
+		? -1
+		: "duration" in d &&
+				typeof d.duration === "number" &&
+				Number.isInteger(d.duration) &&
+				d.duration >= 4 &&
+				d.duration <= 10
+			? d.duration
+			: null;
 	if (
 		Object.keys(d).some((k) => (keys ? !keys.includes(k) : !Object.hasOwn(videoDefaults, k))) ||
-		(!edit &&
-			(!("duration" in d) ||
-				typeof d.duration !== "number" ||
-				!Number.isInteger(d.duration) ||
-				d.duration < 4 ||
-				d.duration > 10)) ||
+		duration === null ||
 		!("resolution" in d) ||
 		(d.resolution !== "480p" && d.resolution !== "720p") ||
 		!("generate_audio" in d) ||
@@ -44,8 +49,7 @@ export function seedanceRequest(operation: SeedanceOperation, d: object, prompt:
 	const frames = parsed?.frames ?? [];
 	const options = {
 		video_operation: edit ? "edit" : "generate",
-		// ToAPIs accepts only -1 for an edit: its length matches the source.
-		duration: edit ? -1 : Number("duration" in d && d.duration),
+		duration,
 		aspect_ratio: ratio,
 		resolution: d.resolution,
 		generate_audio: d.generate_audio,
