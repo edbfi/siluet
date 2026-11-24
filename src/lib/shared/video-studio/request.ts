@@ -11,6 +11,7 @@ import { type Frame, frameReviewLabels, keyframeDisclosures } from "./keyframes"
 import { poyoVideoBody, poyoVideoOptions } from "./poyo-video";
 import { saveDisclosure } from "./save-profile";
 import { seedanceRequest, videoDisclosures } from "./seedance";
+import { editDisclosures } from "./source-edit";
 
 const requestKeys = ["draft", "operationKey", "count", "retryLimit", "acceptTerms", "token"];
 
@@ -24,9 +25,11 @@ export function videoReviewDisclosures(operation: SeedanceOperation | PoyoVideoO
 	const own =
 		"descriptor" in operation
 			? operation.descriptor.disclosures
-			: operation.roles.length
-				? keyframeDisclosures
-				: videoDisclosures;
+			: operation.mode === "edit"
+				? editDisclosures
+				: operation.mode === "generate"
+					? videoDisclosures
+					: keyframeDisclosures;
 	const save = saveDisclosure(operation);
 	return save ? [...own, save] : [...own];
 }
@@ -79,17 +82,18 @@ export function parseVideo(value: unknown) {
 }
 export type VideoRequest = NonNullable<ReturnType<typeof parseVideo>>;
 
-/** The outgoing request with the prompt redacted and each frame URL replaced by its label. */
+/** The outgoing request with the prompt redacted and each media URL replaced by its label. */
 export function previewVideo({ body, frames }: Pick<VideoRequest, "body" | "frames">) {
 	if ("input" in body)
 		return { ...body, input: { ...body.input, prompt: redactPrompt(String(body.input.prompt)) } };
 	const labels = frameReviewLabels(frames);
+	const masked = (media: readonly { role: string }[]) =>
+		media.map(({ role }, i) => ({ url: labels[i], role }));
 	return {
 		...body,
 		prompt: redactPrompt(body.prompt),
-		...("image_with_roles" in body && {
-			image_with_roles: body.image_with_roles.map(({ role }, i) => ({ url: labels[i], role })),
-		}),
+		...("image_with_roles" in body && { image_with_roles: masked(body.image_with_roles) }),
+		...("video_with_roles" in body && { video_with_roles: masked(body.video_with_roles) }),
 		client_business_id: "[Siluet assigns a correlation ID at Queue]",
 	};
 }

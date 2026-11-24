@@ -16,6 +16,7 @@ test("every released video operation has a valid save or null", () => {
 		"seedance-2-5 text-to-video": { seconds: 30, basis: "provider" },
 		"seedance-2-5 first-frame-to-video": { seconds: 30, basis: "provider" },
 		"seedance-2-5 first-and-last-frame-to-video": { seconds: 30, basis: "provider" },
+		"seedance-2-5 video-edit": { seconds: 30, basis: "provider" },
 		"h3-max text-to-video": { seconds: 15, basis: "provider" },
 	});
 });

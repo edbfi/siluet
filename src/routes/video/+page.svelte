@@ -75,7 +75,12 @@ const modes = $derived(
 );
 const roles = $derived(frameRoles(operation));
 // Frame URLs live only in this page's memory and the reviewed request.
-let frames = $state<Record<FrameRole, string>>({ first_frame: "", last_frame: "" });
+const noFrames = (): Record<FrameRole, string> => ({
+	first_frame: "",
+	last_frame: "",
+	reference_video: "",
+});
+let frames = $state(noFrames());
 const frameErrors = $derived.by(() => {
 	const errors: Partial<Record<FrameRole, string>> = {};
 	for (const role of roles) {
@@ -123,7 +128,7 @@ function switchMode(key: string) {
 	const target = find(operation.key.model, key);
 	if (!target || target === operation) return;
 	operation = target;
-	frames = { first_frame: "", last_frame: "" };
+	frames = noFrames();
 	edit();
 }
 // Keep the prompt and any compatible setting. Apply the target's defaults to the rest.
@@ -131,7 +136,7 @@ function switchModel(id: string) {
 	const target = find(id);
 	if (!target || target === operation) return;
 	operation = target;
-	frames = { first_frame: "", last_frame: "" };
+	frames = noFrames();
 	const next = controls(target);
 	draft = {
 		prompt: draft.prompt,
