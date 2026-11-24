@@ -27,7 +27,7 @@ import type { VideoTarget } from "../queue/video";
 import type { VideoDelivery } from "../video-media/download";
 import { batchHistory } from "./batch-history";
 import { retryEvidence, statusUpdate } from "./observation";
-import { type GalleryState, isActive, summarizeJob } from "./summary";
+import { type FileSlotSummary, type GalleryState, isActive, summarizeJob } from "./summary";
 
 export type { JobSummary } from "./summary";
 
@@ -342,7 +342,20 @@ export function createJobTracking(
 				)
 			).map((row) => [row.job_id, row.state]),
 		);
-		return rows.map((job) => summarizeJob(job, readable(job), now(), gallery.get(job.id) ?? null));
+		const slots = new Map<string, FileSlotSummary[]>();
+		if (rows.some((job) => job.file_phase))
+			for (const slot of await installation.use((db) =>
+				db.all<FileSlotSummary & { job_id: string }>(
+					sql`SELECT job_id, position, outcome FROM file_slot ORDER BY job_id, position`,
+				),
+			))
+				slots.set(slot.job_id, [
+					...(slots.get(slot.job_id) ?? []),
+					{ position: slot.position, outcome: slot.outcome },
+				]);
+		return rows.map((job) =>
+			summarizeJob(job, readable(job), now(), gallery.get(job.id) ?? null, slots.get(job.id)),
+		);
 	}
 
 	const runners = {

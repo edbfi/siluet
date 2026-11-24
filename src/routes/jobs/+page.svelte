@@ -51,6 +51,15 @@ const fileStates = {
 	"upload-rejected": "Upload rejected · edit not sent",
 	"edit-recorded": null,
 } as const;
+// One file slot's upload, by its 1-based reference position.
+const slotStates = {
+	unsent: "Not sent",
+	uploading: "Uploading",
+	stored: "File uploaded",
+	unusable: "File uploaded · link unusable",
+	unknown: "Upload outcome unknown",
+	rejected: "Upload rejected",
+} as const;
 type Job = PageProps["data"]["jobs"][number];
 // What automatic Save has done with a completed result (D9).
 function libraryText(job: Job) {
@@ -202,10 +211,20 @@ function submit(id: string, action: Action): SubmitFunction {
 					{job.tracking === "paused" ? "Tracking paused. " : ""}{job.message}
 				</p>
 			{/if}
-			{#if job.filePhase &&
-				job.filePhase !== "unsent" &&
-				job.filePhase !== "upload-rejected" &&
-				(job.state === "unknown" || job.state === "rejected")}
+			{#if job.file}
+				<p class={styles.meta}>
+					{job.file.references}
+					{job.file.references === 1 ? "reference" : "references"} · {job.file.slots.length}
+					{job.file.slots.length === 1 ? "file" : "files"}
+				</p>
+				<!-- biome-ignore lint/a11y/noRedundantRoles: Safari needs an explicit role when list markers are hidden. -->
+				<ul class={styles.slots} role="list" aria-label="File uploads">
+					{#each job.file.slots as slot (slot.position)}
+						<li>Reference {slot.position} · {slotStates[slot.outcome]}</li>
+					{/each}
+				</ul>
+			{/if}
+			{#if job.file?.hosted && (job.state === "unknown" || job.state === "rejected")}
 				<p class={styles.note}>
 					An uploaded file may remain accessible. Check provider history before attaching it again.
 					A new attempt can create another copy and incur charges.

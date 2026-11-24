@@ -38,6 +38,14 @@ export const styles = {
 		overflowWrap: "anywhere",
 	}),
 	note: css({ maxWidth: "72ch", fontSize: "0.875rem" }),
+	slots: css({
+		display: "grid",
+		gap: "0.2rem",
+		listStyle: "none",
+		paddingInlineStart: 0,
+		fontSize: "0.875rem",
+		fontVariantNumeric: "tabular-nums",
+	}),
 	library: css({
 		fontSize: "0.875rem",
 		fontWeight: 650,
