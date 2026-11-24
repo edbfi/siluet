@@ -54,22 +54,31 @@ field() {
   jq -r --arg field "$1" '.[$field]' "$2"
 }
 
-# Construct the exact data-only tree without checking out the branch.
+# Construct the exact data-only tree without checking out the branch. Each feed is optional,
+# and the PoYo license accompanies each PoYo feed.
 # https://git-scm.com/docs/git-mktree
-build_tree() {
-  local v1_feed=$1 license=$2 v2_feed=${3:-} v1_tree v2_tree='' pricing_tree
-  v1_tree=$({
-    printf '100644 blob %s\t%s\n' "$v1_feed" "$v1_name"
+version_tree() {
+  local feed=$1 name=$2 license=$3
+  {
     if [[ -n $license ]]; then
       printf '100644 blob %s\tLICENSE.poyo\n' "$license"
     fi
-  } | git mktree) || return
+    printf '100644 blob %s\t%s\n' "$feed" "$name"
+  } | git mktree
+}
+
+build_tree() {
+  local v1_feed=$1 license=$2 v2_feed=${3:-} v1_tree='' v2_tree='' pricing_tree
+  if [[ -n $v1_feed ]]; then
+    v1_tree=$(version_tree "$v1_feed" "$v1_name" "$license") || return
+  fi
   if [[ -n $v2_feed ]]; then
-    v2_tree=$(printf '100644 blob %s\tLICENSE.poyo\n100644 blob %s\tpoyo.json\n' \
-      "$license" "$v2_feed" | git mktree) || return
+    v2_tree=$(version_tree "$v2_feed" "$v2_name" "$license") || return
   fi
   pricing_tree=$({
-    printf '040000 tree %s\tv1\n' "$v1_tree"
+    if [[ -n $v1_tree ]]; then
+      printf '040000 tree %s\tv1\n' "$v1_tree"
+    fi
     if [[ -n $v2_tree ]]; then
       printf '040000 tree %s\tv2\n' "$v2_tree"
     fi
@@ -82,13 +91,16 @@ now_seconds=$(date -u -d "$now" '+%s')
 
 if [[ $provider == poyo ]]; then
   v1_name=feed.json
+  v2_name=poyo.json
   canonical_feed providers/poyo/publish-v2.jq 65536 >"$work/candidate.json"
   source_date=$(field sourceDate "$work/candidate.json")
   confirmed_at=$(field confirmedAt "$work/candidate.json")
   license_blob=$(git hash-object --no-filters -w -- "$2")
 else
+  # The v1 feed cannot express the reference-image rate, so it stays frozen and only v2 advances.
   v1_name=toapis.json
-  canonical_feed providers/toapis/publish.jq 4096 >"$work/candidate.json"
+  v2_name=toapis.json
+  canonical_feed providers/toapis/publish-v2.jq 4096 >"$work/candidate.json"
   source_date=$(field observedAt "$work/candidate.json")
   license_blob=''
 fi
@@ -102,21 +114,24 @@ if git ls-remote --exit-code --refs origin "$data_ref" >/dev/null; then
   git fetch --no-tags --depth=1 origin "$data_ref"
   parent=$(git rev-parse FETCH_HEAD)
   parents=(-p "$parent")
-  old_v1=$(git rev-parse "$parent:pricing/v1/$v1_name")
   if [[ $provider == poyo ]]; then
+    old_v1=$(git rev-parse "$parent:pricing/v1/$v1_name")
     old_license=$(git rev-parse "$parent:pricing/v1/LICENSE.poyo")
-    old_v2=$(git rev-parse --verify --quiet "$parent:pricing/v2/poyo.json" || true)
+  else
+    old_v1=$(git rev-parse --verify --quiet "$parent:pricing/v1/$v1_name" || true)
   fi
+  old_v2=$(git rev-parse --verify --quiet "$parent:pricing/v2/$v2_name" || true)
   expected_tree=$(build_tree "$old_v1" "$old_license" "$old_v2")
   [[ $(git rev-parse "$parent^{tree}") == "$expected_tree" ]] ||
     fail "Unexpected contents in the $data_ref branch."
-  if [[ $provider == poyo ]]; then
-    git cat-file blob "$old_v1" | canonical_feed providers/poyo/publish.jq 4096 >"$work/previous-v1.json"
-  else
-    git cat-file blob "$old_v1" | canonical_feed providers/toapis/publish.jq 4096 >"$work/previous-v1.json"
+  if [[ -n $old_v1 ]]; then
+    git cat-file blob "$old_v1" |
+      canonical_feed "providers/$provider/publish.jq" 4096 >"$work/previous-v1.json"
   fi
-  if [[ -n $old_v2 ]]; then
+  if [[ -n $old_v2 && $provider == poyo ]]; then
     git cat-file blob "$old_v2" | canonical_feed providers/poyo/publish-v2.jq 65536 >"$work/previous-v2.json"
+  elif [[ -n $old_v2 ]]; then
+    git cat-file blob "$old_v2" | canonical_feed providers/toapis/publish-v2.jq 4096 >"$work/previous-v2.json"
   fi
 else
   [[ $? == 2 ]] || fail "Could not determine whether the $data_ref branch exists."
@@ -162,25 +177,31 @@ if [[ $provider == poyo ]]; then
   revision=$(field revision "$work/candidate.json")
   outcome="PoYo pricing published: revision ${revision:0:12}, source $source_date, confirmed $confirmed_at."
 else
-  if [[ -z $old_v1 ]]; then
-    : >"$work/previous-v1.json"
+  # Compare with the previous v2 feed, or with the frozen v1 feed before the first v2 publish.
+  previous="$work/previous-v2.json"
+  if [[ -z $old_v2 ]]; then
+    previous="$work/previous-v1.json"
+    if [[ -z $old_v1 ]]; then
+      : >"$previous"
+    fi
   fi
-  jq -en --slurpfile candidate "$work/candidate.json" --slurpfile previous "$work/previous-v1.json" \
+  jq -en --slurpfile candidate "$work/candidate.json" --slurpfile previous "$previous" \
     --arg now "$now" -f "$script_dir/providers/toapis/freshness.jq" >/dev/null ||
     fail "ToAPIs source freshness validation failed."
-  if [[ -n $old_v1 ]]; then
-    if cmp -s "$work/candidate.json" "$work/previous-v1.json"; then
-      skip "ToAPIs pricing is unchanged."
-    fi
-    old_date=$(field observedAt "$work/previous-v1.json")
+  if [[ -n $old_v2 ]] && cmp -s "$work/candidate.json" "$previous"; then
+    skip "ToAPIs pricing is unchanged."
+  fi
+  if [[ -n $old_v1 || -n $old_v2 ]]; then
+    old_date=$(field observedAt "$previous")
     [[ "$source_date" > "$old_date" ]] ||
       fail "The ToAPIs candidate does not have a newer observation."
-    if [[ ${source_date:0:10} == "${old_date:0:10}" ]]; then
+    # The first v2 publish proceeds on the day of the last v1 observation.
+    if [[ -n $old_v2 && ${source_date:0:10} == "${old_date:0:10}" ]]; then
       skip "ToAPIs pricing was already published today."
     fi
   fi
-  v1_blob=$(git hash-object -w -- "$work/candidate.json")
-  v2_blob=''
+  v1_blob=$old_v1
+  v2_blob=$(git hash-object -w -- "$work/candidate.json")
   outcome="ToAPIs pricing published: observed $source_date."
 fi
 

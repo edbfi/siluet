@@ -106,7 +106,7 @@ jobs:
           script_dir="$RUNNER_TEMP/pricing-scripts"
           paths=(publish.sh publish-validation.jq "providers/$PRICING_PROVIDER/publish.jq")
           if [[ "$PRICING_PROVIDER" == toapis ]]; then
-            paths+=(providers/toapis/freshness.jq)
+            paths+=(providers/toapis/{rates,publish-v2,freshness}.jq)
           else
             paths+=(providers/poyo/{rates,publish-v2,project-v1,order}.jq)
           fi
