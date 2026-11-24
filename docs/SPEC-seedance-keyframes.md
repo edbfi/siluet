@@ -60,6 +60,6 @@ An input-class test under D2: Seedance 2.5 text-to-video already represents the 
 - confirmed and uncertain `invalid_private_assets`, including a contradictory response recovered by business-ID lookup; `reference_media_unreadable`; an unknown reason carrying a signed URL that is discarded; `InvalidParameter.TaskTypeConstraint`;
 - identical replay across restart: one job, one POST; token-usage quotes with the advertised rate in both modes;
 - asset review past automatic tracking, then Refresh status and automatic Save; a failed download, then Retry download with zero new POSTs;
-- a keyboard journey through both modes at desktop width and 320 px with two signed URLs on one host: zero frame-host reads from browser or server, no raw URL or frame host in Review responses, diagnostics or job rows, one POST with `disable_nsfw: false`, automatic Save and offline reopen.
+- a keyboard journey through both modes at desktop width and 320 px with two signed URLs on one host: zero frame-host reads from browser or server, no raw URL in Review responses, and no raw URL or frame host in diagnostics or job rows, one POST with `disable_nsfw: false`, automatic Save and offline reopen.
 
 Sources, accessed 2026-11-24: [generation and asset review](https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation#asset-review) · [errors](https://docs.toapis.com/docs/en/api-reference/errors) · [video status](https://docs.toapis.com/docs/en/api-reference/tasks/video-status) · [BytePlus video generation API](https://docs.byteplus.com/en/docs/ModelArk/1520757)
