@@ -1,5 +1,5 @@
 import type { StageDescriptor } from "../../../shared/image-studio/file-edit";
-import type { FileRequest, FileSlot } from "./request";
+import type { FileRequest, OrderedReference } from "./request";
 
 type Mac = (...parts: unknown[]) => string;
 const stageFields = ({
@@ -20,7 +20,7 @@ const stageFields = ({
 	deadline,
 });
 /** Each ordered slot as signed: its exact trimmed URL, or its stage with its own draft. */
-export const signedSlots = (slots: readonly FileSlot[]) =>
+export const signedSlots = (slots: readonly OrderedReference[]) =>
 	slots.map((slot) => (slot.kind === "url" ? slot.url : stageFields(slot.stage)));
 
 /**

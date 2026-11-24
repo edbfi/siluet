@@ -174,7 +174,7 @@ export async function createFileQueue(
 		time: number,
 	) {
 		return Math.max(
-			await submitCooldown(tx as InstallationTransaction, provider),
+			await submitCooldown(tx, provider),
 			provider === "poyo" ? await nextPoyoUploadStart(tx, time, uploads) : 0,
 		);
 	}

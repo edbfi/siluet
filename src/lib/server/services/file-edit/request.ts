@@ -5,7 +5,9 @@ import { isRecord } from "../../providers/connection-check";
 import { parseQueueRequest } from "../queue/request";
 
 /** One ordered reference: a public URL as typed, or a staged local file. */
-export type FileSlot = { kind: "url"; url: string } | { kind: "file"; stage: StageDescriptor };
+export type OrderedReference =
+	| { kind: "url"; url: string }
+	| { kind: "file"; stage: StageDescriptor };
 const placeholderHost = new URL(filePlaceholder).hostname;
 
 /** The placeholder a file slot's URL takes until its upload returns a hosted URL. */
@@ -33,7 +35,7 @@ function editRequest(
 }
 
 /** Positions sharing a trimmed URL, a stage handle or a verified digest. */
-function duplicatePositions(slots: FileSlot[]) {
+function duplicatePositions(slots: OrderedReference[]) {
 	const seen = new Map<string, number>();
 	const positions = new Set<number>();
 	for (const [index, slot] of slots.entries()) {
@@ -81,7 +83,7 @@ function parseR1bBody(value: Record<string, unknown>) {
 			references: [{ kind: "upload", url: filePlaceholder }],
 			options: sortedOptions(draft.options),
 		},
-		slots: [{ kind: "file", stage: parsed }] as FileSlot[],
+		slots: [{ kind: "file", stage: parsed }] as OrderedReference[],
 		files: [{ position: 1, stage: parsed }],
 	};
 }
@@ -99,7 +101,7 @@ export function parseFileRequest(value: unknown): FileRequest | Duplicate | null
 	if (!isRecord(draft) || !Array.isArray(draft.references)) return null;
 	const references: unknown[] = draft.references;
 	if (references.length < 1 || references.length > maxSeedreamReferences) return null;
-	const slots: FileSlot[] = [];
+	const slots: OrderedReference[] = [];
 	for (const reference of references) {
 		if (!isRecord(reference)) return null;
 		const keys = Object.keys(reference).sort().join();
@@ -129,7 +131,7 @@ export function parseFileRequest(value: unknown): FileRequest | Duplicate | null
 function orderedRequest(
 	value: Record<string, unknown>,
 	draft: Record<string, unknown>,
-	slots: FileSlot[],
+	slots: OrderedReference[],
 	files: { position: number; stage: StageDescriptor }[],
 ) {
 	const live = editRequest(
