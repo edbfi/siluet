@@ -44,7 +44,13 @@ function normalizeText(text: string): string {
 	return text.trim().replace(/\s+/g, " ");
 }
 
-function parseTable(html: string, url: string, model: string, expectedColumns: string[]) {
+function parseTable(
+	html: string,
+	url: string,
+	model: string,
+	expectedColumns: string[],
+	rowLabels: string[],
+) {
 	const columns: string[] = [];
 	const rows: string[][] = [];
 	let title = "";
@@ -89,8 +95,11 @@ function parseTable(html: string, url: string, model: string, expectedColumns: s
 		tableCount !== 1 ||
 		columns.length !== expectedColumns.length ||
 		!columns.every((column, index) => normalizeText(column) === expectedColumns[index]) ||
-		rows.length !== 2 ||
-		rows.some((row) => row.length !== expectedColumns.length)
+		rows.length !== rowLabels.length ||
+		rows.some(
+			(row, index) =>
+				row.length !== expectedColumns.length || normalizeText(row[0]) !== rowLabels[index],
+		)
 	) {
 		throw new Error(`Unexpected ToAPIs ${model} pricing table.`);
 	}
@@ -122,42 +131,135 @@ function modelSource(url: string, cacheAgeSeconds: number | null) {
 	} as const;
 }
 
+// Reviewed on 2026-11-24: the only statement about reference images in billing terms.
+const referenceNote =
+	/^Ordinary generation returns one image; layer decomposition returns a base image and PNG layers\. Reference images are billed at \$([\d.]+) per image\. Billing settles when the task completes\.$/;
+
+/** The one paragraph that ties reference images to billing, read as its amount in USD. */
+function readReferenceNote(html: string, title: string): string {
+	const paragraphs: string[] = [];
+	new HTMLRewriter()
+		.on("main p", {
+			element() {
+				paragraphs.push("");
+			},
+			text(chunk) {
+				paragraphs[paragraphs.length - 1] += chunk.text;
+			},
+		})
+		.transform(html);
+	const notes = paragraphs
+		.map(normalizeText)
+		.filter((text) => /reference/i.test(text) && /\b(?:bill|charge|free)/i.test(text));
+	const usd = notes.length === 1 ? referenceNote.exec(notes[0])?.[1] : undefined;
+	if (!isCreditRate(usd)) {
+		throw new Error(`The ToAPIs ${title} reference-image billing note has changed or is missing.`);
+	}
+	return usd;
+}
+
+// One Next.js flight chunk: self.__next_f.push([1,"<JSON string literal>"]).
+const flightChunk = /^self\.__next_f\.push\(\[\d+(?:,("(?:[^"\\]|\\.)*"))?\]\)$/;
+const inputImageData = /"inputImage":\{"usd":(\d+(?:\.\d+)?),"freeCount":(\d+)\}/g;
+
+/** The page's own pricing data for reference images, decoded from its escaped flight string. */
+function readInputImageData(html: string, title: string): { usd: string; freeCount: string } {
+	const scripts: string[] = [];
+	new HTMLRewriter()
+		.on("script", {
+			element() {
+				scripts.push("");
+			},
+			text(chunk) {
+				scripts[scripts.length - 1] += chunk.text;
+			},
+		})
+		.transform(html);
+	const matches = scripts.flatMap((script) => {
+		const literal = flightChunk.exec(script.trim())?.[1];
+		if (literal === undefined) return [];
+		let payload: unknown;
+		try {
+			payload = JSON.parse(literal);
+		} catch {
+			throw new Error(`Unreadable ToAPIs ${title} page data.`);
+		}
+		return typeof payload === "string" ? [...payload.matchAll(inputImageData)] : [];
+	});
+	// Any other copy of the entry, escaped or not, makes the source ambiguous.
+	if (matches.length !== 1 || html.split("inputImage").length !== 2) {
+		throw new Error(`The ToAPIs ${title} reference-image page data has changed or is missing.`);
+	}
+	const [, usd, freeCount] = matches[0];
+	return { usd, freeCount };
+}
+
 export function readImageRates(page: PricingPage) {
 	const model = "doubao-seedream-5-5";
 	const title = "Seedream 5.5";
-	const rows = parseTable(page.html, imageSourceUrl, title, [
-		"Specification",
-		"ToAPIs price",
-		"Savings",
-		"ByteDance official list",
-	]);
-	return (["1K", "1.5K", "2K"] as const).map((size) => {
-		const label = size === "2K" ? "2K" : "1K / 1.5K";
-		const row = rows.find(([tier]) => tier === label);
-		if (!row) throw new Error(`Missing ToAPIs ${title} advertised tier.`);
-		return {
+	const [small, large, input] = parseTable(
+		page.html,
+		imageSourceUrl,
+		title,
+		["Specification", "ToAPIs price", "Savings", "ByteDance official list"],
+		["1K / 1.5K", "2K", "Image input"],
+	);
+	const source = modelSource(imageSourceUrl, page.cacheAgeSeconds);
+	const tiers = (["1K", "1.5K", "2K"] as const).map(
+		(size) =>
+			({
+				model,
+				operations: ["generate", "edit"],
+				unit: "image",
+				conditions: { size, outputCount: 1, layerDecomposition: false },
+				...readPrice((size === "2K" ? large : small)[1], "image", title),
+				source,
+			}) as const,
+	);
+
+	// Each reference image is charged on top of the output tier. The table, the note below it
+	// and the page data must all state the same flat amount with no free allowance.
+	if (input[2] !== "-" || !/^ByteDance official list\s*-\s*image$/.test(input[3])) {
+		throw new Error(`Unexpected ToAPIs ${title} image input row.`);
+	}
+	const reference = readPrice(input[1], "image", title);
+	const noteUsd = readReferenceNote(page.html, title);
+	const data = readInputImageData(page.html, title);
+	const amount = creditUnits(reference.usd);
+	if (
+		creditUnits(noteUsd) !== amount ||
+		!isCreditRate(data.usd) ||
+		creditUnits(data.usd) !== amount ||
+		data.freeCount !== "0"
+	) {
+		throw new Error(`The ToAPIs ${title} reference-image prices disagree.`);
+	}
+	return [
+		...tiers,
+		{
 			model,
 			operations: ["generate", "edit"],
-			unit: "image",
-			conditions: { size, outputCount: 1, layerDecomposition: false },
-			...readPrice(row[1], "image", title),
-			source: modelSource(imageSourceUrl, page.cacheAgeSeconds),
-		} as const;
-	});
+			unit: "reference-image",
+			conditions: { freeAllowance: 0 },
+			...reference,
+			source,
+		} as const,
+	];
 }
 
 export function readVideoRates(page: PricingPage) {
 	const model = "seedance-2-5";
 	const title = "Seedance 2.5";
-	const rows = parseTable(page.html, videoSourceUrl, title, [
-		"Specification",
-		"ToAPIs price",
-		"Billing basis",
-	]);
+	const rows = parseTable(
+		page.html,
+		videoSourceUrl,
+		title,
+		["Specification", "ToAPIs price", "Billing basis"],
+		["No video input", "With video input"],
+	);
 	return [false, true].map((videoInput) => {
-		const label = videoInput ? "With video input" : "No video input";
-		const row = rows.find(([input]) => input === label);
-		if (row?.[2] !== "1M total tokens") {
+		const row = rows[Number(videoInput)];
+		if (row[2] !== "1M total tokens") {
 			throw new Error(`Missing ToAPIs ${title} advertised billing basis.`);
 		}
 		return {

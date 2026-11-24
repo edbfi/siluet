@@ -86,7 +86,7 @@ export async function collectToapisPricing(
 	const videoRates = readVideoRates(video);
 	const observed = clock();
 	const feed = decodeToapisPricingFeed({
-		version: 1,
+		version: 2,
 		provider: "toapis",
 		observedAt: observed.toISOString().replace(/\.\d{3}Z$/, "Z"),
 		creditsPerUsd,
