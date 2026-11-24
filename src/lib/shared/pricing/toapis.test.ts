@@ -41,7 +41,68 @@ test("quotes the public rate for a tier and initial batch in approximate ToAPIs 
 			{ ...image, operation: "edit", sourceCount: 10, options: { size: "1.5K" } },
 			now,
 		),
-	).toMatchObject({ status: "known", perRequest: "3.2", batch: "16" });
+	).toMatchObject({
+		status: "known",
+		perRequest: "16",
+		batch: "80",
+		usd: { perRequest: "0.08", batch: "0.4" },
+		referenceImages: { count: 10, usdEach: "0.0064", approximateCreditsEach: "1.28" },
+	});
+});
+
+test.each([
+	["2K", 0, "5.6", "0.028"],
+	["2K", 1, "6.88", "0.0344"],
+	["2K", 2, "8.16", "0.0408"],
+	["2K", 10, "18.4", "0.092"],
+	// A billed 1K edit with one reference settled at 4.48 credits ($0.0224), input_images: 1.
+	["1K", 1, "4.48", "0.0224"],
+] as const)(
+	"quotes a %s request with %i references as the tier plus each reference",
+	(size, references, credits, usd) => {
+		const input = {
+			...image,
+			count: 1,
+			operation: references ? "edit" : "generate",
+			sourceCount: references,
+			options: { ...image.options, size },
+		};
+		const quote = estimatePrice(decodeToapisPricingFeed(toapisRates), input, now);
+		expect(quote).toMatchObject({
+			status: "known",
+			perRequest: credits,
+			batch: credits,
+			usd: { perRequest: usd, batch: usd },
+		});
+		if (references) {
+			expect(quote).toMatchObject({
+				referenceImages: { count: references, usdEach: "0.0064", approximateCreditsEach: "1.28" },
+			});
+		} else {
+			expect(quote).not.toHaveProperty("referenceImages");
+		}
+	},
+);
+
+test("an edit expires with the older of its tier and reference evidence", () => {
+	const feed = decodeToapisPricingFeed({
+		...toapisRates,
+		rates: toapisRates.rates.map((rate) =>
+			rate.model === "doubao-seedream-5-5"
+				? { ...rate, source: { ...rate.source, cacheAgeSeconds: 120 } }
+				: rate,
+		),
+	});
+	const edit = { ...image, operation: "edit", sourceCount: 2 };
+	const expiry = Date.parse(toapisRates.observedAt) + 30 * 86400_000 - 120_000;
+	expect(estimatePrice(feed, edit, expiry - 1)).toMatchObject({
+		status: "known",
+		expiresAt: new Date(expiry).toISOString(),
+	});
+	expect(estimatePrice(feed, edit, expiry)).toMatchObject({
+		status: "unknown",
+		reason: "expired-feed",
+	});
 });
 
 test.each([

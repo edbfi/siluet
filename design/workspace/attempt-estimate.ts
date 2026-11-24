@@ -59,5 +59,34 @@ export function restoreToapisAttempt(value: unknown, model: string) {
 		return null;
 	const provenance = restoreToapisProvenance(value, model);
 	if (!provenance) return null;
-	return { status, unit, perRequest, usd: { perRequest: usd.perRequest }, ...provenance };
+	const estimate = { status, unit, perRequest, usd: { perRequest: usd.perRequest } };
+	// Quotes saved before the per-reference charge omit it.
+	if (!Object.hasOwn(value, "referenceImages")) return { ...estimate, ...provenance };
+	const referenceImages = restoreReferenceImages(value.referenceImages, usd.perRequest);
+	return referenceImages ? { ...estimate, referenceImages, ...provenance } : null;
+}
+
+/** A per-reference charge that leaves a positive output tier within the saved total. */
+function restoreReferenceImages(value: unknown, usdPerRequest: string) {
+	if (
+		!isPricingRecord(value) ||
+		Object.keys(value).length !== 3 ||
+		!Object.hasOwn(value, "count") ||
+		!Object.hasOwn(value, "usdEach") ||
+		!Object.hasOwn(value, "approximateCreditsEach")
+	)
+		return;
+	const { count, usdEach, approximateCreditsEach } = value;
+	if (
+		typeof count !== "number" ||
+		!Number.isSafeInteger(count) ||
+		count < 1 ||
+		count > 10 ||
+		!isCreditRate(usdEach) ||
+		!isCreditRate(approximateCreditsEach) ||
+		creditUnits(usdEach) * 200n !== creditUnits(approximateCreditsEach) ||
+		creditUnits(usdEach) * BigInt(count) >= creditUnits(usdPerRequest)
+	)
+		return;
+	return { count, usdEach, approximateCreditsEach };
 }

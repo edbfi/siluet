@@ -94,8 +94,9 @@ test("the offline CLI selects the ToAPIs cache and uses the same tier and attemp
 		expect(JSON.parse(stdout)).toMatchObject({
 			status: "known",
 			unit: "toapis_credit",
-			perRequest: "6",
-			batch: "30",
+			// The 2K tier at $0.03 plus two references at $0.0064 each.
+			perRequest: "8.56",
+			batch: "42.8",
 			maxAttempts: 20,
 			source: { scope: "public-advertised" },
 		});

@@ -405,19 +405,23 @@ test.each(["poyo", "toapis"] as const)(
 			async () => (feed.provider === "poyo" ? { poyo: feed } : { toapis: feed }),
 			() => (feed.provider === "poyo" ? poyoConfirmationMs(feed) : Date.parse(sourceDate)) + 100,
 		);
-		for (const [count, poyoTotal] of [
-			[1, "8.6"],
-			[2, "10.2"],
-			[10, "23"],
+		// ToAPIs charges $0.0064 (1.28 credits) per reference on top of the 2K tier.
+		for (const [count, poyoTotal, toapisTotal, toapisUsd] of [
+			[1, "8.6", "6.88", "0.0344"],
+			[2, "10.2", "8.16", "0.0408"],
+			[10, "23", "18.4", "0.092"],
 		] as const) {
 			const urls = Array.from({ length: count }, (_, index) => `${referenceUrl}-${index}`);
 			expect(await api.review("owner", makeInput(provider, ...urls))).toMatchObject({
 				quote: {
 					status: "known",
-					perRequest: provider === "poyo" ? poyoTotal : "5.6",
+					perRequest: provider === "poyo" ? poyoTotal : toapisTotal,
 					maxAttempts: 1,
 					sourceDate,
-					...(provider === "toapis" && { usd: { perRequest: "0.028", batch: "0.028" } }),
+					...(provider === "toapis" && {
+						usd: { perRequest: toapisUsd, batch: toapisUsd },
+						referenceImages: { count, usdEach: "0.0064", approximateCreditsEach: "1.28" },
+					}),
 				},
 				requiresConsent: provider === "toapis",
 			});
@@ -516,6 +520,39 @@ test("a queued job during replacement validation requires a warning before chang
 	expect(await connections.connect("poyo", "replacement-key", true)).toBe("connected");
 });
 
+test("a ToAPIs edit reviewed against an older reference rate is stale at Queue and sends nothing", async () => {
+	const reviewed = decodeToapisPricingFeed(toapisRates);
+	const changed = decodeToapisPricingFeed({
+		...toapisRates,
+		rates: toapisRates.rates.map((rate) =>
+			rate.unit === "reference-image" ? { ...rate, usd: "0.008", approximateCredits: "1.6" } : rate,
+		),
+	});
+	if (!reviewed || !changed) throw new Error("Invalid fixture rate.");
+	let feed = reviewed;
+	const input = makeInput("toapis", referenceUrl, secondReferenceUrl);
+	const api = await createSubmissionQueue(
+		db,
+		providerStore(db).credential,
+		async () => {
+			posted.push("accepted");
+		},
+		async () => ({ toapis: feed }),
+		() => Date.parse(reviewed.observedAt) + 100,
+	);
+	const terms = await api.review("owner", input);
+	if ("error" in terms) throw new Error("Expected Review");
+	expect(terms.quote).toMatchObject({ perRequest: "8.16" });
+	feed = changed;
+	expect(
+		await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true }),
+	).toMatchObject({
+		error: "stale",
+		review: { quote: { perRequest: "8.8" }, acceptUnknown: false },
+	});
+	expect(posted).toBeEmpty();
+});
+
 test.each(["generate", "edit"] as const)(
 	"a known ToAPIs %s rate requires fallback consent and stale rates refresh the Review",
 	async (operation) => {
@@ -538,7 +575,11 @@ test.each(["generate", "edit"] as const)(
 		);
 		const terms = await api.review("owner", input);
 		if ("error" in terms) throw new Error("Expected Review");
-		expect(terms.quote).toMatchObject({ status: "known", perRequest: "5.6", maxAttempts: 1 });
+		expect(terms.quote).toMatchObject({
+			status: "known",
+			perRequest: operation === "edit" ? "8.16" : "5.6",
+			maxAttempts: 1,
+		});
 		expect(terms.requiresConsent).toBe(true);
 		expect(await api.submit("owner", { ...input, token: terms.token })).toEqual({
 			error: "invalid",

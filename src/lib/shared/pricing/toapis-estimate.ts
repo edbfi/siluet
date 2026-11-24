@@ -126,12 +126,28 @@ export function estimateToapis(
 				? rate.unit === "image" && rate.conditions.size === options.size
 				: rate.unit === "million-total-tokens" && rate.conditions.videoInput === videoInput),
 	);
-	if (!rate) return unknown("rate-unavailable");
-	const expiry = toapisRateExpiryMs(feed, rate);
+	// Each reference image in an edit is charged on top of the output tier.
+	const references = isImage ? sourceCount : 0;
+	const reference = references
+		? feed.rates.find(
+				(rate) =>
+					rate.model === model &&
+					rate.unit === "reference-image" &&
+					rate.operations.some((operation) => operation === wireOperation),
+			)
+		: undefined;
+	if (!rate || (references && !reference)) return unknown("rate-unavailable");
+	const expiry = Math.min(
+		toapisRateExpiryMs(feed, rate),
+		reference ? toapisRateExpiryMs(feed, reference) : Number.POSITIVE_INFINITY,
+	);
 	if (nowMs >= expiry) return unknown("expired-feed");
 	const { creditsPerUsd, conversionSourceUrl, conversionCacheAgeSeconds } = feed;
-	const credits = creditUnits(rate.approximateCredits);
-	const usd = creditUnits(rate.usd);
+	const extra = BigInt(references);
+	const credits =
+		creditUnits(rate.approximateCredits) +
+		extra * (reference ? creditUnits(reference.approximateCredits) : 0n);
+	const usd = creditUnits(rate.usd) + extra * (reference ? creditUnits(reference.usd) : 0n);
 	const provenance = {
 		sourceDate,
 		source: rate.source,
@@ -160,6 +176,13 @@ export function estimateToapis(
 		batch: formatCredits(credits * BigInt(count)),
 		usd: { perRequest: formatCredits(usd), batch: formatCredits(usd * BigInt(count)) },
 		maxAttempts,
+		...(reference && {
+			referenceImages: {
+				count: references,
+				usdEach: reference.usd,
+				approximateCreditsEach: reference.approximateCredits,
+			},
+		}),
 		...provenance,
 	};
 }

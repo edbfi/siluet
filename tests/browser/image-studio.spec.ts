@@ -705,7 +705,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 				/Up to 20 potentially billable submissions/,
 			);
 			await reviewTab.click();
-			await expect(price).toContainText("Estimated 28 ToAPIs credits for the initial batch");
+			await expect(price).toContainText("Estimated 40.8 ToAPIs credits for the initial batch");
 			await request.getByText("Advanced options", { exact: true }).click();
 			await request.getByLabel("Visible watermark").check();
 			await expect(price).toContainText("Local rates do not cover these options.");
@@ -718,7 +718,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await page.clock.pauseAt(new Date(expiry - 1000));
 			await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
 			await page.clock.runFor(999);
-			await expect(price).toContainText("Estimated 28 ToAPIs credits for the initial batch");
+			await expect(price).toContainText("Estimated 40.8 ToAPIs credits for the initial batch");
 			await page.clock.runFor(1);
 			await expect(price).toContainText("The local rate evidence is 30 days old or older.");
 			await expect(queue(5)).toBeDisabled();
@@ -728,7 +728,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 
 			await page.clock.setSystemTime(new Date(expiry - 1000));
 			await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-			await expect(price).toContainText("Estimated 28 ToAPIs credits for the initial batch");
+			await expect(price).toContainText("Estimated 40.8 ToAPIs credits for the initial batch");
 			await page.clock.setSystemTime(new Date(expiry));
 			await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
 			await expect(price).toContainText("The local rate evidence is 30 days old or older.");
