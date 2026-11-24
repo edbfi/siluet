@@ -50,6 +50,8 @@ export function parseVideo(value: unknown) {
 			disclosures: poyo.descriptor.disclosures,
 		};
 	}
+	// Keyframe operations need their reviewed frames; a text-to-video draft never stands in.
+	if (operation !== seedanceOperation) return null;
 	const seedance = seedanceRequest(d, prompt);
 	return seedance
 		? { ...terms, ...seedance, operation: seedanceOperation, disclosures: videoDisclosures }

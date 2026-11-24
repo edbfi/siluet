@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { h3MaxOperation, seedanceOperation } from "../media-catalog/registry";
+import {
+	h3MaxOperation,
+	seedanceKeyframeOperations,
+	seedanceOperation,
+} from "../media-catalog/registry";
 import { h3Max } from "./h3-max";
 import { parseVideo, previewVideo } from "./request";
 import { saveProfileDisclosure } from "./save-profile";
@@ -80,6 +84,11 @@ describe("H3 input boundaries", () => {
 			{ ...raw, operationKey: { ...h3MaxOperation.key, provider: "toapis" } },
 			{ ...raw, operationKey: { ...seedanceOperation.key, model: "MiniMax-H3-Max" } },
 			{ ...raw, operationKey: seedanceOperation.key },
+			...seedanceKeyframeOperations.map(({ key }) => ({
+				...raw,
+				operationKey: key,
+				draft: { ...videoDefaults, prompt: "Rotate" },
+			})),
 			{ ...raw, count: 2 },
 			{ ...raw, extra: true },
 		])
