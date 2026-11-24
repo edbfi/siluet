@@ -411,13 +411,14 @@ test("a provider cooldown at Queue keeps the Review and its consent", async ({ p
 		await expect(file(2)).toHaveAccessibleDescription(ready(true));
 		await inspect.press("Enter");
 		await consent.press("Space");
-		let cooling = true;
+		// A time within a second rounds up; one no date can hold reads as "shortly".
+		const cooldowns = [Date.parse("2026-11-24T09:59:59.200Z"), 1e300];
 		await page.route("**/image/file-queue", (route) =>
-			cooling
+			cooldowns.length
 				? route.fulfill({
 						status: 409,
 						contentType: "application/json",
-						body: JSON.stringify({ error: "cooldown", until: Date.parse("2026-11-24T10:00:00Z") }),
+						body: JSON.stringify({ error: "cooldown", until: cooldowns.shift() }),
 					})
 				: route.fallback(),
 		);
@@ -426,7 +427,11 @@ test("a provider cooldown at Queue keeps the Review and its consent", async ({ p
 			"The provider is cooling down. Nothing was sent. Queue again after 2026-11-24 10:00:00 UTC.",
 		);
 		await expect(consent).toBeChecked();
-		cooling = false;
+		await queue.press("Enter");
+		await expect(review.getByRole("status")).toHaveText(
+			"The provider is cooling down. Nothing was sent. Queue again shortly.",
+		);
+		await expect(consent).toBeChecked();
 		await queue.press("Enter");
 		await expect(page).toHaveURL(/\/jobs/);
 		await expect.poll(() => fixtures.uploads.length, { timeout: 20_000 }).toBe(2);

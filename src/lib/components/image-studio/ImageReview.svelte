@@ -403,9 +403,14 @@ async function sendFile(body: object, cleaned: boolean, input: QueueInput | null
 				.catch(() => null);
 			if (result?.error === "cooldown") {
 				// Nothing was claimed: the Review and its consent queue it after the cooldown.
-				const until = typeof result.until === "number" ? new Date(result.until) : null;
+				// Rounded up to the second; a time no date can hold reads as "shortly".
+				const until =
+					typeof result.until === "number" && Number.isFinite(result.until)
+						? new Date(Math.ceil(result.until / 1000) * 1000)
+						: null;
+				const valid = until && Number.isFinite(until.getTime()) ? until : null;
 				tell(
-					`The provider is cooling down. Nothing was sent. ${input ? "Queue" : "Retry"} again${until ? ` after ${until.toISOString().slice(0, 19).replace("T", " ")} UTC` : " shortly"}.`,
+					`The provider is cooling down. Nothing was sent. ${input ? "Queue" : "Retry"} again${valid ? ` after ${valid.toISOString().slice(0, 19).replace("T", " ")} UTC` : " shortly"}.`,
 				);
 				return;
 			}
