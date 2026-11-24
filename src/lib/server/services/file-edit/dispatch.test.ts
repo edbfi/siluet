@@ -2,15 +2,17 @@ import { expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
-import { filePlaceholder } from "../../../shared/image-studio/file-edit";
+import { fileUploadRoutes } from "../../../shared/image-studio/file-edit";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
+import { claimFileSlots } from "../../db/file-attempt";
 import { imageJobStore } from "../../db/image-job-store";
 import { openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
 import { pinFilePost } from "../../providers/file-post";
 import { summarizeJob } from "../jobs/summary";
 import { fileDispatcher } from "./dispatch";
-import { parseFileRequest } from "./request";
+import { orderedBody, parsedRequest } from "./request.fixture";
+import { heldBytes } from "./stages.fixture";
 import { sendFileEdit, uploadFile } from "./transfer";
 
 async function claimedFile(
@@ -18,33 +20,33 @@ async function claimedFile(
 	provider: "poyo" | "toapis",
 ) {
 	await providerStore(db).save(provider, "fixture", 0, true, 0);
-	await db.use((tx) =>
-		tx.run(
-			sql`INSERT INTO image_job(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,file_owner,file_phase) VALUES('file','binding',${provider},1,'{}','submitting',${provider === "poyo" ? "seedream-5.5" : "doubao-seedream-5-5"},0,120000,'runtime','claimed')`,
+	await db.use((c) =>
+		c.transaction(async (tx) => {
+			await tx.run(
+				sql`INSERT INTO image_job(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,file_owner,file_phase) VALUES('file','binding',${provider},1,'{}','submitting',${provider === "poyo" ? "seedream-5.5" : "doubao-seedream-5-5"},0,120000,'runtime','claimed')`,
+			);
+			await claimFileSlots(tx, "file", [1], 1);
+		}),
+	);
+	return parsedRequest(
+		orderedBody(
+			{ ...createSeedreamDraft(provider, "edit"), prompt: "Draw the garden again" },
+			[
+				{
+					draft: crypto.randomUUID(),
+					handle: crypto.randomUUID(),
+					size: 1,
+					digest: "f".repeat(64),
+					mime: "image/png",
+					transform: "none",
+					deadline: 100,
+				},
+			],
+			{ acceptUnknown: true },
 		),
 	);
-	const live = parseFileRequest({
-		draft: {
-			...createSeedreamDraft(provider, "edit"),
-			prompt: "Draw the garden again",
-			references: [{ kind: "upload", url: filePlaceholder }],
-		},
-		stage: {
-			draft: crypto.randomUUID(),
-			handle: crypto.randomUUID(),
-			size: 1,
-			digest: "f".repeat(64),
-			mime: "image/png",
-			transform: "none",
-			deadline: 100,
-		},
-		count: 1,
-		retryLimit: 0,
-		acceptUnknown: true,
-	});
-	if (!live) throw new Error("Invalid file fixture");
-	return live;
 }
+
 for (const outcome of [
 	{ kind: "stored" },
 	{ kind: "ready", url: "https://storage.example.org/reference" },
@@ -97,12 +99,9 @@ for (const outcome of [
 					return balances === 1 ? "10" : "8";
 				},
 			});
-			const held = {
-				bytes: new Uint8Array(1),
-				release: () => {
-					releases++;
-				},
-			};
+			const held = heldBytes(new Uint8Array(1), () => {
+				releases++;
+			});
 			await dispatch("file", "fixture", live, held);
 			await dispatch("file", "fixture", live, held);
 			await db.close();
@@ -181,7 +180,7 @@ test.each(["poyo", "toapis"] as const)(
 					return { kind: "accepted", taskId: "unexpected" };
 				},
 			});
-			await dispatch("file", "fixture", live, { bytes: new Uint8Array(1), release() {} });
+			await dispatch("file", "fixture", live, heldBytes(new Uint8Array(1)));
 			expect([uploads, edits]).toEqual([1, 0]);
 			expect(await imageJobStore(db).get("file")).toMatchObject({
 				state: "rejected",
@@ -230,7 +229,7 @@ test.each(["before", "during"] as const)(
 					return "8";
 				},
 			});
-			await dispatch("file", "fixture", live, { bytes: new Uint8Array(1), release() {} });
+			await dispatch("file", "fixture", live, heldBytes(new Uint8Array(1)));
 			expect(edits).toBe(1);
 			expect(balanceKeys).toEqual(when === "before" ? ["fixture"] : ["fixture", "fixture"]);
 			expect(await imageJobStore(db).get("file")).toMatchObject({
@@ -281,7 +280,7 @@ test("expiry after the file edit marker preserves the upload and reverses only t
 				return sendFileEdit(provider, key, request, read);
 			},
 		});
-		await dispatch("file", "fixture", live, { bytes: new Uint8Array(1), release() {} });
+		await dispatch("file", "fixture", live, heldBytes(new Uint8Array(1)));
 		expect(physical).toBe(0);
 		expect(await imageJobStore(db).get("file")).toMatchObject({
 			state: "rejected",
@@ -333,7 +332,7 @@ test("a Poyo pin expiring before physical upload consumes neither an upload star
 				return { kind: "unknown" };
 			},
 		});
-		await dispatch("file", "fixture", live, { bytes: new Uint8Array(1), release() {} });
+		await dispatch("file", "fixture", live, heldBytes(new Uint8Array(1)));
 		expect([physical, edits]).toEqual([0, 0]);
 		expect(await imageJobStore(db).get("file")).toMatchObject({
 			state: "rejected",
@@ -348,3 +347,427 @@ test("a Poyo pin expiring before physical upload consumes neither an upload star
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+test("a stop frees the buffer and the Poyo upload slot before its closing wallet read", async () => {
+	const root = await createOwnerDirectory();
+	const db = await openInstallation(root);
+	try {
+		const live = await claimedFile(db, "poyo");
+		const events: string[] = [];
+		const dispatch = fileDispatcher(db, "runtime", () => {}, {
+			now: () => 10,
+			pin: async () => async () => {
+				throw new Error("unexpected transport");
+			},
+			balance: async () => {
+				events.push("balance");
+				return "10";
+			},
+			upload: async () => ({ kind: "rejected", reason: "quota" }),
+			edit: async () => ({ kind: "unknown" }),
+		});
+		await dispatch(
+			"file",
+			"fixture",
+			live,
+			heldBytes(new Uint8Array(1), () => events.push("release")),
+		);
+		expect(events).toEqual(["balance", "release", "balance"]);
+		expect(await imageJobStore(db).get("file")).toMatchObject({
+			wallet_open: 0,
+			wallet_after: "10",
+		});
+	} finally {
+		await db.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test.each(["poyo", "toapis"] as const)(
+	"%s shutdown during the last upload stops as interrupted before the edit pin",
+	async (provider) => {
+		const root = await createOwnerDirectory();
+		const db = await openInstallation(root);
+		try {
+			const live = await claimedFile(db, provider);
+			let closing = false,
+				edits = 0;
+			const pinned: string[] = [];
+			const dispatch = fileDispatcher(db, "runtime", () => {}, {
+				now: () => 10,
+				balance: async () => "10",
+				pin: async (endpoint) => {
+					pinned.push(endpoint);
+					return async () => {
+						throw new Error("unexpected transport");
+					};
+				},
+				async upload() {
+					// Shutdown begins once the last upload is in flight, after its handoff.
+					await Promise.resolve();
+					closing = true;
+					return { kind: "ready", url: "https://storage.example.org/reference" };
+				},
+				async edit() {
+					edits++;
+					return { kind: "unknown" };
+				},
+			});
+			await dispatch("file", "fixture", live, heldBytes(new Uint8Array(1)), () => closing);
+			expect(pinned).toEqual([fileUploadRoutes[provider]]);
+			expect(edits).toBe(0);
+			expect(await imageJobStore(db).get("file")).toMatchObject({
+				state: "rejected",
+				file_phase: "stored",
+				file_stop: "interrupted",
+			});
+		} finally {
+			await db.close();
+			await rm(root, { recursive: true, force: true });
+		}
+	},
+);
+
+test("a shutdown that begins after the upload marker sends nothing and undoes the Poyo window entry", async () => {
+	const root = await createOwnerDirectory();
+	const db = await openInstallation(root);
+	try {
+		const live = await claimedFile(db, "poyo");
+		let closing = false,
+			physical = 0,
+			edits = 0;
+		const dispatch = fileDispatcher(db, "runtime", () => {}, {
+			now: () => 10,
+			balance: async () => "10",
+			pin: async (endpoint) =>
+				pinFilePost(
+					endpoint,
+					60_000,
+					async () => "93.184.216.34",
+					async () => {
+						physical++;
+						return Response.json({});
+					},
+				),
+			// The marker has committed; shutdown begins as the transport is handed the body.
+			upload: async (provider, key, stage, bytes, read) => {
+				closing = true;
+				return uploadFile(provider, key, stage, bytes, read);
+			},
+			edit: async () => {
+				edits++;
+				return { kind: "unknown" };
+			},
+		});
+		await dispatch("file", "fixture", live, heldBytes(new Uint8Array(1)), () => closing);
+		expect([physical, edits]).toEqual([0, 0]);
+		expect(await imageJobStore(db).get("file")).toMatchObject({
+			state: "rejected",
+			file_phase: "unsent",
+			file_stop: "interrupted",
+			file_stop_slot: 1,
+			wallet_open: 0,
+		});
+		expect(await slotOutcomes(db)).toEqual([{ position: 1, outcome: "unsent" }]);
+		expect(await db.use((tx) => tx.all(sql`SELECT started FROM poyo_upload_start`))).toEqual([]);
+	} finally {
+		await db.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+const middle = "https://images.example.com/middle.png";
+/** A claimed file, URL, file job with slots 1 and 3, and a handle over each file's bytes. */
+async function claimedOrdered(
+	db: Awaited<ReturnType<typeof openInstallation>>,
+	provider: "poyo" | "toapis",
+) {
+	await providerStore(db).save(provider, "fixture", 0, true, 0);
+	await db.use((c) =>
+		c.transaction(async (tx) => {
+			await tx.run(
+				sql`INSERT INTO image_job(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,file_owner,file_phase) VALUES('file','binding',${provider},1,'{}','submitting',${provider === "poyo" ? "seedream-5.5" : "doubao-seedream-5-5"},0,120000,'runtime','claimed')`,
+			);
+			await claimFileSlots(tx, "file", [1, 3], 3);
+		}),
+	);
+	const stage = (digest: string) => ({
+		draft: crypto.randomUUID(),
+		handle: crypto.randomUUID(),
+		size: 2,
+		digest: digest.repeat(64),
+		mime: "image/png" as const,
+		transform: "none" as const,
+		deadline: 100,
+	});
+	return parsedRequest(
+		orderedBody(
+			{ ...createSeedreamDraft(provider, "edit"), prompt: "Blend them" },
+			[stage("a"), middle, stage("b")],
+			{ acceptUnknown: true },
+		),
+	);
+}
+const slotOutcomes = (db: Awaited<ReturnType<typeof openInstallation>>) =>
+	db.use((c) =>
+		c.all<{ position: number; outcome: string }>(
+			sql`SELECT position,outcome FROM file_slot WHERE job_id='file' ORDER BY position`,
+		),
+	);
+const files = [new Uint8Array([1, 2]), new Uint8Array([3, 4])];
+const ordered = (next = async (index: number) => files[index]) => {
+	let released = 0;
+	return {
+		held: { next, release: async () => void released++ },
+		released: () => released,
+	};
+};
+
+for (const provider of ["poyo", "toapis"] as const) {
+	test(`${provider}: a 429 on the second file is unknown, keeps the wallet open and sends no edit`, async () => {
+		const dir = await createOwnerDirectory();
+		const db = await openInstallation(dir);
+		try {
+			const live = await claimedOrdered(db, provider);
+			const sent: number[][] = [];
+			let edits = 0;
+			const dispatch = fileDispatcher(db, "runtime", () => {}, {
+				now: () => 10,
+				pin: async () => async () => {
+					throw new Error("unexpected transport");
+				},
+				balance: async () => "10",
+				async upload(_provider, _key, _stage, bytes) {
+					sent.push([...bytes]);
+					return sent.length === 1
+						? { kind: "ready", url: "https://storage.example.org/1" }
+						: { kind: "unknown" };
+				},
+				async edit() {
+					edits++;
+					return { kind: "unknown" };
+				},
+			});
+			const { held, released } = ordered();
+			await dispatch("file", "fixture", live, held);
+			expect(sent).toEqual([
+				[1, 2],
+				[3, 4],
+			]);
+			expect([edits, released()]).toEqual([0, 1]);
+			expect(await imageJobStore(db).get("file")).toMatchObject({
+				state: "unknown",
+				file_phase: "upload-unknown",
+				wallet_open: Number(provider === "poyo"),
+				wallet_after: null,
+			});
+			expect(await slotOutcomes(db)).toEqual([
+				{ position: 1, outcome: "stored" },
+				{ position: 3, outcome: "unknown" },
+			]);
+			// A replacement key cannot attribute this account's movement to a later job.
+			await providerStore(db).save(provider, "replacement", 20, true, 1);
+			await db.use((tx) =>
+				tx.run(
+					sql`INSERT INTO image_job(id,binding,provider,revision,quote,state,model,created_at,poll_deadline) VALUES('next','next',${provider},2,'{}','submitting','seedream-5.5',0,120000)`,
+				),
+			);
+			await imageJobStore(db).beginDispatch("next", provider, 30);
+			expect((await imageJobStore(db).get("next"))?.wallet_overlap).toBe(
+				Number(provider === "poyo"),
+			);
+		} finally {
+			await db.close();
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test(`${provider}: a receipt equal to the middle URL stops the last file and the edit`, async () => {
+		const dir = await createOwnerDirectory();
+		const db = await openInstallation(dir);
+		try {
+			const live = await claimedOrdered(db, provider);
+			let uploads = 0,
+				edits = 0;
+			const dispatch = fileDispatcher(db, "runtime", () => {}, {
+				now: () => 10,
+				pin: async () => async () => {
+					throw new Error("unexpected transport");
+				},
+				balance: async () => "10",
+				async upload() {
+					uploads++;
+					return { kind: "ready", url: middle };
+				},
+				async edit() {
+					edits++;
+					return { kind: "unknown" };
+				},
+			});
+			await dispatch("file", "fixture", live, ordered().held);
+			expect([uploads, edits]).toEqual([1, 0]);
+			expect(await imageJobStore(db).get("file")).toMatchObject({
+				state: "rejected",
+				file_phase: "stored",
+				file_stop: "duplicate",
+				file_stop_slot: 1,
+				file_other_slot: 2,
+			});
+			expect(await slotOutcomes(db)).toEqual([
+				{ position: 1, outcome: "stored" },
+				{ position: 3, outcome: "unsent" },
+			]);
+		} finally {
+			await db.close();
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test(`${provider}: a later stage that changed is never sent`, async () => {
+		const dir = await createOwnerDirectory();
+		const db = await openInstallation(dir);
+		try {
+			const live = await claimedOrdered(db, provider);
+			const sent: number[][] = [];
+			const dispatch = fileDispatcher(db, "runtime", () => {}, {
+				now: () => 10,
+				pin: async () => async () => {
+					throw new Error("unexpected transport");
+				},
+				balance: async () => "10",
+				async upload(_provider, _key, _stage, bytes) {
+					sent.push([...bytes]);
+					return { kind: "ready", url: "https://storage.example.org/1" };
+				},
+			});
+			const { held, released } = ordered(async (index) => {
+				if (index === 1) throw new Error("Staged file changed.");
+				return files[index];
+			});
+			await dispatch("file", "fixture", live, held);
+			expect(sent).toEqual([[1, 2]]);
+			expect(released()).toBe(1);
+			expect(await imageJobStore(db).get("file")).toMatchObject({
+				file_phase: "stored",
+				file_stop: "stage-changed",
+				file_stop_slot: 3,
+			});
+		} finally {
+			await db.close();
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test(`${provider}: shutdown during the second upload sends no later file or edit`, async () => {
+		const dir = await createOwnerDirectory();
+		const db = await openInstallation(dir);
+		try {
+			await providerStore(db).save(provider, "fixture", 0, true, 0);
+			await db.use((c) =>
+				c.transaction(async (tx) => {
+					await tx.run(
+						sql`INSERT INTO image_job(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,file_owner,file_phase) VALUES('file','binding',${provider},1,'{}','submitting','seedream-5.5',0,120000,'runtime','claimed')`,
+					);
+					await claimFileSlots(tx, "file", [1, 2, 3], 3);
+				}),
+			);
+			const stage = (digest: string) => ({
+				draft: crypto.randomUUID(),
+				handle: crypto.randomUUID(),
+				size: 2,
+				digest: digest.repeat(64),
+				mime: "image/png" as const,
+				transform: "none" as const,
+				deadline: 100,
+			});
+			const live = parsedRequest(
+				orderedBody(
+					{ ...createSeedreamDraft(provider, "edit"), prompt: "Blend them" },
+					[stage("a"), stage("b"), stage("c")],
+					{ acceptUnknown: true },
+				),
+			);
+			let closing = false;
+			let uploads = 0,
+				edits = 0;
+			const dispatch = fileDispatcher(db, "runtime", () => {}, {
+				now: () => 10,
+				pin: async () => async () => {
+					throw new Error("unexpected transport");
+				},
+				balance: async () => "10",
+				async upload() {
+					uploads++;
+					// Shutdown begins once the second upload is in flight, after its handoff.
+					await Promise.resolve();
+					if (uploads === 2) closing = true;
+					return { kind: "ready", url: `https://storage.example.org/${uploads}` };
+				},
+				async edit() {
+					edits++;
+					return { kind: "unknown" };
+				},
+			});
+			await dispatch(
+				"file",
+				"fixture",
+				live,
+				{ next: async () => new Uint8Array(2), release: async () => {} },
+				() => closing,
+			);
+			expect([uploads, edits]).toEqual([2, 0]);
+			expect(await imageJobStore(db).get("file")).toMatchObject({
+				state: "rejected",
+				file_phase: "stored",
+				file_stop: "interrupted",
+				file_stop_slot: 3,
+			});
+		} finally {
+			await db.close();
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test(`${provider}: an expired hosted link stops the edit and names its slot`, async () => {
+		const dir = await createOwnerDirectory();
+		const db = await openInstallation(dir);
+		try {
+			const live = await claimedOrdered(db, provider);
+			let time = 10,
+				uploads = 0,
+				edits = 0;
+			const dispatch = fileDispatcher(db, "runtime", () => {}, {
+				now: () => time,
+				pin: async (endpoint) => {
+					if (endpoint === live.request.url) time = 50;
+					return async () => {
+						throw new Error("unexpected transport");
+					};
+				},
+				balance: async () => "10",
+				async upload() {
+					uploads++;
+					return {
+						kind: "ready",
+						url: `https://storage.example.org/${uploads}`,
+						...(uploads === 2 && { expiresAt: 40 }),
+					};
+				},
+				async edit() {
+					edits++;
+					return { kind: "unknown" };
+				},
+			});
+			await dispatch("file", "fixture", live, ordered().held);
+			expect([uploads, edits]).toEqual([2, 0]);
+			expect(await imageJobStore(db).get("file")).toMatchObject({
+				file_phase: "stored",
+				file_stop: "expired-link",
+				file_stop_slot: 3,
+			});
+		} finally {
+			await db.close();
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+}

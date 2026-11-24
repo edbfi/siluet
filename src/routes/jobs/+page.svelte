@@ -6,6 +6,7 @@ import { releasedModels, releasedOperations } from "#lib/shared/media-catalog/re
 import { enhance, type SubmitFunction } from "$app/forms";
 import { invalidate } from "$app/navigation";
 import type { PageProps } from "./$types";
+import { fileStateLabel } from "./file-state.ts";
 import { styles } from "./jobs-styles.ts";
 
 let { data, form }: PageProps = $props();
@@ -38,18 +39,14 @@ const states = {
 	completed: "Completed",
 	failed: "Job failed",
 };
-// A local-file edit's upload and edit boundary, when it says more than the job state.
-const fileStates = {
-	claimed: "Preparing upload",
-	uploading: "Uploading file",
-	uploaded: "File uploaded · preparing edit",
-	editing: "Submitting edit",
-	unsent: "No upload or edit sent",
-	stored: "File uploaded · edit not sent",
-	"upload-unknown": "Upload outcome unknown · edit not sent",
-	"edit-unknown": "May have been submitted",
-	"upload-rejected": "Upload rejected · edit not sent",
-	"edit-recorded": null,
+// One file slot's upload, by its 1-based reference position.
+const slotStates = {
+	unsent: "Not sent",
+	uploading: "Uploading",
+	stored: "File uploaded",
+	unusable: "File uploaded · link unusable",
+	unknown: "Upload outcome unknown",
+	rejected: "Upload rejected",
 } as const;
 type Job = PageProps["data"]["jobs"][number];
 // What automatic Save has done with a completed result (D9).
@@ -183,7 +180,8 @@ function submit(id: string, action: Action): SubmitFunction {
 					<span class={styles.state} data-state={job.state} aria-live="polite"
 						>{job.throttled && job.batchId
 							? "Not admitted · throttled"
-							: ((job.filePhase && fileStates[job.filePhase]) ?? states[job.state])}</span
+							: ((job.filePhase && fileStateLabel(job.filePhase, job.file?.slots ?? [])) ??
+								states[job.state])}</span
 					>
 				</div>
 				<p class={styles.meta}>
@@ -191,7 +189,7 @@ function submit(id: string, action: Action): SubmitFunction {
 						{entry.label} ·
 					{/if}
 					Created {@render date(job.createdAt)}
-					{job.taskId && job.batchId ? ` · Task ${job.taskId}` : ""}
+					{job.taskId && (job.batchId || job.file) ? ` · Task ${job.taskId}` : ""}
 				</p>
 			</header>
 			{#if job.progress != null}
@@ -202,10 +200,25 @@ function submit(id: string, action: Action): SubmitFunction {
 					{job.tracking === "paused" ? "Tracking paused. " : ""}{job.message}
 				</p>
 			{/if}
-			{#if job.filePhase &&
-				job.filePhase !== "unsent" &&
-				job.filePhase !== "upload-rejected" &&
-				(job.state === "unknown" || job.state === "rejected")}
+			{#if job.file}
+				<p class={styles.meta}>
+					{job.file.references}
+					{job.file.references === 1 ? "reference" : "references"} · {job.file.slots.length}
+					{job.file.slots.length === 1 ? "file" : "files"}
+				</p>
+				<!-- biome-ignore lint/a11y/noRedundantRoles: Safari needs an explicit role when list markers are hidden. -->
+				<ul class={styles.slots} role="list" aria-label="File uploads">
+					{#each job.file.slots as slot (slot.position)}
+						<li>Reference {slot.position} · {slotStates[slot.outcome]}</li>
+					{/each}
+				</ul>
+			{/if}
+			<!-- A copy may stay hosted whenever the edit ended without a result, even after acknowledgement. -->
+			{#if job.file?.hosted &&
+				(job.state === "unknown" ||
+					job.state === "rejected" ||
+					job.state === "failed" ||
+					job.state === "unsent")}
 				<p class={styles.note}>
 					An uploaded file may remain accessible. Check provider history before attaching it again.
 					A new attempt can create another copy and incur charges.

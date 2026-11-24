@@ -30,7 +30,7 @@ test("the frozen discovery scope accounts for snapshot, regional and documentati
 		`1–${maxSeedreamReferences} ordered public HTTP(S) image URLs`,
 	);
 	expect(ledger.supportProfiles["seedream-edit"].queue).toContain(
-		"one local JPEG or PNG via provider upload, cleaned unless cleaning is off, one request, zero retries",
+		"or 1–10 ordered references mixing public URLs and local JPEG or PNG files via provider upload, cleaned unless cleaning is off, one request, zero retries",
 	);
 	expect(poyo.sources.uploadStream).toBe(
 		"https://docs.poyo.ai/api-manual/file-series/upload-stream",

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { type SeedreamOperation, seedreamOperation } from "../../shared/media-catalog/registry";
 import type { ProviderId } from "../../shared/providers/connections";
+import { readFileSlots } from "./file-attempt";
 import { imageJobPollingWindowMs } from "./image-job-schema";
 import type { ImageJob } from "./image-job-store";
 import type { Installation, InstallationTransaction } from "./installation";
@@ -55,14 +56,16 @@ export function imageBatchStore({ use }: Installation) {
 			use((db) => db.all<ImageBatch>(sql`SELECT * FROM image_batch ORDER BY created_at DESC`)),
 		history: () =>
 			use((db) =>
-				db.transaction(async (tx) => ({
-					batches: await tx.all<ImageBatch>(
+				db.transaction(async (tx) => {
+					const batches = await tx.all<ImageBatch>(
 						sql`SELECT * FROM image_batch ORDER BY created_at DESC`,
-					),
-					attempts: await tx.all<ImageJob>(
+					);
+					const attempts = await tx.all<ImageJob>(
 						sql`SELECT * FROM image_job ORDER BY created_at DESC,id`,
-					),
-				})),
+					);
+					// The file slots in the same read, so each phase agrees with its slots.
+					return { batches, attempts, slots: await readFileSlots(tx, attempts) };
+				}),
 			),
 
 		attempts: (id: string) =>

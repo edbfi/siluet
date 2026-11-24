@@ -56,6 +56,8 @@ export function referenceEditFixtures(
 	const statusPaths: string[] = [];
 	const uploads: { file: File; parts: string[] }[] = [];
 	const hosted = "https://different.storage.net/reference?sig=fixture-upload-link";
+	// Each upload's own hosted link: the first is `hosted`, later ones add their number.
+	const hostedFor = (upload: number) => (upload === 1 ? hosted : `${hosted}-${upload}`);
 	const result = `https://${referenceHost}/result/reference-edit.png?sig=${editedImageSignature}`;
 	let completions = 0;
 	// Provider response fields follow the Seedream submit, status and error contracts.
@@ -66,6 +68,7 @@ export function referenceEditFixtures(
 			const file = parts.get("file");
 			if (!(file instanceof File)) return new Response(null, { status: 400 });
 			uploads.push({ file, parts: [...parts.keys()] });
+			const url = hostedFor(uploads.length);
 			return Response.json(
 				provider === "poyo"
 					? {
@@ -73,14 +76,14 @@ export function referenceEditFixtures(
 							code: 200,
 							data: {
 								file_id: "fixture-id",
-								file_url: hosted,
+								file_url: url,
 								mime_type: file.type,
 								file_size: file.size,
 							},
 						}
 					: {
 							success: true,
-							data: { id: "fixture-id", url: hosted, mime_type: file.type, size: file.size },
+							data: { id: "fixture-id", url, mime_type: file.type, size: file.size },
 						},
 			);
 		}
@@ -161,5 +164,5 @@ export function referenceEditFixtures(
 		}
 		return null;
 	});
-	return { ...fixture, uploads, hosted, submissions, statusPaths };
+	return { ...fixture, uploads, hosted, hostedFor, submissions, statusPaths };
 }

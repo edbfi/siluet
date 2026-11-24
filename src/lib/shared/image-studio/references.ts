@@ -15,28 +15,39 @@ export const maxSeedreamReferences = 10;
 export const publicReferenceUrlError =
 	"Enter a public HTTP or HTTPS URL without a username or password.";
 
-/**
- * The one local JPEG or PNG that Siluet stages for an edit: cleaned, or checked and sent
- * unchanged when the owner turned cleaning off. Several files or other formats stay offline.
- */
-export function cleanableReferenceFile(references: readonly SeedreamReference[]): File | null {
-	const [reference] = references;
-	if (references.length !== 1 || reference?.kind !== "file") return null;
-	const { type, name } = reference.file;
+const isStageable = ({ type, name }: File) => {
 	const generic = !type || type === "application/octet-stream";
-	return /^image\/(jpeg|png)$/i.test(type) || (generic && /\.(jpe?g|png)$/i.test(name))
-		? reference.file
-		: null;
+	return /^image\/(jpeg|png)$/i.test(type) || (generic && /\.(jpe?g|png)$/i.test(name));
+};
+
+/**
+ * The local JPEG and PNG files Siluet stages for an edit, by their 1-based position:
+ * cleaned, or checked and sent unchanged when the owner turned cleaning off. A draft with
+ * any other file format, or with no file, stages none and stays available offline.
+ */
+export function stageableReferences(
+	references: readonly SeedreamReference[],
+): { position: number; file: File }[] | null {
+	const files = references.flatMap((reference, index) =>
+		reference.kind === "file" ? [{ position: index + 1, file: reference.file }] : [],
+	);
+	return files.length && files.every(({ file }) => isStageable(file)) ? files : null;
 }
 
 export function duplicateReferenceSlots(
 	references: readonly SeedreamReference[],
 ): [first: number, duplicate: number] | null {
 	const seen = new Map<string, number>();
+	const files = new Map<File, number>();
 	for (const [index, reference] of references.entries()) {
-		if (reference.kind !== "url") continue;
-		const url = reference.url.trim();
 		const slot = index + 1;
+		if (reference.kind === "file") {
+			const first = files.get(reference.file);
+			if (first !== undefined) return [first, slot];
+			files.set(reference.file, slot);
+			continue;
+		}
+		const url = reference.url.trim();
 		const first = seen.get(url);
 		if (first !== undefined) return [first, slot];
 		seen.set(url, slot);

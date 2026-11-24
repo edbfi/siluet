@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { ProviderId } from "../../../shared/providers/connections";
+import type { FileSlotRow } from "../../db/file-attempt";
 import { type BatchStop, imageBatchStore, retryStillSupported } from "../../db/image-batch-store";
 import {
 	hasCorrelation,
@@ -45,6 +46,8 @@ export type SaveRead =
  */
 export type DeliveryHandoff = (id: string, delivery: VideoDelivery | null) => unknown;
 
+/** Jobs and their file slots from one read. */
+type Snapshot = { jobs: ImageJob[]; slots: FileSlotRow[] };
 type JobCredentials = Pick<ReturnType<typeof providerStore>, "credential" | "jobReadability">;
 type TrackingDependencies = {
 	fetch?: CheckFetch;
@@ -329,7 +332,7 @@ export function createJobTracking(
 		return work;
 	}
 
-	async function summarize(rows: ImageJob[]) {
+	async function summarize({ jobs: rows, slots: slotRows }: Snapshot) {
 		const readable = rows.some((job) => job.task_id || hasCorrelation(job))
 			? await credentials.jobReadability()
 			: () => false;
@@ -342,7 +345,16 @@ export function createJobTracking(
 				)
 			).map((row) => [row.job_id, row.state]),
 		);
-		return rows.map((job) => summarizeJob(job, readable(job), now(), gallery.get(job.id) ?? null));
+		const slots = Map.groupBy(slotRows, (slot) => slot.job_id);
+		return rows.map((job) =>
+			summarizeJob(
+				job,
+				readable(job),
+				now(),
+				gallery.get(job.id) ?? null,
+				slots.get(job.id)?.map(({ position, outcome }) => ({ position, outcome })),
+			),
+		);
 	}
 
 	const runners = {
@@ -471,10 +483,10 @@ export function createJobTracking(
 			return Promise.allSettled([...dispatches, ...inFlight.values()]);
 		},
 
-		list: async () => summarize(await store.list()),
+		list: async () => summarize(await store.snapshot()),
 		async history() {
 			const snapshot = await batches.history();
-			const jobs = await summarize(snapshot.attempts);
+			const jobs = await summarize({ jobs: snapshot.attempts, slots: snapshot.slots });
 			const groups = Map.groupBy(jobs, (job) => job.batchId);
 			return {
 				jobs: groups.get(null) ?? [],

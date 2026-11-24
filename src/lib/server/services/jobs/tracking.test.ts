@@ -14,9 +14,10 @@ import {
 	validateZImageDraft,
 } from "../../../shared/image-studio/z-image";
 import type { ProviderId } from "../../../shared/providers/connections";
+import { claimFileSlots, startFileUpload, undoFileUpload } from "../../db/file-attempt";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import { imageJobStore } from "../../db/image-job-store";
-import { openInstallation } from "../../db/installation";
+import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
 import { videoJobPollingWindowMs } from "../../db/video-schema";
@@ -1211,4 +1212,49 @@ test("readForSave reports each outcome without submitting", async () => {
 	);
 	expect(await jobs.readForSave("job")).toEqual({ kind: "expired" });
 	expect(posts).toBe(1);
+});
+
+test("Jobs reads a file job's phase and slots from one snapshot", async () => {
+	await installation.use((db) =>
+		db.transaction(async (tx) => {
+			await tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,file_owner,file_phase)
+				VALUES('file','binding','toapis',1,${JSON.stringify(quote)},'submitting','doubao-seedream-5-5',${now},${now + imageJobPollingWindowMs},'runtime','claimed')`);
+			await claimFileSlots(tx, "file", [1, 2], 2);
+			await tx.run(sql`UPDATE file_slot SET outcome='stored' WHERE job_id='file' AND position=1`);
+			await tx.run(sql`UPDATE image_job SET file_phase='uploaded' WHERE id='file'`);
+		}),
+	);
+	// The next upload starts right after the first read of each summary.
+	let advance = false;
+	const wrapped: Installation = {
+		...installation,
+		use: async (work) => {
+			const result = await installation.use(work);
+			if (advance) {
+				advance = false;
+				await installation.use((db) =>
+					db.transaction((tx) => startFileUpload(tx, "file", "runtime", 2, now)),
+				);
+			}
+			return result;
+		},
+	};
+	tracker = createJobTracking(wrapped, providerStore(installation), { now: () => now });
+	const before = {
+		filePhase: "uploaded",
+		file: {
+			references: 2,
+			slots: [
+				{ position: 1, outcome: "stored" },
+				{ position: 2, outcome: "unsent" },
+			],
+		},
+	};
+	advance = true;
+	expect((await tracker.list()).find(({ id }) => id === "file")).toMatchObject(before);
+	await installation.use((db) =>
+		db.transaction((tx) => undoFileUpload(tx, "file", "runtime", 2, now)),
+	);
+	advance = true;
+	expect((await tracker.history()).jobs.find(({ id }) => id === "file")).toMatchObject(before);
 });

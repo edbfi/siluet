@@ -1,6 +1,7 @@
 import { reconcileWallet, type WalletScope } from "../../../shared/billing/wallet";
 import type { PriceEstimate } from "../../../shared/pricing/estimate";
 import type { ProviderId } from "../../../shared/providers/connections";
+import type { SlotOutcome } from "../../db/file-attempt";
 import {
 	hasCorrelation,
 	type ImageJob,
@@ -54,6 +55,8 @@ export type JobSummary = {
 	operation: ImageJob["operation"];
 	/** A local-file edit's upload and edit boundary. */
 	filePhase?: NonNullable<ImageJob["file_phase"]>;
+	/** A file edit's references, each file slot's upload, and whether a copy may be hosted. */
+	file?: { references: number; slots: FileSlotSummary[]; hosted: boolean };
 	state: JobState | "unsent";
 	createdAt: number;
 	updatedAt: number;
@@ -75,6 +78,36 @@ export type JobSummary = {
 	retryable: boolean;
 	video: boolean;
 };
+
+export type FileSlotSummary = { position: number; outcome: SlotOutcome };
+
+const slotName = (position: number | null) => `reference ${position}`;
+/** Why a file job stopped before its edit, naming the slots it concerns. */
+function fileStopMessage(job: ImageJob) {
+	const slot = job.file_stop_slot;
+	switch (job.file_stop) {
+		case "stage-changed":
+			return `Reference ${slot} changed on this computer after Review, so nothing more was sent.`;
+		case "duplicate":
+			return `The upload for ${slotName(slot)} returned the same link as ${slotName(job.file_other_slot)}, so the edit was not sent.`;
+		case "expired-link":
+			return slot
+				? `The hosted link for ${slotName(slot)} expired before the edit was sent.`
+				: "A hosted link expired before the edit was sent.";
+		case "unusable":
+			return `The upload for ${slotName(slot)} returned a link the edit cannot use.`;
+		case "interrupted":
+			return slot
+				? `Siluet stopped before ${slotName(slot)} was sent.`
+				: "Siluet stopped before the edit was sent.";
+		case "destination":
+			return slot
+				? `The provider address could not be verified, so ${slotName(slot)} was not sent.`
+				: "The provider address could not be verified, so the edit was not sent.";
+		default:
+			return null;
+	}
+}
 
 const rejections: Record<Rejection, string> = {
 	permission: "Poyo.ai refused this model for this key. The saved key is unchanged.",
@@ -175,6 +208,7 @@ export function summarizeJob(
 	readable: boolean,
 	now: number,
 	gallery: GalleryState = null,
+	slots: readonly FileSlotSummary[] = [],
 ): JobSummary {
 	const canRefresh = job.task_id !== null && readable;
 	const expired = job.expires_at !== null && job.expires_at <= now;
@@ -201,8 +235,9 @@ export function summarizeJob(
 			"This attempt may still cost credits. Check provider history before authorizing another request.";
 		message = message ? `${message} ${warning}` : warning;
 	}
-	if ((job.file_phase === "unsent" || job.file_phase === "stored") && job.retry_at !== null)
+	if (job.file_stop === "cooldown" && job.retry_at !== null)
 		message = `Provider cooldown until ${new Date(job.retry_at).toISOString()}. Review again before queuing.`;
+	else if (job.file_stop) message = fileStopMessage(job) ?? message;
 	else if (job.skipped === "retry-evidence")
 		message = "Not submitted. New task evidence ruled out this retry.";
 	else if (job.skipped)
@@ -248,7 +283,14 @@ export function summarizeJob(
 			job.retry_state === "watch",
 		provider: job.provider,
 		model: job.model,
-		...(job.file_phase && { filePhase: job.file_phase }),
+		...(job.file_phase && {
+			filePhase: job.file_phase,
+			file: {
+				references: job.file_references ?? slots.length,
+				slots: [...slots],
+				hosted: slots.some(({ outcome }) => outcome !== "unsent" && outcome !== "rejected"),
+			},
+		}),
 		operation: job.operation,
 		state: job.skipped ? "unsent" : job.state,
 		createdAt: job.created_at,

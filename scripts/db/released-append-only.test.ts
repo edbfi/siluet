@@ -48,7 +48,7 @@ test("a new migration that sorts before a released one fails", () => {
 			releasedMigrations,
 		),
 	).toEqual([
-		"20261121100000_backdated sorts before the released 20261123180000_seedream_file_edit.",
+		"20261121100000_backdated sorts before the released 20261124120000_seedream_ordered_files.",
 	]);
 	const later = { ...installationMigrations, "20991231000000_later": "SELECT 1;" };
 	expect(

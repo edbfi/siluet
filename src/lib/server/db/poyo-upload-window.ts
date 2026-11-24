@@ -6,9 +6,16 @@ const windowMs = 60_000;
 const limit = 10;
 export const poyoUploadWindowSchema = "CREATE TABLE poyo_upload_start (started INTEGER NOT NULL)";
 
-export async function nextPoyoUploadStart(tx: InstallationTransaction, now: number) {
+/** When `needed` more uploads (1–10) fit the account's rolling window; 0 when they fit now. */
+export async function nextPoyoUploadStart(
+	tx: Pick<InstallationTransaction, "get">,
+	now: number,
+	needed = 1,
+) {
+	if (!Number.isInteger(needed) || needed < 1 || needed > limit)
+		throw new Error("Upload count outside the Poyo.ai window.");
 	const blocked = await tx.get<{ until: number }>(sql`SELECT started+${windowMs} AS until
-		FROM poyo_upload_start WHERE started>${now - windowMs} ORDER BY started DESC LIMIT 1 OFFSET ${limit - 1}`);
+		FROM poyo_upload_start WHERE started>${now - windowMs} ORDER BY started DESC LIMIT 1 OFFSET ${limit - needed}`);
 	return blocked?.until ?? 0;
 }
 

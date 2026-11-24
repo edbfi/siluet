@@ -40,7 +40,7 @@
 		},
 		"seedream-edit": {
 			"review": "ordinary options, up to ten ordered staged files or URLs, batch and retry estimate",
-			"queue": "1–10 ordered public HTTP(S) image URLs, 1–5 requests, 0–3 authorized retries per request, maximum 20 generation POSTs; or one local JPEG or PNG via provider upload, cleaned unless cleaning is off, one request, zero retries",
+			"queue": "1–10 ordered public HTTP(S) image URLs, 1–5 requests, 0–3 authorized retries per request, maximum 20 generation POSTs; or 1–10 ordered references mixing public URLs and local JPEG or PNG files via provider upload, cleaned unless cleaning is off, one request, zero retries",
 			"optionCoverage": "partial"
 		}
 	},

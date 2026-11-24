@@ -6,6 +6,7 @@ import { gallerySchema } from "./gallery-schema";
 import { imageBatchSchema } from "./image-batch-schema";
 import { imageJobOperationMigration } from "./image-job-operation-migration";
 import { imageJobSchema } from "./image-job-schema";
+import { orderedFileMigration } from "./ordered-file-schema";
 import { saveIntentMigration } from "./save-intent-schema";
 import { videoMigration } from "./video-schema";
 
@@ -56,6 +57,7 @@ export const installationMigrations = {
 	"20261122122000_owner_authenticator": authenticatorSchema,
 	"20261123120000_automatic_save": saveIntentMigration,
 	"20261123180000_seedream_file_edit": fileEditMigration,
+	"20261124120000_seedream_ordered_files": orderedFileMigration,
 };
 
 export async function migrateInstallation(

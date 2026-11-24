@@ -8,12 +8,12 @@ import {
 } from "#lib/components/image-studio/draft-context.ts";
 import ImageComposer from "#lib/components/image-studio/ImageComposer.svelte";
 import ImageReview from "#lib/components/image-studio/ImageReview.svelte";
-import { LocalCopy } from "#lib/components/image-studio/local-copy.svelte.ts";
+import { LocalCopies } from "#lib/components/image-studio/local-copy.svelte.ts";
 import SeedreamFields from "#lib/components/image-studio/SeedreamFields.svelte";
 import ZImageFields from "#lib/components/image-studio/ZImageFields.svelte";
 import {
-	cleanableReferenceFile,
 	duplicateReferenceSlots,
+	stageableReferences,
 } from "#lib/shared/image-studio/references.ts";
 import { createImageReview } from "#lib/shared/image-studio/review.ts";
 import {
@@ -46,12 +46,17 @@ let composer = $state<ComposerDraft>(
 			},
 	),
 );
-// Siluet cleans an attached local file as soon as it is attached.
-const localCopy = new LocalCopy(
-	() =>
-		composer.model === "seedream-5.5" && composer.request.operation === "edit"
-			? cleanableReferenceFile(composer.request.references)
-			: null,
+// Siluet cleans each attached local file as soon as it is attached, in its own draft.
+const localCopies = new LocalCopies(
+	() => {
+		if (composer.model !== "seedream-5.5" || composer.request.operation !== "edit") return null;
+		const files = stageableReferences(composer.request.references);
+		if (!files) return null;
+		const { slots } = composer.references;
+		return composer.request.references.map((reference, index) =>
+			reference.kind === "file" ? { key: slots[index].key, file: reference.file } : null,
+		);
+	},
 	() => data.cleaning,
 );
 let shell: ReturnType<typeof ImageComposer>;
@@ -72,8 +77,13 @@ function switchModel(id: string) {
 const duplicateWarning = $derived.by(() => {
 	if (composer.model !== "seedream-5.5") return null;
 	const positions = duplicateReferenceSlots(composer.request.references);
-	return positions
-		? `Reference images ${positions[0]} and ${positions[1]} use the same URL.`
+	if (positions) {
+		const kind = composer.request.references[positions[0] - 1]?.kind === "file" ? "file" : "URL";
+		return `Reference images ${positions[0]} and ${positions[1]} use the same ${kind}.`;
+	}
+	const same = localCopies.duplicates();
+	return same.length
+		? `Reference images ${same.slice(0, -1).join(", ")} and ${same.at(-1)} are the same file.`
 		: null;
 });
 const seedream = $derived(
@@ -132,7 +142,7 @@ $effect(() => {
 				bind:referenceDraft={composer.references}
 				validation={seedream}
 				{duplicateWarning}
-				{localCopy}
+				{localCopies}
 				bind:previewIndex
 				focusPreview={() => shell.focusPreview()}
 			/>
@@ -161,7 +171,7 @@ $effect(() => {
 			nowMs={data.pricingNowMs}
 			provider={composer.request.provider ?? undefined}
 			operation={composer.request.operation}
-			{localCopy}
+			{localCopies}
 		/>
 	{/snippet}
 </ImageComposer>

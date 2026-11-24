@@ -36,6 +36,10 @@ const h3: ImageJob = {
 	batch_id: null,
 	file_phase: null,
 	file_owner: null,
+	file_references: null,
+	file_stop: null,
+	file_stop_slot: null,
+	file_other_slot: null,
 	transient_failure: null,
 	slot: null,
 	attempt: null,
@@ -194,4 +198,108 @@ test("library shows one Save state in precedence order with a separate retry fla
 			name,
 		).toMatchObject({ library, retryable });
 	}
+});
+
+const fileJob = (overrides: Partial<ImageJob>): ImageJob => ({
+	...h3,
+	id: "file",
+	model: "seedream-5.5",
+	operation: "reference-image-edit",
+	state: "rejected",
+	task_id: null,
+	file_owner: "runtime",
+	file_phase: "stored",
+	file_references: 3,
+	...overrides,
+});
+
+test("a file job reports each file slot, its stop and the hosted-copy warning", () => {
+	const job = summarizeJob(
+		fileJob({ file_stop: "duplicate", file_stop_slot: 1, file_other_slot: 2 }),
+		false,
+		now,
+		null,
+		[
+			{ position: 1, outcome: "stored" },
+			{ position: 3, outcome: "unsent" },
+		],
+	);
+	expect(job.file).toEqual({
+		references: 3,
+		slots: [
+			{ position: 1, outcome: "stored" },
+			{ position: 3, outcome: "unsent" },
+		],
+		hosted: true,
+	});
+	expect(job.message).toBe(
+		"The upload for reference 1 returned the same link as reference 2, so the edit was not sent.",
+	);
+	const unsent = summarizeJob(
+		fileJob({ file_phase: "unsent", file_stop: "stage-changed", file_stop_slot: 1 }),
+		false,
+		now,
+		null,
+		[{ position: 1, outcome: "unsent" }],
+	);
+	expect(unsent.file?.hosted).toBeFalse();
+	expect(unsent.message).toBe(
+		"Reference 1 changed on this computer after Review, so nothing more was sent.",
+	);
+	const unknown = summarizeJob(
+		fileJob({ file_phase: "upload-unknown", state: "unknown" }),
+		false,
+		now,
+		null,
+		[
+			{ position: 1, outcome: "stored" },
+			{ position: 2, outcome: "unknown" },
+		],
+	);
+	expect(unknown.file?.hosted).toBeTrue();
+});
+
+test("a cooldown stop, including an R1b one, reports the next allowed time", () => {
+	for (const phase of ["unsent", "stored"] as const) {
+		const job = summarizeJob(
+			fileJob({
+				file_phase: phase,
+				file_stop: "cooldown",
+				file_stop_slot: phase === "unsent" ? 1 : null,
+				retry_at: 5_000,
+				file_references: 1,
+			}),
+			false,
+			now,
+			null,
+			[{ position: 1, outcome: phase === "unsent" ? "unsent" : "stored" }],
+		);
+		expect(job.message).toBe(
+			`Provider cooldown until ${new Date(5_000).toISOString()}. Review again before queuing.`,
+		);
+	}
+	// A rejection's `retry_at` without a cooldown stop is no cooldown.
+	expect(
+		summarizeJob(fileJob({ retry_at: 5_000 }), false, now, null, [
+			{ position: 1, outcome: "stored" },
+		]).message ?? "",
+	).not.toContain("cooldown");
+});
+
+test("interrupted and expired stops name their slot, or the edit", () => {
+	const message = (overrides: Partial<ImageJob>) =>
+		summarizeJob(fileJob(overrides), false, now, null, []).message;
+	expect(message({ file_stop: "interrupted", file_stop_slot: 3 })).toBe(
+		"Siluet stopped before reference 3 was sent.",
+	);
+	expect(message({ file_stop: "interrupted" })).toBe("Siluet stopped before the edit was sent.");
+	expect(message({ file_stop: "expired-link", file_stop_slot: 2 })).toBe(
+		"The hosted link for reference 2 expired before the edit was sent.",
+	);
+	expect(message({ file_stop: "unusable", file_stop_slot: 2 })).toBe(
+		"The upload for reference 2 returned a link the edit cannot use.",
+	);
+	expect(message({ file_stop: "destination" })).toBe(
+		"The provider address could not be verified, so the edit was not sent.",
+	);
 });

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { BigIntStats } from "node:fs";
 import { rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
@@ -21,12 +22,36 @@ export class CleaningChangedError extends Error {
 /** What a stage's server record adds to its descriptor. Never sent to the browser. */
 export type StageMode = { revision: number; rotated: boolean };
 export type StageScope = { owner: string; session: string; draft: string };
+/** The signed-in owner and session. Each staged file carries its own draft. */
+export type OwnerScope = Omit<StageScope, "draft">;
+type Commit = (
+	live: () => boolean,
+	durable: (write: () => Promise<boolean>) => Promise<boolean>,
+	stages: StageMode[],
+) => Promise<boolean>;
+/** Claimed stages, detached from the store: only their dispatcher reads or removes them. */
+export type ClaimHandle = {
+	/** The verified bytes of the stage at `index`, valid until the next call or release. */
+	next(index: number): Promise<Uint8Array<ArrayBuffer>>;
+	/** Free the buffer, any reservation, and every stage not yet read. */
+	release(): Promise<void>;
+};
+export type ClaimResult =
+	| { held: ClaimHandle }
+	/** Indexes whose stages are missing, expired, changed or retired; `changed` when a read failed verification. */
+	| { stale: number[]; changed?: true }
+	/** The commit refused for its own reasons; every stage stays staged. */
+	| { refused: true }
+	/** An identical claim held these stages. Look up its job before admitting again. */
+	| { joined: true };
 type Stage = {
 	scope: StageScope;
 	descriptor: MediaDescriptor;
 	path: string;
 	expiry: ReturnType<typeof setTimeout>;
 	readers: ReturnType<typeof stageReaders>;
+	/** The written file's identity, checked again by the dispatcher's own reader. */
+	identity: BigIntStats;
 	reservation: ScratchReservation;
 	/** The cleaning setting's revision this copy was prepared under. */
 	revision: number;
@@ -34,7 +59,8 @@ type Stage = {
 	rotated: boolean;
 	consumed?: boolean;
 	boundary?: Promise<boolean>;
-	claim?: Promise<void>;
+	/** The binding of the claim that holds this stage, and when that claim settles. */
+	holder?: { binding: string; settled: Promise<void> };
 };
 export const stageIdleMs = 15 * 60_000;
 // The staging transport limit. Qualified cleaners apply lower per-format limits.
@@ -189,101 +215,252 @@ export function createStages(
 			await handle.close();
 		}
 	}
+	/** A claimed stage is read through a fresh reader that checks the written file's identity. */
+	async function readDetached(stage: Stage, bytes: Uint8Array) {
+		const readers = stageReaders(stage.path, stage.identity, () => {});
+		const handle = await readers.open();
+		try {
+			let offset = 0;
+			while (offset < bytes.length) {
+				await pace?.();
+				const { bytesRead } = await handle.read(
+					bytes,
+					offset,
+					Math.min(65536, bytes.length - offset),
+					offset,
+				);
+				if (!bytesRead) throw new ChangedStage();
+				offset += bytesRead;
+			}
+			if (createHash("sha256").update(bytes).digest("hex") !== stage.descriptor.digest)
+				throw new ChangedStage();
+		} finally {
+			await readers.retire();
+		}
+	}
 	type Reviewed<D> = { descriptor: D } & StageMode;
-	async function review<D extends MediaDescriptor>(
-		scope: StageScope,
-		handle: string,
-		expected: D,
-	): Promise<Reviewed<D> | null>;
-	async function review(
-		scope: StageScope,
-		handle: string,
-	): Promise<Reviewed<MediaDescriptor> | null>;
-	async function review(scope: StageScope, handle: string, expected?: MediaDescriptor) {
+	const scoped = (scope: OwnerScope, d: Pick<MediaDescriptor, "draft">) => ({
+		...scope,
+		draft: d.draft,
+	});
+	/**
+	 * Check every stage (live, unchanged, in its own draft and, when given, prepared under
+	 * `revision`) before extending any deadline. A stale stage extends
+	 * nothing and answers with the indexes to prepare again.
+	 */
+	function reviewAll<D extends MediaDescriptor>(
+		scope: OwnerScope,
+		expected: readonly D[],
+		revision?: number,
+	): Promise<{ reviewed: Reviewed<D>[] } | { stale: number[] }> {
 		return serialize(async () => {
-			const stage = stages.get(handle);
-			if (
-				!stage ||
-				!same(stage.scope, scope) ||
-				!live(stage) ||
-				(expected && !matches(stage.descriptor, expected))
-			)
-				return null;
-			clearTimeout(stage.expiry);
-			stage.descriptor.deadline = now() + stageIdleMs;
-			stage.expiry = timer(handle);
+			const found = expected.map((d) => {
+				const stage = stages.get(d.handle);
+				return stage &&
+					same(stage.scope, scoped(scope, d)) &&
+					live(stage) &&
+					matches(stage.descriptor, d) &&
+					(revision === undefined || stage.revision === revision)
+					? stage
+					: null;
+			});
+			const stale = found.flatMap((stage, index) => (stage ? [] : [index]));
+			if (stale.length) return { stale };
+			const deadline = now() + stageIdleMs;
 			return {
-				descriptor: { ...stage.descriptor },
-				revision: stage.revision,
-				rotated: stage.rotated,
+				reviewed: (found as Stage[]).map((stage) => {
+					clearTimeout(stage.expiry);
+					stage.descriptor.deadline = deadline;
+					stage.expiry = timer(stage.descriptor.handle);
+					return {
+						descriptor: { ...stage.descriptor } as D,
+						revision: stage.revision,
+						rotated: stage.rotated,
+					};
+				}),
 			};
 		});
 	}
-	type Commit = (
-		live: () => boolean,
-		durable: (write: () => Promise<boolean>) => Promise<boolean>,
-		stage: StageMode,
-	) => Promise<boolean>;
-	async function claim(scope: StageScope, descriptor: MediaDescriptor, commit: Commit) {
-		const stage = await find(scope, descriptor.handle);
-		if (!stage) return null;
-		const valid = () =>
-			live(stage) && descriptor.deadline > now() && matches(stage.descriptor, descriptor);
-		while (stage.claim && valid()) await stage.claim;
-		if (!valid()) return null;
-		if (buffers + descriptor.size > bufferLimit) throw new StageError("Upload busy · nothing sent");
-		buffers += descriptor.size;
-		// The buffer stays charged until the read settles and the bytes are released,
-		// even when the stage is retired while the read is in flight.
-		const bytes = new Uint8Array(descriptor.size);
+	/** One stage's Review: `reviewAll` with that stage, or its current descriptor. */
+	async function review<D extends MediaDescriptor>(
+		scope: StageScope,
+		handle: string,
+		expected?: D,
+	): Promise<Reviewed<D> | null> {
+		const current = stages.get(handle)?.descriptor;
+		const descriptor = expected ?? (current as D | undefined);
+		if (!descriptor || descriptor.handle !== handle || descriptor.draft !== scope.draft)
+			return null;
+		const result = await reviewAll(scope, [descriptor]);
+		return "reviewed" in result ? result.reviewed[0] : null;
+	}
+	const modeOf = (stage: Stage): StageMode => ({
+		revision: stage.revision,
+		rotated: stage.rotated,
+	});
+	/**
+	 * Claim every stage for one durable job, or none. Every handle is checked and marked
+	 * synchronously: a distinct holder is busy, an identical binding joins it. One buffer of
+	 * the largest size is charged, every digest is verified before the commit, the first file
+	 * last so the buffer keeps its snapshot, and the commit detaches every stage from the
+	 * store so no sweep, publish, flip, sign-out, discard or close can remove it. Previews
+	 * end at the claim.
+	 */
+	async function claimAll(
+		scope: OwnerScope,
+		descriptors: readonly MediaDescriptor[],
+		binding: string,
+		commit: Commit,
+		reserve: () => (() => void) | null = () => () => {},
+	): Promise<ClaimResult> {
+		const held = descriptors.map((d) => stages.get(d.handle));
+		const valid = (index: number) => {
+			const stage = held[index];
+			const d = descriptors[index];
+			return (
+				!!stage &&
+				same(stage.scope, scoped(scope, d)) &&
+				live(stage) &&
+				d.deadline > now() &&
+				matches(stage.descriptor, d)
+			);
+		};
+		const invalid = () => descriptors.flatMap((_, index) => (valid(index) ? [] : [index]));
+		const holders = new Set(held.flatMap((stage) => (stage?.holder ? [stage.holder] : [])));
+		if ([...holders].some((holder) => holder.binding !== binding))
+			throw new StageError("Upload busy · nothing sent");
+		if (holders.size) {
+			await Promise.all([...holders].map((holder) => holder.settled));
+			return { joined: true };
+		}
+		const stale = invalid();
+		if (stale.length) return { stale };
+		const claimed = held as Stage[];
+		const size = Math.max(...descriptors.map((d) => d.size));
+		if (buffers + size > bufferLimit) throw new StageError("Upload busy · nothing sent");
+		const unreserve = reserve();
+		if (!unreserve) throw new StageError("Upload busy · nothing sent");
+		buffers += size;
+		const settled = Promise.withResolvers<void>();
+		const holder = { binding, settled: settled.promise };
+		for (const stage of claimed) stage.holder = holder;
+		// The buffer stays charged until every read settles and the bytes are released,
+		// even when a stage is retired while its read is in flight.
+		const bytes = new Uint8Array(size);
 		let released = false,
 			committed = false;
-		const finished = Promise.withResolvers<void>();
-		const release = () => {
+		const freeBuffer = () => {
 			if (released) return;
 			released = true;
 			if (bytes.byteLength) bytes.buffer.transfer(0);
-			buffers -= descriptor.size;
+			buffers -= size;
+			unreserve();
 		};
-		stage.claim = finished.promise;
+		const allValid = () => !released && descriptors.every((_, index) => valid(index));
+		const detach = () => {
+			committed = true;
+			for (const stage of claimed) {
+				stage.consumed = true;
+				stages.delete(stage.descriptor.handle);
+				clearTimeout(stage.expiry);
+			}
+		};
 		const durable = async (write: () => Promise<boolean>) => {
-			if (!valid() || released || stage.boundary || committed) return false;
+			if (!allValid() || committed || claimed.some((stage) => stage.boundary)) return false;
 			// Called after acquiring the database connection. No stage-store mutex
 			// is held while the transaction waits on the storage engine.
-			stage.boundary = Promise.resolve()
+			const boundary = Promise.resolve()
 				.then(write)
 				.then((won) => {
-					committed = won;
-					stage.consumed = won;
+					// Detach at once, before any remover waiting on the boundary resumes.
+					if (won) detach();
 					return won;
 				});
+			for (const stage of claimed) stage.boundary = boundary;
 			try {
-				return await stage.boundary;
+				return await boundary;
 			} finally {
-				stage.boundary = undefined;
-				if (committed) void serialize(() => remove(stage)).catch(() => {});
+				for (const stage of claimed) stage.boundary = undefined;
 			}
 		};
 		try {
-			await read(stage, bytes);
-			if (!valid()) return null;
-			const success = await commit(valid, durable, {
-				revision: stage.revision,
-				rotated: stage.rotated,
-			});
-			if (!committed && success && valid() && !released) committed = true;
-			if (!committed) return null;
-			// Removal must preserve committed transfer bytes and be final even on an unlink failure.
-			await serialize(() => remove(stage)).catch(() => {});
-			return { bytes, release };
+			// The first stage last, so the buffer holds its verified snapshot at commit.
+			for (const index of [...descriptors.keys()].slice(1).concat(0)) {
+				await read(claimed[index], bytes.subarray(0, descriptors[index].size));
+				if (!allValid()) return { stale: invalid() };
+			}
+			const success = await commit(allValid, durable, claimed.map(modeOf));
+			if (!committed && success && allValid()) detach();
+			if (!committed) {
+				const after = invalid();
+				return after.length ? { stale: after } : { refused: true };
+			}
 		} catch (error) {
-			if (stage.readers.signal.aborted && !(error instanceof ChangedStage)) return null;
+			if (!committed) {
+				// A changed, missing or expired stage names its positions.
+				const stale = invalid();
+				if (stale.length && error instanceof ChangedStage) return { stale, changed: true };
+				if (stale.length && error instanceof StageError) return { stale };
+				const aborted = claimed.some((stage) => stage.readers.signal.aborted);
+				if (aborted && !(error instanceof ChangedStage)) return { stale };
+			}
 			throw error;
 		} finally {
-			if (!committed) release();
-			if (stage.claim === finished.promise) stage.claim = undefined;
-			finished.resolve();
+			for (const stage of claimed) if (stage.holder === holder) stage.holder = undefined;
+			if (!committed) freeBuffer();
+			settled.resolve();
 		}
+		// Previews end at the claim. The first stage's bytes are already in the buffer.
+		await Promise.allSettled(claimed.map((stage) => stage.readers.retire()));
+		const remaining = new Set(claimed.keys());
+		const drop = async (index: number) => {
+			if (!remaining.delete(index)) return;
+			await unlink(claimed[index].path, claimed[index].reservation);
+		};
+		await drop(0);
+		return {
+			held: {
+				async next(index) {
+					const d = descriptors[index];
+					if (released || !d) throw new StageError("Claim released.");
+					const view = bytes.subarray(0, d.size);
+					if (index === 0) return view;
+					if (!remaining.has(index)) throw new StageError("Stage already read.");
+					try {
+						await readDetached(claimed[index], view);
+						return view;
+					} finally {
+						await drop(index);
+					}
+				},
+				async release() {
+					freeBuffer();
+					await Promise.all([...remaining].map(drop));
+				},
+			},
+		};
+	}
+	/** One stage's claim: `claimAll` with that stage and a fresh binding. */
+	async function claim(
+		scope: StageScope,
+		descriptor: MediaDescriptor,
+		commit: (
+			live: () => boolean,
+			durable: (write: () => Promise<boolean>) => Promise<boolean>,
+			stage: StageMode,
+		) => Promise<boolean>,
+	) {
+		if (descriptor.draft !== scope.draft) return null;
+		const result = await claimAll(
+			scope,
+			[descriptor],
+			crypto.randomUUID(),
+			(valid, durable, modes) => commit(valid, durable, modes[0]),
+		);
+		if ("changed" in result) throw new ChangedStage();
+		if (!("held" in result)) return null;
+		const { held } = result;
+		return { bytes: await held.next(0), release: () => void held.release() };
 	}
 	type PutOptions = {
 		valid?: () => Promise<boolean>;
@@ -354,6 +531,7 @@ export function createStages(
 					reservation,
 					revision: media.revision,
 					rotated: media.rotated,
+					identity: info,
 					readers: stageReaders(path, info, () => {
 						const current = stages.get(handle);
 						if (current) void serialize(() => remove(current)).catch(() => {});
@@ -398,6 +576,7 @@ export function createStages(
 		},
 		put,
 		review,
+		reviewAll,
 		retireAll,
 		async openPreview(scope: StageScope, handle: string) {
 			const stage = await find(scope, handle);
@@ -423,6 +602,7 @@ export function createStages(
 			};
 		},
 		claim,
+		claimAll,
 		/**
 		 * Remove every copy of this draft, including one a request the browser
 		 * abandoned has just written, and refuse later writes to the draft.

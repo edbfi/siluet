@@ -44,8 +44,8 @@ let {
 	index: number;
 	slot: ReferenceSlotDraft;
 	reference: SeedreamReference | undefined;
-	/** Cleans the attached local file. It reports here when it holds this slot's file. */
-	localCopy: LocalCopy;
+	/** The staged copy of this slot's attached JPEG or PNG, when Siluet prepares one. */
+	localCopy: LocalCopy | null;
 	fileId: string;
 	helpId: string;
 	canMoveDown: boolean;
@@ -75,7 +75,7 @@ const label = $derived(`Reference image ${index + 1}`);
 const identity = $derived(referenceLabel(slotDraft.identity));
 const candidateLabel = $derived(referenceLabel(replacementIdentity ?? slotDraft.identity));
 const cleaning = $derived(
-	reference?.kind === "file" && localCopy.file === reference.file ? localCopy : null,
+	reference?.kind === "file" && localCopy?.file === reference.file ? localCopy : null,
 );
 const failed = $derived(!!error || !!(!pending && cleaning?.failed));
 
