@@ -189,6 +189,35 @@ test("a failed save puts the switch and its description back to the stored value
 	});
 });
 
+test("an access error from a save shows the access page", async ({ page }) => {
+	await withStudio(async (studio) => {
+		const { origin } = studio;
+		await claim(page, studio);
+		await page.goto(new URL("/settings/files", origin).href);
+		// The hook's answer to an action when storage is unavailable.
+		await page.route("**/settings/files", (route) =>
+			route.request().method() !== "POST"
+				? route.fallback()
+				: route.fulfill({
+						status: 503,
+						contentType: "application/json",
+						body: JSON.stringify({
+							type: "error",
+							error: {
+								message: "Siluet storage is unavailable.",
+								retry: true,
+								recoveryRequired: false,
+							},
+						}),
+					}),
+		);
+		await cleaningSwitch(page).click();
+		await expect(page.getByRole("heading", { name: "Studio access" })).toBeVisible();
+		await expect(page.getByRole("alert")).toHaveText("Siluet storage is unavailable.");
+		await expect(page.getByRole("link", { name: "Retry" })).toBeVisible();
+	});
+});
+
 test("the access Retry link and a back-forward restore keep the offer", async ({ page }) => {
 	await withStudio(async (studio, directory) => {
 		const { origin } = studio;

@@ -76,7 +76,12 @@ const action = css({ justifySelf: "start", minHeight: "44px", paddingInline: "1r
 			use:enhance={() => {
 				pending = true;
 				return async ({ result }) => {
-					if (result.type === "redirect") {
+					// A sign-in redirect or an answered access error replaces the page. An error with no
+					// status is a lost answer: the save may have committed, so it is read below.
+					if (
+						result.type === "redirect" ||
+						(result.type === "error" && result.status !== undefined)
+					) {
 						pending = false;
 						return applyAction(result);
 					}
