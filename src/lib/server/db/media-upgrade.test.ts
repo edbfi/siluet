@@ -11,7 +11,7 @@ import { migrationsAs2 } from "../../../../tests/fixtures/db/migrations-as2";
 import { migrationsR1b } from "../../../../tests/fixtures/db/migrations-r1b";
 import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
 import { referencePng } from "../../../../tests/fixtures/reference-image";
-import { box, h264Aac } from "../../../../tests/fixtures/video/mp4-boxes";
+import { box, h264Aac, retimeClip } from "../../../../tests/fixtures/video/mp4-boxes";
 import { h3MaxShape, seedanceShape } from "../../../../tests/fixtures/video/real-clips";
 import { createAutoSave } from "../services/gallery/auto-save";
 import { galleryStorage } from "../services/gallery/storage";
@@ -875,6 +875,297 @@ test("jobs queued before per-mode limits adopt their mode's limit and Gallery ro
 		} finally {
 			await upgraded.close();
 		}
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}, 30_000);
+
+type HeldRow = {
+	id: string;
+	mode: "seedance" | "h3" | "unknown" | "image";
+	hold: string;
+	pause?: string | null;
+	expires?: number | null;
+};
+/** Insert completed jobs as Queue claimed them, each with a Save hold and no Gallery item. */
+async function insertHeld(db: ReturnType<typeof drizzle>, rows: HeldRow[]) {
+	const key = {
+		seedance: ["toapis", "seedance-2-5", "text-to-video"],
+		h3: ["poyo", "h3-max", "text-to-video"],
+		unknown: ["toapis", "seedance-2-5", "video-edit"],
+		image: ["poyo", "seedream-5.5", "text-to-image"],
+	} as const;
+	for (const { id, mode, hold, pause = null, expires = null } of rows) {
+		const [provider, model, operation] = key[mode];
+		await db.run(sql`INSERT INTO image_job
+			(id,binding,provider,revision,quote,state,model,operation,created_at,poll_deadline,submission_recorded_at,
+			task_id,business_id,video_terms,save_hold,pause_reason,expires_at)
+			VALUES (${id},${`${id}-binding`},${provider},1,'{}','completed',${model},${operation},1,120002,2,
+			${`${id}-task`},${provider === "toapis" && mode !== "image" ? `${id}-business` : null},
+			${provider === "poyo" && mode !== "image" ? "[]" : null},${hold},${pause},${expires})`);
+	}
+}
+
+/**
+ * Open the upgraded installation with both keys saved, then run automatic Save against fixture
+ * providers: every status read reports completion with `/<id>.mp4`, or `results[id]` for ToAPIs.
+ */
+function upgradeHarness(
+	directory: string,
+	clips: Record<string, Buffer>,
+	results: Record<string, unknown> = {},
+) {
+	const start = Date.parse("2026-11-26T00:00:00Z");
+	const state = { now: start, requests: [] as string[], transfers: [] as string[] };
+	const clip = (id: string) => `https://93.184.216.34/${id}.mp4?sig=signed-sentinel`;
+	type Tracking = ReturnType<typeof createJobTracking>;
+	type Runtime = Awaited<ReturnType<typeof openRuntimeInstallation>>;
+	async function saveKeys() {
+		const upgraded = await openRuntimeInstallation(directory);
+		try {
+			const store = providerStore(upgraded);
+			await store.save("poyo", "fixture-poyo", start, true, 0);
+			await store.save("toapis", "fixture-toapis", start, false, 0);
+		} finally {
+			await upgraded.close();
+		}
+	}
+	async function run(
+		work: (jobs: Tracking, installation: Runtime) => Promise<void> = async () => {},
+	) {
+		const installation = await openRuntimeInstallation(directory);
+		const store = providerStore(installation);
+		let jobs: Tracking | undefined;
+		let autoSave: ReturnType<typeof createAutoSave> | undefined;
+		try {
+			jobs = createJobTracking(installation, store, {
+				now: () => state.now,
+				random: () => 0,
+				fetch: async (url, init) => {
+					const path = new URL(url).pathname;
+					state.requests.push(`${init.method ?? "GET"} ${path}`);
+					const id =
+						path
+							.split("/")
+							.at(-1)
+							?.replace(/-task$/, "") ?? "";
+					if (path.startsWith("/v1/videos/generations/"))
+						return Response.json({
+							id: `${id}-task`,
+							object: "generation.task",
+							model: "seedance-2-5",
+							client_business_id: `${id}-business`,
+							status: "completed",
+							progress: 100,
+							result: results[id] ?? { type: "video", data: [{ url: clip(id) }] },
+						});
+					return Response.json({
+						code: 200,
+						data: {
+							task_id: `${id}-task`,
+							status: "finished",
+							files: [{ file_type: "video", file_url: clip(id) }],
+						},
+					});
+				},
+			});
+			await galleryStorage(installation).recover();
+			await saveIntentStore(installation).clearAbandoned();
+			await jobs.resume();
+			autoSave = createAutoSave(installation, {
+				readForSave: jobs.readForSave,
+				readability: store.jobReadability,
+				now: () => state.now,
+				transport: {
+					resolve: async () => "93.184.216.34",
+					request: async (url) => {
+						state.transfers.push(url.pathname);
+						return new Response(Buffer.from(clips[url.pathname.slice(1, -4)] ?? box("junk")));
+					},
+				},
+			});
+			autoSave.start();
+			await Bun.sleep(5);
+			await autoSave.idle();
+			await work(jobs, installation);
+		} finally {
+			jobs?.close();
+			await autoSave?.close();
+			await installation.close();
+		}
+	}
+	const library = async (jobs: Tracking) =>
+		Object.fromEntries((await jobs.list()).map((job) => [job.id, job.library]));
+	return { state, start, saveKeys, run, library };
+}
+
+test("clips held for length re-arm once under their mode's limit and save with one status read and no POST", async () => {
+	const directory = await createOwnerDirectory();
+	try {
+		await createInstallation37(
+			directory,
+			async (db) => {
+				await insertHeld(db, [
+					{ id: "h3-long", mode: "h3", hold: "unsupported" },
+					{ id: "seedance-long", mode: "seedance", hold: "unsupported" },
+					{ id: "still-long", mode: "seedance", hold: "unsupported" },
+					{ id: "legacy-long", mode: "unknown", hold: "unsupported" },
+					{
+						id: "provider-flagged",
+						mode: "seedance",
+						hold: "unsupported",
+						pause: "unsupported-video-result",
+					},
+					// Flagged by the provider, then a later read replaced the note (recordStatus).
+					{
+						id: "flag-overwritten",
+						mode: "seedance",
+						hold: "unsupported",
+						pause: "unknown-status",
+					},
+					{ id: "expired-held", mode: "seedance", hold: "unsupported", expires: 5 },
+					{ id: "webm", mode: "seedance", hold: "webm" },
+					{ id: "removed", mode: "h3", hold: "removed" },
+					{ id: "failed", mode: "seedance", hold: "failed" },
+					{ id: "image-unsupported", mode: "image", hold: "unsupported" },
+					{ id: "has-item", mode: "seedance", hold: "unsupported" },
+				]);
+				await db.run(sql`INSERT INTO gallery_image
+					(job_id,state,mime,width,height,size,digest,saved_at,duration,file_identity)
+					VALUES ('has-item','unavailable','image/png',1,1,1,'d',3,NULL,NULL)`);
+			},
+			undefined,
+			saveLimitHistory,
+		);
+		// 15.5 s under H3 Max's 15 s, 25 s and 31.5 s under Seedance's 30 s.
+		const clips = {
+			"h3-long": retimeClip(h3MaxShape(), 31, 4),
+			"seedance-long": retimeClip(h3MaxShape(), 25, 2),
+			"still-long": retimeClip(h3MaxShape(), 63, 4),
+		};
+		const harness = upgradeHarness(directory, clips, {
+			"flag-overwritten": { type: "image", data: [{ url: "https://93.184.216.34/image.png" }] },
+		});
+
+		// The upgrade alone re-arms the held video rows that now have a limit.
+		const upgraded = await openRuntimeInstallation(directory);
+		try {
+			expect(await upgraded.use((db) => schemaFingerprint(db))).toBe(currentSchema);
+			const rows = await upgraded.use((db) =>
+				db.all<{ id: string; save_due: number | null; save_hold: string | null }>(
+					sql`SELECT id, save_due, save_hold FROM image_job ORDER BY id`,
+				),
+			);
+			expect(
+				Object.fromEntries(rows.map((row) => [row.id, [row.save_due, row.save_hold]])),
+			).toEqual({
+				"expired-held": [0, null],
+				failed: [null, "failed"],
+				"flag-overwritten": [0, null],
+				"h3-long": [0, null],
+				"has-item": [null, "unsupported"],
+				"image-unsupported": [null, "unsupported"],
+				"legacy-long": [null, "unsupported"],
+				"provider-flagged": [null, "unsupported"],
+				removed: [null, "removed"],
+				"seedance-long": [0, null],
+				"still-long": [0, null],
+				webm: [null, "webm"],
+			});
+		} finally {
+			await upgraded.close();
+		}
+		await harness.saveKeys();
+
+		await harness.run(async (jobs, installation) => {
+			expect(harness.state.requests.toSorted()).toEqual([
+				"GET /api/generate/status/h3-long-task",
+				"GET /v1/videos/generations/seedance-long-task",
+				"GET /v1/videos/generations/still-long-task",
+			]);
+			expect(harness.state.transfers.toSorted()).toEqual([
+				"/h3-long.mp4",
+				"/seedance-long.mp4",
+				"/still-long.mp4",
+			]);
+			expect(await harness.library(jobs)).toEqual({
+				"expired-held": "expired",
+				failed: "failed",
+				"flag-overwritten": "paused",
+				"h3-long": "saved",
+				"has-item": "unavailable",
+				"image-unsupported": "unsupported",
+				"legacy-long": "unsupported",
+				"provider-flagged": "unsupported",
+				removed: "removed",
+				"seedance-long": "saved",
+				"still-long": "unsupported",
+				webm: "webm",
+			});
+			const gallery = galleryStorage(installation);
+			for (const id of ["h3-long", "seedance-long"] as const) {
+				const saved = await gallery.openVideo(id);
+				try {
+					expect(await saved?.handle.readFile()).toEqual(clips[id]);
+				} finally {
+					await saved?.handle.close();
+				}
+			}
+			// Past the provider's read spacing, Refresh reads the overwritten row once; the
+			// provider still reports no video.
+			harness.state.now = harness.start + 60_000;
+			await jobs.refresh("flag-overwritten");
+			expect((await harness.library(jobs))["flag-overwritten"]).toBe("unsupported");
+		});
+		expect(harness.state.requests).toHaveLength(4);
+		expect(harness.state.requests).toContain("GET /v1/videos/generations/flag-overwritten-task");
+
+		// A restart reads and downloads nothing more.
+		await harness.run();
+		expect(harness.state.requests).toHaveLength(4);
+		expect(harness.state.transfers).toHaveLength(3);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}, 30_000);
+
+test("from the release before real-clip Save, both re-arms together read each held clip once", async () => {
+	const directory = await createOwnerDirectory();
+	try {
+		await createInstallation37(
+			directory,
+			(db) =>
+				insertHeld(db, [
+					{ id: "h3-long", mode: "h3", hold: "unsupported" },
+					{ id: "seedance-long", mode: "seedance", hold: "unsupported" },
+					// The real-clip re-arm reads it once; it keeps the 12-second rule and is held again.
+					{ id: "legacy-long", mode: "unknown", hold: "unsupported" },
+				]),
+			undefined,
+			realClipHistory,
+		);
+		const clips = {
+			"h3-long": retimeClip(h3MaxShape(), 31, 4),
+			"seedance-long": retimeClip(h3MaxShape(), 25, 2),
+			"legacy-long": retimeClip(h3MaxShape(), 31, 4),
+		};
+		const harness = upgradeHarness(directory, clips);
+		await harness.saveKeys();
+		await harness.run(async (jobs) => {
+			expect(await harness.library(jobs)).toEqual({
+				"h3-long": "saved",
+				"legacy-long": "unsupported",
+				"seedance-long": "saved",
+			});
+		});
+		expect(harness.state.requests.toSorted()).toEqual([
+			"GET /api/generate/status/h3-long-task",
+			"GET /v1/videos/generations/legacy-long-task",
+			"GET /v1/videos/generations/seedance-long-task",
+		]);
+		await harness.run();
+		expect(harness.state.requests).toHaveLength(3);
+		expect(harness.state.transfers).toHaveLength(3);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
