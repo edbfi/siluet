@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+import { test } from "./studio-test";
 
 const entry = new URL("../../design/workspace/index.html", import.meta.url).href;
 

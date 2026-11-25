@@ -1,11 +1,12 @@
 import { chmod, readdir, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { TOTP } from "otpauth";
 import decodeQR from "qr/decode.js";
 import sharp from "sharp";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { startStudio } from "./built-studio";
+import { test } from "./studio-test";
 
 async function interruptKeyRead(directory: string) {
 	const name = (await readdir(directory)).find((entry) => /^factor-.*[.]key$/.test(entry));

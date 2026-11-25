@@ -35,6 +35,20 @@ test("fixed listeners keep their port and reject a mismatched origin before laun
 	expect(origins).toEqual(["http://[::1]:3000"]);
 });
 
+test("the launcher and the server it starts create files for the owner only", () => {
+	const child = Bun.spawnSync(
+		[
+			process.execPath,
+			"--preload",
+			join(import.meta.dir, "../tests/fixtures/report-umask.ts"),
+			join(import.meta.dir, "start.ts"),
+		],
+		{ env: { ...process.env, SILUET_SERVER_HOST: "localhost" } },
+	);
+	expect(child.exitCode).not.toBe(0);
+	expect(child.stderr.toString()).toContain("umask 77\n");
+});
+
 test("a foreign launcher refuses before selecting a port", async () => {
 	const root = await mkdtemp(join(tmpdir(), "siluet-foreign-launcher-"));
 	try {

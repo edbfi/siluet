@@ -2,6 +2,11 @@ import { crc32 } from "node:zlib";
 import sharp from "sharp";
 import { hasCompleteGifStream } from "../../../shared/image-studio/gif";
 
+// libvips' operation cache would keep decoded results between downloads. The setting is
+// process-wide, as in media-cleanup/preparation.ts; this keeps it off even when Gallery loads first.
+// https://sharp.pixelplumbing.com/api-utility/#cache
+sharp.cache(false);
+
 const maxPixels = 16_000_000;
 const maxEdge = 16_384;
 // Allow a bounded decode beyond the publication profile to classify complete results.
@@ -115,11 +120,14 @@ export async function verifyImage(bytes: Buffer) {
 
 	// Some libjpeg warnings are emitted even when toBuffer() resolves.
 	// https://sharp.pixelplumbing.com/api-constructor/
+	// sharp enforces the timeout in its pipeline (toBuffer) only, so every full decode
+	// goes through toBuffer; metadata() reads headers alone.
+	// https://sharp.pixelplumbing.com/api-output/#timeout
 	const decoder = sharp(bytes, {
 		limitInputPixels: verificationPixels,
 		failOn: "warning",
 		animated: !galleryFormat,
-	});
+	}).timeout({ seconds: 5 });
 	let warned = false;
 	decoder.on("warning", () => {
 		warned = true;
@@ -128,8 +136,8 @@ export async function verifyImage(bytes: Buffer) {
 	if (warned || format !== expected || width > verificationEdge || height > verificationEdge)
 		throw invalid();
 	if (!galleryFormat || width > maxEdge || height > maxEdge || width * height > maxPixels) {
-		// Read every pixel for decoder errors without allocating out-of-profile output.
-		await decoder.stats();
+		// Read every pixel for decoder errors, keeping one byte a pixel of output.
+		await decoder.extractChannel(0).raw({ depth: "uchar" }).toBuffer();
 		if (warned) throw invalid();
 		throw new UnsupportedGalleryImage();
 	}

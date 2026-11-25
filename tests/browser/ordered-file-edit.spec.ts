@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { cmykJpeg, localImageMarker, markedFile } from "../fixtures/local-image";
 import {
 	editedPng,
@@ -9,6 +9,7 @@ import {
 	signedReference,
 } from "../fixtures/reference-edit";
 import { prompt, providerPayload, withEditStudio } from "./edit-studio-fixture";
+import { test } from "./studio-test";
 
 const providerName = { poyo: "Poyo.ai", toapis: "ToAPIs" } as const;
 

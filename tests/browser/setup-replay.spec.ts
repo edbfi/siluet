@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "./studio-test";
 
 test("setup replay keeps the connected provider in its review", async ({ page }) => {
 	await page.setContent("<main></main>");

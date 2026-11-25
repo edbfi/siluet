@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, copyFile, exists, readdir, readFile, rm } from "node:fs/promises";
+import { chmod, copyFile, exists, readdir, readFile, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { TOTP } from "otpauth";
@@ -59,6 +59,44 @@ test("recovery requires an interactive terminal before inspecting storage", asyn
 		expect(await readdir(directory)).toEqual([]);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
+	}
+});
+test("recovery creates files for the owner only, whatever the shell's umask", async () => {
+	const directory = await createOwnerDirectory();
+	try {
+		const child = Bun.spawnSync(
+			[
+				process.execPath,
+				"--preload",
+				join(import.meta.dir, "../tests/fixtures/report-umask.ts"),
+				join(import.meta.dir, "owner-recover.ts"),
+			],
+			{ stdin: Buffer.from("unused"), env: { ...process.env, SILUET_DATA_DIR: directory } },
+		);
+		expect(child.exitCode).toBe(1);
+		expect(child.stderr.toString()).toEndWith("umask 77\n");
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+test("recovery names a folder another user could write and how to close it", async () => {
+	const parent = await createOwnerDirectory();
+	let recovery: ReturnType<typeof command> | undefined;
+	try {
+		// Open the folder before the child starts, so it cannot check the folder first.
+		await chmod(parent, 0o777);
+		recovery = command(join(parent, "shared", "siluet"));
+		await recovery.child.exited;
+		expect(recovery.child.exitCode).toBe(1);
+		// Recovery names the canonical folder, which differs under a linked TMPDIR (macOS /var).
+		const folder = await realpath(parent);
+		expect(recovery.output()).toContain(
+			`Another user could replace the data directory through ${folder}. Run chmod g-w,o-w ${folder}`,
+		);
+	} finally {
+		recovery?.term.close();
+		await chmod(parent, 0o700);
+		await rm(parent, { recursive: true, force: true });
 	}
 });
 test("recovery on a foreign platform refuses before storage", async () => {

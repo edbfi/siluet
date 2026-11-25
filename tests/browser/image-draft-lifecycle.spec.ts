@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
-import { test as base, expect } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
 import { referencePng } from "../fixtures/reference-image";
 import { startStudio } from "./built-studio";
+import { test as base } from "./studio-test";
 
 const image = {
 	name: "private-reference.png",

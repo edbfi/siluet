@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { sql } from "drizzle-orm";
 import { openInstallation } from "../../src/lib/server/db/installation";
 import { seedanceEditOperation } from "../../src/lib/shared/media-catalog/registry";
@@ -12,6 +12,7 @@ import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider
 import { writeReviewPricing } from "../fixtures/review-pricing";
 import { seedanceProvider } from "../fixtures/seedance-provider";
 import { startStudio } from "./built-studio";
+import { test } from "./studio-test";
 
 // One signed source clip on a maximal 63-character DNS label. Nothing may read or resolve it.
 const sourceHost = "source-sentinel-0123456789abcdef0123456789abcdef0123456789abcde.example.com";

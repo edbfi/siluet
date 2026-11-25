@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { cmykJpeg, localImageMarker, rotatedJpeg, uprightPng } from "../fixtures/local-image";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import {
@@ -12,6 +12,7 @@ import {
 import { referenceGif, referencePng, truncatedReferenceGif } from "../fixtures/reference-image";
 import { writeReviewPricing } from "../fixtures/review-pricing";
 import { startStudio } from "./built-studio";
+import { test } from "./studio-test";
 
 const username = "image-owner";
 const promptText = "Blend image 1 and image 2 under soft evening light.";

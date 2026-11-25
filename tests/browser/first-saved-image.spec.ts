@@ -1,6 +1,6 @@
 import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { createSeedreamDraft } from "../../src/lib/shared/image-studio/seedream";
 import { jobResponses } from "../fixtures/job-responses";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
@@ -12,6 +12,7 @@ import {
 import { referenceGif, referencePng } from "../fixtures/reference-image";
 import { writeReviewPricing } from "../fixtures/review-pricing";
 import { startStudio } from "./built-studio";
+import { test } from "./studio-test";
 
 const prompt = "A folded paper fan beside a blue vase, private fixture.";
 type Studio = Awaited<ReturnType<typeof startStudio>>;

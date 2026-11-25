@@ -54,7 +54,11 @@ async function loadProviderKey(directory: string, path: string) {
 		if (!inspected.file || inspected.file.size !== keySize) return { inspected, key: null };
 
 		try {
-			const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+			// O_NONBLOCK: a FIFO swapped in after the checks opens at once and fails them.
+			const file = await open(
+				path,
+				constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+			);
 			try {
 				if (!sameFile(inspected.file, await file.stat())) continue;
 				const key = await file.readFile();

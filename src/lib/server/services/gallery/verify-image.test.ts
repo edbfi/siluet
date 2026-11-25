@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { crc32 } from "node:zlib";
 import sharp from "sharp";
 import { referenceGif, referencePng } from "../../../../../tests/fixtures/reference-image";
@@ -182,3 +182,49 @@ test.each(["regular", "extended", "to EOF"])(
 		}
 	},
 );
+
+test("decodes under a 5 s libvips timeout with the operation cache off", async () => {
+	const prototype = Object.getPrototypeOf(sharp());
+	const timeout = spyOn(prototype, "timeout");
+	try {
+		await verifyImage(referencePng);
+		await verifyImage(jpeg);
+		expect(timeout.mock.calls).toEqual([[{ seconds: 5 }], [{ seconds: 5 }]]);
+	} finally {
+		timeout.mockRestore();
+	}
+	// Alone in a process, so no other module has turned the cache off first.
+	const child = Bun.spawnSync([
+		process.execPath,
+		"-e",
+		`await import(${JSON.stringify(`${import.meta.dir}/verify-image.ts`)});
+		const { memory, files, items } = (await import("sharp")).default.cache();
+		console.log(JSON.stringify([memory.max, files.max, items.max]));`,
+	]);
+	expect(child.stdout.toString().trim()).toBe("[0,0,0]");
+});
+
+test("an image outside the Gallery profile decodes once, under the timeout, to one byte a pixel", async () => {
+	const prototype = Object.getPrototypeOf(sharp());
+	// 16-bit RGBA, one pixel wider than the Gallery allows.
+	const width = 16385;
+	const pixels = Buffer.alloc(width * 2 * 4, 200);
+	const rgba16 = await sharp(pixels, { raw: { width, height: 2, channels: 4 } })
+		.toColourspace("rgb16")
+		.png()
+		.toBuffer();
+	expect((await sharp(rgba16).metadata()).depth).toBe("ushort");
+	const stats = spyOn(prototype, "stats");
+	const timeout = spyOn(prototype, "timeout");
+	const toBuffer = spyOn(prototype, "toBuffer");
+	try {
+		await expect(verifyImage(rgba16)).rejects.toMatchObject({ reason: "unsupported-image" });
+		expect(stats).not.toHaveBeenCalled();
+		expect(timeout.mock.calls).toEqual([[{ seconds: 5 }]]);
+		expect(toBuffer).toHaveBeenCalledTimes(1);
+		const output: Buffer = await toBuffer.mock.results[0].value;
+		expect(output.length).toBe(width * 2);
+	} finally {
+		for (const spy of [stats, timeout, toBuffer]) spy.mockRestore();
+	}
+});

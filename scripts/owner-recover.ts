@@ -7,6 +7,8 @@ import {
 async function main() {
 	// Refuse before loading storage and its native bindings.
 	requireSupportedPlatform();
+	// Files recovery creates or rewrites are the owner's alone.
+	process.umask(0o077);
 	const input = process.stdin,
 		output = process.stderr;
 	if (!input.isTTY || !output.isTTY) throw new Error("Run recovery from an interactive terminal.");
@@ -123,6 +125,9 @@ if (import.meta.main)
 			"Use at least 15 characters",
 			"An absolute data directory",
 			"The data directory must be private.",
+			// These name a folder on the owner's own data path, for the owner's terminal.
+			"Another user could replace the data directory",
+			"The data directory cannot pass through",
 		];
 		console.error(
 			e instanceof UnsupportedPlatformError

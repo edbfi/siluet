@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { expect, type Page, type Route, test } from "@playwright/test";
+import { expect, type Page, type Route } from "@playwright/test";
 import sharp from "sharp";
 import { cmykJpeg, markedFile } from "../fixtures/local-image";
 import { prompt, withEditStudio } from "./edit-studio-fixture";
+import { test } from "./studio-test";
 
 // A JPEG with an APP9 segment the cleaner cannot classify. An original may carry it.
 async function vendorJpeg() {

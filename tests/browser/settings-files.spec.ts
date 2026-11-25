@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { chmod, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { type Browser, expect, type Page, test } from "@playwright/test";
+import { type Browser, expect, type Page } from "@playwright/test";
 import { TOTP } from "otpauth";
 import { uprightPng } from "../fixtures/local-image";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { startStudio } from "./built-studio";
+import { test } from "./studio-test";
 
 type Studio = Awaited<ReturnType<typeof startStudio>>;
 

@@ -2,11 +2,11 @@ import { cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
-
+import { expect, type Page } from "@playwright/test";
 import { exportWorkspace } from "../../design/workspace/export";
 import poyoBundle from "../../pricing/v2/poyo.json";
 import { loadBundledPricing } from "../../scripts/pricing/local-feed";
+import { test } from "./studio-test";
 import { reloadOrigin, reloadTest, reloadUrl } from "./workspace-reload";
 
 const workspace = new URL("../../design/workspace/", import.meta.url);

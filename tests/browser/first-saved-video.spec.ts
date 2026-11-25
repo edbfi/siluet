@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { seedanceOperation } from "../../src/lib/shared/media-catalog/registry";
 import { videoDefaults } from "../../src/lib/shared/video-studio/seedance";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
@@ -12,6 +12,7 @@ import { undecodableH264Aac } from "../fixtures/video/mp4-boxes";
 import { seedanceShape } from "../fixtures/video/real-clips";
 import { startStudio } from "./built-studio";
 import { seekThenPlay } from "./saved-video-playback";
+import { test } from "./studio-test";
 
 test("video-only key reviews once, saves one video and reopens its original bytes offline", async ({
 	page,
@@ -172,6 +173,26 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			const video = page.getByLabel("Saved video playback");
 			await expect(video).toBeVisible();
 			await seekThenPlay(page, video);
+			// Opened on its own, the saved clip plays in a sandboxed document that no page can frame.
+			const inline = await page.goto(media);
+			expect(inline?.headers()).toMatchObject({
+				"content-type": "video/mp4",
+				"cross-origin-resource-policy": "same-origin",
+				"x-frame-options": "DENY",
+				"x-content-type-options": "nosniff",
+				"referrer-policy": "same-origin",
+				"content-security-policy":
+					"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; media-src 'self'; sandbox allow-same-origin",
+			});
+			const direct = page.locator("video");
+			await expect
+				.poll(() => direct.evaluate((v: HTMLVideoElement) => v.readyState))
+				.toBeGreaterThan(0);
+			await direct.evaluate((v: HTMLVideoElement) => v.play());
+			await expect
+				.poll(() => direct.evaluate((v: HTMLVideoElement) => v.played.length && v.played.end(0)))
+				.toBeGreaterThan(0);
+			await page.goto(origin + path);
 			expect(await (await page.request.get(`${media}?download=1`)).body()).toEqual(bytes);
 			const head = await page.request.head(media, { headers: { range: "bytes=0-1" } });
 			expect(head.status()).toBe(200);
@@ -205,6 +226,9 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			await page.getByRole("button", { name: "Remove from Gallery" }).press("Enter");
 			await expect(page).toHaveURL(`${origin}/gallery`);
 			expect((await page.request.get(media)).status()).toBe(404);
+			// A removed file's page renders under the policy; studio-test fails on a violation.
+			expect((await page.goto(media))?.status()).toBe(404);
+			await page.goto(`${origin}/gallery`);
 			expect(fixture.requests.length).toBe(before);
 			expect(server.diagnostics()).not.toContain("secret-result");
 		} finally {

@@ -1,4 +1,4 @@
-import { realpath, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { type Installation, openInstallation } from "./installation";
 import { preparePrivateDirectory } from "./private-directory";
 
@@ -48,8 +48,7 @@ export async function openRuntimeInstallation(
 ): Promise<RuntimeInstallation> {
 	if (Object.hasOwn(env, "LIMBO_DISABLE_FILE_LOCK"))
 		throw new Error("Studio requires the native file lock.");
-	await preparePrivateDirectory(directory, mode === "recovery");
-	const path = await realpath(directory);
+	const path = await preparePrivateDirectory(directory, mode === "recovery");
 	const info = await stat(path, { bigint: true });
 	const identity = info.ino ? `${info.dev}:${info.ino}` : path;
 	if (active.has(identity)) throw new Error("Studio installation is in use.");

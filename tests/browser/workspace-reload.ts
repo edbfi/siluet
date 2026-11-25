@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { dirname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { test } from "@playwright/test";
+import { test } from "./studio-test";
 
 // Under load, Chromium sometimes starts a reloaded file:// document with empty
 // localStorage. Reload tests therefore read the same files from this routed

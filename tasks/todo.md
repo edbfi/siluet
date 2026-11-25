@@ -30,7 +30,7 @@ Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scop
 - [x] Completed, unsaved clips held for an MP4 refusal the fix now accepts re-arm once: those with unexpired links save with one status read and no generation call; expired ones settle as expired with zero status reads.
 - [ ] The council confirms the per-mode video Save limits spec, the implementation merges, and Review states each mode's limits.
 - [ ] [#62](https://github.com/edbfi/siluet/pull/62) is rebased onto the per-mode limits with its source-length disclosure at 30 s, passes its checks and merges.
-- [ ] A cross-cutting security review is recorded as one short entry in `docs/decisions.md` with its scope, date, findings and their dispositions, and every blocker is resolved or explicitly accepted by the owner.
+- [ ] A cross-cutting security review is recorded as one short entry in `docs/decisions.md` with its scope, date, findings and their dispositions, and every blocker is resolved or explicitly accepted by the owner. Recorded on 2026-11-25 with its fixes; the cross-port session cookie waits on the owner.
 - [ ] Re-check the README against shipped behaviour after the per-mode limits and #62.
 - [ ] The release coverage table lists each operation as verified, Review-only or pending and cites the real-clip results, and `package.json` reads `0.1.0` on the commit to tag.
 - [ ] Local checks and hosted `ci-ok` pass on the commit to tag, and the owner tags `v0.1.0`.

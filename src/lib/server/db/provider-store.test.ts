@@ -443,3 +443,15 @@ test("Poyo balance access follows the readable revision independently of Seedrea
 	await store.remove("poyo");
 	expect(await store.credential("poyo", 2, "poyo-balance")).toBeNull();
 });
+
+test("a key swapped for a FIFO after its checks is refused without blocking", async () => {
+	const child = Bun.spawnSync(
+		[
+			process.execPath,
+			join(import.meta.dir, "../../../../tests/fixtures/fifo-key-swap.ts"),
+			directory,
+		],
+		{ timeout: 10_000 },
+	);
+	expect(child.stdout.toString().trim()).toBe("ProviderKeyPolicyError");
+});

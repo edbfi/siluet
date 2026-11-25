@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+import { test } from "./studio-test";
 
 async function openComposer(page: Page, kind: "image" | "video", provider: string) {
 	const entry = "http://127.0.0.1/composer-test";
