@@ -57,11 +57,18 @@ function free() {
 	if (next) next();
 	else reads--;
 }
-/** Make room for `size` bytes, evicting the least recently visible holders first. */
+/**
+ * Make room for `size` bytes, evicting the least recently visible holders first. Nothing is
+ * evicted when evicting every shown file would still leave too little room.
+ */
 function makeRoom(size: number, keep: Holder | null) {
 	const others = [...holders]
 		.filter((h) => h !== keep && h.blob)
 		.sort((a, b) => a.visibleAt - b.visibleAt);
+	const pinned = new Set(downloads);
+	const evictable = new Set(others.flatMap((h) => (h.blob && !pinned.has(h.blob) ? [h.blob] : [])));
+	const freeable = [...evictable].reduce((sum, blob) => sum + blob.size, 0);
+	if (held() - freeable + size > maxBytes) return;
 	while (held() + size > maxBytes && others.length) others.shift()?.evict();
 }
 /** Reads waiting for other reads or download links to release their bytes. */
@@ -122,9 +129,10 @@ export async function readPrivate(
 		if (response.status === 404 || response.status === 410) throw new MediaUnavailable();
 		if (!response.ok || !response.body) throw new TypeError("The file could not be read.");
 		const limit = mediaLimits[kind];
-		const declared = Number(response.headers.get("content-length") ?? Number.NaN);
+		const length = response.headers.get("content-length")?.trim();
+		const declared = length && /^\d+$/.test(length) ? Number(length) : Number.NaN;
 		if (declared > limit) throw new MediaUnavailable();
-		// A file of unknown length may use the kind's whole limit.
+		// A file of unknown or malformed length may use the kind's whole limit.
 		const expected = Number.isFinite(declared) ? declared : limit;
 		await reserve(expected, holder, signal);
 		reservation = expected;
@@ -224,27 +232,46 @@ export function privateSource(
 	};
 }
 
+/** Downloads still reading, by source: a second click on the same file joins the first. */
+const downloading = new Map<string, Promise<void>>();
+
 /**
  * Download a private file under its Gallery name, reusing a blob already shown on the page.
  * The temporary link is revoked a minute after the click; until then its bytes count, so a
- * download over the tab's limit waits for an earlier link to go.
+ * download over the tab's limit waits for an earlier link to go. A download whose session
+ * ended while it waited saves nothing.
  */
-export async function downloadPrivate(src: string, mime: string, kind: MediaKind, name: string) {
-	const shown = [...holders].find((h) => h.src === src && h.blob)?.blob;
-	if (shown) downloads.push(shown);
-	const blob =
-		shown ?? (await readPrivate(src, mime, kind, new AbortController().signal, downloads));
-	const url = URL.createObjectURL(blob);
-	const link = document.createElement("a");
-	link.href = url;
-	link.download = name;
-	link.hidden = true;
-	document.body.append(link);
-	link.click();
-	link.remove();
-	setTimeout(() => {
-		URL.revokeObjectURL(url);
-		downloads.splice(downloads.indexOf(blob), 1);
-		released();
-	}, downloadMs);
+export function downloadPrivate(src: string, mime: string, kind: MediaKind, name: string) {
+	const pending = downloading.get(src);
+	if (pending) return pending;
+	const started = sessionClient().remountKey;
+	const download = (async () => {
+		const shown = [...holders].find((h) => h.src === src && h.blob)?.blob;
+		if (shown) downloads.push(shown);
+		const blob =
+			shown ?? (await readPrivate(src, mime, kind, new AbortController().signal, downloads));
+		let url: string | null = null;
+		try {
+			if (sessionClient().remountKey !== started) return;
+			url = URL.createObjectURL(blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = name;
+			link.hidden = true;
+			document.body.append(link);
+			link.click();
+			link.remove();
+		} finally {
+			const linked = url;
+			const forget = () => {
+				if (linked) URL.revokeObjectURL(linked);
+				downloads.splice(downloads.indexOf(blob), 1);
+				released();
+			};
+			if (linked) setTimeout(forget, downloadMs);
+			else forget();
+		}
+	})().finally(() => downloading.delete(src));
+	downloading.set(src, download);
+	return download;
 }

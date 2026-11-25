@@ -7,7 +7,14 @@ import { downloadPrivate, privateSource, readPrivate } from "./private-media";
 const MiB = 1024 * 1024;
 const bytes = new Uint8Array(64 * MiB);
 let session: string | null = "s1";
-setSessionClient({ bound: () => (session ? { sessionId: session, loginId: "l" } : null) } as never);
+let remountKey = 0;
+setSessionClient({
+	bound: () => (session ? { sessionId: session, loginId: "l" } : null),
+	get remountKey() {
+		return remountKey;
+	},
+} as never);
+let clicks = 0;
 
 type Call = { src: string; init: RequestInit & { siluetSession?: string }; answer: () => void };
 let calls: Call[] = [];
@@ -52,7 +59,12 @@ Object.assign(globalThis, {
 		disconnect() {}
 	},
 	document: {
-		createElement: () => ({ click() {}, remove() {} }),
+		createElement: () => ({
+			click() {
+				clicks++;
+			},
+			remove() {},
+		}),
 		body: { append() {} },
 	},
 });
@@ -82,6 +94,8 @@ afterEach(async () => {
 	bodies.clear();
 	undeclared.clear();
 	session = "s1";
+	remountKey = 0;
+	clicks = 0;
 });
 
 test("an aborted waiter leaves the queue at once and the next waiter gets the freed read", async () => {
@@ -234,4 +248,60 @@ test("a read that declares no length reserves its kind's whole limit", async () 
 	// The next 64 MiB evicts the least recently visible shown file.
 	expect(u1.src).toBe("");
 	expect(u2.src).not.toBe("");
+});
+
+/** Run `body` with link timers captured instead of scheduled, then revoke every link. */
+async function withLinks(body: (revoke: (() => void)[]) => Promise<void>) {
+	const revoke: (() => void)[] = [];
+	const realTimeout = globalThis.setTimeout;
+	globalThis.setTimeout = ((callback: () => void) => revoke.push(callback)) as never;
+	try {
+		await body(revoke);
+	} finally {
+		globalThis.setTimeout = realTimeout;
+		for (const link of revoke.splice(0)) link();
+	}
+}
+
+test("a read that eviction cannot make room for waits without evicting what is shown", async () => {
+	await withLinks(async () => {
+		for (const src of ["/e1", "/e2"]) {
+			sizes.set(src, 64 * MiB);
+			const download = downloadPrivate(src, "video/mp4", "video", "clip.mp4");
+			await tick();
+			await deliver(src);
+			await download;
+		}
+		sizes.set("/shown", 32 * MiB);
+		const shown = show("/shown");
+		await tick();
+		await deliver("/shown");
+		sizes.set("/streaming", 32 * MiB);
+		show("/streaming");
+		await tick();
+		calls.find((call) => call.src === "/streaming")?.answer();
+		await tick();
+		// 128 MiB of links, 32 shown and 32 streaming: evicting the shown file cannot fit 64 more.
+		sizes.set("/waiting", 64 * MiB);
+		show("/waiting");
+		await tick();
+		calls.find((call) => call.src === "/waiting")?.answer();
+		await tick();
+		expect(shown.src).not.toBe("");
+	});
+});
+
+test("a download whose session ended while it waited saves nothing, and a second click joins the first", async () => {
+	await withLinks(async () => {
+		sizes.set("/mine", 64 * MiB);
+		const first = downloadPrivate("/mine", "video/mp4", "video", "clip.mp4");
+		const second = downloadPrivate("/mine", "video/mp4", "video", "clip.mp4");
+		expect(second).toBe(first);
+		await tick();
+		expect(calls.filter((call) => call.src === "/mine")).toHaveLength(1);
+		remountKey++;
+		await deliver("/mine");
+		await first;
+		expect(clicks).toBe(0);
+	});
 });
