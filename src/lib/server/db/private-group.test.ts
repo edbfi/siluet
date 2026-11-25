@@ -34,3 +34,12 @@ test("an unknown group or unreadable account files fail closed", () => {
 	])
 		expect(isUserPrivateGroup(accounts, user)).toBe(false);
 });
+
+test("the user's own account must confirm the group", () => {
+	for (const users of [
+		"root:x:0:0:root:/root:/bin/sh\n",
+		"root:x:0:0:root:/root:/bin/sh\nada:x:1000:100:Ada:/home/ada:/bin/sh\n",
+		"root:x:0:0:root:/root:/bin/sh\nada:x:1002:100:Ada:/home/ada:/bin/sh\n",
+	])
+		expect(isUserPrivateGroup({ group, passwd: users }, user)).toBe(false);
+});

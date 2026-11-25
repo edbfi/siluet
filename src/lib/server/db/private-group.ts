@@ -26,8 +26,8 @@ function entries(text: string, fields: number, ids: number[]) {
 
 /**
  * Whether `user.gid` is that user's private group: exactly one group entry with
- * that ID, named for the user, holding no other member, and no other account's
- * primary group.
+ * that ID, named for the user, holding no other member, the primary group of
+ * the user's own account and of no other account.
  */
 export function isUserPrivateGroup(
 	accounts: LocalAccounts,
@@ -41,7 +41,7 @@ export function isUserPrivateGroup(
 	const [name, , , members] = matching[0];
 	if (name !== user.name || members.split(",").some((member) => member && member !== user.name))
 		return false;
-	return users.every(
-		(row) => Number(row[3]) !== user.gid || (row[0] === user.name && Number(row[2]) === user.uid),
-	);
+	const own = (row: string[]) =>
+		row[0] === user.name && Number(row[2]) === user.uid && Number(row[3]) === user.gid;
+	return users.some(own) && users.every((row) => Number(row[3]) !== user.gid || own(row));
 }
