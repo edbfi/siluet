@@ -16,17 +16,21 @@ const sbr = 5;
 /**
  * Read the rest of GASpecificConfig and any backward-compatible sync extension after it
  * (14496-3 §1.6.2.1, §4.4.1). Plain AAC-LC has no extension, or one with object type 5 that
- * declares SBR absent, which also rules out PS. Anything else, including trailing bits that
- * are not a sync extension, is not plain. Never refuses: D6 accepts these configurations.
+ * declares SBR absent followed only by zero padding, which also rules out PS. Anything else,
+ * including trailing bits that are not a sync extension, is not plain. Never refuses: D6 accepts these configurations.
  */
 function plainLowComplexity(bits: ReturnType<typeof bitReader>) {
 	const take = (count: number) => (bits.remaining() >= count ? bits.bits(count) : -1);
 	const dependsOnCoreCoder = take(1);
 	if (dependsOnCoreCoder === 1 && take(14) < 0) return false; // coreCoderDelay
 	const extensionFlag = take(1);
-	if (extensionFlag < 0 || (extensionFlag === 1 && take(1) < 0)) return false; // extensionFlag3
+	// extensionFlag3 = 1 announces reserved version-3 syntax, so the extension boundary is unknown.
+	if (extensionFlag < 0 || (extensionFlag === 1 && take(1) !== 0)) return false;
 	if (bits.remaining() < 16) return true;
-	return take(11) === syncExtension && take(5) === sbr && take(1) === 0;
+	if (take(11) !== syncExtension || take(5) !== sbr || take(1) !== 0) return false;
+	// PS is signalled only after SBR present, so only zero padding may follow SBR absent.
+	while (bits.remaining() > 0) if (take(1) !== 0) return false;
+	return true;
 }
 
 /**

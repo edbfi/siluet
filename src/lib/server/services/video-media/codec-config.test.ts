@@ -243,6 +243,13 @@ test("plain AAC-LC has no sync extension or one that declares SBR absent", () =>
 	// Another extension object type, or 16 trailing bits that are not a sync extension.
 	expect(lc("01010110111 10110 0")).toMatchObject({ plain: false });
 	expect(lc("0".repeat(16))).toMatchObject({ plain: false });
+	// After an SBR-absent declaration only zero padding may follow: PS (0x548) is signalled
+	// only after SBR present, so a later PS declaration contradicts it.
+	expect(lc(`${sbrExtension} 0 10101001000 1`)).toMatchObject({ plain: false });
+	expect(lc(`${sbrExtension} 0 0000000`)).toMatchObject({ plain: true });
+	// extensionFlag3 = 1 leaves reserved version-3 syntax before any extension.
+	expect(lc("", "0 0 1 0")).toMatchObject({ plain: true });
+	expect(lc("", "0 0 1 1")).toMatchObject({ plain: false });
 });
 
 test("the recorded H3 Max and Seedance audio declares SBR absent", () => {
