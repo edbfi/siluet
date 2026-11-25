@@ -6,7 +6,10 @@ import type { Plugin } from "vite";
 export function checkPublicAssets(root: string) {
 	function visit(path: string, name: string) {
 		const entry = lstatSync(path);
-		if (entry.isSymbolicLink() || /^(?:installation\.id|studio\.db(?:-.*)?)$/i.test(name))
+		if (
+			entry.isSymbolicLink() ||
+			/^(?:installation\.id|studio\.db(?:-.*)?|owner-recovery\.sqlite(?:-.*)?|.*\.key)$/i.test(name)
+		)
 			throw new Error("Public assets must exclude filesystem links and owner storage files.");
 		if (entry.isDirectory()) for (const child of readdirSync(path)) visit(join(path, child), child);
 	}

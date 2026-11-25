@@ -59,6 +59,7 @@ export default defineConfig({
 				"**/.git/**",
 				"studio.db",
 				"studio.db-*",
+				"owner-recovery.sqlite*",
 				"installation.id",
 			],
 		},

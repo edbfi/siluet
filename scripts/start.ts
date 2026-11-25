@@ -85,6 +85,8 @@ if (import.meta.main) {
 		console.error("Siluet runs on Linux and macOS only.");
 		process.exit(1);
 	}
+	// Studio files are the owner's alone. The server inherits this before storage opens.
+	process.umask(0o077);
 	if (process.argv[2] === "--serve") {
 		try {
 			process.chdir(fileURLToPath(new URL("../", import.meta.url)));

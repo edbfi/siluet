@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { providerKeyFilename } from "../src/lib/server/db/provider-key";
 import { checkPublicAssets, guardPublicAssets } from "./public-assets";
 
 test("public assets admit regular media and exclude linked directories and owner state", async () => {
@@ -15,8 +16,18 @@ test("public assets admit regular media and exclude linked directories and owner
 		await symlink(temp, join(assets, "linked"));
 		expect(() => checkPublicAssets(assets)).toThrow("Public assets");
 		await rm(join(assets, "linked"));
-		await writeFile(join(assets, "studio.db-wal"), "fixture");
-		expect(() => checkPublicAssets(assets)).toThrow("Public assets");
+		for (const name of [
+			"studio.db-wal",
+			"owner-recovery.sqlite",
+			"owner-recovery.sqlite-journal",
+			providerKeyFilename,
+			"factor-1.key",
+		]) {
+			await writeFile(join(assets, name), "fixture");
+			expect(() => checkPublicAssets(assets), name).toThrow("Public assets");
+			await rm(join(assets, name));
+		}
+		expect(() => checkPublicAssets(assets)).not.toThrow();
 	} finally {
 		await rm(temp, { recursive: true, force: true });
 	}

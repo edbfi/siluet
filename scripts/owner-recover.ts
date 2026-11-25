@@ -7,6 +7,8 @@ import {
 async function main() {
 	// Refuse before loading storage and its native bindings.
 	requireSupportedPlatform();
+	// Files recovery creates or rewrites are the owner's alone.
+	process.umask(0o077);
 	const input = process.stdin,
 		output = process.stderr;
 	if (!input.isTTY || !output.isTTY) throw new Error("Run recovery from an interactive terminal.");

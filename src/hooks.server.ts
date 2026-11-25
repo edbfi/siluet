@@ -12,6 +12,8 @@ export const init: ServerInit = async () => {
 	if (building) return;
 	// Refuse before the runtime loads its native bindings.
 	requireSupportedPlatform();
+	// Storage, Gallery and scratch files are the owner's alone, also under `vite dev`.
+	process.umask(0o077);
 	const { initializeOwner } = await import("#lib/server/services/owner/runtime.ts");
 	studio = await initializeOwner(dev);
 };

@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmod, lstat, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	lstat,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	symlink,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
@@ -82,6 +92,31 @@ test("a new nested installation is created 0700", async () => {
 		expect(await installation.hasOwner()).toBe(false);
 	} finally {
 		await installation.close();
+	}
+});
+
+test("studio storage files are private, including ones an older version left group-readable", async () => {
+	const modes = async () => {
+		const result: Record<string, number> = {};
+		for (const name of await readdir(directory))
+			result[name] = (await lstat(join(directory, name))).mode & 0o777;
+		return result;
+	};
+	const previous = process.umask(0o002);
+	try {
+		const installation = await openInstallation(directory);
+		await installation.close();
+		const fresh = await modes();
+		expect(Object.keys(fresh)).toContain("studio.db");
+		expect(Object.keys(fresh)).toContain("studio.db-wal");
+		for (const [name, mode] of Object.entries(fresh)) expect([name, mode]).toEqual([name, 0o600]);
+		for (const name of ["studio.db", "studio.db-wal"]) await chmod(join(directory, name), 0o664);
+		const reopened = await openInstallation(directory);
+		await reopened.close();
+		for (const [name, mode] of Object.entries(await modes()))
+			expect([name, mode]).toEqual([name, 0o600]);
+	} finally {
+		process.umask(previous);
 	}
 });
 

@@ -61,6 +61,24 @@ test("recovery requires an interactive terminal before inspecting storage", asyn
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+test("recovery creates files for the owner only, whatever the shell's umask", async () => {
+	const directory = await createOwnerDirectory();
+	try {
+		const child = Bun.spawnSync(
+			[
+				process.execPath,
+				"--preload",
+				join(import.meta.dir, "../tests/fixtures/report-umask.ts"),
+				join(import.meta.dir, "owner-recover.ts"),
+			],
+			{ stdin: Buffer.from("unused"), env: { ...process.env, SILUET_DATA_DIR: directory } },
+		);
+		expect(child.exitCode).toBe(1);
+		expect(child.stderr.toString()).toEndWith("umask 77\n");
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
 test("recovery on a foreign platform refuses before storage", async () => {
 	const parent = await createOwnerDirectory();
 	try {
