@@ -80,7 +80,8 @@ test("Gallery tiles and the viewer download the original image, and Jobs downloa
 		const attachment = await page.request.get(`${origin}/gallery/${jobId}/media?download=1`);
 		expect(attachment.headers()["content-disposition"]).toBe(`attachment; filename="${name}"`);
 		await page.getByRole("link", { name: new RegExp(`Image ${short}`) }).press("Enter");
-		const viewerDownload = page.getByRole("link", { name: "Download image" });
+		// Exact, so it cannot match the outgoing tile's "Download image <id>" mid-navigation.
+		const viewerDownload = page.getByRole("link", { name: "Download image", exact: true });
 		expect(await download(page, viewerDownload)).toEqual({ name, bytes: referencePng });
 
 		// Signed-out and foreign-origin requests cannot download or re-arm anything.
