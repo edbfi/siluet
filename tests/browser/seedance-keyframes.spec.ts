@@ -120,6 +120,7 @@ test("URL keyframes review by keyboard, queue once, save automatically and reope
 			expect(two.blockers).toEqual([]);
 			await expect(page.getByText("One clip, zero retries, zero uploads")).toBeVisible();
 			await expect(page.getByText("1 potentially billable submission")).toBeVisible();
+			await expect(page.getByText(/MP4 files up to 30 seconds, the provider's/)).toBeVisible();
 			await expect(frameList.getByText(`Ending frame · ${frameHost}`)).toBeVisible();
 			await acceptance.press("Space");
 			await expect(queue).toBeEnabled();
