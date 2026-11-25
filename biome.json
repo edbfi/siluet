@@ -25,7 +25,7 @@
 							"options": {
 								"paths": {
 									"@playwright/test": {
-										"importNames": ["test"],
+										"importNames": ["test", "default"],
 										"message": "Import test from ./studio-test so CSP violations fail the journey."
 									}
 								}

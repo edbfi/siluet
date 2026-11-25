@@ -2,7 +2,8 @@ import { lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Plugin } from "vite";
 
-// Storage names match by prefix, so journals and copies such as .bak are refused too.
+// Database names match by prefix, so journals and copies such as .bak are refused too;
+// key files match by suffix.
 // Plain string checks also cover names holding a line break, where a regex `.` stops.
 function ownerStorage(name: string) {
 	const lower = name.toLowerCase();
