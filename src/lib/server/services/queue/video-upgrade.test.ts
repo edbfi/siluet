@@ -79,7 +79,7 @@ function seedance() {
 	return input;
 }
 
-test("a released Seedance Review token keeps its HMAC bytes and replays without a second POST", async () => {
+test("a released Seedance Review goes stale across per-mode Save limits, and a claimed one replays without a POST", async () => {
 	expect(Object.keys(installationMigrations).slice(0, released.migrations.length)).toEqual(
 		released.migrations,
 	);
@@ -104,7 +104,8 @@ test("a released Seedance Review token keeps its HMAC bytes and replays without 
 	expect<unknown>(input.body).toEqual(released.body);
 	expect<unknown>(input.operation.key).toEqual(released.key);
 
-	// R3's Seedance Review signs the same fields in the same order as the released build.
+	// The Review signature keeps the released fields and order; per-mode Save limits change
+	// only the terms digest it signs.
 	const review = await queue.review("owner", input);
 	const [id, digest, signed] = review.token.split(".");
 	const termsReleased = sign(
@@ -116,12 +117,13 @@ test("a released Seedance Review token keeps its HMAC bytes and replays without 
 		released.disclosures,
 		[],
 	);
-	expect(digest).toBe(termsReleased);
+	expect(digest).not.toBe(termsReleased);
 	expect(signed).toBe(
-		sign("video-review-v1", id, termsReleased, "owner", released.key, released.body, 1, 0),
+		sign("video-review-v1", id, digest, "owner", released.key, released.body, 1, 0),
 	);
 
-	// A Review token issued by the released build and not yet queued claims once on R3.
+	// A Review token issued before per-mode Save limits and not yet queued is stale: a fresh
+	// click sends nothing.
 	const pending = crypto.randomUUID();
 	const pendingToken = [
 		pending,
@@ -129,10 +131,9 @@ test("a released Seedance Review token keeps its HMAC bytes and replays without 
 		sign("video-review-v1", pending, termsReleased, "owner", released.key, released.body, 1, 0),
 	].join(".");
 	const click = { ...input, token: pendingToken };
-	expect(await queue.submit("owner", click)).toEqual({ jobId: pending });
-	expect(await queue.submit("owner", click)).toEqual({ jobId: pending });
-	expect(dispatched).toHaveLength(1);
-	expect(dispatched[0]).toMatchObject({ provider: "toapis", body: released.body });
+	expect(await queue.submit("owner", click)).toEqual({ error: "stale" });
+	expect(await queue.submit("owner", click)).toEqual({ error: "stale" });
+	expect(dispatched).toHaveLength(0);
 
 	// A job #37 already claimed (a legacy row without video terms) replays with no POST.
 	const claimed = crypto.randomUUID();
@@ -152,7 +153,7 @@ test("a released Seedance Review token keeps its HMAC bytes and replays without 
 	);
 	const legacy = { ...input, token: [claimed, termsReleased, claimedSignature].join(".") };
 	expect(await queue.submit("owner", legacy)).toEqual({ jobId: claimed });
-	expect(dispatched).toHaveLength(1);
+	expect(dispatched).toHaveLength(0);
 	const tracking = createJobTracking(db, store, { now: () => now });
 	try {
 		expect((await tracking.list()).find((job) => job.id === claimed)).toMatchObject({
@@ -173,5 +174,5 @@ test("a released Seedance Review token keeps its HMAC bytes and replays without 
 	if (!h3) throw new Error("Invalid H3 fixture.");
 	const h3Review = await queue.review("owner", h3);
 	expect(await queue.submit("owner", { ...h3, token: h3Review.token })).toHaveProperty("jobId");
-	expect(dispatched.map((target) => target.provider)).toEqual(["toapis", "poyo"]);
+	expect(dispatched.map((target) => target.provider)).toEqual(["poyo"]);
 });

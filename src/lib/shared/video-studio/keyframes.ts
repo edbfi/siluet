@@ -1,5 +1,4 @@
 import { parseReferenceUrl } from "../image-studio/references";
-import { saveProfileDisclosure } from "./save-profile";
 
 // https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation (2026-11-24):
 // image_with_roles takes first_frame and last_frame; a URL over 2,048 bytes is refused.
@@ -13,7 +12,6 @@ export const keyframeDisclosures = [
 	"Asset review can keep the task queued for up to 20 minutes per round by default. After the ten-minute automatic tracking ends, use Refresh status in Jobs. ToAPIs documents no video generation fee for a failed asset review; Jobs shows a refund only when billing confirms it.",
 	"Use still images within ToAPIs' 30 MB limit. Upstream, BytePlus lists JPEG, PNG, WebP, BMP, TIFF, GIF, HEIC and HEIF, 300–6,000 px per edge, a width-to-height ratio of 0.4–2.5, and refuses direct images that contain real human faces. Whether this route enforces those limits is unverified; Siluet does not check them.",
 	"Actual usage and account charges are unknown. Eligible accounts or regions may use fallback with unknown availability and price.",
-	saveProfileDisclosure,
 ];
 
 export const keyframeAcceptance =

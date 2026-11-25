@@ -1,13 +1,15 @@
 import { redactPrompt } from "../image-studio/review";
 import {
+	type PoyoVideoOperation,
 	poyoVideoOperations,
 	releasedVideoOperations,
 	resolveOperationKey,
-	seedanceOperation,
+	type SeedanceOperation,
 	seedanceOperations,
 } from "../media-catalog/registry";
 import { type Frame, frameReviewLabels, keyframeDisclosures } from "./keyframes";
 import { poyoVideoBody, poyoVideoOptions } from "./poyo-video";
+import { saveDisclosure } from "./save-profile";
 import { seedanceRequest, videoDisclosures } from "./seedance";
 
 const requestKeys = ["draft", "operationKey", "count", "retryLimit", "acceptTerms", "token"];
@@ -15,6 +17,18 @@ const requestKeys = ["draft", "operationKey", "count", "retryLimit", "acceptTerm
 function videoOperation(key: unknown) {
 	const operation = resolveOperationKey(key);
 	return releasedVideoOperations.find((entry) => entry === operation);
+}
+
+/** Review's disclosures for one operation: its own, then its Save limit, if it has one. */
+export function videoReviewDisclosures(operation: SeedanceOperation | PoyoVideoOperation) {
+	const own =
+		"descriptor" in operation
+			? operation.descriptor.disclosures
+			: operation.roles.length
+				? keyframeDisclosures
+				: videoDisclosures;
+	const save = saveDisclosure(operation);
+	return save ? [...own, save] : [...own];
 }
 
 /** One reviewed video request, dispatched by its exact registry operation's provider. */
@@ -50,14 +64,18 @@ export function parseVideo(value: unknown) {
 			body: poyoVideoBody(poyo.descriptor, prompt, options),
 			options,
 			frames: [] as Frame[],
-			disclosures: poyo.descriptor.disclosures,
+			disclosures: videoReviewDisclosures(poyo),
 		};
 	}
 	const seedance = seedanceOperations.find((entry) => entry === operation);
 	const request = seedance && seedanceRequest(seedance, d, prompt);
 	if (!seedance || !request) return null;
-	const disclosures = seedance === seedanceOperation ? videoDisclosures : keyframeDisclosures;
-	return { ...terms, ...request, operation: seedance, disclosures };
+	return {
+		...terms,
+		...request,
+		operation: seedance,
+		disclosures: videoReviewDisclosures(seedance),
+	};
 }
 export type VideoRequest = NonNullable<ReturnType<typeof parseVideo>>;
 

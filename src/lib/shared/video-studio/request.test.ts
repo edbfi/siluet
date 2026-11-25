@@ -7,8 +7,8 @@ import {
 import { h3Max } from "./h3-max";
 import { keyframeDisclosures } from "./keyframes";
 import { parseVideo, previewVideo } from "./request";
-import { saveProfileDisclosure } from "./save-profile";
-import { videoDefaults, videoDisclosures } from "./seedance";
+import { saveDisclosure } from "./save-profile";
+import { videoDefaults } from "./seedance";
 
 const draft = {
 	prompt: "  A lake at https://private.test/secret ",
@@ -37,15 +37,41 @@ test("H3 golden default body", () => {
 			enable_safety_checker: false,
 		},
 	});
-	expect(input?.disclosures).toEqual(h3Max.disclosures);
+	expect(input?.disclosures).toEqual([...h3Max.disclosures, savesUpTo(15)]);
 	const redacted = parseVideo(raw);
 	if (!redacted) throw Error("Missing parsed fixture");
 	expect(JSON.stringify(previewVideo(redacted))).not.toContain("private.test");
 });
 
-test("H3 and Seedance Review name the same Gallery Save profile", () => {
-	expect(h3Max.disclosures).toContain(saveProfileDisclosure);
-	expect(videoDisclosures).toContain(saveProfileDisclosure);
+const savesUpTo = (seconds: number) =>
+	`Gallery saves complete H.264/AAC MP4 files up to ${seconds} seconds, the provider's documented maximum for this mode, plus 1 second for container rounding, within its size and dimension limits. A completed billable clip outside them stays with the provider.`;
+
+test("each released mode states its own limit", () => {
+	const seedance = { ...videoDefaults, prompt: "Drift" };
+	const frames = [
+		{ role: "first_frame", url: "https://cdn.example.com/start.png" },
+		{ role: "last_frame", url: "https://cdn.example.com/end.png" },
+	];
+	const keyframe = { prompt: "Drift", duration: 5, resolution: "480p", generate_audio: false };
+	const [animate, interpolate] = seedanceKeyframeOperations;
+	const modes = [
+		[seedanceOperation, seedance],
+		[animate, { ...keyframe, frames: frames.slice(0, 1) }],
+		[interpolate, { ...keyframe, frames }],
+		[h3MaxOperation, { ...h3Max.defaults, prompt: "Drift" }],
+	] as const;
+	expect(
+		modes.map(([operation, draft]) =>
+			parseVideo({ ...raw, operationKey: operation.key, draft })?.disclosures.at(-1),
+		),
+	).toEqual([savesUpTo(30), savesUpTo(30), savesUpTo(30), savesUpTo(15)]);
+});
+
+test("an upstream basis says unverified on this route, and no limit states none", () => {
+	expect(saveDisclosure({ save: { seconds: 30, basis: "upstream" } })).toBe(
+		"Gallery saves complete H.264/AAC MP4 files up to 30 seconds, the upstream model's documented maximum for this mode, unverified on this route, plus 1 second for container rounding, within its size and dimension limits. A completed billable clip outside them stays with the provider.",
+	);
+	expect(saveDisclosure({ save: null })).toBeNull();
 });
 
 describe("H3 input boundaries", () => {
@@ -163,7 +189,7 @@ describe("Seedance keyframes", () => {
 			}),
 		);
 		expect(both?.options).toEqual(tail);
-		expect(both?.disclosures).toBe(keyframeDisclosures);
+		expect(both?.disclosures).toEqual([...keyframeDisclosures, savesUpTo(30)]);
 		const one = parseVideo({
 			...raw,
 			operationKey: animate.key,

@@ -5,6 +5,7 @@ import { queueEvidenceProblem } from "../../../shared/media-catalog/registry";
 import { frameReviewLabels } from "../../../shared/video-studio/keyframes";
 import type { PoyoVideoBody } from "../../../shared/video-studio/poyo-video";
 import { previewVideo, type VideoRequest } from "../../../shared/video-studio/request";
+import { saveLimitProblem } from "../../../shared/video-studio/save-profile";
 import type { SeedanceBody } from "../../../shared/video-studio/seedance";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import type { Installation } from "../../db/installation";
@@ -68,6 +69,7 @@ export async function createVideoQueue(
 		const state = current?.state ?? "disconnected";
 		const blockers = [
 			queueEvidenceProblem(input.operation.evidence),
+			saveLimitProblem(input.operation),
 			state === "eligible" ? null : provider === "poyo" ? poyoAccessMessage : accessMessage[state],
 		].filter((s): s is string => !!s);
 		const digest = sign(
@@ -78,6 +80,7 @@ export async function createVideoQueue(
 			quote,
 			input.disclosures,
 			blockers,
+			input.operation.save,
 		);
 		return { quote, blockers, digest };
 	}

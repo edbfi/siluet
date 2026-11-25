@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { seedanceKeyframeOperations } from "../media-catalog/registry";
 import { frameReviewLabels, frameUrlProblem, keyframeDisclosures, readFrames } from "./keyframes";
-import { saveProfileDisclosure } from "./save-profile";
 
 const [animate, interpolate] = seedanceKeyframeOperations;
 const start = "https://cdn.example.com/a.png?X-Amz-Signature=start#crop";
@@ -105,9 +104,10 @@ test("Review labels name the role and host, never the URL", () => {
 	expect(labels).toEqual(["Starting frame · cdn.example.com", "Ending frame · cdn.example.com"]);
 });
 
-test("keyframe disclosures are static and end with the Gallery Save profile", () => {
-	expect(keyframeDisclosures).toHaveLength(5);
-	expect(keyframeDisclosures.at(-1)).toBe(saveProfileDisclosure);
+// Review appends the operation's Save limit (request.test.ts).
+test("keyframe disclosures are static and leave the Save limit to Review", () => {
+	expect(keyframeDisclosures).toHaveLength(4);
+	expect(keyframeDisclosures.join(" ")).not.toContain("Gallery saves");
 	expect(keyframeDisclosures.join(" ")).not.toContain("cdn.example.com");
 	expect(keyframeDisclosures[1]).toContain("20 minutes per round by default");
 });

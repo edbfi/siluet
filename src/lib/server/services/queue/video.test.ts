@@ -9,7 +9,12 @@ import {
 	seedanceOperation,
 } from "../../../shared/media-catalog/registry";
 import { keyframeDisclosures } from "../../../shared/video-studio/keyframes";
-import { parseVideo } from "../../../shared/video-studio/request";
+import {
+	parseVideo,
+	type VideoRequest,
+	videoReviewDisclosures,
+} from "../../../shared/video-studio/request";
+import { type SaveLimit, saveLimitBlocker } from "../../../shared/video-studio/save-profile";
 import { videoDefaults } from "../../../shared/video-studio/seedance";
 import { imageJobStore } from "../../db/image-job-store";
 import { type Installation, openInstallation } from "../../db/installation";
@@ -155,6 +160,68 @@ test("Review lists no verifier blocker", async () => {
 	expect(review.blockers).toEqual([]);
 	expect(JSON.stringify(review)).not.toMatch(/verifier/i);
 	expect(review.disclosures.join(" ")).toContain("stays with the provider");
+});
+/** The live Seedance input under a test-only copy of its operation with another Save limit. */
+function withSave(save: SaveLimit | null, disclosuresFrom: SaveLimit | null = save) {
+	const operation = { ...seedanceOperation, save };
+	const disclosures = videoReviewDisclosures({ ...seedanceOperation, save: disclosuresFrom });
+	// `live` parsed as Seedance text-to-video, so its body matches the copied operation.
+	return { ...live, operation, disclosures } as VideoRequest;
+}
+test("a 20-second mode reviews its limit and binds the number into the terms digest", async () => {
+	const { store, access } = fixture();
+	await store.save("toapis", "video-only", now, false, 0);
+	await access.check();
+	const sent: VideoTarget[] = [];
+	const queue = await createVideoQueue(
+		db,
+		access,
+		async (_id, _key, send) => {
+			sent.push(send);
+		},
+		undefined,
+		() => now,
+	);
+	const twenty = withSave({ seconds: 20, basis: "provider" });
+	const review = await queue.review("owner", twenty);
+	expect(review.blockers).toEqual([]);
+	expect(review.disclosures.at(-1)).toContain(
+		"up to 20 seconds, the provider's documented maximum",
+	);
+	expect(review.disclosures.join(" ")).not.toContain("30 seconds");
+	// The same disclosures under a 21-second limit no longer match the reviewed terms.
+	const changed = withSave({ seconds: 21, basis: "provider" }, { seconds: 20, basis: "provider" });
+	const click = { token: review.token, acceptTerms: true };
+	expect(await queue.submit("owner", { ...changed, ...click })).toEqual({ error: "stale" });
+	expect(sent).toHaveLength(0);
+	expect(await queue.submit("owner", { ...twenty, ...click })).toHaveProperty("jobId");
+	expect(sent).toHaveLength(1);
+});
+test("a mode without a Save limit is Review-only and Queue makes zero POSTs", async () => {
+	const { store, access } = fixture();
+	await store.save("toapis", "video-only", now, false, 0);
+	await access.check();
+	let sends = 0;
+	const queue = await createVideoQueue(
+		db,
+		access,
+		async () => {
+			sends++;
+		},
+		undefined,
+		() => now,
+	);
+	for (const save of [null, { seconds: 61, basis: "provider" } as const]) {
+		const unbounded = withSave(save);
+		const review = await queue.review("owner", unbounded);
+		expect(review.blockers).toEqual([saveLimitBlocker]);
+		expect(review.disclosures.join(" ")).not.toContain("Gallery saves");
+		expect(
+			await queue.submit("owner", { ...unbounded, token: review.token, acceptTerms: true }),
+		).toEqual({ error: "stale" });
+	}
+	expect(sends).toBe(0);
+	expect(await imageJobStore(db).list()).toHaveLength(0);
 });
 test("a rate withdrawn after Review requires a fresh Review before claim", async () => {
 	const { store, access } = fixture();
@@ -654,7 +721,8 @@ describe("Seedance keyframes", () => {
 				operation.roles.length,
 			),
 		);
-		expect(review.disclosures).toBe(keyframeDisclosures);
+		expect(review.disclosures).toEqual(videoReviewDisclosures(operation));
+		expect(review.disclosures.slice(0, -1)).toEqual(keyframeDisclosures);
 		expect(review.blockers).toEqual([]);
 		expect(JSON.stringify(review)).not.toContain("X-Amz-Signature");
 	});
@@ -702,7 +770,7 @@ describe("Seedance keyframes", () => {
 		expect(sent[0]).toMatchObject({ provider: "toapis", body: live.body });
 		expect(await imageJobStore(db).get(result.jobId)).toMatchObject({
 			operation: "first-and-last-frame-to-video",
-			video_terms: JSON.stringify(keyframeDisclosures),
+			video_terms: JSON.stringify(videoReviewDisclosures(interpolate)),
 		});
 		const rows = await durable();
 		for (const secret of ["X-Amz-Signature", "frames.example.com", "Drift"])
