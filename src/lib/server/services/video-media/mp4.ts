@@ -215,7 +215,7 @@ function presentation(
 		"edit selects no sample",
 	);
 	return {
-		num: BigInt(segment + (empty?.segment ?? 0)),
+		num: BigInt(segment) + BigInt(empty?.segment ?? 0),
 		den: 1n,
 		edit: empty ? null : { time, segment },
 	};
