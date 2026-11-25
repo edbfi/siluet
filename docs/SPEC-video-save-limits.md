@@ -28,7 +28,7 @@ Gallery saved no video over 12 s, whatever the mode. Each Queue-enabled video op
 - A video job without a recognised key keeps NULL and the former rule: ≤ 12 s, no allowance, 720 video and 580 audio samples.
 - It rebuilds `gallery_image` with the 61 s ceiling and copies every row unchanged.
 
-Then each completed, unsaved video held outside the profile is re-armed once if it now has a limit. That costs one status read and no generation, and a clip that still fails is held again. A result the provider reported as not a video stays held, or is held again after one status read. An expired one makes no read. A Review issued before the upgrade goes stale: a fresh click returns `stale` and sends zero POSTs.
+Then each completed, unsaved video held outside the profile is re-armed once if it now has a limit. That costs one status read and no generation, and a clip that still fails is held again. A result the provider reported as not a video stays held, or is held again after one status read once its reads resume. An expired one makes no read. A Review issued before the upgrade goes stale: a fresh click returns `stale` and sends zero POSTs.
 
 **Out of scope:** the offered ranges stay as they are (Seedance 4–10 s, H3 Max 5–10 s); widening them is a separate owner decision. Also out: `-1` requests, 1080p, new operations, byte-cap changes and a Jobs message that names the limit.
 
