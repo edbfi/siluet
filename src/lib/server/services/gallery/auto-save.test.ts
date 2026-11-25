@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { referenceGif, referencePng } from "../../../../../tests/fixtures/reference-image";
-import { h264Aac } from "../../../../../tests/fixtures/video/mp4-boxes";
+import { h264Aac, retimeClip } from "../../../../../tests/fixtures/video/mp4-boxes";
 import { providerKeyFilename } from "../../db/provider-key";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
@@ -65,6 +65,16 @@ const fetch: CheckFetch = async (url, init) => {
 			.at(-1)
 			?.replace(/-task$/, "") ?? "";
 	reads.push(id);
+	if (url.includes("/v1/videos/generations/"))
+		return Response.json({
+			id: `${id}-task`,
+			object: "generation.task",
+			model: "seedance-2-5",
+			client_business_id: `${id}-business`,
+			status: "completed",
+			progress: 100,
+			result: { type: "video", data: [{ url: signed(id) }] },
+		});
 	return status(id);
 };
 const transport: Transport = {
@@ -135,6 +145,17 @@ async function insert(id: string, state = "running") {
 			(id,binding,provider,revision,quote,state,model,created_at,poll_deadline,submission_recorded_at,task_id,next_read_at,video_terms)
 			VALUES (${id},${id},'poyo',1,'{}',${state},${isVideo ? "h3-max" : "seedream-5.5"},${now},${now + 120_000},
 			${now},${`${id}-task`},${now},${isVideo ? "[]" : null})`),
+	);
+}
+/** A running video job claimed with `limit` as Queue stores it: Seedance on ToAPIs, H3 Max on Poyo.ai. */
+async function insertVideo(id: string, model: "seedance-2-5" | "h3-max", limit: number | null) {
+	const toapis = model === "seedance-2-5";
+	await installation.use((db) =>
+		db.run(sql`INSERT INTO image_job
+			(id,binding,provider,revision,quote,state,model,operation,created_at,poll_deadline,submission_recorded_at,
+			task_id,next_read_at,business_id,video_terms,save_seconds)
+			VALUES (${id},${id},${toapis ? "toapis" : "poyo"},1,'{}','running',${model},'text-to-video',${now},
+			${now + 120_000},${now},${`${id}-task`},${now},${toapis ? `${id}-business` : null},'[]',${limit})`),
 	);
 }
 const job = (id: string) =>
@@ -769,6 +790,36 @@ test("complete files outside the profile are held as unsupported or WebM", async
 	expect(await summary("video-webm")).toMatchObject({ library: "webm", retryable: false });
 	expect(await leftovers()).toEqual([]);
 });
+
+test.each([
+	["seedance-2-5", 30, [31, 2], [311, 20]],
+	["h3-max", 15, [8, 1], [161, 20]],
+	["h3-max", null, [6, 1], [121, 20]],
+] as const)(
+	"a %s job with a %p-second limit saves its edge clip and holds one a tenth longer, with no retry or POST",
+	async (model, limit, [num, den], [overNum, overDen]) => {
+		await providerStore(installation).save("toapis", credential, now, false, 0);
+		media = (id) =>
+			new Response(
+				id === "video-edge" ? retimeClip(video, num, den) : retimeClip(video, overNum, overDen),
+			);
+		runtime = open();
+		await runtime.start();
+		await insertVideo("video-edge", model, limit);
+		await insertVideo("video-over", model, limit);
+		for (const id of ["video-edge", "video-over"]) await runtime.jobs.refresh(id);
+		await settle();
+		const seconds = (limit ?? 11) + 1;
+		expect((await runtime.gallery.list()).map(({ jobId, duration }) => [jobId, duration])).toEqual([
+			["video-edge", seconds],
+		]);
+		expect(await summary("video-over")).toMatchObject({ library: "unsupported", retryable: false });
+		expect(await job("video-over")).toMatchObject({ save_hold: "unsupported", save_tries: 0 });
+		expect(reads.toSorted()).toEqual(["video-edge", "video-over"]);
+		expect(transfers.toSorted()).toEqual(["video-edge", "video-over"]);
+		expect(posts).toBe(0);
+	},
+);
 
 test("shutdown during a write releases the claim without a try and the next start saves once", async () => {
 	const writing = Promise.withResolvers<void>();

@@ -100,7 +100,8 @@ export function createAutoSave(
 		const path = storage.scratchPath(token);
 		try {
 			const bytes = await transferVideo(delivery, path, transport, signal);
-			const info = await verifyVideoFile(path, null);
+			// The limit the job was reviewed and claimed with (D6); null keeps the legacy rule.
+			const info = await verifyVideoFile(path, job.save_seconds);
 			return await storage.publishVideo(job.id, path, token, { ...bytes, ...info });
 		} finally {
 			// Publication renames the scratch away; any other outcome discards only this attempt's file.
