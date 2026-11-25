@@ -259,6 +259,22 @@ test("a link loop is refused", async () => {
 	}
 });
 
+test("a step back out of a missing folder or a file is refused, as the kernel refuses it", async () => {
+	const parent = await createOwnerDirectory();
+	try {
+		// Built by hand: path.join would collapse the `..` before the walk saw it.
+		await Bun.write(join(parent, "file"), "");
+		await expect(
+			resolveStablePath(`${parent}/missing/../siluet`, readLocalAccounts),
+		).rejects.toThrow("does not exist");
+		await expect(resolveStablePath(`${parent}/file/../siluet`, readLocalAccounts)).rejects.toThrow(
+			"not a folder",
+		);
+	} finally {
+		await rm(parent, { recursive: true, force: true });
+	}
+});
+
 test("the refusal names the folder and how to close it", async () => {
 	const parent = await createOwnerDirectory();
 	const shared = join(parent, "it's shared");
@@ -268,8 +284,10 @@ test("the refusal names the folder and how to close it", async () => {
 		const error = await preparePrivateDirectory(join(shared, "siluet")).catch((e: unknown) => e);
 		expect(error).toBeInstanceOf(Error);
 		const message = (error as Error).message;
-		expect(message).toContain(shared);
-		expect(message).toContain(`chmod g-w,o-w '${shared.replaceAll("'", "'\\''")}'`);
+		// The walk reports the canonical folder, which differs under a linked TMPDIR (macOS /var).
+		const canonical = await realpath(shared);
+		expect(message).toContain(canonical);
+		expect(message).toContain(`chmod g-w,o-w '${canonical.replaceAll("'", "'\\''")}'`);
 		// A folder another user owns cannot be fixed with chmod.
 		await chmod(shared, 0o700);
 		await preparePrivateDirectory(join(shared, "siluet"));

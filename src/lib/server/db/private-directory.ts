@@ -87,14 +87,20 @@ export async function resolveStablePath(path: string, readAccounts: ReadLocalAcc
 	while (pending.length > 0) {
 		const name = pending.shift();
 		if (!name || name === ".") continue;
-		if (name === "..") {
-			resolved = dirname(resolved);
-			continue;
-		}
+		// The kernel looks `..` up in the current folder too, so check it first and refuse
+		// to step back out of a folder that does not exist.
 		if (!stable.has(resolved)) {
 			const folder = await lstatIfPresent(resolved);
 			if (folder) await requireStableFolder(resolved, folder, readAccounts);
+			else if (name === "..")
+				throw new DirectoryPolicyError(
+					`The data directory cannot pass through ${resolved}, which does not exist. Choose another data directory.`,
+				);
 			stable.add(resolved);
+		}
+		if (name === "..") {
+			resolved = dirname(resolved);
+			continue;
 		}
 		const entry = join(resolved, name);
 		const info = await lstatIfPresent(entry);
