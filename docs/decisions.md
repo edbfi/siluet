@@ -141,6 +141,23 @@ Tag only when the commit to tag meets every gate:
 
 v1.0 means D2 is complete for a dated baseline under the [coverage acceptance](SPEC.md#d2-coverage-acceptance), or the owner approves a scope change (owner delegated 2026-11-24; council recommendation). The [plan](../tasks/plan.md) holds the release order.
 
+### Security review 2026-11-25
+
+A three-seat council (Claude Opus, GPT Sol, Gemini 4 Neon) reviewed main at `c3eba10` and #62 against the security-and-hardening checklist. Scope: loopback binding and Host/Origin checks, CSRF, sessions, password, TOTP and host recovery, secrets at rest and file modes, redaction, SSRF and redirects, uploads and scratch quotas, media parsers, Gallery serving, dependency audit, CI permissions and privacy. All three found those sound and raised no blocker except the session cookie below.
+
+Fixed in the security hardening PR:
+
+- Every response from the server hook sends `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and a CSP with `frame-ancestors 'none'`. Pages use SvelteKit's nonce CSP; `vite.config.ts` justifies each relaxation. `no-referrer` was tried and dropped: browsers then send `Origin: null` on form posts, which the Origin check refuses. SvelteKit's own cross-site form refusal and the Bun adapter's `/_app` assets are served before the hook.
+- Saved and staged media send `Cross-Origin-Resource-Policy: same-origin`, `X-Frame-Options: DENY` and a sandboxed, script-free CSP. A video keeps its origin (`sandbox allow-same-origin`) so the browser's own player can fetch its ranges.
+- The launcher, server and `owner:recover` set umask 0077, and opening storage tightens `studio.db*` to 0600. Public assets refuse `owner-recovery.sqlite*` and `*.key`.
+- Startup and recovery refuse a data directory below a folder that another user owns or can write without the sticky bit.
+- Gallery image verification turns libvips' cache off and sets a 5 s decode timeout. sharp enforces it in `toBuffer` only, so the `stats()` path stays bounded by the pixel limit.
+- MP4 edit durations add as BigInt, and the provider key opens with `O_NONBLOCK`.
+
+Pending owner acceptance: browsers send cookies to every port on a host, so another local web service the owner visits on 127.0.0.1 can receive Siluet's session cookie (Sol: blocker; Opus: accepted risk). A real fix changes how Siluet is reached. Recommendation: accept for v0.1.0, tell creators in the README to use a browser profile without untrusted local web services or to sign out after use, and spec host-isolated access after v0.1.0. The D11 gate stays open until the owner decides.
+
+Follow-up: refusing non-443 ports on result downloads (Gemini) was declined for now. Downloads already pin a vetted public address with TLS and no credentials, and no evidence shows which ports provider CDNs use. Revisit once real result URLs are observed.
+
 ## D12 · Never pin or ignore a version to defer an upgrade
 
 Owner correction on 2026-11-22. Leave the Dependabot PR open, failing if necessary, until the ecosystem supports it, as in the owner's other repositories. An open PR keeps the pending upgrade visible, where an ignore rule hides it. The closed TypeScript 7 PR ([#3](https://github.com/edbfi/siluet/pull/3)) stays closed until the owner reopens it (owner, 2026-11-24).
