@@ -59,20 +59,22 @@ test("roles map to the media kind the estimator prices", () => {
 	expect(roleMedia("last_frame")).toBe("image");
 });
 
-test("edit Review discloses the source, asset review, limits, length, and charges, leaving the Save limit to Review", () => {
+test("edit Review discloses the source, asset review, limits, length and charges, leaving the Save limit to Review", () => {
 	expect(editDisclosures).toHaveLength(5);
 	expect(editDisclosures[0]).toContain("complete source-clip URL, including any signed query");
 	expect(editDisclosures[0]).toContain("API call logs for 90 days by default");
 	expect(editDisclosures[1]).toContain("20 minutes per round by default");
 	expect(editDisclosures[2]).toContain("up to 100 MiB");
 	expect(editDisclosures[3]).toBe(
-		"The edit lasts about as long as the source. Gallery cannot save an edit longer than 12 seconds, so a source near or above 12 seconds can be charged for a clip that stays with the provider. A longer source makes a longer, costlier edit.",
+		"The edit lasts about as long as the source, which Siluet does not measure. A source longer than 30 seconds can be charged for an edit Gallery may not save; Gallery allows the returned clip up to 1 second over its limit for container rounding. A longer source makes a longer, costlier edit.",
 	);
 	expect(editDisclosures[4]).toContain("whether the source soundtrack stays when audio is off");
 	expect(editAcceptance).toBe(
-		"I accept the unknown charge, sending the complete source-clip URL to ToAPIs and its processors under their access and retention terms, and Gallery Save limitations, including that Gallery cannot save an edit longer than 12 seconds.",
+		"I accept the unknown charge, sending the complete source-clip URL to ToAPIs and its processors under their access and retention terms, and Gallery Save limitations, including that a source longer than 30 seconds can be charged for an edit Gallery may not save; Gallery allows the returned clip up to 1 second over its limit for container rounding.",
 	);
+	for (const text of [sourceClipHint, editAcceptance, ...editDisclosures])
+		expect(text).not.toMatch(/12.second|cannot save an edit/);
 	expect(sourceClipHint).toBe(
-		"Public HTTP or HTTPS video URL, up to 2,048 UTF-8 bytes. Siluet does not open, check or clean it before sending it to ToAPIs. An edit longer than 12 seconds cannot be saved to Gallery.",
+		"Public HTTP or HTTPS video URL, up to 2,048 UTF-8 bytes. Siluet does not open, check or clean it before sending it to ToAPIs. A source longer than 30 seconds can be charged for an edit Gallery may not save; Gallery allows the returned clip up to 1 second over its limit for container rounding.",
 	);
 });
