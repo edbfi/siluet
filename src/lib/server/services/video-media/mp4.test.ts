@@ -6,6 +6,7 @@ import {
 	locate,
 	payload,
 	replaceBox,
+	retimeClip,
 	rewrite,
 	setAudioConfig,
 	setField,
@@ -17,19 +18,32 @@ const video = "moov/trak#0";
 const audio = "moov/trak#1";
 const stbl = (track: string) => `${track}/mdia/minf/stbl`;
 
-function inspect(bytes: Buffer) {
+function inspect(bytes: Buffer, seconds: number | null = null) {
 	const whole = (type: string) => {
 		const node = locate(bytes, type)[0];
 		return bytes.subarray(node.start, node.start + node.size);
 	};
 	const mdat = locate(bytes, "mdat")[0];
-	return inspectMovie(whole("ftyp"), whole("moov"), [
-		{ start: mdat.start + mdat.header, end: mdat.start + mdat.size },
-	]);
+	return inspectMovie(
+		whole("ftyp"),
+		whole("moov"),
+		[{ start: mdat.start + mdat.header, end: mdat.start + mdat.size }],
+		seconds,
+	);
 }
-const refused = (bytes: Buffer, reason: RegExp) => {
-	expect(() => inspect(bytes)).toThrow(UnsupportedVideoError);
-	expect(() => inspect(bytes)).toThrow(reason);
+const refused = (bytes: Buffer, reason: RegExp, seconds: number | null = null) => {
+	expect(() => inspect(bytes, seconds)).toThrow(UnsupportedVideoError);
+	expect(() => inspect(bytes, seconds)).toThrow(reason);
+};
+/** The first refusal's detail, or "passed". */
+const refusal = (bytes: Buffer, seconds: number | null) => {
+	try {
+		inspect(bytes, seconds);
+		return "passed";
+	} catch (error) {
+		if (!(error instanceof UnsupportedVideoError)) throw error;
+		return error.detail;
+	}
 };
 /** A version-0 table box payload with the given rows of 32-bit fields. */
 const rows = (...entries: number[][]) => {
@@ -59,19 +73,91 @@ test("the unchanged fixture passes with its edit lists, B-frame offsets and AAC 
 	});
 });
 
-test("mvhd must match the presented tracks, and the presentation stays within 12 seconds", () => {
+test("mvhd must match the presented tracks", () => {
 	// 60 seconds of samples behind a 10-second mvhd.
 	let long = setField(h264Aac(), `${video}/mdia/mdhd`, 16, 60 * 12288);
 	long = rewrite(long, `${stbl(video)}/stts`, () => rows([24, (60 * 12288) / 24]));
 	long = setField(long, "moov/mvhd", 16, 10 * 48000);
-	refused(long, /mvhd duration/);
-	refused(replaceBox(long, `${video}/edts`, null), /presented duration/);
-	// Thirteen presented seconds with a matching mvhd.
-	let over = setField(h264Aac(), `${video}/mdia/mdhd`, 16, 13 * 12288);
-	over = rewrite(over, `${stbl(video)}/stts`, () => rows([24, (13 * 12288) / 24]));
-	over = setField(over, `${video}/edts/elst`, 8, 13 * 48000);
-	over = setField(over, "moov/mvhd", 16, 13 * 48000);
-	refused(over, /presented duration/);
+	refused(long, /mvhd duration/, 30);
+	refused(replaceBox(long, `${video}/edts`, null), /presented duration/, 30);
+});
+
+/** The video edit one movie tick longer; mvhd stays within its one-tick rounding. */
+const oneTickLonger = (bytes: Buffer) =>
+	setField(
+		bytes,
+		`${video}/edts/elst`,
+		8,
+		payload(bytes, `${video}/edts/elst`).readUInt32BE(8) + 1,
+	);
+
+test.each([
+	[15, 8, 1],
+	[30, 31, 2],
+])(
+	"a %i-second limit saves its limit plus one second and refuses one movie tick over",
+	(limit, num, den) => {
+		const edge = retimeClip(h264Aac(), num, den);
+		expect(inspect(edge, limit)).toMatchObject({ duration: limit + 1 });
+		refused(oneTickLonger(edge), /presented duration/, limit);
+	},
+);
+
+test("a job with no limit keeps 12 seconds with no allowance", () => {
+	const twelve = retimeClip(h264Aac(), 6);
+	expect(inspect(twelve)).toMatchObject({ duration: 12 });
+	refused(oneTickLonger(twelve), /presented duration/);
+	const thirteen = retimeClip(h264Aac(), 13, 2);
+	refused(thirteen, /presented duration/);
+	expect(inspect(thirteen, 15)).toMatchObject({ duration: 13 });
+});
+
+test("the reported duration never exceeds the bound", () => {
+	for (const [num, den] of [
+		[31, 2],
+		[93, 6],
+		[217, 14],
+	])
+		expect(inspect(retimeClip(h264Aac(), num, den), 30).duration).toBeLessThanOrEqual(31);
+});
+
+test("a bad Save limit is a programming error raised before any parsing", () => {
+	for (const seconds of [0, -1, 15.5, 61, Number.NaN, undefined])
+		expect(() => inspectMovie(Buffer.alloc(0), Buffer.alloc(0), [], seconds as number)).toThrow(
+			TypeError,
+		);
+});
+
+/** A track whose `stsz` declares `count` one-byte samples; later checks still refuse it. */
+const sampleCount = (bytes: Buffer, track: string, count: number) =>
+	rewrite(bytes, `${stbl(track)}/stsz`, () => {
+		const data = Buffer.alloc(12);
+		data.writeUInt32BE(1, 4);
+		data.writeUInt32BE(count, 8);
+		return data;
+	});
+
+test.each([
+	[30, 1860],
+	[15, 960],
+	[null, 720],
+])("a %p-second limit bounds video at %i samples", (limit, max) => {
+	expect(refusal(sampleCount(h264Aac(), video, max), limit)).toBe("chunk map misses samples");
+	expect(refusal(sampleCount(h264Aac(), video, max + 1), limit)).toBe("sample count");
+});
+
+test.each([
+	[30, 1471, 1567],
+	[15, 767, 817],
+	[null, 580, 580],
+])("a %p-second limit bounds AAC at %i samples of 1,024 and %i of 960", (limit, long, short) => {
+	for (const [frames, max] of [
+		[h264Aac(), long],
+		[shortFrames(h264Aac()), short],
+	] as const) {
+		expect(refusal(sampleCount(frames, audio, max), limit)).toBe("chunk map misses samples");
+		expect(refusal(sampleCount(frames, audio, max + 1), limit)).toBe("sample count");
+	}
 });
 
 test("each track's stts must equal its mdhd duration and timescales must be positive", () => {

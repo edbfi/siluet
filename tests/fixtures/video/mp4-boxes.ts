@@ -265,3 +265,74 @@ export function moveMovieAfterMedia(bytes: Buffer) {
 	moved.copy(out, at);
 	return out;
 }
+
+/**
+ * Stretch every timeline by num / den: ticks (`stts`, `ctts`, `elst`, `mdhd`, `tkhd` and `mvhd`
+ * durations) scale by `num` and every timescale by `den`, so h264Aac's 2 s become 2·num/den s
+ * exactly while sample counts and bytes stay. An AAC priming edit no longer matches one access unit.
+ */
+export function retimeClip(bytes: Buffer, num: number, den = 1) {
+	const out = Buffer.from(bytes);
+	const at = (path: string) => {
+		const node = locate(out, path).at(-1) as Node;
+		return node.start + node.header;
+	};
+	const scale32 = (offset: number, factor: number) =>
+		out.writeUInt32BE(out.readUInt32BE(offset) * factor, offset);
+	const scale64 = (offset: number, factor: number) =>
+		out.writeBigUInt64BE(out.readBigUInt64BE(offset) * BigInt(factor), offset);
+	const exists = (path: string) => {
+		try {
+			locate(out, path);
+			return true;
+		} catch {
+			return false;
+		}
+	};
+	/** An `mvhd` or `mdhd`: timescale then duration, after creation and modification times. */
+	const header = (path: string) => {
+		const base = at(path);
+		if (out[base] === 1) {
+			scale32(base + 20, den);
+			scale64(base + 24, num);
+		} else {
+			scale32(base + 12, den);
+			scale32(base + 16, num);
+		}
+	};
+	header("moov/mvhd");
+	for (let i = 0; exists(`moov/trak#${i}`); i++) {
+		const trak = `moov/trak#${i}`;
+		const tkhd = at(`${trak}/tkhd`);
+		if (out[tkhd] === 1) scale64(tkhd + 28, num);
+		else scale32(tkhd + 20, num);
+		header(`${trak}/mdia/mdhd`);
+		const stbl = `${trak}/mdia/minf/stbl`;
+		for (const type of ["stts", "ctts"]) {
+			if (!exists(`${stbl}/${type}`)) continue;
+			const base = at(`${stbl}/${type}`);
+			const signed = type === "ctts" && out[base] === 1;
+			for (let row = 0; row < out.readUInt32BE(base + 4); row++) {
+				const value = base + 8 + row * 8 + 4;
+				if (signed) out.writeInt32BE(out.readInt32BE(value) * num, value);
+				else scale32(value, num);
+			}
+		}
+		if (!exists(`${trak}/edts/elst`)) continue;
+		const elst = at(`${trak}/edts/elst`);
+		const wide = out[elst] === 1;
+		for (let row = 0; row < out.readUInt32BE(elst + 4); row++) {
+			const entry = elst + 8 + row * (wide ? 20 : 12);
+			if (wide) {
+				scale64(entry, num);
+				const time = out.readBigInt64BE(entry + 8);
+				if (time >= 0n) out.writeBigInt64BE(time * BigInt(num), entry + 8);
+			} else {
+				scale32(entry, num);
+				const time = out.readInt32BE(entry + 4);
+				if (time >= 0) out.writeInt32BE(time * num, entry + 4);
+			}
+		}
+	}
+	return out;
+}

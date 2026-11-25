@@ -100,7 +100,7 @@ export function createAutoSave(
 		const path = storage.scratchPath(token);
 		try {
 			const bytes = await transferVideo(delivery, path, transport, signal);
-			const info = await verifyVideoFile(path);
+			const info = await verifyVideoFile(path, null);
 			return await storage.publishVideo(job.id, path, token, { ...bytes, ...info });
 		} finally {
 			// Publication renames the scratch away; any other outcome discards only this attempt's file.

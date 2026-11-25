@@ -11,6 +11,7 @@ import {
 	h264Aac,
 	locate,
 	payload,
+	retimeClip,
 	setAudioConfig,
 	topLevelBox,
 	undecodableH264Aac,
@@ -31,9 +32,9 @@ async function file(bytes: Buffer) {
 	await writeFile(path, bytes);
 	return path;
 }
-async function refusal(bytes: Buffer | string) {
+async function refusal(bytes: Buffer | string, seconds: number | null = null) {
 	try {
-		await verifyVideoFile(typeof bytes === "string" ? bytes : await file(bytes));
+		await verifyVideoFile(typeof bytes === "string" ? bytes : await file(bytes), seconds);
 	} catch (error) {
 		return error as Error;
 	}
@@ -41,7 +42,7 @@ async function refusal(bytes: Buffer | string) {
 }
 
 test("the fixture verifies from its file", async () => {
-	expect(await verifyVideoFile(await file(h264Aac()))).toMatchObject({
+	expect(await verifyVideoFile(await file(h264Aac()), null)).toMatchObject({
 		width: 96,
 		height: 64,
 		duration: 2,
@@ -52,7 +53,7 @@ test("a corrupt PPS behind a valid SPS passes the configuration checks", async (
 	const bytes = undecodableH264Aac();
 	const avcC = payload(bytes, "moov/trak/mdia/minf/stbl/stsd/avc1/avcC");
 	expect(avcC.includes(Buffer.from([0x68, 0x82, 0x08]))).toBe(true);
-	expect(await verifyVideoFile(await file(bytes))).toMatchObject({ width: 96, height: 64 });
+	expect(await verifyVideoFile(await file(bytes), null)).toMatchObject({ width: 96, height: 64 });
 });
 
 test("an EBML file gets the WebM reason", async () => {
@@ -109,7 +110,7 @@ async function readsOfGrown(source: Buffer) {
 		return original.apply(this, args);
 	});
 	try {
-		expect(await verifyVideoFile(path)).toMatchObject({ duration: 2 });
+		expect(await verifyVideoFile(path, null)).toMatchObject({ duration: 2 });
 	} finally {
 		spy.mockRestore();
 	}
@@ -148,7 +149,7 @@ test("a file cut at a box boundary before moov or mdat is truncated", async () =
 });
 
 test("an H3 Max-shaped clip with a C2PA box verifies", async () => {
-	expect(await verifyVideoFile(await file(h3MaxShape()))).toMatchObject({
+	expect(await verifyVideoFile(await file(h3MaxShape()), null)).toMatchObject({
 		width: 96,
 		height: 64,
 		duration: 2,
@@ -166,8 +167,8 @@ test("a Seedance-shaped clip verifies", async () => {
 		32 + 21_456 + 8,
 		bytes.length - topLevelBox(bytes, "moov").length,
 	]);
-	expect(await verifyVideoFile(await file(bytes))).toEqual(
-		await verifyVideoFile(await file(h264Aac())),
+	expect(await verifyVideoFile(await file(bytes), null)).toEqual(
+		await verifyVideoFile(await file(h264Aac()), null),
 	);
 });
 
@@ -178,15 +179,15 @@ test("the priming exception holds only for plain AAC-LC, without active SBR", as
 	);
 	for (const config of [none, absent])
 		expect(
-			await verifyVideoFile(await file(setAudioConfig(seedanceShape(), config))),
+			await verifyVideoFile(await file(setAudioConfig(seedanceShape(), config)), null),
 		).toMatchObject({ duration: 2 });
 	const error = await refusal(setAudioConfig(seedanceShape(), present));
 	expect(error).toBeInstanceOf(UnsupportedVideoError);
 	expect(error.message).toMatch(/stts duration differs from mdhd/);
 	// Without priming, D6 accepts the same configuration as before.
-	expect(await verifyVideoFile(await file(setAudioConfig(h264Aac(), present)))).toMatchObject({
-		duration: 2,
-	});
+	expect(await verifyVideoFile(await file(setAudioConfig(h264Aac(), present)), null)).toMatchObject(
+		{ duration: 2 },
+	);
 });
 
 test("C2PA boxes with 64-bit headers and one of exactly 1 MiB verify", async () => {
@@ -195,7 +196,9 @@ test("C2PA boxes with 64-bit headers and one of exactly 1 MiB verify", async () 
 		c2paBox(4096, { wideStore: true }),
 		c2paBox(contentCredentialsByteLimit),
 	])
-		expect(await verifyVideoFile(await file(afterFileType(h264Aac(), credentials)))).toMatchObject({
+		expect(
+			await verifyVideoFile(await file(afterFileType(h264Aac(), credentials)), null),
+		).toMatchObject({
 			duration: 2,
 		});
 });
@@ -275,23 +278,41 @@ test("a 1 MiB C2PA box and a 60 MiB mdat verify with under 64 KiB read", async (
 	expect(reads.reduce((a, b) => a + b, 0)).toBeLessThan(64 * 1024);
 });
 
-test("the recorded H3 Max and Seedance structures verify", async () => {
-	expect(await verifyVideoFile(await file(recordedClip("h3-max")))).toEqual({
-		width: 832,
-		height: 480,
-		duration: 5.166666666666667,
-		tracks: [
-			{ type: "video", samples: 124 },
-			{ type: "audio", samples: 162 },
-		],
-	});
-	expect(await verifyVideoFile(await file(recordedClip("seedance")))).toEqual({
-		width: 854,
-		height: 480,
-		duration: 4.064,
-		tracks: [
-			{ type: "video", samples: 97 },
-			{ type: "audio", samples: 128 },
-		],
-	});
+test.each([15, 30, null])(
+	"the recorded H3 Max and Seedance structures verify under a %p-second limit",
+	async (seconds) => {
+		expect(await verifyVideoFile(await file(recordedClip("h3-max")), seconds)).toEqual({
+			width: 832,
+			height: 480,
+			duration: 5.166666666666667,
+			tracks: [
+				{ type: "video", samples: 124 },
+				{ type: "audio", samples: 162 },
+			],
+		});
+		expect(await verifyVideoFile(await file(recordedClip("seedance")), seconds)).toEqual({
+			width: 854,
+			height: 480,
+			duration: 4.064,
+			tracks: [
+				{ type: "video", samples: 97 },
+				{ type: "audio", samples: 128 },
+			],
+		});
+	},
+);
+
+test("a bad Save limit is a programming error raised before the file opens", async () => {
+	const missing = join(directory, "missing.mp4");
+	for (const seconds of [0, -1, 15.5, 61, Number.NaN, undefined])
+		await expect(verifyVideoFile(missing, seconds as number)).rejects.toThrow(TypeError);
+	await expect(verifyVideoFile(missing, 30)).rejects.toThrow(/ENOENT/);
+});
+
+test("a clip at its limit plus one second verifies from its file", async () => {
+	const edge = await file(retimeClip(h3MaxShape(), 31, 2));
+	expect(await verifyVideoFile(edge, 30)).toMatchObject({ duration: 31 });
+	expect(await refusal(await file(retimeClip(h3MaxShape(), 311, 20)), 30)).toBeInstanceOf(
+		UnsupportedVideoError,
+	);
 });

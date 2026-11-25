@@ -1,7 +1,7 @@
 import { checkAacConfig } from "./aac";
 import { checkAvcConfig, checkTransfer } from "./avc";
 import { check } from "./errors";
-import { areaLimit, edgeLimit, presentedSecondsLimit } from "./limits";
+import { areaLimit, edgeLimit, type SaveBounds, saveBounds } from "./limits";
 import { type Box, boxWalker, fields, movieRules, only } from "./mp4-boxes";
 
 // Checks a buffered `moov` against the file's `mdat` spans (D6). Sample tables must
@@ -16,8 +16,6 @@ type Ticks = { num: bigint; den: bigint };
 type Edit = { time: number; segment: number };
 
 const brands = ["isom", "iso2", "iso4", "iso5", "iso6", "mp41", "mp42", "avc1", "M4V "];
-// Twelve seconds at 60 frames per second, and at 48 kHz AAC plus encoder priming.
-const sampleLimit = { video: 720, audio: 580 } as const;
 
 /** Timescale and duration from an `mvhd` or `mdhd` payload. */
 function header(box: Box) {
@@ -249,7 +247,14 @@ function primingExcluded(
 	return gap <= scale && gap >= -scale;
 }
 
-function track(walk: Walker, trak: Box, media: Span[], occupied: Span[], movieScale: number) {
+function track(
+	walk: Walker,
+	trak: Box,
+	media: Span[],
+	occupied: Span[],
+	movieScale: number,
+	bounds: SaveBounds,
+) {
 	const parts = walk.children(trak);
 	only(parts, "tkhd");
 	const mdia = walk.children(only(parts, "mdia"));
@@ -257,7 +262,6 @@ function track(walk: Walker, trak: Box, media: Span[], occupied: Span[], movieSc
 	const handler = fields(only(mdia, "hdlr")).latin1(8, 4);
 	check(handler === "vide" || handler === "soun", `${handler} track`);
 	const video = handler === "vide";
-	const limit = sampleLimit[video ? "video" : "audio"];
 	const minf = walk.children(only(mdia, "minf"));
 	const dref = only(walk.children(only(minf, "dinf")), "dref");
 	check(fields(dref).u32(0) === 0 && fields(dref).u32(4) === 1, "one data reference");
@@ -270,6 +274,8 @@ function track(walk: Walker, trak: Box, media: Span[], occupied: Span[], movieSc
 	for (const group of stbl.filter((b) => b.type === "sgpd" || b.type === "sbgp"))
 		check(["roll", "prol"].includes(fields(group).latin1(4, 4)), "sample group");
 	const { picture, audio } = sampleEntry(walk, stbl, video);
+	// The audio bound follows the frame length `esds` declares.
+	const limit = audio ? bounds.audio(audio.frameLength) : bounds.video;
 	const samples = placement(stbl, media, occupied, limit);
 	const { durations, offsets } = timing(stbl, samples, limit);
 	const presented = presentation(walk, parts, movieScale, { scale, durations, offsets });
@@ -286,14 +292,18 @@ function track(walk: Walker, trak: Box, media: Span[], occupied: Span[], movieSc
 	);
 	check(
 		presented.num > 0n &&
-			presented.num <= BigInt(presentedSecondsLimit) * BigInt(movieScale) * presented.den,
+			presented.num <= BigInt(bounds.presented) * BigInt(movieScale) * presented.den,
 		"presented duration",
 	);
 	return { type: video ? ("video" as const) : ("audio" as const), samples, picture, presented };
 }
 
-/** Check `ftyp` and `moov` (complete boxes) against the file's `mdat` spans. */
-export function inspectMovie(ftyp: Buffer, moov: Buffer, media: Span[]) {
+/**
+ * Check `ftyp` and `moov` (complete boxes) against the file's `mdat` spans, under the job's
+ * Save limit in seconds (null for a job queued before limits existed).
+ */
+export function inspectMovie(ftyp: Buffer, moov: Buffer, media: Span[], seconds: number | null) {
+	const bounds = saveBounds(seconds);
 	const walk = boxWalker(movieRules);
 	const type = fields(walk.root(ftyp).data);
 	check(
@@ -307,7 +317,7 @@ export function inspectMovie(ftyp: Buffer, moov: Buffer, media: Span[]) {
 	const traks = parts.filter((b) => b.type === "trak");
 	check(traks.length >= 1 && traks.length <= 2, "track count");
 	const occupied: Span[] = [];
-	const tracks = traks.map((t) => track(walk, t, media, occupied, scale));
+	const tracks = traks.map((t) => track(walk, t, media, occupied, scale, bounds));
 	const picture = tracks.find((t) => t.type === "video")?.picture;
 	check(picture && tracks.filter((t) => t.type === "video").length === 1, "one video track");
 	occupied.sort((a, b) => a.start - b.start);
@@ -323,7 +333,7 @@ export function inspectMovie(ftyp: Buffer, moov: Buffer, media: Span[]) {
 	check(gap <= longest.den && gap >= -longest.den, "mvhd duration differs from the tracks");
 	return {
 		...picture,
-		duration: Number(longest.num) / Number(longest.den) / scale,
+		duration: Math.min(Number(longest.num) / Number(longest.den) / scale, bounds.presented),
 		tracks: tracks.map(({ type, samples }) => ({ type, samples })),
 	};
 }
