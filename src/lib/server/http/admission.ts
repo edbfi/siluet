@@ -108,7 +108,7 @@ export async function admit(
 		for (const cookie of legacyCookieDeletions(
 			request.headers.get("cookie"),
 			studio.installationId,
-			studio.origin.port,
+			studio.origin,
 		))
 			response.headers.append("set-cookie", cookie);
 		return response;

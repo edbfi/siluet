@@ -400,3 +400,31 @@ test("claim, sign-in and factor mint new session and login IDs; a Security chang
 		await rm(directory, { recursive: true, force: true });
 	}
 }, 30000);
+
+test("replacing or signing out a session deletes its Security candidates with it", async () => {
+	const directory = await createOwnerDirectory();
+	const install = await openInstallation(directory);
+	const candidates = () =>
+		install.use((db) =>
+			db.all<{ digest: string }>(sql`SELECT digest FROM owner_proof WHERE candidate IS NOT NULL`),
+		);
+	try {
+		const password = crypto.randomUUID();
+		const access = createOwnerAccess(install);
+		const claimed = await access.claim(access.rotate(), "owner", password, keyA);
+		const other = await access.signIn("owner", password, keyB);
+		if (other.kind !== "session") throw new Error();
+		const kept = await access.security.authorize("enable", other.digest, password, "");
+		const replaced = await access.security.authorize("enable", claimed.digest, password, "");
+		if (kept.kind !== "candidate" || replaced.kind !== "candidate") throw new Error();
+		// The key signs in again: its old session's candidate goes, another key's stays.
+		const again = await access.signIn("owner", password, keyA);
+		if (again.kind !== "session") throw new Error();
+		expect(await candidates()).toEqual([{ digest: kept.digest }]);
+		await access.signOut(keyB, other.loginId);
+		expect(await candidates()).toEqual([]);
+	} finally {
+		await install.close();
+		await rm(directory, { recursive: true, force: true });
+	}
+});

@@ -36,6 +36,9 @@ export async function deleteOwnerSessions(tx: OwnerTransaction, where: SQL = sql
 	const rows = await tx.all<{ digest: string }>(
 		sql`DELETE FROM session WHERE ${where} RETURNING digest`,
 	);
+	// A Security candidate belongs to its session and ends with it.
+	for (const row of rows)
+		await tx.run(sql`DELETE FROM owner_proof WHERE session_digest=${row.digest}`);
 	const digests = retiring.get(tx);
 	if (digests) for (const row of rows) digests.add(row.digest);
 	return rows.length > 0;

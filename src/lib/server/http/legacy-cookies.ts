@@ -6,9 +6,11 @@
 export function legacyCookieDeletions(
 	cookieHeader: string | null,
 	installation: string,
-	port: string,
+	origin: Pick<URL, "port" | "protocol">,
 ) {
 	if (!cookieHeader) return [];
+	// The old notice cookies named a default port explicitly.
+	const port = origin.port || (origin.protocol === "https:" ? "443" : "80");
 	const id = installation.replace(/[^0-9a-f-]/g, "");
 	const rules: [RegExp, string][] = [
 		[new RegExp(`^siluet_${id}$`), "/"],
