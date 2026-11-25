@@ -24,8 +24,8 @@ function plainLowComplexity(bits: ReturnType<typeof bitReader>) {
 	const dependsOnCoreCoder = take(1);
 	if (dependsOnCoreCoder === 1 && take(14) < 0) return false; // coreCoderDelay
 	const extensionFlag = take(1);
-	// extensionFlag3 = 1 announces reserved version-3 syntax, so the extension boundary is unknown.
-	if (extensionFlag < 0 || (extensionFlag === 1 && take(1) !== 0)) return false;
+	// AAC-LC must carry extensionFlag = 0 (14496-3 GASpecificConfig semantics).
+	if (extensionFlag !== 0) return false;
 	if (bits.remaining() < 16) return true;
 	if (take(11) !== syncExtension || take(5) !== sbr || take(1) !== 0) return false;
 	// PS is signalled only after SBR present, so only zero padding may follow SBR absent.

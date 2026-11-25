@@ -247,8 +247,8 @@ test("plain AAC-LC has no sync extension or one that declares SBR absent", () =>
 	// only after SBR present, so a later PS declaration contradicts it.
 	expect(lc(`${sbrExtension} 0 10101001000 1`)).toMatchObject({ plain: false });
 	expect(lc(`${sbrExtension} 0 0000000`)).toMatchObject({ plain: true });
-	// extensionFlag3 = 1 leaves reserved version-3 syntax before any extension.
-	expect(lc("", "0 0 1 0")).toMatchObject({ plain: true });
+	// AAC-LC must carry extensionFlag = 0 (14496-3 GASpecificConfig semantics).
+	expect(lc("", "0 0 1 0")).toMatchObject({ plain: false });
 	expect(lc("", "0 0 1 1")).toMatchObject({ plain: false });
 });
 
