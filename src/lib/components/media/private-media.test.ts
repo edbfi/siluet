@@ -14,6 +14,8 @@ let calls: Call[] = [];
 /** Each fetch waits for its `answer()`, then declares its size and streams once its body is released. */
 const sizes = new Map<string, number>();
 const bodies = new Map<string, () => void>();
+/** Sources whose answer declares no length. */
+const undeclared = new Set<string>();
 // Bun shares globals across test files; the originals come back after this one.
 const originals = { fetch: globalThis.fetch, document: globalThis.document };
 const observer = "IntersectionObserver" in globalThis;
@@ -38,7 +40,10 @@ globalThis.fetch = ((input: RequestInfo | URL, init: Call["init"] = {}) => {
 				controller.close();
 			},
 		});
-		return new Response(body, { headers: { "content-length": String(size) } });
+		const headers: Record<string, string> = undeclared.has(src)
+			? {}
+			: { "content-length": String(size) };
+		return new Response(body, { headers });
 	});
 }) as typeof fetch;
 Object.assign(globalThis, {
@@ -75,6 +80,7 @@ afterEach(async () => {
 	calls = [];
 	sizes.clear();
 	bodies.clear();
+	undeclared.clear();
 	session = "s1";
 });
 
@@ -167,4 +173,65 @@ test("a download's blob counts until its link is revoked", async () => {
 	revoke[0]();
 	const after = await showAll(["/x1", "/x2", "/x3"]);
 	expect(after.map((element) => element.src !== "")).toEqual([true, true, true]);
+});
+
+test("downloads past the tab's 192 MiB wait for an earlier link to be revoked", async () => {
+	const revoke: (() => void)[] = [];
+	const realTimeout = globalThis.setTimeout;
+	globalThis.setTimeout = ((callback: () => void) => revoke.push(callback)) as never;
+	try {
+		for (const src of ["/d1", "/d2", "/d3", "/d4"]) sizes.set(src, 64 * MiB);
+		for (const src of ["/d1", "/d2", "/d3"]) {
+			const download = downloadPrivate(src, "video/mp4", "video", "clip.mp4");
+			await tick();
+			await deliver(src);
+			await download;
+		}
+		const fourth = downloadPrivate("/d4", "video/mp4", "video", "clip.mp4");
+		await tick();
+		calls.find((call) => call.src === "/d4")?.answer();
+		await tick();
+		// Three links hold 192 MiB: the fourth read is answered but does not buffer its body.
+		expect(revoke).toHaveLength(3);
+		let finished = false;
+		void fourth.then(() => {
+			finished = true;
+		});
+		bodies.get("/d4")?.();
+		await tick();
+		expect(finished).toBe(false);
+		revoke[0]();
+		await tick();
+		bodies.get("/d4")?.();
+		await fourth;
+		expect(revoke).toHaveLength(4);
+		for (const link of revoke.slice(1)) link();
+	} finally {
+		globalThis.setTimeout = realTimeout;
+	}
+});
+
+test("a read that declares no length reserves its kind's whole limit", async () => {
+	for (const src of ["/u1", "/u2"]) sizes.set(src, 64 * MiB);
+	const u1 = show("/u1");
+	const u2 = show("/u2");
+	await tick();
+	await deliver("/u1");
+	await deliver("/u2");
+	sizes.set("/unknown", 1);
+	undeclared.add("/unknown");
+	show("/unknown");
+	await tick();
+	calls.find((call) => call.src === "/unknown")?.answer();
+	await tick();
+	// 128 MiB shown plus 64 MiB reserved fits; the shown files stay.
+	expect([u1.src, u2.src].every(Boolean)).toBe(true);
+	sizes.set("/next", 64 * MiB);
+	show("/next");
+	await tick();
+	calls.find((call) => call.src === "/next")?.answer();
+	await tick();
+	// The next 64 MiB evicts the least recently visible shown file.
+	expect(u1.src).toBe("");
+	expect(u2.src).not.toBe("");
 });

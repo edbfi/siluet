@@ -64,21 +64,56 @@ function makeRoom(size: number, keep: Holder | null) {
 		.sort((a, b) => a.visibleAt - b.visibleAt);
 	while (held() + size > maxBytes && others.length) others.shift()?.evict();
 }
+/** Reads waiting for other reads or download links to release their bytes. */
+const roomWaiters = new Set<() => void>();
+function released() {
+	for (const wake of [...roomWaiters]) wake();
+}
+/**
+ * Reserve `size` bytes of the tab's limit: evict what is shown, then wait for reads in flight
+ * and download links, which cannot be evicted, to release theirs.
+ */
+async function reserve(size: number, keep: Holder | null, signal: AbortSignal) {
+	for (;;) {
+		signal.throwIfAborted();
+		makeRoom(size, keep);
+		if (held() + size <= maxBytes) {
+			reserved += size;
+			return;
+		}
+		await new Promise<void>((resolve, reject) => {
+			const abort = () => {
+				roomWaiters.delete(wake);
+				reject(signal.reason);
+			};
+			const wake = () => {
+				roomWaiters.delete(wake);
+				signal.removeEventListener("abort", abort);
+				resolve();
+			};
+			roomWaiters.add(wake);
+			signal.addEventListener("abort", abort, { once: true });
+		});
+	}
+}
 /** The session a read belongs to, captured before it waits for a read. */
 const currentSession = () => sessionClient().bound()?.sessionId;
 
 /**
  * Read one private file through the page's authenticated fetch, refusing more than the
- * kind's limit. The blob's type is the saved type, never the response's.
+ * kind's limit. The blob's type is the saved type, never the response's. Its `owner`, a
+ * holder or the download list, takes the blob before the read releases its reservation, so
+ * the bytes never go uncounted.
  */
 export async function readPrivate(
 	src: string,
 	mime: string,
 	kind: MediaKind,
 	signal: AbortSignal,
-	holder: Holder | null = null,
+	owner: Holder | Blob[] | null = null,
 	session = currentSession(),
 ) {
+	const holder = Array.isArray(owner) ? null : owner;
 	await slot(signal);
 	let reservation = 0;
 	try {
@@ -89,9 +124,10 @@ export async function readPrivate(
 		const limit = mediaLimits[kind];
 		const declared = Number(response.headers.get("content-length") ?? Number.NaN);
 		if (declared > limit) throw new MediaUnavailable();
-		reservation = Number.isFinite(declared) ? declared : 0;
-		makeRoom(reservation, holder);
-		reserved += reservation;
+		// A file of unknown length may use the kind's whole limit.
+		const expected = Number.isFinite(declared) ? declared : limit;
+		await reserve(expected, holder, signal);
+		reservation = expected;
 		const chunks: Uint8Array<ArrayBuffer>[] = [];
 		let size = 0;
 		const reader = response.body.getReader();
@@ -105,10 +141,16 @@ export async function readPrivate(
 			}
 			chunks.push(value);
 		}
-		return new Blob(chunks, { type: mime });
+		const blob = new Blob(chunks, { type: mime });
+		if (!signal.aborted) {
+			if (Array.isArray(owner)) owner.push(blob);
+			else if (owner) owner.blob = blob;
+		}
+		return blob;
 	} finally {
 		reserved -= reservation;
 		free();
+		released();
 	}
 }
 
@@ -137,6 +179,7 @@ export function privateSource(
 				element.removeAttribute("src");
 				if (url) URL.revokeObjectURL(url);
 				url = null;
+				released();
 			},
 		};
 		holders.add(holder);
@@ -146,9 +189,8 @@ export function privateSource(
 			controller = current;
 			try {
 				const blob = await readPrivate(src, mime, kind, current.signal, holder);
+				// `readPrivate` already gave the holder its blob.
 				if (controller !== current) return;
-				makeRoom(blob.size, holder);
-				holder.blob = blob;
 				url = URL.createObjectURL(blob);
 				element.src = url;
 			} catch (error) {
@@ -184,13 +226,14 @@ export function privateSource(
 
 /**
  * Download a private file under its Gallery name, reusing a blob already shown on the page.
- * The temporary link is revoked a minute after the click.
+ * The temporary link is revoked a minute after the click; until then its bytes count, so a
+ * download over the tab's limit waits for an earlier link to go.
  */
 export async function downloadPrivate(src: string, mime: string, kind: MediaKind, name: string) {
-	const shown = [...holders].find((h) => h.src === src && h.blob);
-	const blob = shown?.blob ?? (await readPrivate(src, mime, kind, new AbortController().signal));
-	downloads.push(blob);
-	makeRoom(0, shown ?? null);
+	const shown = [...holders].find((h) => h.src === src && h.blob)?.blob;
+	if (shown) downloads.push(shown);
+	const blob =
+		shown ?? (await readPrivate(src, mime, kind, new AbortController().signal, downloads));
 	const url = URL.createObjectURL(blob);
 	const link = document.createElement("a");
 	link.href = url;
@@ -202,5 +245,6 @@ export async function downloadPrivate(src: string, mime: string, kind: MediaKind
 	setTimeout(() => {
 		URL.revokeObjectURL(url);
 		downloads.splice(downloads.indexOf(blob), 1);
+		released();
 	}, downloadMs);
 }
