@@ -33,6 +33,12 @@
 			"queue": "one reviewed request with video access, zero uploads, zero retries",
 			"optionCoverage": "partial"
 		},
+		"seedance-edit": {
+			"addedSinceBaseline": true,
+			"review": "one public HTTP(S) source-clip URL up to 2,048 UTF-8 bytes, length and framing from the source, 480p or 720p",
+			"queue": "one reviewed request with video access and consent to Gallery's 30-second upstream Save limit, zero uploads, zero retries",
+			"optionCoverage": "partial"
+		},
 		"z-image-generate": {
 			"addedSinceBaseline": true,
 			"review": "prompt, five aspect ratios, batch and retry estimate",
@@ -3438,7 +3444,8 @@
 					"support": {
 						"text-to-video": "seedance-generate",
 						"first-frame-to-video": "seedance-animate",
-						"first-and-last-frame-to-video": "seedance-interpolate"
+						"first-and-last-frame-to-video": "seedance-interpolate",
+						"video-edit": "seedance-edit"
 					},
 					"contract": "documented",
 					"sources": ["seedance-2-5", "seedanceDraft"],

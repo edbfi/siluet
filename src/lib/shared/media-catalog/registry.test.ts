@@ -16,6 +16,7 @@ test("every released video operation has a valid save or null", () => {
 		"seedance-2-5 text-to-video": { seconds: 30, basis: "provider" },
 		"seedance-2-5 first-frame-to-video": { seconds: 30, basis: "provider" },
 		"seedance-2-5 first-and-last-frame-to-video": { seconds: 30, basis: "provider" },
+		"seedance-2-5 video-edit": { seconds: 30, basis: "upstream" },
 		"h3-max text-to-video": { seconds: 15, basis: "provider" },
 	});
 });
@@ -24,6 +25,7 @@ test("every released video operation has a valid save or null", () => {
 test("each released (provider, model, operation) has one route", () => {
 	const keys = releasedOperations.map(({ key }) => `${key.provider} ${key.model} ${key.operation}`);
 	expect(new Set(keys).size).toBe(keys.length);
+	expect(keys).toContain("toapis seedance-2-5 video-edit");
 });
 
 test("saveSecondsProblem refuses 0, -1, 15.5, 61, NaN, null and text, and accepts 1 and 60", () => {

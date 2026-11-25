@@ -5,6 +5,7 @@ import toapisBundle from "../../../../../pricing/v2/toapis.json";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import {
 	type SeedanceOperation,
+	seedanceEditOperation,
 	seedanceKeyframeOperations,
 	seedanceOperation,
 } from "../../../shared/media-catalog/registry";
@@ -16,6 +17,7 @@ import {
 } from "../../../shared/video-studio/request";
 import { type SaveLimit, saveLimitBlocker } from "../../../shared/video-studio/save-profile";
 import { videoDefaults } from "../../../shared/video-studio/seedance";
+import { editDisclosures } from "../../../shared/video-studio/source-edit";
 import { imageJobStore } from "../../db/image-job-store";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
@@ -859,6 +861,241 @@ describe("Seedance keyframes", () => {
 		);
 		expect(await restarted.submit("owner", click)).toEqual(first);
 		expect(await restarted.submit("owner", { ...click, ...parse(animate) })).toEqual({
+			error: "invalid",
+		});
+		expect(posts).toBe(1);
+		expect(await imageJobStore(db).list()).toHaveLength(1);
+		expect(await durable()).not.toContain("X-Amz-Signature");
+	});
+});
+
+describe("Seedance source-video edit", () => {
+	const path = "/private/take-3.mp4";
+	const query = "?X-Amz-Signature=clip";
+	const fragment = "#t=2";
+	const source = `https://clips.example.com${path}${query}${fragment}`;
+	const parse = (url = source, prompt = "Make it dusk") => {
+		const parsed = parseVideo({
+			...raw,
+			operationKey: seedanceEditOperation.key,
+			draft: {
+				prompt,
+				resolution: "720p",
+				generate_audio: true,
+				frames: [{ role: "reference_video", url }],
+			},
+		});
+		if (!parsed) throw new Error("Invalid edit fixture.");
+		return parsed;
+	};
+	const durable = async () =>
+		JSON.stringify(await db.use((c) => c.all(sql`SELECT * FROM image_job`)));
+	async function eligible() {
+		const { store, access } = fixture();
+		await store.save("toapis", "video-only", now, false, 0);
+		await access.check();
+		return { store, access };
+	}
+
+	test("Review quotes the video-input rate and names the source by host only", async () => {
+		const { access } = await eligible();
+		const queue = await createVideoQueue(
+			db,
+			access,
+			async () => {},
+			undefined,
+			() => now,
+		);
+		const review = await queue.review("owner", parse());
+		expect(review.quote).toMatchObject({
+			status: "unknown",
+			reason: "token-usage-unknown",
+			advertisedUnitRate: { unit: "million-total-tokens", usd: "6" },
+		});
+		expect(review.frames).toEqual(["Source clip · clips.example.com"]);
+		expect(review.disclosures).toEqual([
+			...editDisclosures,
+			"Gallery saves complete H.264/AAC MP4 files up to 30 seconds, the upstream model's documented maximum for this mode, unverified on this route, plus 1 second for container rounding, within its size and dimension limits. A completed billable clip outside them stays with the provider.",
+		]);
+		expect(review.blockers).toEqual([]);
+		const serialized = JSON.stringify(review);
+		for (const part of [source, path, "take-3", query, "X-Amz-Signature", fragment])
+			expect(serialized).not.toContain(part);
+	});
+
+	test("a missing or 30-day-stale feed shows no rate", async () => {
+		const { access } = await eligible();
+		const missing = await createVideoQueue(
+			db,
+			access,
+			async () => {},
+			async () => ({}),
+			() => now,
+		);
+		const stale = await createVideoQueue(
+			db,
+			access,
+			async () => {},
+			undefined,
+			() => now,
+		);
+		for (const [queue, reason] of [
+			[missing, "missing-feed"],
+			[stale, "expired-feed"],
+		] as const) {
+			// The bundled observation is more than 30 days old.
+			if (reason === "expired-feed") now = Date.parse(toapisBundle.observedAt) + 31 * 86_400_000;
+			const review = await queue.review("owner", parse());
+			expect(review.quote).toMatchObject({ status: "unknown", reason });
+			expect(review.quote).not.toHaveProperty("advertisedUnitRate");
+		}
+	});
+
+	test("a claim binds the exact source and stores no URL, host or prompt", async () => {
+		const { store, access } = fixture();
+		await store.save("toapis", "video-only", now, false, 0);
+		const sent: VideoTarget[] = [];
+		const queue = await createVideoQueue(
+			db,
+			access,
+			async (_id, _key, send) => {
+				sent.push(send);
+			},
+			undefined,
+			() => now,
+		);
+		const live = parse();
+		const click = (token: string, input = live, acceptTerms = true) =>
+			queue.submit("owner", { ...input, token, acceptTerms });
+		// Missing access, missing consent, a replaced URL and a stale revision send nothing.
+		const unchecked = await queue.review("owner", live);
+		expect(await click(unchecked.token)).toEqual({ error: "stale" });
+		await access.check();
+		const review = await queue.review("owner", live);
+		expect(await click(review.token, live, false)).toEqual({ error: "invalid" });
+		for (const other of [
+			parse(`https://clips.example.com${path}?X-Amz-Signature=other`),
+			parse(`https://other.example.com${path}${query}`),
+		])
+			expect(await click(review.token, other)).toEqual({ error: "invalid" });
+		await store.save("toapis", "video-only", now, false, 1);
+		expect(await click(review.token)).toEqual({ error: "stale" });
+		expect(sent).toHaveLength(0);
+		await access.check();
+		const fresh = await queue.review("owner", live);
+		const result = await click(fresh.token);
+		if (!("jobId" in result)) throw new Error("Missing claim");
+		expect(sent).toHaveLength(1);
+		expect(sent[0]).toMatchObject({ provider: "toapis", body: live.body });
+		expect(await imageJobStore(db).get(result.jobId)).toMatchObject({
+			operation: "video-edit",
+			video_terms: JSON.stringify(videoReviewDisclosures(seedanceEditOperation)),
+			save_seconds: 30,
+		});
+		const rows = await durable();
+		for (const secret of ["X-Amz-Signature", "clips.example.com", "take-3", "Make it dusk"])
+			expect(rows).not.toContain(secret);
+	});
+
+	test("the terms digest binds the edit disclosures and quote, and feed expiry after Review is stale", async () => {
+		const { access } = await eligible();
+		let priced = true;
+		const queue = await createVideoQueue(
+			db,
+			access,
+			async () => {},
+			async (at) => (priced ? loadStudioPricingFeeds(at) : {}),
+			() => now,
+		);
+		const [animate] = seedanceKeyframeOperations;
+		const keyframe = await queue.review(
+			"owner",
+			parseVideo({
+				...raw,
+				operationKey: animate.key,
+				draft: {
+					prompt: "Make it dusk",
+					duration: 5,
+					resolution: "720p",
+					generate_audio: true,
+					frames: [{ role: "first_frame", url: source }],
+				},
+			}) ?? live,
+		);
+		const edit = await queue.review("owner", parse());
+		expect(edit.token.split(".")[1]).not.toBe(keyframe.token.split(".")[1]);
+		priced = false;
+		expect(
+			await queue.submit("owner", { ...parse(), token: edit.token, acceptTerms: true }),
+		).toEqual({ error: "stale" });
+		priced = true;
+		const reviewed = await queue.review("owner", parse());
+		now += 31 * 86400_000;
+		expect(
+			await queue.submit("owner", { ...parse(), token: reviewed.token, acceptTerms: true }),
+		).toEqual({ error: "stale" });
+		expect(await imageJobStore(db).list()).toHaveLength(0);
+	});
+
+	test("an identical replay across restart returns the same job after one POST", async () => {
+		const { access } = await eligible();
+		let posts = 0;
+		const bodies: unknown[] = [];
+		const tracker = () =>
+			createJobTracking(db, providerStore(db), {
+				now: () => now,
+				random: () => 0,
+				fetch: async (_url, init) => {
+					if (init.method !== "POST") return new Response(null, { status: 503 });
+					posts++;
+					const body = JSON.parse(String(init.body));
+					bodies.push(body);
+					return Response.json({
+						id: "task_edit",
+						object: "generation.task",
+						model: "seedance-2-5",
+						client_business_id: body.client_business_id,
+						status: "queued",
+					});
+				},
+			});
+		jobs = tracker();
+		const live = parse();
+		const api = await createVideoQueue(db, access, jobs.dispatchVideo, undefined, () => now);
+		const review = await api.review("owner", live);
+		const click = { ...live, token: review.token, acceptTerms: true };
+		const first = await api.submit("owner", click);
+		expect(posts).toBe(1);
+		expect(bodies[0]).toEqual({
+			...live.body,
+			client_business_id: expect.stringMatching(/^siluet-/),
+		});
+		expect(bodies[0]).toMatchObject({
+			video_operation: "edit",
+			duration: -1,
+			aspect_ratio: "adaptive",
+			disable_nsfw: false,
+			video_with_roles: [{ url: source, role: "reference_video" }],
+		});
+		expect(bodies[0]).not.toHaveProperty("image_with_roles");
+		jobs.close();
+		await db.close();
+		db = await openInstallation(directory);
+		jobs = tracker();
+		await jobs.resume();
+		const restarted = await createVideoQueue(
+			db,
+			createVideoAccess(
+				db,
+				providerStore(db),
+				checkVideoInventory(async () => Response.json({})),
+			),
+			jobs.dispatchVideo,
+			undefined,
+			() => now,
+		);
+		expect(await restarted.submit("owner", click)).toEqual(first);
+		expect(await restarted.submit("owner", { ...click, ...parse(`${source}&v=2`) })).toEqual({
 			error: "invalid",
 		});
 		expect(posts).toBe(1);

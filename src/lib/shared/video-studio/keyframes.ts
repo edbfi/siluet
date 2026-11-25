@@ -1,9 +1,24 @@
 import { parseReferenceUrl } from "../image-studio/references";
+import { sourceClipHint } from "./source-edit";
 
 // https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation (2026-11-24):
-// image_with_roles takes first_frame and last_frame; a URL over 2,048 bytes is refused.
-export const frameLabels = { first_frame: "Starting frame", last_frame: "Ending frame" } as const;
+// image_with_roles takes first_frame and last_frame, video_with_roles takes reference_video;
+// a URL over 2,048 bytes is refused.
+export const frameLabels = {
+	first_frame: "Starting frame",
+	last_frame: "Ending frame",
+	reference_video: "Source clip",
+} as const;
 export type FrameRole = keyof typeof frameLabels;
+const frameHint = "Public HTTP or HTTPS image URL, up to 2,048 UTF-8 bytes. Siluet never opens it.";
+/** The field hint of each role. */
+export const roleHints: Record<FrameRole, string> = {
+	first_frame: frameHint,
+	last_frame: frameHint,
+	reference_video: sourceClipHint,
+};
+/** The kind of media a role sends, as the estimator classifies it. */
+export const roleMedia = (role: FrameRole) => (role === "reference_video" ? "video" : "image");
 export type Frame = { role: FrameRole; url: string; hostname: string };
 const maxFrameUrlBytes = 2048;
 

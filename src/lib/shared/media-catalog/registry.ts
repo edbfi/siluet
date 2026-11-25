@@ -102,12 +102,14 @@ export const seedanceOperation = {
 	save: seedanceSave,
 } as const;
 
-// Public-URL keyframes on the same ToAPIs route, in the order sent in image_with_roles.
-function seedanceKeyframeEntry<Operation extends string, Mode extends string, Label extends string>(
+// Public-URL media operations on the same ToAPIs route. Frames go in image_with_roles and a
+// source clip in video_with_roles, each in the order of `roles`.
+export type SeedanceMediaRole = "first_frame" | "last_frame" | "reference_video";
+function seedanceMediaEntry<Operation extends string, Mode extends string, Label extends string>(
 	operation: Operation,
 	mode: Mode,
 	label: Label,
-	roles: readonly ("first_frame" | "last_frame")[],
+	roles: readonly SeedanceMediaRole[],
 ) {
 	return {
 		...seedanceOperation,
@@ -120,13 +122,28 @@ function seedanceKeyframeEntry<Operation extends string, Mode extends string, La
 }
 
 export const seedanceKeyframeOperations = [
-	seedanceKeyframeEntry("first-frame-to-video", "animate", "Animate a still", ["first_frame"]),
-	seedanceKeyframeEntry("first-and-last-frame-to-video", "interpolate", "First and last frame", [
+	seedanceMediaEntry("first-frame-to-video", "animate", "Animate a still", ["first_frame"]),
+	seedanceMediaEntry("first-and-last-frame-to-video", "interpolate", "First and last frame", [
 		"first_frame",
 		"last_frame",
 	]),
 ] as const;
-export const seedanceOperations = [seedanceOperation, ...seedanceKeyframeOperations] as const;
+// An edit's length follows its source; ToAPIs caps neither the source nor the output. Upstream caps it at 30 s, unverified on
+// this route (2026-11-24). https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation:
+// "Editing accepts only -1, and the output length matches the input video."
+// https://toapis.com/model-guide/seedance-2-5: "Generate, edit, and extend up to 30-second videos."
+// https://ai.byteplus.com/ark/region:ap-southeast-1/docs/seedance-2-5 (video duration): "The input
+// video to be edited must be [4, 30] seconds long."
+const seedanceEditSave = { seconds: 30, basis: "upstream" } as SaveLimit | null;
+export const seedanceEditOperation = {
+	...seedanceMediaEntry("video-edit", "edit", "Edit video", ["reference_video"]),
+	save: seedanceEditSave,
+} as const;
+export const seedanceOperations = [
+	seedanceOperation,
+	...seedanceKeyframeOperations,
+	seedanceEditOperation,
+] as const;
 
 // The Poyo video family shares one route, envelope, status and Save contract. Each row is a
 // reviewed descriptor. H3 Max is the family's verified representative with partial options.

@@ -24,6 +24,7 @@ import {
 	keyframeAcceptance,
 } from "#lib/shared/video-studio/keyframes.ts";
 import { videoDefaults, videoRatios } from "#lib/shared/video-studio/seedance.ts";
+import { editAcceptance } from "#lib/shared/video-studio/source-edit.ts";
 import { css, cx } from "#styled-system/css";
 import { studioButton } from "#styled-system/recipes";
 import { goto } from "$app/navigation";
@@ -74,8 +75,15 @@ const modes = $derived(
 	),
 );
 const roles = $derived(frameRoles(operation));
+// An edit's length and framing follow its source clip.
+const editing = $derived(operation.mode === "edit");
 // Frame URLs live only in this page's memory and the reviewed request.
-let frames = $state<Record<FrameRole, string>>({ first_frame: "", last_frame: "" });
+const noFrames = (): Record<FrameRole, string> => ({
+	first_frame: "",
+	last_frame: "",
+	reference_video: "",
+});
+let frames = $state(noFrames());
 const frameErrors = $derived.by(() => {
 	const errors: Partial<Record<FrameRole, string>> = {};
 	for (const role of roles) {
@@ -123,7 +131,7 @@ function switchMode(key: string) {
 	const target = find(operation.key.model, key);
 	if (!target || target === operation) return;
 	operation = target;
-	frames = { first_frame: "", last_frame: "" };
+	frames = noFrames();
 	edit();
 }
 // Keep the prompt and any compatible setting. Apply the target's defaults to the rest.
@@ -131,7 +139,7 @@ function switchModel(id: string) {
 	const target = find(id);
 	if (!target || target === operation) return;
 	operation = target;
-	frames = { first_frame: "", last_frame: "" };
+	frames = noFrames();
 	const next = controls(target);
 	draft = {
 		prompt: draft.prompt,
@@ -152,6 +160,7 @@ function requestDraft() {
 	if (roles.length) {
 		const { prompt, duration, resolution, generate_audio } = draft;
 		const slots = roles.map((role) => ({ role, url: frames[role] }));
+		if (editing) return { prompt, resolution, generate_audio, frames: slots };
 		return { prompt, duration, resolution, generate_audio, frames: slots };
 	}
 	if (current.audio) return draft;
@@ -362,13 +371,15 @@ const frame = css({
 				</div>
 			{/if}
 			<div class={requestFields}>
-				<label class={requestField}
-					>Duration (seconds)<select class={requestControl} bind:value={draft.duration}>
-						{#each current.durations as s (s)}
-							<option value={s}>{s}</option>
-						{/each}
-					</select></label
-				>
+				{#if !editing}
+					<label class={requestField}
+						>Duration (seconds)<select class={requestControl} bind:value={draft.duration}>
+							{#each current.durations as s (s)}
+								<option value={s}>{s}</option>
+							{/each}
+						</select></label
+					>
+				{/if}
 				<label class={requestField}
 					>Resolution<select class={requestControl} bind:value={draft.resolution}>
 						{#each current.resolutions as resolution (resolution)}
@@ -413,7 +424,10 @@ const frame = css({
 			<p>1 potentially billable submission</p>
 			{#if reviewed.frames.length}
 				<p>One clip, zero retries, zero uploads</p>
-				<ul class={cx(style.mediaList, style.detail)} aria-label="Frames">
+				<ul
+					class={cx(style.mediaList, style.detail)}
+					aria-label={editing ? "Source clip" : "Frames"}
+				>
 					{#each reviewed.frames as frame (frame)}
 						<li>{frame}</li>
 					{/each}
@@ -462,9 +476,11 @@ const frame = css({
 						? reviewed.quote.status === "known"
 							? "I accept the estimate and Gallery Save limitations."
 							: "I accept the unknown price and Gallery Save limitations."
-						: roles.length
-							? keyframeAcceptance
-							: "I accept the unknown charge, routing terms and Gallery Save limitations."}</label
+						: editing
+							? editAcceptance
+							: roles.length
+								? keyframeAcceptance
+								: "I accept the unknown charge, routing terms and Gallery Save limitations."}</label
 				>
 			</div>
 			<button

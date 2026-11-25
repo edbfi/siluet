@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
 	h3MaxOperation,
+	seedanceEditOperation,
 	seedanceKeyframeOperations,
 	seedanceOperation,
 } from "../media-catalog/registry";
 import { h3Max } from "./h3-max";
 import { keyframeDisclosures } from "./keyframes";
-import { parseVideo, previewVideo } from "./request";
+import { parseVideo, previewVideo, videoReviewDisclosures } from "./request";
 import { saveDisclosure } from "./save-profile";
-import { videoDefaults } from "./seedance";
+import { videoDefaults, videoDisclosures } from "./seedance";
+import { editDisclosures } from "./source-edit";
 
 const draft = {
 	prompt: "  A lake at https://private.test/secret ",
@@ -45,6 +47,8 @@ test("H3 golden default body", () => {
 
 const savesUpTo = (seconds: number) =>
 	`Gallery saves complete H.264/AAC MP4 files up to ${seconds} seconds, the provider's documented maximum for this mode, plus 1 second for container rounding, within its size and dimension limits. A completed billable clip outside them stays with the provider.`;
+const editSavesUpTo30 =
+	"Gallery saves complete H.264/AAC MP4 files up to 30 seconds, the upstream model's documented maximum for this mode, unverified on this route, plus 1 second for container rounding, within its size and dimension limits. A completed billable clip outside them stays with the provider.";
 
 test("each released mode states its own limit", () => {
 	const seedance = { ...videoDefaults, prompt: "Drift" };
@@ -58,13 +62,33 @@ test("each released mode states its own limit", () => {
 		[seedanceOperation, seedance],
 		[animate, { ...keyframe, frames: frames.slice(0, 1) }],
 		[interpolate, { ...keyframe, frames }],
+		[
+			seedanceEditOperation,
+			{
+				prompt: "Drift",
+				resolution: "720p",
+				generate_audio: true,
+				frames: [{ role: "reference_video", url: "https://cdn.example.com/take.mp4" }],
+			},
+		],
 		[h3MaxOperation, { ...h3Max.defaults, prompt: "Drift" }],
 	] as const;
 	expect(
 		modes.map(([operation, draft]) =>
 			parseVideo({ ...raw, operationKey: operation.key, draft })?.disclosures.at(-1),
 		),
-	).toEqual([savesUpTo(30), savesUpTo(30), savesUpTo(30), savesUpTo(15)]);
+	).toEqual([savesUpTo(30), savesUpTo(30), savesUpTo(30), editSavesUpTo30, savesUpTo(15)]);
+});
+
+test("Review picks an operation's disclosures by its mode, not its role count", () => {
+	const [animate] = seedanceKeyframeOperations;
+	expect(animate.roles).toHaveLength(seedanceEditOperation.roles.length);
+	expect(videoReviewDisclosures(seedanceEditOperation)).toEqual([
+		...editDisclosures,
+		editSavesUpTo30,
+	]);
+	expect(videoReviewDisclosures(animate)).toEqual([...keyframeDisclosures, savesUpTo(30)]);
+	expect(videoReviewDisclosures(seedanceOperation).slice(0, -1)).toEqual([...videoDisclosures]);
 });
 
 test("an upstream basis says unverified on this route, and no limit states none", () => {
@@ -244,6 +268,113 @@ describe("Seedance keyframes", () => {
 				{ url: "Starting frame · cdn.example.com", role: "first_frame" },
 				{ url: "Ending frame · cdn.example.com", role: "last_frame" },
 			],
+		});
+	});
+});
+
+describe("Seedance source-video edit", () => {
+	const source = "https://media.example.com/clips/take-3.mp4?X-Amz-Signature=abc#t=2";
+	const editDraft = {
+		prompt: " Make it dusk ",
+		resolution: "720p",
+		generate_audio: true,
+		frames: [{ role: "reference_video", url: ` ${source} ` }],
+	};
+	const edit = { ...raw, operationKey: seedanceEditOperation.key, draft: editDraft };
+	const options = {
+		video_operation: "edit",
+		duration: -1,
+		aspect_ratio: "adaptive",
+		resolution: "720p",
+		generate_audio: true,
+		output_format: "mp4",
+		return_last_frame: false,
+		disable_nsfw: false,
+	};
+
+	test("source-edit golden payload", () => {
+		const input = parseVideo(edit);
+		expect(input?.operation).toBe(seedanceEditOperation);
+		expect(JSON.stringify(input?.body)).toBe(
+			JSON.stringify({
+				model: "seedance-2-5",
+				prompt: "Make it dusk",
+				...options,
+				video_with_roles: [{ url: source, role: "reference_video" }],
+			}),
+		);
+		expect(input?.options).toEqual(options);
+		expect(input?.disclosures).toEqual([...editDisclosures, editSavesUpTo30]);
+		expect(input?.body).not.toHaveProperty("image_with_roles");
+		const low = parseVideo({
+			...edit,
+			draft: { ...editDraft, resolution: "480p", generate_audio: false },
+		});
+		expect(low?.options).toMatchObject({ resolution: "480p", generate_audio: false });
+	});
+
+	test.each([
+		["a duration", { ...editDraft, duration: 5 }],
+		["a forged duration", { ...editDraft, duration: -1 }],
+		["an aspect ratio", { ...editDraft, aspect_ratio: "adaptive" }],
+		["1080p", { ...editDraft, resolution: "1080p" }],
+		["no source", { ...editDraft, frames: [] }],
+		["a missing frames field", { ...editDraft, frames: undefined }],
+		[
+			"two sources",
+			{
+				...editDraft,
+				frames: [
+					{ role: "reference_video", url: source },
+					{ role: "reference_video", url: `${source}x` },
+				],
+			},
+		],
+		["a frame role", { ...editDraft, frames: [{ role: "first_frame", url: source }] }],
+		["image_with_roles", { ...editDraft, image_with_roles: [] }],
+		["video_with_roles", { ...editDraft, video_with_roles: [] }],
+		["a non-boolean audio flag", { ...editDraft, generate_audio: "true" }],
+		[
+			"a private host",
+			{ ...editDraft, frames: [{ role: "reference_video", url: "http://10.0.0.2/a.mp4" }] },
+		],
+	])("an edit draft with %s is refused", (_, draft) => {
+		expect(parseVideo({ ...edit, draft })).toBeNull();
+	});
+
+	test("reference_video on another operation is refused", () => {
+		const slot = [{ role: "reference_video", url: source }];
+		const [animate] = seedanceKeyframeOperations;
+		expect(
+			parseVideo({
+				...raw,
+				operationKey: animate.key,
+				draft: { prompt: "x", duration: 5, resolution: "720p", generate_audio: true, frames: slot },
+			}),
+		).toBeNull();
+		expect(
+			parseVideo({
+				...raw,
+				operationKey: seedanceOperation.key,
+				draft: { ...videoDefaults, prompt: "x", frames: slot },
+			}),
+		).toBeNull();
+		expect(
+			parseVideo({ ...edit, operationKey: { ...seedanceEditOperation.key, provider: "poyo" } }),
+		).toBeNull();
+	});
+
+	test("the preview shows the source label in place of the URL and redacts the prompt", () => {
+		const input = parseVideo({
+			...edit,
+			draft: { ...editDraft, prompt: "Dusk https://private.test/secret" },
+		});
+		if (!input) throw Error("Missing parsed fixture");
+		const preview = JSON.stringify(previewVideo(input));
+		for (const part of ["X-Amz-Signature", "take-3", "#t=2", "private.test"])
+			expect(preview).not.toContain(part);
+		expect(previewVideo(input)).toMatchObject({
+			video_with_roles: [{ url: "Source clip · media.example.com", role: "reference_video" }],
 		});
 	});
 });

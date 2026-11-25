@@ -4,7 +4,7 @@ import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { referencePng } from "../../../../../tests/fixtures/reference-image";
-import { h264Aac } from "../../../../../tests/fixtures/video/mp4-boxes";
+import { h264Aac, retimeClip } from "../../../../../tests/fixtures/video/mp4-boxes";
 import {
 	buildSeedreamRequest,
 	createSeedreamDraft,
@@ -15,7 +15,10 @@ import {
 	createZImageDraft,
 	validateZImageDraft,
 } from "../../../shared/image-studio/z-image";
-import { seedanceKeyframeOperations } from "../../../shared/media-catalog/registry";
+import {
+	seedanceEditOperation,
+	seedanceKeyframeOperations,
+} from "../../../shared/media-catalog/registry";
 import type { ProviderId } from "../../../shared/providers/connections";
 import { parseVideo } from "../../../shared/video-studio/request";
 import { claimFileSlots, startFileUpload, undoFileUpload } from "../../db/file-attempt";
@@ -1448,3 +1451,288 @@ test.each([
 		expect(posts).toBe(1);
 	},
 );
+
+// A Seedance source-video edit claim as Video Queue writes it.
+const sourceUrl = "https://source-sentinel.example.com/take.mp4?X-Amz-Signature=source-query#t=1";
+const editBusiness = "siluet-00000000-0000-4000-8000-00000000ed17";
+const editTarget = () => {
+	const input = parseVideo({
+		draft: {
+			prompt,
+			resolution: "720p",
+			generate_audio: true,
+			frames: [{ role: "reference_video", url: sourceUrl }],
+		},
+		operationKey: seedanceEditOperation.key,
+		count: 1,
+		retryLimit: 0,
+		acceptTerms: true,
+	});
+	if (!input || "input" in input.body) throw new Error("Invalid edit fixture.");
+	return { provider: "toapis", body: input.body, business: editBusiness } as const;
+};
+// Queue stores the edit operation's Save limit with the job.
+async function insertEdit(id = "edit") {
+	const saveSeconds = seedanceEditOperation.save?.seconds ?? null;
+	await installation.use((db) =>
+		db.run(sql`INSERT INTO image_job (id,binding,provider,revision,quote,state,created_at,model,operation,poll_deadline,business_id,video_terms,save_seconds)
+			VALUES (${id},'binding','toapis',1,${JSON.stringify(quote)},'submitting',${now},'seedance-2-5',
+				'video-edit',${now + imageJobPollingWindowMs},${editBusiness},'["terms"]',${saveSeconds})`),
+	);
+}
+const editTask = {
+	id: "task_edit",
+	object: "generation.task",
+	model: "seedance-2-5",
+	client_business_id: editBusiness,
+};
+const editBilling = { status: "settled", credits: "40", cost_usd: "0.2" };
+const completedEdit = (expiresAt = Math.floor(now / 1000) + 86_400) => ({
+	...editTask,
+	status: "completed",
+	progress: 100,
+	expires_at: expiresAt,
+	billing: editBilling,
+	result: { type: "video", data: [{ url: signedUrl }] },
+});
+
+/** One queued edit, with its POSTs, status reads and a saver over `transfer`. */
+async function trackEdit(transfer: (path: string) => Promise<Buffer | null>) {
+	const posts: unknown[] = [];
+	const reads: string[] = [];
+	const transfers: string[] = [];
+	let status: Record<string, unknown> = { ...editTask, status: "queued" };
+	let saver: ReturnType<typeof createAutoSave> | undefined;
+	const jobs = makeTracking(
+		async (url, init) => {
+			if (init.method === "POST") {
+				posts.push(JSON.parse(String(init.body)));
+				return Response.json({ ...editTask, status: "queued" });
+			}
+			reads.push(url);
+			return Response.json(status);
+		},
+		(id, delivery) => saver?.deliver(id, delivery),
+	);
+	await insertEdit();
+	await jobs.dispatchVideo("edit", credential, editTarget());
+	saver = createAutoSave(installation, {
+		readForSave: jobs.readForSave,
+		readability: providerStore(installation).jobReadability,
+		now: () => now,
+		backoff: [1, 1],
+		transferVideo: async (delivery, path) => {
+			transfers.push(delivery.url);
+			const bytes = await transfer(path);
+			if (!bytes) throw new Error("Interrupted download");
+			await Bun.write(path, bytes);
+			return { size: bytes.length, digest: createHash("sha256").update(bytes).digest("hex") };
+		},
+	});
+	const settle = async () => {
+		for (let i = 0; i < 4; i++) {
+			await Bun.sleep(5);
+			await saver?.idle();
+			now += 10;
+		}
+	};
+	return {
+		jobs,
+		saver,
+		posts,
+		reads,
+		transfers,
+		settle,
+		complete: async (next: Record<string, unknown>) => {
+			status = next;
+			// Refresh waits for the first scheduled read.
+			now += 5_000;
+			await jobs.refresh("edit");
+			await settle();
+		},
+	};
+}
+
+async function editRows() {
+	const rows = JSON.stringify(await installation.use((db) => db.all(sql`SELECT * FROM image_job`)));
+	for (const secret of [
+		sourceUrl,
+		"source-sentinel",
+		"source-query",
+		prompt,
+		signedUrl,
+		credential,
+	])
+		expect(rows).not.toContain(secret);
+}
+
+test("edit asset review outlasts automatic tracking; Refresh saves it and Retry download reads the same task", async () => {
+	const sample = h264Aac();
+	let attempts = 0;
+	const edit = await trackEdit(async () => (++attempts <= 3 ? null : sample));
+	expect(edit.posts).toEqual([{ ...editTarget().body, client_business_id: editBusiness }]);
+	expect(edit.posts[0]).toMatchObject({
+		video_operation: "edit",
+		duration: -1,
+		aspect_ratio: "adaptive",
+		disable_nsfw: false,
+		video_with_roles: [{ url: sourceUrl, role: "reference_video" }],
+	});
+	expect(await latest("edit")).toMatchObject({ state: "waiting", tracking: "automatic" });
+	now += videoJobPollingWindowMs + 60_000;
+	expect(await latest("edit")).toMatchObject({
+		state: "waiting",
+		tracking: "manual",
+		canRefresh: true,
+	});
+	try {
+		edit.saver.start();
+		await edit.complete(completedEdit());
+		expect(await latest("edit")).toMatchObject({
+			state: "completed",
+			library: "failed",
+			retryable: true,
+		});
+		now += 5_000;
+		expect(await edit.saver.retry("edit")).toBe(true);
+		await edit.settle();
+		expect(await latest("edit")).toMatchObject({
+			library: "saved",
+			billing: { status: "settled", credits: "40", usd: "0.2" },
+		});
+	} finally {
+		await edit.saver.close();
+	}
+	expect(edit.posts).toHaveLength(1);
+	expect(edit.transfers).toEqual(Array(4).fill(signedUrl));
+	for (const url of edit.reads)
+		expect(url).toBe("https://toapis.com/v1/videos/generations/task_edit");
+	const video = await createGallery(installation).openVideo("edit");
+	try {
+		expect(await video?.handle.readFile()).toEqual(sample);
+	} finally {
+		await video?.handle.close();
+	}
+	await editRows();
+});
+
+test("a 15-second edit saves within the edit's 30-second limit with no new POST", async () => {
+	const sample = retimeClip(h264Aac(), 15, 2);
+	const edit = await trackEdit(async () => sample);
+	try {
+		edit.saver.start();
+		await edit.complete(completedEdit());
+		expect(await latest("edit")).toMatchObject({ state: "completed", library: "saved" });
+	} finally {
+		await edit.saver.close();
+	}
+	expect(edit.transfers).toEqual([signedUrl]);
+	expect(edit.posts).toHaveLength(1);
+	const video = await createGallery(installation).openVideo("edit");
+	try {
+		expect(await video?.handle.readFile()).toEqual(sample);
+	} finally {
+		await video?.handle.close();
+	}
+	await editRows();
+});
+
+test("a 31.1-second edit is held outside the Gallery profile with no retry, Gallery entry or new POST", async () => {
+	const edit = await trackEdit(async () => retimeClip(h264Aac(), 311, 20));
+	try {
+		edit.saver.start();
+		await edit.complete(completedEdit());
+		expect(await latest("edit")).toMatchObject({
+			state: "completed",
+			library: "unsupported",
+			retryable: false,
+			billing: { status: "settled", credits: "40", usd: "0.2" },
+		});
+		expect(await edit.saver.retry("edit")).toBe(false);
+	} finally {
+		await edit.saver.close();
+	}
+	expect(edit.transfers).toEqual([signedUrl]);
+	expect(edit.posts).toHaveLength(1);
+	expect(await createGallery(installation).openVideo("edit")).toBeFalsy();
+	await editRows();
+});
+
+test("an expired edit result makes zero media reads and no new POST", async () => {
+	const edit = await trackEdit(async () => h264Aac());
+	try {
+		edit.saver.start();
+		await edit.complete(completedEdit(Math.floor(now / 1000) - 1));
+		expect(await latest("edit")).toMatchObject({
+			state: "completed",
+			library: "expired",
+			retryable: false,
+			billing: { status: "settled", credits: "40", usd: "0.2" },
+		});
+	} finally {
+		await edit.saver.close();
+	}
+	expect(edit.transfers).toEqual([]);
+	expect(edit.posts).toHaveLength(1);
+});
+
+test("a confirmed invalid_private_assets refusal names the source clip and sends once", async () => {
+	let posts = 0;
+	const jobs = makeTracking(async (_url, init) => {
+		if (init.method === "POST") posts++;
+		return Response.json(
+			{
+				success: false,
+				error: {
+					code: "invalid_private_assets",
+					type: "invalid_request_error",
+					message: sourceUrl,
+				},
+			},
+			{ status: 400 },
+		);
+	});
+	await insertEdit();
+	await jobs.dispatchVideo("edit", credential, editTarget());
+	expect(await latest("edit")).toMatchObject({
+		state: "rejected",
+		message:
+			"ToAPIs refused the source clip before creating a task. Check that the URL is publicly reachable, points to a readable video within 100 MiB and has no credentials.",
+	});
+	expect(posts).toBe(1);
+	await editRows();
+});
+
+test.each([
+	["a matching task attaches", "match"],
+	["a mismatched task stays uncertain", "mismatch"],
+] as const)("an uncertain edit submission is recovered by lookup: %s", async (_, outcome) => {
+	let posts = 0;
+	const jobs = makeTracking(async (_url, init) => {
+		if (init.method === "POST") {
+			posts++;
+			// An undocumented code: the task may exist.
+			return Response.json(
+				{ success: false, error: { code: "video_edit_parameters_required" } },
+				{ status: 400 },
+			);
+		}
+		return Response.json({
+			...editTask,
+			...(outcome === "mismatch" && { model: "seedance-2-5-fast" }),
+			status: "in_progress",
+		});
+	});
+	await insertEdit();
+	await jobs.dispatchVideo("edit", credential, editTarget());
+	expect(await imageJobStore(installation).get("edit")).toMatchObject({ state: "unknown" });
+	now += 5_000;
+	await jobs.lookup("edit");
+	const job = await imageJobStore(installation).get("edit");
+	if (outcome === "match") expect(job).toMatchObject({ state: "running", task_id: "task_edit" });
+	else {
+		expect(job).toMatchObject({ state: "unknown", task_id: null });
+		expect((await latest("edit"))?.message).toContain("may still cost credits");
+	}
+	expect(posts).toBe(1);
+});

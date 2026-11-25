@@ -13,35 +13,43 @@ export const videoDefaults = {
 	generate_audio: true,
 };
 const keyframeDraftKeys = ["prompt", "duration", "resolution", "generate_audio", "frames"];
+// An edit's length and framing follow its source, so the draft carries neither.
+const editDraftKeys = ["prompt", "resolution", "generate_audio", "frames"];
 
 /** The reviewed Seedance body and pricing options of an exact draft, or null. */
 export function seedanceRequest(operation: SeedanceOperation, d: object, prompt: string) {
-	const keyframes = operation.roles.length > 0;
+	const media = operation.roles.length > 0;
+	const edit = operation.mode === "edit";
+	const keys = edit ? editDraftKeys : media ? keyframeDraftKeys : null;
+	// ToAPIs accepts only -1 for an edit: its length matches the source.
+	const duration = edit
+		? -1
+		: "duration" in d &&
+				typeof d.duration === "number" &&
+				Number.isInteger(d.duration) &&
+				d.duration >= 4 &&
+				d.duration <= 10
+			? d.duration
+			: null;
 	if (
-		Object.keys(d).some((k) =>
-			keyframes ? !keyframeDraftKeys.includes(k) : !Object.hasOwn(videoDefaults, k),
-		) ||
-		!("duration" in d) ||
-		typeof d.duration !== "number" ||
-		!Number.isInteger(d.duration) ||
-		d.duration < 4 ||
-		d.duration > 10 ||
+		Object.keys(d).some((k) => (keys ? !keys.includes(k) : !Object.hasOwn(videoDefaults, k))) ||
+		duration === null ||
 		!("resolution" in d) ||
 		(d.resolution !== "480p" && d.resolution !== "720p") ||
 		!("generate_audio" in d) ||
 		typeof d.generate_audio !== "boolean"
 	)
 		return null;
-	// ToAPIs requires adaptive framing for first/last-frame tasks; the starting frame sets it.
-	const ratio = keyframes
+	// ToAPIs requires adaptive framing for edits and first/last-frame tasks; the media sets it.
+	const ratio = media
 		? "adaptive"
 		: "aspect_ratio" in d && videoRatios.find((r) => r === d.aspect_ratio);
-	const parsed = keyframes ? readFrames(operation.roles, "frames" in d && d.frames) : null;
+	const parsed = media ? readFrames(operation.roles, "frames" in d && d.frames) : null;
 	if (!ratio || (parsed && "error" in parsed)) return null;
 	const frames = parsed?.frames ?? [];
 	const options = {
-		video_operation: "generate",
-		duration: d.duration,
+		video_operation: edit ? "edit" : "generate",
+		duration,
 		aspect_ratio: ratio,
 		resolution: d.resolution,
 		generate_audio: d.generate_audio,
@@ -50,15 +58,13 @@ export function seedanceRequest(operation: SeedanceOperation, d: object, prompt:
 		disable_nsfw: false,
 	} as const;
 	const model = seedanceOperation.key.model;
-	// Frames stay out of pricing options; text-to-video bytes are unchanged.
-	const body = keyframes
-		? {
-				model,
-				prompt,
-				...options,
-				image_with_roles: frames.map(({ url, role }) => ({ url, role })),
-			}
-		: { model, prompt, ...options };
+	const roles = frames.map(({ url, role }) => ({ url, role }));
+	// Media stays out of pricing options; text-to-video bytes are unchanged.
+	const body = edit
+		? { model, prompt, ...options, video_with_roles: roles }
+		: media
+			? { model, prompt, ...options, image_with_roles: roles }
+			: { model, prompt, ...options };
 	return { body, options, frames };
 }
 export type SeedanceBody = NonNullable<ReturnType<typeof seedanceRequest>>["body"];

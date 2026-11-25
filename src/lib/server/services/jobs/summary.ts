@@ -1,5 +1,8 @@
 import { reconcileWallet, type WalletScope } from "../../../shared/billing/wallet";
-import { seedanceKeyframeOperations } from "../../../shared/media-catalog/registry";
+import {
+	seedanceEditOperation,
+	seedanceKeyframeOperations,
+} from "../../../shared/media-catalog/registry";
 import type { PriceEstimate } from "../../../shared/pricing/estimate";
 import type { ProviderId } from "../../../shared/providers/connections";
 import type { SlotOutcome } from "../../db/file-attempt";
@@ -118,27 +121,30 @@ const rejections: Record<Exclude<Rejection, "media-input">, string> = {
 	filtering: "The provider rejected the submission during content review.",
 };
 
-// Media wording names what the job sent: frames, reference images (every image job,
-// including legacy rows without an operation) or, for other video, nothing specific.
-type MediaKind = "frame" | "reference" | "other";
+// Media wording names what the job sent: frames, a source clip, reference images (every image
+// job, including legacy rows without an operation) or, for other video, nothing specific.
+type MediaKind = "frame" | "source" | "reference" | "other";
 const keyframeOperations: readonly (string | null)[] = seedanceKeyframeOperations.map(
 	(entry) => entry.key.operation,
 );
 function mediaKind(job: ImageJob, video: boolean): MediaKind {
 	if (!video) return "reference";
-	return job.provider === "toapis" && keyframeOperations.includes(job.operation)
-		? "frame"
-		: "other";
+	if (job.provider !== "toapis") return "other";
+	if (job.operation === seedanceEditOperation.key.operation) return "source";
+	return keyframeOperations.includes(job.operation) ? "frame" : "other";
 }
 const mediaRejections: Record<MediaKind, string> = {
 	frame:
 		"ToAPIs refused a frame before creating a task. Check that each URL is publicly reachable, points to a readable still image within 30 MB, and has no credentials.",
+	source:
+		"ToAPIs refused the source clip before creating a task. Check that the URL is publicly reachable, points to a readable video within 100 MiB and has no credentials.",
 	reference:
 		"The provider refused a reference image before creating a task. Check that each URL is public and readable.",
 	other: "The provider rejected the request's media input.",
 };
 const unreadableMedia: Record<MediaKind, string | null> = {
 	frame: "The provider could not read a frame image.",
+	source: "The provider could not read the source clip.",
 	reference: "The provider could not read one or more reference images.",
 	other: null,
 };
@@ -287,9 +293,14 @@ export function summarizeJob(
 			message = message ? `${reason} ${message}` : reason;
 		} else if (unreadable) {
 			message = message ? `${unreadable} ${message}` : unreadable;
-		} else {
-			message ??= "The provider reported that the job failed.";
-		}
+		} else if (mediaKind(job, video) === "source") {
+			// Any other edit failure points back at the source limits disclosed at Review,
+			// also when a later status read adds its own note.
+			const guidance = "Check the source clip against the limits shown at Review.";
+			message = message
+				? `${guidance} ${message}`
+				: `The provider reported that the job failed. ${guidance}`;
+		} else message ??= "The provider reported that the job failed.";
 	}
 	if ((!message || video) && job.expires_at !== null && job.expires_at <= now)
 		message = `The provider's last reported ${video ? "video" : "image"} expiry has passed.`;

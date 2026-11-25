@@ -5,7 +5,7 @@ import {
 	requestField,
 	requestLabel,
 } from "#lib/components/image-studio/request-styles.ts";
-import { type FrameRole, frameLabels } from "#lib/shared/video-studio/keyframes.ts";
+import { type FrameRole, frameLabels, roleHints } from "#lib/shared/video-studio/keyframes.ts";
 
 let {
 	roles,
@@ -34,8 +34,11 @@ let {
 		></label
 	>
 	<p class={style.note} id={`${role}-help`}>
-		{(values[role] && errors[role]) ||
-			"Public HTTP or HTTPS image URL, up to 2,048 UTF-8 bytes. Siluet never opens it."}
+		{(values[role] && errors[role]) || roleHints[role]}
 	</p>
 {/each}
-<p class={style.note}>Framing follows the starting frame.</p>
+<p class={style.note}>
+	{roles.includes("reference_video")
+		? "Edit length and framing follow the source clip."
+		: "Framing follows the starting frame."}
+</p>

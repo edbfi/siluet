@@ -12,8 +12,10 @@ import {
 	releasedOperations,
 	releasedVideoOperations,
 	resolveOperationKey,
+	seedanceEditOperation,
 	seedanceKeyframeOperations,
 	seedanceOperation,
+	seedanceOperations,
 } from "../../src/lib/shared/media-catalog/registry";
 import { catalogCoverage, documentedRoutes } from "./coverage";
 
@@ -237,10 +239,10 @@ test.each(providers)(
 			unresolvedIds: provider === "poyo" ? 5 : 21,
 			documentedOperations: provider === "poyo" ? 317 : 331,
 			prerequisiteBound: provider === "poyo" ? 2 : 17,
-			review: 5,
-			queue: 5,
-			partialOptions: 5,
-			addedSinceBaseline: 3,
+			review: provider === "poyo" ? 5 : 6,
+			queue: provider === "poyo" ? 5 : 6,
+			partialOptions: provider === "poyo" ? 5 : 6,
+			addedSinceBaseline: provider === "poyo" ? 3 : 4,
 		});
 	},
 );
@@ -270,6 +272,32 @@ test("Seedance keyframe keys resolve after text-to-video on ToAPIs only", () => 
 		const profile = ledger.supportProfiles[operation.profile];
 		expect(profile.addedSinceBaseline).toBe(true);
 	}
+});
+
+test("Seedance source-video edit resolves after the keyframes on ToAPIs only", () => {
+	expect(releasedVideoOperations[0]).toBe(seedanceOperation);
+	expect(seedanceOperations.map(({ profile }) => profile)).toEqual([
+		"seedance-generate",
+		"seedance-animate",
+		"seedance-interpolate",
+		"seedance-edit",
+	]);
+	const { key, mode, label, roles, profile } = seedanceEditOperation;
+	expect([key, mode, label, roles]).toEqual([
+		{ ...seedanceOperation.key, operation: "video-edit" },
+		"edit",
+		"Edit video",
+		["reference_video"],
+	]);
+	expect(resolveOperationKey(key)).toBe(seedanceEditOperation);
+	expect(resolveOperationKey({ ...key, provider: "poyo" })).toBeUndefined();
+	expect(resolveOperationKey({ ...key, model: "seedance-2.5" })).toBeUndefined();
+	expect(ledger.supportProfiles[profile]).toMatchObject({
+		addedSinceBaseline: true,
+		optionCoverage: "partial",
+	});
+	const poyoRow = poyo.rows.find((row) => row.ids.includes("seedance-2.5"));
+	expect(Object.values(poyoRow?.support ?? {})).not.toContain(profile);
 });
 
 test("H3 key never resolves to ToAPIs", () => {
