@@ -236,13 +236,14 @@ function primingExcluded(
 	edit: Edit | null,
 ) {
 	if (audio.frameLength !== 1024 || !audio.plain || !edit) return false;
-	const priming = (1024 * media.scale) / audio.sampleRate;
+	const scale = BigInt(media.scale);
+	// The edit skips one access unit, in media ticks: time / scale = 1,024 / sampleRate.
+	if (BigInt(edit.time) * BigInt(audio.sampleRate) !== 1024n * scale) return false;
+	const priming = edit.time;
 	const total = media.durations.reduce((sum, value) => sum + value, 0);
-	if (edit.time !== priming) return false;
 	if (media.durations[0] !== priming || media.duration !== total - priming) return false;
 	if (media.offsets.some((offset) => offset !== 0)) return false;
 	// The edit's end and the decode end, both in units of 1 / (media × movie timescale) seconds.
-	const scale = BigInt(media.scale);
 	const movie = BigInt(movieScale);
 	const gap = BigInt(edit.time) * movie + BigInt(edit.segment) * scale - BigInt(total) * movie;
 	return gap <= scale && gap >= -scale;

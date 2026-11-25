@@ -7,6 +7,7 @@ import {
 	payload,
 	replaceBox,
 	rewrite,
+	setAudioConfig,
 	setField,
 } from "../../../../../tests/fixtures/video/mp4-boxes";
 import { UnsupportedVideoError } from "./errors";
@@ -174,6 +175,10 @@ test("priming is excused only for one AAC access unit skipped by the single edit
 	refused(audioEdit(primed(h264Aac()), 1024, 96_000 - 2), differs);
 	refused(shortFrames(primed(h264Aac())), differs);
 	refused(shortFirstSample(primed(h264Aac())), differs);
+	// At 44.1 kHz one access unit is 1,114.56 ticks of the 48 kHz media timescale.
+	const at44k = setAudioConfig(h264Aac(), Buffer.from("120856e500", "hex"));
+	expect(inspect(at44k)).toMatchObject({ duration: 2 });
+	refused(primed(at44k), differs);
 	// Two frames of priming: the edit itself is valid, so only the priming rule refuses it.
 	const twoFrames = audioEdit(h264Aac(), 2048, 94_976);
 	expect(inspect(twoFrames)).toMatchObject({ duration: 2 });
