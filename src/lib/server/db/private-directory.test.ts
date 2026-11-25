@@ -131,13 +131,17 @@ test("a folder only this user's private group can write is stable", async () => 
 test("a root-owned folder its group can write is stable only when sticky", async () => {
 	const folder = (mode: number) => ({ uid: 0, gid, mode, isDirectory: () => true });
 	const rootGroup = accounts(`root:x:${gid}:\n`, `root:x:0:${gid}::/root:/bin/sh\n`);
-	await expect(requireStableFolder(folder(0o40775), rootGroup)).rejects.toThrow(replaceable);
-	await requireStableFolder(folder(0o41775), rootGroup);
+	await expect(requireStableFolder("/srv", folder(0o40775), rootGroup)).rejects.toThrow(
+		replaceable,
+	);
+	await requireStableFolder("/srv", folder(0o41775), rootGroup);
 	const realUid = process.getuid;
 	try {
 		// Root's own group is never treated as private.
 		process.getuid = () => 0;
-		await expect(requireStableFolder(folder(0o40775), rootGroup)).rejects.toThrow(replaceable);
+		await expect(requireStableFolder("/srv", folder(0o40775), rootGroup)).rejects.toThrow(
+			replaceable,
+		);
 	} finally {
 		process.getuid = realUid;
 	}
@@ -162,6 +166,37 @@ test("a link in the configured path is checked where it sits, then the canonical
 			);
 	} finally {
 		await chmod(open, 0o700).catch(() => {});
+		await rm(parent, { recursive: true, force: true });
+	}
+});
+
+test("the refusal names the folder and how to close it", async () => {
+	const parent = await createOwnerDirectory();
+	const shared = join(parent, "it's shared");
+	try {
+		await mkdir(shared, { mode: 0o700 });
+		await chmod(shared, 0o777);
+		const error = await preparePrivateDirectory(join(shared, "siluet")).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(Error);
+		const message = (error as Error).message;
+		expect(message).toContain(shared);
+		expect(message).toContain(`chmod g-w,o-w '${shared.replaceAll("'", "'\\''")}'`);
+		// A folder another user owns cannot be fixed with chmod.
+		await chmod(shared, 0o700);
+		await preparePrivateDirectory(join(shared, "siluet"));
+		const realUid = process.getuid;
+		try {
+			process.getuid = () => (realUid?.() ?? 0) + 1;
+			const foreign = await preparePrivateDirectory(join(shared, "siluet"), true).catch(
+				(e: unknown) => e,
+			);
+			expect((foreign as Error).message).toContain("belongs to another user");
+			expect((foreign as Error).message).not.toContain("chmod");
+		} finally {
+			process.getuid = realUid;
+		}
+	} finally {
+		await chmod(shared, 0o700).catch(() => {});
 		await rm(parent, { recursive: true, force: true });
 	}
 });

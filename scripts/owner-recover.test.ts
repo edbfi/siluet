@@ -79,6 +79,23 @@ test("recovery creates files for the owner only, whatever the shell's umask", as
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+test("recovery names a folder another user could write and how to close it", async () => {
+	const parent = await createOwnerDirectory();
+	const shared = join(parent, "shared");
+	const recovery = command(join(shared, "siluet"));
+	try {
+		await chmod(parent, 0o777);
+		await recovery.child.exited;
+		expect(recovery.child.exitCode).toBe(1);
+		expect(recovery.output()).toContain(
+			`Another user could replace the data directory through ${parent}. Run chmod g-w,o-w ${parent}`,
+		);
+	} finally {
+		recovery.term.close();
+		await chmod(parent, 0o700);
+		await rm(parent, { recursive: true, force: true });
+	}
+});
 test("recovery on a foreign platform refuses before storage", async () => {
 	const parent = await createOwnerDirectory();
 	try {

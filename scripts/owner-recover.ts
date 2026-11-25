@@ -125,7 +125,9 @@ if (import.meta.main)
 			"Use at least 15 characters",
 			"An absolute data directory",
 			"The data directory must be private.",
-			"Another user could replace the data directory.",
+			// These name a folder on the owner's own data path, for the owner's terminal.
+			"Another user could replace the data directory",
+			"The data directory cannot pass through",
 		];
 		console.error(
 			e instanceof UnsupportedPlatformError

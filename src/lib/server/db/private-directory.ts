@@ -35,9 +35,15 @@ async function prospectivePath(directory: string): Promise<string> {
 	}
 }
 
-const replaceable = () =>
+const shellQuote = (path: string) =>
+	/^[\w@%+=:,./-]+$/.test(path) ? path : `'${path.replaceAll("'", "'\\''")}'`;
+
+// Shown in the terminal that starts the studio or runs recovery.
+const replaceable = (folder: string, owned: boolean) =>
 	new DirectoryPolicyError(
-		"Another user could replace the data directory. Make its parent folders writable only by you, or choose another data directory.",
+		owned
+			? `Another user could replace the data directory through ${folder}. Run chmod g-w,o-w ${shellQuote(folder)}, or choose another data directory.`
+			: `Another user could replace the data directory through ${folder}, which belongs to another user. Choose another data directory.`,
 	);
 
 type Folder = { uid: number; gid: number; mode: number; isDirectory(): boolean };
@@ -59,12 +65,19 @@ async function privateGroupFolder(info: Folder, readAccounts: ReadLocalAccounts)
  * A folder is stable when it belongs to root or this user and only its owner can
  * write it, unless it is sticky or only this user's private group can also write.
  */
-export async function requireStableFolder(info: Folder, readAccounts: ReadLocalAccounts) {
-	if (!info.isDirectory() || (info.uid !== 0 && info.uid !== process.getuid?.()))
-		throw replaceable();
+export async function requireStableFolder(
+	folder: string,
+	info: Folder,
+	readAccounts: ReadLocalAccounts,
+) {
+	if (!info.isDirectory())
+		throw new DirectoryPolicyError(
+			`The data directory cannot pass through ${folder}, which is not a folder. Choose another data directory.`,
+		);
+	if (info.uid !== 0 && info.uid !== process.getuid?.()) throw replaceable(folder, false);
 	if (info.mode & 0o1000) return;
-	if (info.mode & 0o002) throw replaceable();
-	if (info.mode & 0o020 && !(await privateGroupFolder(info, readAccounts))) throw replaceable();
+	if (info.mode & 0o002 || (info.mode & 0o020 && !(await privateGroupFolder(info, readAccounts))))
+		throw replaceable(folder, true);
 }
 
 /**
@@ -77,8 +90,8 @@ async function requireStablePath(path: string, readAccounts: ReadLocalAccounts) 
 		// Folders that do not exist yet are created private.
 		const info = await lstatIfPresent(entry);
 		if (info?.isSymbolicLink()) {
-			if (info.uid !== 0 && info.uid !== process.getuid?.()) throw replaceable();
-		} else if (info && entry !== path) await requireStableFolder(info, readAccounts);
+			if (info.uid !== 0 && info.uid !== process.getuid?.()) throw replaceable(entry, false);
+		} else if (info && entry !== path) await requireStableFolder(entry, info, readAccounts);
 		if (dirname(entry) === entry) return;
 	}
 }
@@ -92,7 +105,7 @@ async function createPrivatePath(path: string, readAccounts: ReadLocalAccounts) 
 		await mkdir(folder, { mode: 0o700 }).catch((error: unknown) => {
 			if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
 		});
-		await requireStableFolder(await lstat(folder), readAccounts);
+		await requireStableFolder(folder, await lstat(folder), readAccounts);
 	}
 }
 
