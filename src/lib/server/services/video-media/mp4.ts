@@ -12,6 +12,8 @@ export type Span = { start: number; end: number };
 type Walker = ReturnType<typeof boxWalker>;
 /** A duration in movie-timescale ticks, as the fraction num / den. */
 type Ticks = { num: bigint; den: bigint };
+/** The presented edit: its media start and its length in movie ticks. */
+type Edit = { time: number; segment: number };
 
 const brands = ["isom", "iso2", "iso4", "iso5", "iso6", "mp41", "mp42", "avc1", "M4V "];
 // Twelve seconds at 60 frames per second, and at 48 kHz AAC plus encoder priming.
@@ -51,8 +53,7 @@ function sampleEntry(walk: Walker, stbl: Box[], video: boolean) {
 	const extensions = walk.children(entry);
 	if (!video) {
 		check(read.u16(8) === 0, "sound sample entry version");
-		checkAacConfig(only(extensions, "esds").data);
-		return null;
+		return { picture: null, audio: checkAacConfig(only(extensions, "esds").data) };
 	}
 	const width = read.u16(24);
 	const height = read.u16(26);
@@ -70,7 +71,7 @@ function sampleEntry(walk: Walker, stbl: Box[], video: boolean) {
 		check(["nclx", "nclc"].includes(value.latin1(0, 4)), "colour description");
 		checkTransfer(value.u16(6));
 	}
-	return { width, height };
+	return { picture: { width, height }, audio: null };
 }
 
 /** Each sample's decode time, composition offset and duration, in media ticks. */
@@ -159,7 +160,7 @@ function presentation(
 	trak: Box[],
 	movieScale: number,
 	media: { scale: number; durations: number[]; offsets: number[] },
-): Ticks {
+): Ticks & { edit: Edit | null } {
 	let decode = 0;
 	let earliest = Number.POSITIVE_INFINITY;
 	let end = Number.NEGATIVE_INFINITY;
@@ -179,7 +180,7 @@ function presentation(
 	const scale = BigInt(media.scale);
 	if (!edits.length) {
 		check(earliest >= 0, "composition before the presentation start");
-		return { num: BigInt(end) * movie, den: scale };
+		return { num: BigInt(end) * movie, den: scale, edit: null };
 	}
 	const list = fields(only(walk.children(edits[0]), "elst"));
 	const version = list.u8(0);
@@ -215,7 +216,37 @@ function presentation(
 		),
 		"edit selects no sample",
 	);
-	return { num: BigInt(segment + (empty?.segment ?? 0)), den: 1n };
+	return {
+		num: BigInt(segment + (empty?.segment ?? 0)),
+		den: 1n,
+		edit: empty ? null : { time, segment },
+	};
+}
+
+/**
+ * Muxer compatibility (D6): some muxers write an AAC track's `mdhd` without its encoder
+ * priming. Excuse that only for plain AAC-LC with 1,024-sample frames and no composition
+ * offsets, when the single edit skips exactly the first access unit and presents the rest of
+ * the decode timeline to within one movie tick.
+ */
+function primingExcluded(
+	audio: { sampleRate: number; frameLength: number; plain: boolean },
+	media: { scale: number; duration: number; durations: number[]; offsets: number[] },
+	movieScale: number,
+	edit: Edit | null,
+) {
+	if (audio.frameLength !== 1024 || !audio.plain || !edit) return false;
+	const scale = BigInt(media.scale);
+	// The edit skips one access unit, in media ticks: time / scale = 1,024 / sampleRate.
+	if (BigInt(edit.time) * BigInt(audio.sampleRate) !== 1024n * scale) return false;
+	const priming = edit.time;
+	const total = media.durations.reduce((sum, value) => sum + value, 0);
+	if (media.durations[0] !== priming || media.duration !== total - priming) return false;
+	if (media.offsets.some((offset) => offset !== 0)) return false;
+	// The edit's end and the decode end, both in units of 1 / (media × movie timescale) seconds.
+	const movie = BigInt(movieScale);
+	const gap = BigInt(edit.time) * movie + BigInt(edit.segment) * scale - BigInt(total) * movie;
+	return gap <= scale && gap >= -scale;
 }
 
 function track(walk: Walker, trak: Box, media: Span[], occupied: Span[], movieScale: number) {
@@ -238,14 +269,21 @@ function track(walk: Walker, trak: Box, media: Span[], occupied: Span[], movieSc
 	const stbl = walk.children(only(minf, "stbl"));
 	for (const group of stbl.filter((b) => b.type === "sgpd" || b.type === "sbgp"))
 		check(["roll", "prol"].includes(fields(group).latin1(4, 4)), "sample group");
-	const picture = sampleEntry(walk, stbl, video);
+	const { picture, audio } = sampleEntry(walk, stbl, video);
 	const samples = placement(stbl, media, occupied, limit);
 	const { durations, offsets } = timing(stbl, samples, limit);
+	const presented = presentation(walk, parts, movieScale, { scale, durations, offsets });
 	check(
-		durations.reduce((sum, value) => sum + value, 0) === duration,
+		durations.reduce((sum, value) => sum + value, 0) === duration ||
+			(audio &&
+				primingExcluded(
+					audio,
+					{ scale, duration, durations, offsets },
+					movieScale,
+					presented.edit,
+				)),
 		"stts duration differs from mdhd",
 	);
-	const presented = presentation(walk, parts, movieScale, { scale, durations, offsets });
 	check(
 		presented.num > 0n &&
 			presented.num <= BigInt(presentedSecondsLimit) * BigInt(movieScale) * presented.den,

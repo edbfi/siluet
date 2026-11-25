@@ -154,8 +154,8 @@ test("released migrations keep their SQL and new ones sort after the last releas
 		expect(digest(value)).toBe(releasedMigrations.get(name) ?? "");
 });
 
-test("the ordered file migration sorts last", () => {
+test("the video profile re-arm sorts last", () => {
 	expect(Object.keys(installationMigrations).sort().at(-1)).toBe(
-		"20261124120000_seedream_ordered_files",
+		"20261125120000_video_profile_rearm",
 	);
 });

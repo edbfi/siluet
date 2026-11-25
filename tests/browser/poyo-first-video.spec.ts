@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import { h3MaxOperation } from "../../src/lib/shared/media-catalog/registry";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
@@ -11,7 +11,9 @@ import {
 	h3ResultUrl,
 	h3Task,
 } from "../fixtures/video/poyo-h3";
+import { h3MaxShape } from "../fixtures/video/real-clips";
 import { startStudio } from "./built-studio";
+import { seekThenPlay } from "./saved-video-playback";
 
 type Studio = Awaited<ReturnType<typeof startStudio>>;
 const prompt = "Waves move past a painted pier.";
@@ -68,7 +70,8 @@ test("model switch keeps prompt, clears consent, and a Poyo-only owner saves one
 	test.setTimeout(120_000);
 	const directory = await createOwnerDirectory();
 	const cache = await createOwnerDirectory();
-	const bytes = await readFile("tests/fixtures/video/h264-aac.mp4");
+	// A clip laid out like H3 Max output, with its C2PA box.
+	const bytes = h3MaxShape();
 	const counts = { posts: 0 };
 	const fixture = poyoFixtures(bytes, counts);
 	let server: Studio | undefined;
@@ -197,16 +200,7 @@ test("model switch keeps prompt, clears consent, and a Poyo-only owner saves one
 		await page.goto(origin + path);
 		const video = page.getByLabel("Saved video playback");
 		await expect(video).toBeVisible();
-		expect(await video.evaluate((v: HTMLVideoElement) => v.autoplay)).toBe(false);
-		await video.focus();
-		await video.press("Space");
-		await expect
-			.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
-			.toBeGreaterThan(0);
-		await video.press("ArrowRight");
-		await expect
-			.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
-			.toBeGreaterThan(1);
+		await seekThenPlay(page, video);
 		expect(await (await page.request.get(`${origin + path}/media?download=1`)).body()).toEqual(
 			bytes,
 		);

@@ -10,8 +10,34 @@ const rates = [
 const mpeg4Audio = 0x40;
 const audioStream = 5;
 const aacLc = 2;
+const syncExtension = 0x2b7;
+const sbr = 5;
 
-/** Read the descriptors in an `esds` payload and accept only AAC-LC, ≤ 48 kHz, mono or stereo. */
+/**
+ * Read the rest of GASpecificConfig and any backward-compatible sync extension after it
+ * (14496-3 §1.6.2.1, §4.4.1). Plain AAC-LC has no extension, or one with object type 5 that
+ * declares SBR absent followed only by zero padding, which also rules out PS. Anything else,
+ * including trailing bits that are not a sync extension, is not plain. Never refuses: D6 accepts these configurations.
+ */
+function plainLowComplexity(bits: ReturnType<typeof bitReader>) {
+	const take = (count: number) => (bits.remaining() >= count ? bits.bits(count) : -1);
+	const dependsOnCoreCoder = take(1);
+	if (dependsOnCoreCoder === 1 && take(14) < 0) return false; // coreCoderDelay
+	const extensionFlag = take(1);
+	// AAC-LC must carry extensionFlag = 0 (14496-3 GASpecificConfig semantics).
+	if (extensionFlag !== 0) return false;
+	if (bits.remaining() < 16) return true;
+	if (take(11) !== syncExtension || take(5) !== sbr || take(1) !== 0) return false;
+	// PS is signalled only after SBR present, so only zero padding may follow SBR absent.
+	while (bits.remaining() > 0) if (take(1) !== 0) return false;
+	return true;
+}
+
+/**
+ * Read the descriptors in an `esds` payload and accept only AAC-LC, ≤ 48 kHz, mono or stereo.
+ * Returns the samples per access unit from GASpecificConfig's frameLengthFlag, and whether
+ * the configuration is plain AAC-LC with no SBR or PS signalled.
+ */
 export function checkAacConfig(esds: Buffer) {
 	const read = fields(esds);
 	check(read.u32(0) === 0, "esds version");
@@ -49,5 +75,6 @@ export function checkAacConfig(esds: Buffer) {
 	check(sampleRate > 0 && sampleRate <= 48000, "audio sample rate");
 	const channels = bits.bits(4);
 	check(channels === 1 || channels === 2, "audio channel count");
-	return { sampleRate, channels };
+	const frameLength = bits.bit() ? 960 : 1024;
+	return { sampleRate, channels, frameLength, plain: plainLowComplexity(bits) };
 }

@@ -139,6 +139,26 @@ export function setField(
 }
 
 /**
+ * Replace the audio track's AudioSpecificConfig, fixing the three `esds` descriptor lengths
+ * around it. Expects h264Aac's layout: four-byte lengths and no optional ES fields.
+ */
+export function setAudioConfig(bytes: Buffer, config: Buffer) {
+	return rewrite(bytes, "moov/trak#1/mdia/minf/stbl/stsd/mp4a/esds", (data) => {
+		const [es, decoder, info] = [5, 13, 31];
+		if (data[4] !== 3 || data[11] !== 0 || data[12] !== 4 || data[30] !== 5)
+			throw new Error("Fixture esds moved.");
+		const old = data[info + 3];
+		const out = Buffer.concat([data.subarray(0, 35), config, data.subarray(35 + old)]);
+		const delta = config.length - old;
+		const length = (at: number, value: number) => out.writeUInt32BE(0x8080_8000 + value, at);
+		length(es, data[es + 3] + delta);
+		length(decoder, data[decoder + 3] + delta);
+		length(info, config.length);
+		return out;
+	});
+}
+
+/**
  * h264Aac whose avcC PPS names a missing SPS (pps_id 0, sps_id 31). The declared
  * configuration verifies; no frame can decode, because the samples carry no
  * in-band parameter sets.
@@ -157,4 +177,91 @@ export function undecodableH264Aac() {
 			data.subarray(ppsAt + 3 + ppsLength),
 		]);
 	});
+}
+
+/** Fields of a C2PA manifest box that refusal tests change (C2PA 2.2 §A.5.1.2, §11.1.4.2). */
+export type ContentCredentialsShape = {
+	/** The `uuid` extended type, as hex. */
+	extendedType?: string;
+	/** The FullBox version and flags as one 32-bit word. */
+	versionFlags?: number;
+	purpose?: string;
+	merkleOffset?: bigint;
+	/** The type of the box that should be the `jumb` manifest store. */
+	storeBox?: string;
+	/** The store's size, when it should not fill the rest of the box. */
+	storeSize?: number;
+	/** The `jumd` content type, as hex. */
+	storeType?: string;
+	toggles?: number;
+	label?: string;
+	/** 64-bit headers for the `uuid` box or the `jumb` store. */
+	wideBox?: boolean;
+	wideStore?: boolean;
+};
+
+/**
+ * A synthetic C2PA manifest box of `size` bytes: a `manifest` FullBox with a zero Merkle offset
+ * whose `jumb` store fills the box, led by a 30-byte `jumd` (C2PA store type, toggles 3,
+ * label `c2pa`) and zero fill. A size below the full headers cuts the box short, its store
+ * size clamped at 0 when the store starts past the end.
+ */
+export function c2paBox(size: number, shape: ContentCredentialsShape = {}) {
+	const out = Buffer.alloc(Math.max(size, 128));
+	const header = shape.wideBox ? 16 : 8;
+	if (shape.wideBox) {
+		out.writeUInt32BE(1, 0);
+		out.writeBigUInt64BE(BigInt(size), 8);
+	} else out.writeUInt32BE(size, 0);
+	out.write("uuid", 4, "latin1");
+	Buffer.from(shape.extendedType ?? "d8fec3d61b0e483c92975828877ec481", "hex").copy(out, header);
+	out.writeUInt32BE(shape.versionFlags ?? 0, header + 16);
+	const purpose = `${shape.purpose ?? "manifest"}\0`;
+	out.write(purpose, header + 20, "latin1");
+	out.writeBigUInt64BE(shape.merkleOffset ?? 0n, header + 20 + purpose.length);
+	const store = header + 28 + purpose.length;
+	const storeSize = shape.storeSize ?? Math.max(0, size - store);
+	let description = store + 8;
+	if (shape.wideStore) {
+		out.writeUInt32BE(1, store);
+		out.writeBigUInt64BE(BigInt(storeSize), store + 8);
+		description = store + 16;
+	} else out.writeUInt32BE(storeSize, store);
+	out.write(shape.storeBox ?? "jumb", store + 4, "latin1");
+	out.writeUInt32BE(30, description);
+	out.write("jumd", description + 4, "latin1");
+	Buffer.from(shape.storeType ?? "6332706100110010800000aa00389b71", "hex").copy(
+		out,
+		description + 8,
+	);
+	out[description + 24] = shape.toggles ?? 3;
+	out.write(`${shape.label ?? "c2pa"}\0`, description + 25, "latin1");
+	return out.subarray(0, size);
+}
+
+/** The complete bytes of the first top-level box of `type`. */
+export function topLevelBox(bytes: Buffer, type: string) {
+	const node = locate(bytes, type)[0];
+	return Buffer.from(bytes.subarray(node.start, node.start + node.size));
+}
+
+/** Insert `boxes` straight after `ftyp`, shifting chunk offsets. */
+export function afterFileType(bytes: Buffer, ...boxes: Buffer[]) {
+	return replaceBox(bytes, "ftyp", Buffer.concat([topLevelBox(bytes, "ftyp"), ...boxes]));
+}
+
+/** Move a faststart file's `moov` to the end, after its media, keeping chunk offsets valid. */
+export function moveMovieAfterMedia(bytes: Buffer) {
+	const [moov] = locate(bytes, "moov");
+	const movie = topLevelBox(bytes, "moov");
+	const out = Buffer.concat([
+		bytes.subarray(0, moov.start),
+		bytes.subarray(moov.start + moov.size),
+		movie,
+	]);
+	const at = out.length - movie.length;
+	const moved = Buffer.from(out.subarray(at));
+	shiftChunks(moved, moov.start + moov.size, -moov.size);
+	moved.copy(out, at);
+	return out;
 }

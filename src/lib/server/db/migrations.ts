@@ -8,6 +8,7 @@ import { imageJobOperationMigration } from "./image-job-operation-migration";
 import { imageJobSchema } from "./image-job-schema";
 import { orderedFileMigration } from "./ordered-file-schema";
 import { saveIntentMigration } from "./save-intent-schema";
+import { videoProfileRearmMigration } from "./video-profile-rearm";
 import { videoMigration } from "./video-schema";
 
 export const ownerMigrations = {
@@ -58,6 +59,7 @@ export const installationMigrations = {
 	"20261123120000_automatic_save": saveIntentMigration,
 	"20261123180000_seedream_file_edit": fileEditMigration,
 	"20261124120000_seedream_ordered_files": orderedFileMigration,
+	"20261125120000_video_profile_rearm": videoProfileRearmMigration,
 };
 
 export async function migrateInstallation(

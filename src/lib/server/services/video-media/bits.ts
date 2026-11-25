@@ -23,6 +23,8 @@ export function bitReader(bytes: Uint8Array, what: string) {
 	return {
 		bit,
 		bits,
+		/** The bits left unread. */
+		remaining: () => bytes.length * 8 - position,
 		ue,
 		se() {
 			const code = ue();
