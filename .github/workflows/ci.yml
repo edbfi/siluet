@@ -103,7 +103,16 @@ jobs:
       - run: bun run --bun smoke tests/browser/authenticator.spec.ts tests/browser/key-persistence.spec.ts tests/browser/tab-sessions.spec.ts tests/browser/owner-restarts.spec.ts tests/browser/cross-port.spec.ts tests/browser/gallery-download.spec.ts --workers=1
       # The first-run journeys tab through links and radios, which macOS WebKit skips without Full
       # Keyboard Access; they run in Chromium and Firefox here, as before in Chromium.
-      - run: bun run --bun smoke tests/browser/studio.spec.ts tests/browser/first-saved-image.spec.ts tests/browser/first-saved-video.spec.ts tests/browser/poyo-first-video.spec.ts --project=chromium --project=firefox --workers=1
+      - if: ${{ !cancelled() }}
+        run: bun run --bun smoke tests/browser/studio.spec.ts tests/browser/first-saved-image.spec.ts tests/browser/first-saved-video.spec.ts tests/browser/poyo-first-video.spec.ts --project=chromium --project=firefox --workers=1
+      # Playwright keeps a trace and error context for each failed test. They hold fixture data only.
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-owner-test-results-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
   media-cleanup:
     name: Media cleanup (${{ matrix.runner }})
     strategy:
