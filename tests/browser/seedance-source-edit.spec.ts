@@ -13,6 +13,7 @@ import { writeReviewPricing } from "../fixtures/review-pricing";
 import { seedanceProvider } from "../fixtures/seedance-provider";
 import { startStudio } from "./built-studio";
 import { claimOwner, ownerRequest } from "./owner-session";
+import { playsH264 } from "./saved-video-playback";
 import { test } from "./studio-test";
 
 // One signed source clip on a maximal 63-character DNS label. Nothing may read or resolve it.
@@ -197,15 +198,18 @@ test("a source-video edit reviews by keyboard, queues once, saves automatically 
 		await page.goto(`${origin}/gallery/${jobId}`);
 		const video = page.getByLabel("Saved video playback");
 		await expect(video).toBeVisible();
-		await video.focus();
-		await video.press("Space");
-		await expect
-			.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
-			.toBeGreaterThan(0);
-		await video.press("ArrowRight");
-		await expect
-			.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
-			.toBeGreaterThan(1);
+		// Playwright's Linux Firefox has no H.264 decoder; Download below still proves the bytes.
+		if (await playsH264(video)) {
+			await video.focus();
+			await video.press("Space");
+			await expect
+				.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
+				.toBeGreaterThan(0);
+			await video.press("ArrowRight");
+			await expect
+				.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
+				.toBeGreaterThan(1);
+		}
 		const [file] = await Promise.all([
 			page.waitForEvent("download"),
 			page.getByRole("link", { name: "Download video" }).press("Enter"),
