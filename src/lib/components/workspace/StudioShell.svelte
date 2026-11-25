@@ -1,34 +1,26 @@
 <script lang="ts">
 import { Dialog } from "@ark-ui/svelte/dialog";
-import { onMount, type Snippet, tick } from "svelte";
+import { onMount, type Snippet } from "svelte";
 import icon from "#lib/assets/siluet-icon.svg";
 import {
 	type ImageDraftMemory,
 	setImageDraftContext,
 } from "#lib/components/image-studio/draft-context.ts";
-import {
-	securityNoticeName,
-	signOutNoticeName,
-	watchNotice,
-} from "#lib/shared/owner/session-notice.ts";
 import { skipLink } from "#lib/shared/styles/navigation.ts";
 import { cx } from "#styled-system/css";
 import { drawer, shell } from "./studio-shell-styles.ts";
 
 let {
 	pathname,
-	signOutGeneration,
-	securityGeneration,
+	menuOpen = $bindable(false),
 	children,
 }: {
 	pathname: string;
-	signOutGeneration: string | null;
-	securityGeneration: string | null;
+	/** The mobile drawer; the layout closes it before the recovery-codes dialog opens. */
+	menuOpen?: boolean;
 	children: Snippet;
 } = $props();
-let menuOpen = $state(false);
 let menuReady = $state(false);
-let signedOut = $state(false);
 const settings = $derived(pathname.startsWith("/settings"));
 const image = $derived(pathname === "/image");
 const jobs = $derived(pathname === "/jobs");
@@ -50,6 +42,7 @@ const destination = $derived(
 						? "Gallery"
 						: "Studio home",
 );
+// Drafts live with this shell; the layout remounts it when the tab's session changes.
 const imageDraftMemory = $state<ImageDraftMemory>({});
 setImageDraftContext(imageDraftMemory);
 
@@ -62,22 +55,6 @@ onMount(() => {
 	mobile.addEventListener("change", closeOnDesktop);
 	return () => mobile.removeEventListener("change", closeOnDesktop);
 });
-
-onMount(() =>
-	watchNotice(signOutNoticeName(location), signOutGeneration, async () => {
-		if (signedOut) return;
-		signedOut = true;
-		imageDraftMemory.draft = undefined;
-		await tick();
-		location.replace("/sign-in");
-	}),
-);
-onMount(() =>
-	watchNotice(securityNoticeName(location), securityGeneration, () => {
-		imageDraftMemory.draft = undefined;
-		if (location.pathname === "/image" || location.pathname === "/video") location.reload();
-	}),
-);
 </script>
 
 {#snippet navigation()}
@@ -204,9 +181,7 @@ onMount(() =>
 			</div>
 		</header>
 		<main id="workspace-main" tabindex="-1" class={cx(shell.frame, shell.content)}>
-			{#if !signedOut}
-				{@render children()}
-			{/if}
+			{@render children()}
 		</main>
 	</div>
 </div>

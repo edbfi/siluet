@@ -1,6 +1,10 @@
 <script lang="ts">
+import { onMount } from "svelte";
 import tide from "#lib/assets/kestrel-point.jpg";
+import { KeyUnavailable } from "#lib/shared/owner/key-store.ts";
+import { sessionClient } from "#lib/shared/owner/session-client.ts";
 import { css } from "#styled-system/css";
+import { goto } from "$app/navigation";
 import Brand from "./Brand.svelte";
 
 const entry = css({
@@ -34,15 +38,89 @@ const credentials = css({ width: "min(100%, 26rem)", display: "grid", gap: "1rem
 const field = css({ display: "grid", gap: "0.4rem", fontWeight: "600" });
 const input = css({ width: "100%", minHeight: "44px", fontWeight: "400" });
 
-let {
-	claim = false,
-	pending = false,
-	message,
-	username = "",
-}: { claim?: boolean; pending?: boolean; message?: string; username?: string } = $props();
+let { claim = false }: { claim?: boolean } = $props();
+// A pending sign-in's proof lives only in this page's memory; a reload restarts sign-in.
+let proof = $state<string | null>(null);
+let message = $state<string | null>(null);
+let busy = $state(false);
+const pending = $derived(proof !== null);
+const restartedKey = "siluet-sign-in-pending";
 const title = $derived(
 	claim ? "Claim your studio" : pending ? "Verify your sign-in" : "Welcome back",
 );
+onMount(() => {
+	try {
+		if (!claim && sessionStorage.getItem(restartedKey)) {
+			sessionStorage.removeItem(restartedKey);
+			message = "Sign-in restarted. Enter your username and password again.";
+		}
+	} catch {}
+});
+function remember(waiting: boolean) {
+	try {
+		if (waiting) sessionStorage.setItem(restartedKey, "1");
+		else sessionStorage.removeItem(restartedKey);
+	} catch {}
+}
+async function submit(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
+	event.preventDefault();
+	if (busy) return;
+	const element = event.currentTarget;
+	const form = new FormData(element, event.submitter);
+	const field = (name: string) => {
+		const value = form.get(name);
+		return typeof value === "string" ? value : "";
+	};
+	busy = true;
+	message = null;
+	try {
+		const client = sessionClient();
+		const result = claim
+			? await client.claim({
+					token: field("token"),
+					username: field("username"),
+					password: field("password"),
+				})
+			: proof !== null
+				? await client.factor(
+						proof,
+						field("action") === "cancel" ? { cancel: true } : { code: field("code") },
+					)
+				: await client.signIn({ username: field("username"), password: field("password") });
+		if (!result.ok) {
+			// As after a full-page submission, secrets are not kept for the next attempt.
+			for (const input of element.querySelectorAll<HTMLInputElement>(
+				'input[name="password"], input[name="code"]',
+			))
+				input.value = "";
+			message =
+				typeof result.body?.message === "string"
+					? result.body.message
+					: "The studio could not complete the request. Retry.";
+			return;
+		}
+		if (result.body?.cancelled) {
+			proof = null;
+			remember(false);
+			return;
+		}
+		if (typeof result.body?.proof === "string") {
+			proof = result.body.proof;
+			remember(true);
+			return;
+		}
+		remember(false);
+		proof = null;
+		await goto(claim ? "/settings/security?offer" : "/", { replaceState: true });
+	} catch (error) {
+		message =
+			error instanceof KeyUnavailable
+				? error.message
+				: "The studio could not complete the request. Retry.";
+	} finally {
+		busy = false;
+	}
+}
 </script>
 
 <svelte:head><title>{title} · Siluet</title></svelte:head>
@@ -51,7 +129,7 @@ const title = $derived(
 		<Brand />
 	</div>
 	<div class={content}>
-		<form method="POST" class={credentials}>
+		<form method="POST" class={credentials} onsubmit={submit} aria-busy={busy}>
 			<h1
 				tabindex="-1"
 				{@attach (node) => {
@@ -94,7 +172,6 @@ const title = $derived(
 					>Username<input
 						class={input}
 						name="username"
-						defaultValue={username}
 						required
 						autocomplete="username"
 						autocapitalize="none"
@@ -132,11 +209,14 @@ const title = $derived(
 				type="submit"
 				name="action"
 				value={pending ? "factor" : "primary"}
+				disabled={busy}
 			>
 				{claim ? "Claim studio" : pending ? "Verify code" : "Sign in"}
 			</button>
 			{#if pending}
-				<button type="submit" name="action" value="cancel" formnovalidate>Cancel</button>
+				<button type="submit" name="action" value="cancel" formnovalidate disabled={busy}>
+					Cancel
+				</button>
 			{/if}
 		</form>
 	</div>

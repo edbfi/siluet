@@ -22,6 +22,10 @@ Claim one owner with a single-use console token, then set a local password and o
 
 Deferred on 2026-11-22: external OIDC and LDAP sign-in move to the backlog. Tinyauth linking remains blocked on subject evidence.
 
+### Browser credential
+
+Agreed with the council on 2026-11-25, delegated by the owner. Browsers send a host's cookies to every port, so Siluet never authenticates with a cookie. A non-extractable WebCrypto key, usable only by Siluet's origin, signs single-use challenges for a short-lived in-memory bearer, one server session per key ([spec](SPEC-browser-key.md)). Declined: per-installation `*.localhost`, signing every request. Costs: private screens need JavaScript; media links fail outside the app; clips buffer (≤64 MiB); a new port or cleared site data, and the upgrade, need a sign-in.
+
 ### No native tools
 
 Siluet ships, provisions and calls no native tool or helper, and adds no package for work the stack already covers (Bun, SvelteKit, TypeScript, sharp, Turso with Drizzle, Panda with Ark UI). ExifTool is a test-only CI oracle. Supported platforms are Linux and macOS (D8).
@@ -154,7 +158,7 @@ Fixed in the security hardening PR:
 - libvips' cache is off for the whole process (Gallery verification and media cleanup each turn it off, whichever loads first), and Gallery image verification decodes every image once under a 5 s timeout. sharp enforces it in `toBuffer` only, so an image outside the Gallery profile decodes to one byte a pixel there instead of through `stats()`.
 - MP4 edit durations add as BigInt, and the provider key opens with `O_NONBLOCK`.
 
-Owner decision 2026-11-25: fix it before v0.1.0 rather than accept it. Browsers send cookies to every port on a host, so another local web service the owner visits on 127.0.0.1 can receive Siluet's session cookie (Sol: blocker; Opus: accepted risk). The council chooses the design and it ships as its own reviewed change; the D11 gate stays open until it merges.
+Fixed before v0.1.0 in [#71](https://github.com/edbfi/siluet/pull/71) with a browser key ([D1](#browser-credential)); the upgrade revokes every session and proof; a cross-port test passes.
 
 Follow-up: refusing non-443 ports on result downloads (Gemini) was declined for now. Downloads already pin a vetted public address with TLS and no credentials, and no evidence shows which ports provider CDNs use. Revisit once real result URLs are observed.
 

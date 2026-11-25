@@ -7,6 +7,7 @@ import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
 import { referencePng } from "../fixtures/reference-image";
 import { startStudio } from "./built-studio";
+import { claimOwner, ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 type Studio = Awaited<ReturnType<typeof startStudio>>;
@@ -14,13 +15,8 @@ type Studio = Awaited<ReturnType<typeof startStudio>>;
 async function claimWithPoyo(page: Page, server: Studio) {
 	const origin = server.origin.origin;
 	await expect.poll(server.token).not.toBe("");
-	const setup = await page.request.post(`${origin}/setup`, {
-		headers: { origin, accept: "text/html" },
-		form: { token: server.token(), username: "creator", password: crypto.randomUUID() },
-		maxRedirects: 0,
-	});
-	expect(setup.status()).toBe(303);
-	const saved = await page.request.post(`${origin}/settings/providers?/connect`, {
+	await claimOwner(page, server, crypto.randomUUID());
+	const saved = await ownerRequest(page).post(`${origin}/settings/providers?/connect`, {
 		headers: { origin, accept: "text/html" },
 		form: { provider: "poyo", key: providerFixtureKeys.poyo },
 	});
@@ -53,7 +49,7 @@ test("Gallery tiles and the viewer download the original image, and Jobs downloa
 			acceptUnknown: false,
 		};
 		const post = (path: string, data: unknown) =>
-			page.request.post(origin + path, { data, headers: { origin } });
+			ownerRequest(page).post(origin + path, { data, headers: { origin } });
 		const review = await (await post("/image/review", input)).json();
 		const queued = await post("/image/queue", {
 			...input,
@@ -73,16 +69,16 @@ test("Gallery tiles and the viewer download the original image, and Jobs downloa
 		await expect(library).toHaveAttribute("aria-live", "polite");
 		expect(media()).toBe(1);
 
-		// Every available tile and the viewer offer an ordinary download with the short job id.
+		// Every available tile and the viewer download the authenticated copy under the short job id.
 		await page.goto(`${origin}/gallery`);
 		const tileDownload = page.getByRole("link", { name: `Download image ${short}` });
-		await expect(tileDownload).toHaveAttribute("download", "");
+		await expect(tileDownload).toHaveAttribute("download", name);
 		expect(await download(page, tileDownload)).toEqual({ name, bytes: referencePng });
-		const attachment = await page.request.get(`${origin}/gallery/${jobId}/media?download=1`);
+		const attachment = await ownerRequest(page).get(`${origin}/gallery/${jobId}/media?download=1`);
 		expect(attachment.headers()["content-disposition"]).toBe(`attachment; filename="${name}"`);
-		// Opened on its own, the saved image is a sandboxed document that no page can frame.
-		const inline = await page.goto(`${origin}/gallery/${jobId}/media`);
-		expect(inline?.headers()).toMatchObject({
+		// The saved image is a sandboxed document that no page can frame.
+		const inline = await ownerRequest(page).get(`${origin}/gallery/${jobId}/media`);
+		expect(inline.headers()).toMatchObject({
 			"content-type": "image/png",
 			"cross-origin-resource-policy": "same-origin",
 			"x-frame-options": "DENY",
@@ -91,7 +87,10 @@ test("Gallery tiles and the viewer download the original image, and Jobs downloa
 			"content-security-policy":
 				"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; sandbox",
 		});
-		await expect(page.locator("img")).toHaveJSProperty("naturalWidth", 1);
+		// Opened on its own, a media link carries no bearer and gets nothing.
+		const direct = await page.goto(`${origin}/gallery/${jobId}/media`);
+		expect(direct?.status()).toBe(401);
+		expect(direct?.headers()["cache-control"]).toBe("private, no-store");
 		await page.goto(`${origin}/gallery`);
 		await page.getByRole("link", { name: new RegExp(`Image ${short}`) }).press("Enter");
 		// Exact, so it cannot match the outgoing tile's "Download image <id>" mid-navigation.
@@ -115,13 +114,13 @@ test("Gallery tiles and the viewer download the original image, and Jobs downloa
 						maxRedirects: 0,
 					})
 				).status(),
-			).toBe(303);
+			).toBe(401);
 		} finally {
 			await other.close();
 		}
 		expect(
 			(
-				await page.request.post(`${origin}/jobs?/download`, {
+				await ownerRequest(page).post(`${origin}/jobs?/download`, {
 					headers: { origin: "http://127.0.0.1:9" },
 					form: { id: jobId },
 				})
@@ -129,7 +128,7 @@ test("Gallery tiles and the viewer download the original image, and Jobs downloa
 		).toBe(403);
 		expect(
 			(
-				await page.request.get(`${origin}/gallery/${jobId}/media?download=1`, {
+				await ownerRequest(page).get(`${origin}/gallery/${jobId}/media?download=1`, {
 					headers: { origin: "http://127.0.0.1:9" },
 				})
 			).status(),

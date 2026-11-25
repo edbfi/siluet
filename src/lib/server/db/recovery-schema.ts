@@ -6,7 +6,7 @@ import { DirectoryPolicyError } from "./private-directory";
 
 // Fingerprint of the non-internal DDL produced by this release's locked migrations.
 // Opening the exclusive recovery connection in the native recovery test qualifies this value.
-export const currentSchema = "4fc3e5c22704943b5e11cce13b20d78fc80acfb30c9a7ebff23e79cb772872d3";
+export const currentSchema = "d0dba20be5acc73fafba7f210a0263bb6fa8d2559eec7687cfb214277d781ead";
 
 /** SHA-256 of the installation's non-internal DDL. */
 export async function schemaFingerprint(db: StudioDatabase) {

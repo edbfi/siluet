@@ -1,6 +1,8 @@
 <script lang="ts">
 import { actions, link, meta, page, viewer } from "#lib/components/gallery/gallery-styles.ts";
 import SavedImageDetails from "#lib/components/gallery/SavedImageDetails.svelte";
+import { downloadPrivate, privateSource } from "#lib/components/media/private-media.ts";
+import { mediaFileName } from "#lib/shared/gallery/file-name.ts";
 import type { PageProps } from "./$types";
 
 let { data }: PageProps = $props();
@@ -11,6 +13,19 @@ const href = $derived(`/gallery/${encodeURIComponent(data.image.jobId)}`);
 let failed = $state<string | null>(null);
 let player = $state<HTMLVideoElement>();
 const unplayable = $derived(failed === data.image.jobId);
+// The saved file could not be read through this session, or exceeds the page's limit.
+let missing = $state<string | null>(null);
+let downloadFailed = $state(false);
+const name = $derived(mediaFileName(data.image.jobId, data.image.mime));
+async function download(event: MouseEvent) {
+	event.preventDefault();
+	downloadFailed = false;
+	try {
+		await downloadPrivate(`${href}/media`, data.image.mime, video ? "video" : "image", name);
+	} catch {
+		downloadFailed = true;
+	}
+}
 $effect(() => {
 	// An error raised before hydration leaves the element in its error state.
 	if (player?.error) failed = data.image.jobId;
@@ -21,7 +36,9 @@ $effect(() => {
 <section class={page} aria-labelledby="image-title">
 	<a class={link} href="/gallery">Back to Gallery</a>
 	<h1 id="image-title">{video ? "Video" : "Image"} {data.image.jobId.slice(0, 8)}</h1>
-	{#if data.image.available && video}
+	{#if data.image.available && missing === data.image.jobId}
+		<p role="status">The saved {kind} could not be opened here. Download it, or reload to retry.</p>
+	{:else if data.image.available && video}
 		<!-- svelte-ignore a11y_media_has_caption (Creator-generated media has no caption source.) -->
 		<!-- biome-ignore lint/a11y/useMediaCaption: Creator-generated media has no caption source. -->
 		<video
@@ -31,7 +48,9 @@ $effect(() => {
 			preload="metadata"
 			aria-label="Saved video playback"
 			class={viewer}
-			src={`${href}/media`}
+			{@attach privateSource(`${href}/media`, data.image.mime, "video", {
+				failed: () => (missing = data.image.jobId),
+			})}
 			onerror={() => (failed = data.image.jobId)}
 		></video>
 		<p class={meta} role="status">
@@ -41,7 +60,9 @@ $effect(() => {
 		</p>
 	{:else if data.image.available}
 		<img
-			src={`${href}/media`}
+			{@attach privateSource(`${href}/media`, data.image.mime, "image", {
+				failed: () => (missing = data.image.jobId),
+			})}
 			alt={`Saved image from job ${data.image.jobId.slice(0, 8)}`}
 			class={viewer}
 			width={data.image.width}
@@ -53,8 +74,13 @@ $effect(() => {
 	<SavedImageDetails {...data.image} />
 	<div class={actions}>
 		{#if data.image.available}
-			<a class={link} href={`${href}/media?download=1`} download>Download {kind}</a>
+			<a class={link} href={`${href}/media?download=1`} download={name} onclick={download}
+				>Download {kind}</a
+			>
 		{/if}
 		<a class={link} href={`${href}/remove`}>Remove from Gallery</a>
 	</div>
+	{#if downloadFailed}
+		<p role="alert">The download could not start. Retry.</p>
+	{/if}
 </section>

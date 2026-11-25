@@ -1,3 +1,4 @@
-import { authenticate } from "#lib/server/services/owner/form.ts";
-import type { Actions } from "./$types";
-export const actions = { default: (event) => authenticate(event, true) } satisfies Actions;
+import type { PageServerLoad } from "./$types";
+
+// The hook answers this data request with 404 once the studio is claimed.
+export const load: PageServerLoad = () => ({});

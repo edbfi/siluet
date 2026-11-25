@@ -56,7 +56,7 @@ jobs:
         with: { extra-args: "--all-files --hook-stage manual" }
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     permissions: { contents: read }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -73,7 +73,7 @@ jobs:
           echo "$RUNNER_TEMP/bun-only" >> "$GITHUB_PATH"
       - run: bun ci
       - run: bun run --bun build
-      - run: bunx --bun --no-install playwright install --with-deps chromium
+      - run: bunx --bun --no-install playwright install --with-deps chromium firefox
       - run: bun run --bun smoke
       # Playwright keeps a trace and error context for each failed test. They hold fixture data only.
       - if: failure()
@@ -88,7 +88,7 @@ jobs:
       fail-fast: false
       matrix: { os: [macos-15] }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 45
     permissions: { contents: read }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -98,8 +98,21 @@ jobs:
       - run: bun ci
       - run: bun test --timeout 30000 ./src/lib/server/db ./src/lib/server/services/owner ./src/lib/server/services/gallery ./src/lib/server/services/video-media ./src/routes/settings/security ./scripts/owner-recover.test.ts
       - run: bun run --bun build
-      - run: bunx --bun --no-install playwright install chromium
-      - run: bun run --bun smoke tests/browser/studio.spec.ts tests/browser/authenticator.spec.ts tests/browser/first-saved-image.spec.ts tests/browser/first-saved-video.spec.ts tests/browser/poyo-first-video.spec.ts --workers=1
+      - run: bunx --bun --no-install playwright install chromium firefox webkit
+      # Browser-key sessions in all three engines, WebKit's key persistence included.
+      - run: bun run --bun smoke tests/browser/authenticator.spec.ts tests/browser/key-persistence.spec.ts tests/browser/tab-sessions.spec.ts tests/browser/owner-restarts.spec.ts tests/browser/cross-port.spec.ts tests/browser/gallery-download.spec.ts --workers=1
+      # The first-run journeys tab through links and radios, which macOS WebKit skips without Full
+      # Keyboard Access; they run in Chromium and Firefox here, as before in Chromium.
+      - if: ${{ !cancelled() }}
+        run: bun run --bun smoke tests/browser/studio.spec.ts tests/browser/first-saved-image.spec.ts tests/browser/first-saved-video.spec.ts tests/browser/poyo-first-video.spec.ts --project=chromium --project=firefox --workers=1 --output=test-results/journeys
+      # Playwright keeps a trace and error context for each failed test. They hold fixture data only.
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-owner-test-results-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
   media-cleanup:
     name: Media cleanup (${{ matrix.runner }})
     strategy:

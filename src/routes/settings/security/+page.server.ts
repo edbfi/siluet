@@ -1,30 +1,22 @@
-import { fail } from "@sveltejs/kit";
+import { error, fail } from "@sveltejs/kit";
 import { AccessError, CandidateRetry } from "#lib/server/services/owner/access-error.ts";
-import {
-	candidateReceipt,
-	securityNotice,
-	setCredential,
-} from "#lib/server/services/owner/cookies.ts";
 import { formField } from "#lib/server/services/owner/form.ts";
 import type { Actions, PageServerLoad } from "./$types";
-export const load: PageServerLoad = async ({ locals, cookies, url }) => {
-	const { access, cookieName, origin } = locals.studio;
-	const session = cookies.get(cookieName) ?? "";
-	const receipt = candidateReceipt(cookies, cookieName, session, origin);
-	const requested = url.searchParams.has("resume");
-	const present = receipt.present();
+
+export const load: PageServerLoad = async ({ locals, url }) => {
+	if (!locals.session) error(401);
+	const requested = url.searchParams.get("resume") ?? undefined;
 	return {
-		...(await access.security.settings(session, requested && present ? receipt.get : undefined)),
-		canResume: !requested && present,
+		...(await locals.studio.access.security.settings(locals.session.digest, requested)),
 		offer: url.searchParams.has("offer"),
 	};
 };
 export const actions = {
-	default: async ({ locals, cookies, request }) => {
-		const { access, origin, cookieName } = locals.studio;
+	default: async ({ locals, request, setHeaders }) => {
+		const { access } = locals.studio;
 		const form = await request.formData(),
 			field = (k: string) => formField(form, k);
-		const session = cookies.get(cookieName) ?? "",
+		const session = locals.session?.digest ?? "",
 			action = field("change"),
 			proof = field("proof");
 		try {
@@ -35,25 +27,19 @@ export const actions = {
 				action !== "disable"
 			)
 				throw new AccessError("Choose a Security action.", 400);
-			let result: Awaited<ReturnType<typeof access.security.authorize>>;
-			if (proof) {
-				if (action !== "enable" && action !== "replace")
-					throw new AccessError("Restart authorization.", 403);
-				result = {
-					kind: "changed" as const,
-					...(await access.security.activate(action, session, proof, field("code"))),
-				};
-			} else
-				result = await access.security.authorize(action, session, field("password"), field("code"));
-			const receipt = candidateReceipt(cookies, cookieName, session, origin);
-			if (result.kind === "candidate") {
-				receipt.save(result.proof);
-				return result;
-			}
-			if (proof) receipt.remove(proof);
-			setCredential(cookies, cookieName, result.session, origin);
-			cookies.set(...securityNotice(origin));
-			return { kind: "changed" as const, codes: result.codes };
+			if (proof && action !== "enable" && action !== "replace")
+				throw new AccessError("Restart authorization.", 403);
+			const result =
+				proof && (action === "enable" || action === "replace")
+					? {
+							kind: "changed" as const,
+							...(await access.security.activate(action, session, proof, field("code"))),
+						}
+					: await access.security.authorize(action, session, field("password"), field("code"));
+			if (result.kind === "candidate") return result;
+			// The successor's bearer travels in a header the client strips before the form sees it.
+			setHeaders({ "x-siluet-bearer": result.bearer });
+			return { kind: "changed" as const, sessionId: result.sessionId, codes: result.codes };
 		} catch (e) {
 			if (e instanceof AccessError)
 				return fail(e.status, {

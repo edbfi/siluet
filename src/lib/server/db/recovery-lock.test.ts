@@ -41,7 +41,7 @@ test("separate processes exclude two servers and exclusive recovery until forced
 		const install = await openInstallation(dir);
 		const { createOwnerAccess } = await import("../services/owner/access");
 		const access = createOwnerAccess(install);
-		await access.claim(access.rotate(), "owner", crypto.randomUUID());
+		await access.claim(access.rotate(), "owner", crypto.randomUUID(), "key-a");
 		await install.close();
 		const first = launch("startup"),
 			second = launch("startup");
@@ -108,7 +108,7 @@ test("exclusive recovery preserves the original owner on rollback and refuses an
 	try {
 		const password = crypto.randomUUID();
 		let access = createOwnerAccess(install);
-		const session = await access.claim(access.rotate(), "owner", password);
+		await access.claim(access.rotate(), "owner", password, "key-a");
 		await install.close();
 		install = await openInstallation(dir, "recovery");
 		let checked = 0;
@@ -120,8 +120,9 @@ test("exclusive recovery preserves the original owner on rollback and refuses an
 		await install.close();
 		install = await openInstallation(dir);
 		access = createOwnerAccess(install);
-		expect(await access.session(session)).toBe("owner");
-		expect((await access.signIn("owner", password)).kind).toBe("session");
+		// A runtime restart keeps the key's stored session.
+		expect((await access.resume("key-a", undefined))?.loginId).toBeString();
+		expect((await access.signIn("owner", password, "key-b")).kind).toBe("session");
 		await install.use((db) => db.run(sql`CREATE TABLE unrelated(id INTEGER)`));
 		await install.close();
 		await expect(openInstallation(dir, "recovery")).rejects.toThrow("storage");

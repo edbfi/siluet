@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import { type APIResponse, expect } from "@playwright/test";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { startStudio } from "./built-studio";
+import { claimOwner, ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 function expectBaseline(response: APIResponse, label: string) {
@@ -16,7 +17,7 @@ function expectBaseline(response: APIResponse, label: string) {
 const pagePolicy = [
 	"default-src 'self'",
 	"img-src 'self' data: blob:",
-	"media-src 'self'",
+	"media-src 'self' blob:",
 	"object-src 'none'",
 	"base-uri 'none'",
 	"form-action 'self'",
@@ -27,6 +28,7 @@ const pagePolicy = [
 test("pages, endpoints, redirects and refusals send the frame, sniffing and referrer headers", async ({
 	page,
 	cspViolations,
+	browserName,
 }) => {
 	const directory = await createOwnerDirectory();
 	let server: Awaited<ReturnType<typeof startStudio>> | undefined;
@@ -36,16 +38,17 @@ test("pages, endpoints, redirects and refusals send the frame, sniffing and refe
 		const get = (path: string, headers?: Record<string, string>) =>
 			page.request.get(origin + path, { headers, maxRedirects: 0 });
 
-		const redirect = await get("/");
-		expect(redirect.status()).toBe(303);
-		expectBaseline(redirect, "redirect");
+		// A private data request without a bearer gets the hook's 401, never a redirect.
+		const refused = await get("/__data.json");
+		expect(refused.status()).toBe(401);
+		expectBaseline(refused, "unauthorized");
 		const health = await get("/healthz");
 		expect(await health.json()).toEqual({ status: "ok" });
 		expect(expectBaseline(health, "/healthz")).toContain("default-src 'none'");
 		const wrongHost = await get("/", { host: "localhost" });
 		expect(wrongHost.status()).toBe(403);
 		expectBaseline(wrongHost, "deny");
-		const crossOrigin = await page.request.post(`${origin}/setup`, {
+		const crossOrigin = await page.request.post(`${origin}/settings/files`, {
 			headers: { origin: "http://localhost" },
 			form: {},
 		});
@@ -62,20 +65,20 @@ test("pages, endpoints, redirects and refusals send the frame, sniffing and refe
 		// Pages carry SvelteKit's per-response nonce policy, with no inline script allowance.
 		const setup = await get("/setup");
 		expect(setup.status()).toBe(200);
+		// A page shell keeps other origins out of its browsing context group.
+		expect(setup.headers()["cross-origin-opener-policy"]).toBe("same-origin");
 		const policy = expectBaseline(setup, "/setup");
 		for (const directive of pagePolicy) expect(policy).toContain(directive);
 		expect(policy).toMatch(/script-src 'self' 'nonce-[^']+'/);
 		expect(policy).not.toMatch(/script-src[^;]*unsafe-inline/);
 		expect(policy).not.toMatch(/style-src [^;]*unsafe-inline/);
 
-		await expect.poll(server.token).not.toBe("");
-		const claimed = await page.request.post(`${origin}/setup`, {
-			headers: { origin, accept: "text/html" },
-			form: { token: server.token(), username: "creator", password: crypto.randomUUID() },
-			maxRedirects: 0,
+		await claimOwner(page, server, crypto.randomUUID());
+		const action = await ownerRequest(page).post(`${origin}/jobs?/lookup`, {
+			headers: { origin, "x-sveltekit-action": "true" },
+			form: { id: "missing" },
 		});
-		expect(claimed.status()).toBe(303);
-		expectBaseline(claimed, "form action redirect");
+		expectBaseline(action, "form action");
 		for (const path of [
 			"/",
 			"/image",
@@ -96,23 +99,28 @@ test("pages, endpoints, redirects and refusals send the frame, sniffing and refe
 		const missing = await get("/missing-studio-route");
 		expect(missing.status()).toBe(404);
 		expectBaseline(missing, "404");
-		const unknownMedia = await get(`/gallery/${crypto.randomUUID()}/media`);
+		const unknownMedia = await ownerRequest(page).get(
+			`${origin}/gallery/${crypto.randomUUID()}/media`,
+		);
 		expect(unknownMedia.status()).toBe(404);
 		expectBaseline(unknownMedia, "missing media");
-		const endpoint = await page.request.post(`${origin}/image/review`, {
+		const endpoint = await ownerRequest(page).post(`${origin}/image/review`, {
 			headers: { origin },
 			data: {},
 		});
 		expect(endpoint.status()).toBeGreaterThanOrEqual(400);
 		expect(expectBaseline(endpoint, "endpoint")).toContain("default-src 'none'");
 
-		// The browser refuses to frame a studio page, and reports that as the one violation.
-		await page.setContent(`<iframe src="${origin}/gallery"></iframe>`);
-		await expect.poll(() => cspViolations.length).toBe(1);
-		expect(cspViolations.splice(0)[0]).toContain("frame-ancestors 'none'");
-		expect(await page.frames()[1]?.locator("main").count()).toBe(0);
+		// The browser refuses to frame a studio page, and Chromium reports that as the one
+		// violation. Other engines show an error document in the frame instead.
+		if (browserName === "chromium") {
+			await page.setContent(`<iframe src="${origin}/gallery"></iframe>`);
+			await expect.poll(() => cspViolations.length).toBe(1);
+			expect(cspViolations.splice(0)[0]).toContain("frame-ancestors 'none'");
+			expect(await page.frames()[1]?.locator("main").count()).toBe(0);
+		}
 
-		// A plain form post still carries its Origin under the referrer policy.
+		// The page's own POSTs still carry their Origin under the referrer policy.
 		await page.goto(origin);
 		await page.getByRole("button", { name: "Sign out" }).click();
 		await expect(page).toHaveURL(`${origin}/sign-in`);

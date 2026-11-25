@@ -12,6 +12,7 @@ import {
 import { referenceGif, referencePng } from "../fixtures/reference-image";
 import { writeReviewPricing } from "../fixtures/review-pricing";
 import { startStudio } from "./built-studio";
+import { claimOwner, ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 const prompt = "A folded paper fan beside a blue vase, private fixture.";
@@ -19,13 +20,8 @@ type Studio = Awaited<ReturnType<typeof startStudio>>;
 async function connect(page: Page, server: Studio, provider: "toapis" | "poyo") {
 	const origin = server.origin.origin;
 	await expect.poll(server.token).not.toBe("");
-	const setup = await page.request.post(`${origin}/setup`, {
-		headers: { origin, accept: "text/html" },
-		form: { token: server.token(), username: "creator", password: crypto.randomUUID() },
-		maxRedirects: 0,
-	});
-	expect(setup.status()).toBe(303);
-	const saved = await page.request.post(`${origin}/settings/providers?/connect`, {
+	await claimOwner(page, server, crypto.randomUUID());
+	const saved = await ownerRequest(page).post(`${origin}/settings/providers?/connect`, {
 		headers: { origin, accept: "text/html" },
 		form: { provider, key: providerFixtureKeys[provider] },
 	});
@@ -154,7 +150,7 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 				for (const route of ["/image/review", "/image/queue"])
 					expect(
 						(
-							await page.request.post(origin + route, { headers: { origin }, data: invalid })
+							await ownerRequest(page).post(origin + route, { headers: { origin }, data: invalid })
 						).status(),
 					).toBe(400);
 			}
@@ -178,7 +174,7 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 			const queue = page.getByRole("button", { name: "Queue 1 request" });
 			await expect(queue).toBeEnabled();
 			const click = page.waitForRequest(
-				(req) => req.url() === origin + "/image/queue" && req.method() === "POST",
+				(req) => req.url() === `${origin}/image/queue` && req.method() === "POST",
 			);
 			await queue.press("Enter");
 			const submitted = (await click).postDataJSON();
@@ -256,7 +252,7 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 			}
 			server = await startStudio(dir, port, false, fixtures.env);
 			if (zImage) {
-				const replay = await page.request.post(origin + "/image/queue", {
+				const replay = await ownerRequest(page).post(`${origin}/image/queue`, {
 					headers: { origin },
 					data: submitted,
 				});
@@ -265,13 +261,13 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 				expect(observedBodies).toHaveLength(1);
 			}
 			const before = fixtures.requests.length;
-			const removed = await page.request.post(`${origin}/settings/providers?/remove`, {
+			const removed = await ownerRequest(page).post(`${origin}/settings/providers?/remove`, {
 				headers: { origin, accept: "text/html" },
 				form: { provider, jobWarning: "seen" },
 			});
 			expect(removed.ok()).toBe(true);
 			await page.goto(origin + path);
-			const image = await page.request.get(media);
+			const image = await ownerRequest(page).get(media);
 			expect(image.status()).toBe(200);
 			expect(image.headers()["content-type"]).toBe("image/png");
 			expect(image.headers()["cache-control"]).toBe("private, no-store");
@@ -280,7 +276,7 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 			const other = await browser.newContext();
 			try {
 				const privateImage = await other.request.get(media, { maxRedirects: 0 });
-				expect(privateImage.status()).toBe(303);
+				expect(privateImage.status()).toBe(401);
 				for (const route of [
 					"/image/queue",
 					"/image/review",
@@ -300,7 +296,7 @@ for (const path of ["poyo", "toapis", "z-image generate", "z-image edit"] as con
 			await server.stop();
 			server = undefined;
 			server = await startStudio(dir, port, false, fixtures.env);
-			expect((await page.request.get(media)).status()).toBe(404);
+			expect((await ownerRequest(page).get(media)).status()).toBe(404);
 			expect(fixtures.requests.length).toBe(before);
 			safeLogs(server.diagnostics());
 			expect(outbound).toEqual([]);
@@ -337,7 +333,7 @@ test("a complete image outside the profile stays not saved across restart and Re
 			acceptUnknown: false,
 		};
 		const post = (path: string, data: unknown) =>
-			page.request.post(origin + path, { data, headers: { origin } });
+			ownerRequest(page).post(origin + path, { data, headers: { origin } });
 		const review = await (await post("/image/review", input)).json();
 		const queued = await post("/image/queue", {
 			...input,
@@ -390,7 +386,7 @@ for (const point of ["before-dispatch", "after-acceptance"] as const) {
 				acceptUnknown: false,
 			};
 			const post = (path: string, data: unknown, from = origin) =>
-				page.request.post(origin + path, { data, headers: { origin: from } });
+				ownerRequest(page).post(origin + path, { data, headers: { origin: from } });
 			expect((await post("/image/review", input, "https://other.test")).status()).toBe(403);
 			const review = await (await post("/image/review", input)).json();
 			const click = { ...input, token: review.token, acceptUnknown: review.requiresConsent };

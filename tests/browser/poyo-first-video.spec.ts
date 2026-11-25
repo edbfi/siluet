@@ -13,6 +13,7 @@ import {
 } from "../fixtures/video/poyo-h3";
 import { h3MaxShape } from "../fixtures/video/real-clips";
 import { startStudio } from "./built-studio";
+import { claimOwner, ownerRequest } from "./owner-session";
 import { seekThenPlay } from "./saved-video-playback";
 import { test } from "./studio-test";
 
@@ -30,16 +31,12 @@ const h3Input = {
 async function signInWithPoyo(page: Page, server: Studio, password = crypto.randomUUID()) {
 	const { origin } = server.origin;
 	await expect.poll(server.token).not.toBe("");
-	for (const [path, form] of [
-		["/setup", { token: server.token(), username: "creator", password }],
-		["/settings/providers?/connect", { provider: "poyo", key: providerFixtureKeys.poyo }],
-	] as const) {
-		const response = await page.request.post(origin + path, {
-			headers: { origin, accept: "text/html" },
-			form,
-		});
-		expect(response.ok()).toBe(true);
-	}
+	await claimOwner(page, server, password);
+	const response = await ownerRequest(page).post(`${origin}/settings/providers?/connect`, {
+		headers: { origin, accept: "text/html" },
+		form: { provider: "poyo", key: providerFixtureKeys.poyo },
+	});
+	expect(response.ok()).toBe(true);
 	return password;
 }
 
@@ -83,7 +80,7 @@ test("model switch keeps prompt, clears consent, and a Poyo-only owner saves one
 		const { origin, port } = server.origin;
 		await signInWithPoyo(page, server);
 		const post = (path: string, data: unknown, from = origin) =>
-			page.request.post(origin + path, { data, headers: { origin: from } });
+			ownerRequest(page).post(origin + path, { data, headers: { origin: from } });
 		const other = await browser.newContext();
 		try {
 			for (const path of ["/video/review", "/video/queue"]) {
@@ -194,7 +191,7 @@ test("model switch keeps prompt, clears consent, and a Poyo-only owner saves one
 		const path = new URL(page.url()).pathname;
 		await server.stop();
 		server = await startStudio(directory, port, false, env);
-		await page.request.post(`${origin}/settings/providers?/remove`, {
+		await ownerRequest(page).post(`${origin}/settings/providers?/remove`, {
 			headers: { origin, accept: "text/html" },
 			form: { provider: "poyo" },
 		});
@@ -203,9 +200,9 @@ test("model switch keeps prompt, clears consent, and a Poyo-only owner saves one
 		const video = page.getByLabel("Saved video playback");
 		await expect(video).toBeVisible();
 		await seekThenPlay(page, video);
-		expect(await (await page.request.get(`${origin + path}/media?download=1`)).body()).toEqual(
-			bytes,
-		);
+		expect(
+			await (await ownerRequest(page).get(`${origin + path}/media?download=1`)).body(),
+		).toEqual(bytes);
 		await page.getByRole("link", { name: "Remove from Gallery" }).press("Enter");
 		await page.getByRole("button", { name: "Remove from Gallery" }).press("Enter");
 		await expect(page).toHaveURL(`${origin}/gallery`);
@@ -352,15 +349,20 @@ test("a refused retry of the displayed Review clears it, and an unauthenticated 
 		await page.getByRole("button", { name: "Queue 1 request" }).press("Enter");
 		await expect(page.getByText(/Queue response was interrupted/)).toBeVisible();
 		const retry = page.getByRole("button", { name: "Retry the interrupted request" });
-		// Without a session the server cannot say whether the token was claimed.
-		const cookies = await page.context().cookies();
-		await page.context().clearCookies();
+		// A refusal before the Queue service runs cannot say whether the token was claimed.
+		await page.route("**/video/queue", (route) =>
+			route.fulfill({
+				status: 401,
+				contentType: "application/json",
+				body: JSON.stringify({ error: "unauthorized" }),
+			}),
+		);
 		await retry.press("Enter");
 		await expect(page.getByRole("status")).toHaveText(
 			"The retry could not be confirmed. Sign in again if needed, then check Jobs before queuing.",
 		);
 		await expect(retry).toBeVisible();
-		await page.context().addCookies(cookies);
+		await page.unroute("**/video/queue");
 		// The withdrawn rate makes the unclaimed token stale; it is the displayed Review's token.
 		await writeReviewPricing(cache, 0);
 		await retry.press("Enter");
@@ -418,7 +420,7 @@ test("an unknown H3 price needs consent naming it, and a Security change clears 
 				.getByLabel("New authenticator code")
 				.fill(new TOTP({ secret: seed }).generate());
 			await security.getByRole("button", { name: "Confirm authenticator" }).click();
-			await expect(security.locator("section li")).toHaveCount(10);
+			await expect(security.getByRole("dialog").locator("li")).toHaveCount(10);
 		} finally {
 			await security.close();
 		}

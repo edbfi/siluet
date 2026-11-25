@@ -6,9 +6,9 @@ import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-direct
 import { notCleanedLead, originalRotationNote } from "../../../shared/image-studio/file-edit";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
 import type { MediaDescriptor } from "../../../shared/media-staging/descriptor";
-import { accessStore } from "../../db/access-store";
 import { imageJobStore } from "../../db/image-job-store";
 import { mediaCleaning } from "../../db/media-cleaning";
+import { claimOwner } from "../../db/owner-session.fixture";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
 import type { FileStages } from "../media-staging/stages";
@@ -36,7 +36,7 @@ async function harness(root?: string) {
 	const sent: Sent = { upload: [], edit: 0 };
 	const credentials = providerStore(db);
 	if (!root) {
-		await accessStore(db).claim(scope.owner, "unused", scope.session, Date.now(), () => {});
+		await claimOwner(db, scope.owner, scope.session, Date.now());
 		await credentials.save("toapis", "reviewed-key", Date.now(), true, 0);
 	}
 	const settled: Promise<unknown>[] = [];

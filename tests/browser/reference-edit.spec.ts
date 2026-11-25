@@ -28,6 +28,7 @@ import {
 	providerPayload,
 	withEditStudio,
 } from "./edit-studio-fixture";
+import { ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 const bundledPoyo = decodePoyoV2Feed(poyoBundle);
@@ -444,7 +445,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 
 				await restart();
 				const before = fixtures.requests.length;
-				const removed = await page.request.post(`${origin}/settings/providers?/remove`, {
+				const removed = await ownerRequest(page).post(`${origin}/settings/providers?/remove`, {
 					headers: { origin, accept: "text/html" },
 					form: { provider, jobWarning: "seen" },
 				});
@@ -455,7 +456,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 				await assertPrivate();
 				await page.goto(origin + path);
 				await expect(page.getByRole("img", { name: /image from job/i })).toBeVisible();
-				const media = await page.request.get(`${origin}${path}/media`);
+				const media = await ownerRequest(page).get(`${origin}${path}/media`);
 				expect(media.status()).toBe(200);
 				expect(media.headers()).toMatchObject({
 					"content-type": "image/png",
@@ -539,7 +540,7 @@ test("direct edit guards reject invalid scope and stale authorization before any
 			expect(fixtures.requests.slice(before)).toEqual([]);
 
 			const current = await readReview(await post("/image/review", input));
-			const disconnected = await page.request.post(`${origin}/settings/providers?/remove`, {
+			const disconnected = await ownerRequest(page).post(`${origin}/settings/providers?/remove`, {
 				headers: { origin, accept: "text/html" },
 				form: { provider: "toapis" },
 			});
@@ -740,11 +741,13 @@ for (const provider of ["poyo", "toapis"] as const) {
 				await assertPrivate();
 				await restart();
 				const before = fixtures.requests.length;
-				await page.request.post(`${origin}/settings/providers?/remove`, {
+				await ownerRequest(page).post(`${origin}/settings/providers?/remove`, {
 					headers: { origin, accept: "text/html" },
 					form: { provider, jobWarning: "seen" },
 				});
-				expect(await (await page.request.get(`${origin + path}/media`)).body()).toEqual(editedPng);
+				expect(await (await ownerRequest(page).get(`${origin + path}/media`)).body()).toEqual(
+					editedPng,
+				);
 				expect(fixtures.requests.length).toBe(before);
 				expect(fixtures.submissions).toHaveLength(5);
 			},

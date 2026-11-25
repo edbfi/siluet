@@ -32,9 +32,10 @@ export default defineConfig({
 					// obey img-src.
 					"style-src-attr": ["unsafe-inline"],
 					// data: for the Siluet icon, which Vite inlines as a small asset; blob: for
-					// local image previews before staging.
+					// local image previews and for saved and staged images, fetched with the bearer.
 					"img-src": ["self", "data:", "blob:"],
-					"media-src": ["self"],
+					// blob: for Gallery clips, which the page fetches with its bearer and plays from memory.
+					"media-src": ["self", "blob:"],
 					"object-src": ["none"],
 					"base-uri": ["none"],
 					"form-action": ["self"],

@@ -5,7 +5,7 @@ import {
 } from "#lib/shared/providers/connections.ts";
 import { cx } from "#styled-system/css";
 import { studioButton, studioPanel } from "#styled-system/recipes";
-import { enhance, type SubmitFunction } from "$app/forms";
+import { applyAction, enhance, type SubmitFunction } from "$app/forms";
 import { refreshAll } from "$app/navigation";
 import { page } from "$app/state";
 import type { ActionData, PageProps } from "./$types";
@@ -78,6 +78,9 @@ function save(
 							document.getElementById("connection-feedback")?.focus({ preventScroll: true });
 						}
 					}
+				} else if (result.type === "redirect") {
+					// A session that ended navigates even after a remount removed this form.
+					await applyAction(result);
 				} else if (formElement.isConnected) {
 					await update({ navigate: false });
 				}
@@ -145,7 +148,19 @@ function save(
 									? `${dateFormat.format(data.videoAccess.checkedAt)} UTC`
 									: ""}
 							</p>
-							<form method="POST" action="?/video&provider=toapis">
+							<form
+								method="POST"
+								action="?/video&provider=toapis"
+								use:enhance={() =>
+									async ({ result, update }) => {
+										if (result.type === "success" && result.data?.provider === "toapis")
+											feedbackByProvider.toapis = result.data as ConnectionFeedback;
+										else {
+											delete feedbackByProvider.toapis;
+											await update({ navigate: false });
+										}
+									}}
+							>
 								<button type="submit" class={styles.action}>Check video access</button>
 							</form>
 						{/if}

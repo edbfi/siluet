@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import { sessionClient } from "#lib/shared/owner/session-client.ts";
 import { applyAppearance } from "#lib/shared/styles/appearance.ts";
 import { css, cx } from "#styled-system/css";
 import { studioButton, studioPanel } from "#styled-system/recipes";
@@ -24,6 +25,18 @@ const appearance = cx(setting, css({ borderTop: "1px solid {colors.line}", paddi
 
 let { data } = $props();
 let theme = $state("system");
+let signingOut = $state(false);
+let signOutProblem = $state<"other" | "retry" | null>(null);
+async function signOut() {
+	signingOut = true;
+	signOutProblem = null;
+	try {
+		const outcome = await sessionClient().signOut();
+		if (outcome !== "signed-out") signOutProblem = outcome;
+	} finally {
+		signingOut = false;
+	}
+}
 onMount(() => {
 	try {
 		theme = localStorage.getItem("siluet-appearance") ?? "system";
@@ -48,10 +61,22 @@ function saveTheme(event: Event & { currentTarget: HTMLSelectElement }) {
 				<span class={css({ display: "block", color: "muted" })}>Signed in as</span>
 				<strong class={css({ display: "block" })}>{data.username}</strong>
 			</div>
-			<form method="POST" action="?/signout">
-				<button type="submit" class={studioButton({ appearance: "secondary" })}>Sign out</button>
-			</form>
+			<button
+				type="button"
+				class={studioButton({ appearance: "secondary" })}
+				disabled={signingOut}
+				onclick={signOut}
+			>
+				Sign out
+			</button>
 		</div>
+		{#if signOutProblem}
+			<p role="alert" class={css({ color: "danger" })}>
+				{signOutProblem === "other"
+					? "This browser signed in again since. Sign out again to end that session."
+					: "Sign-out did not finish. Retry."}
+			</p>
+		{/if}
 		<label class={appearance}
 			>Appearance
 			<select value={theme} onchange={saveTheme}>

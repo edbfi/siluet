@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import sharp from "sharp";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
+import { createOwnerClient } from "../owner-client";
 
 const root = join(import.meta.dir, "../..");
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -67,23 +68,10 @@ async function until<T>(read: () => T | Promise<T>, done: (value: T) => boolean,
 
 async function signIn(studio: Studio) {
 	await until(studio.token, (value) => value !== "");
-	const response = await fetch(`${studio.origin}/setup`, {
-		method: "POST",
-		redirect: "manual",
-		headers: { origin: studio.origin, accept: "text/html" },
-		body: new URLSearchParams({
-			token: studio.token(),
-			username: "owner",
-			password: crypto.randomUUID(),
-		}),
-	});
-	expect(response.status).toBe(303);
-	const cookie = response.headers
-		.getSetCookie()
-		.map((value) => value.split(";")[0])
-		.find((value) => /^siluet_[0-9a-f-]{36}=/.test(value));
-	if (!cookie) throw new Error("Missing session cookie.");
-	return { cookie, origin: studio.origin };
+	const client = await createOwnerClient(studio.origin);
+	await client.claim(studio.token(), "owner", crypto.randomUUID());
+	const { authorization } = client.headers();
+	return { authorization, client, origin: studio.origin };
 }
 type Session = Awaited<ReturnType<typeof signIn>>;
 
@@ -92,7 +80,7 @@ function stage(session: Session, body: BodyInit, draft: string = crypto.randomUU
 		method: "POST",
 		headers: {
 			origin: session.origin,
-			cookie: session.cookie,
+			authorization: session.authorization,
 			"content-type": "application/octet-stream",
 		},
 		body,
@@ -132,7 +120,7 @@ test("the built route stages a large image and keeps 512 KiB on other routes", a
 	expect(descriptor).toMatchObject({ mime: "image/png", transform: "none", size: png.length });
 	const preview = await fetch(
 		`${session.origin}/image/files/${descriptor.draft}/${descriptor.handle}`,
-		{ headers: { cookie: session.cookie } },
+		{ headers: { authorization: session.authorization } },
 	);
 	expect(preview.status).toBe(200);
 	expect(Buffer.from(await preview.arrayBuffer()).equals(png)).toBe(true);
@@ -148,7 +136,11 @@ test("the built route stages a large image and keeps 512 KiB on other routes", a
 	});
 	const ordinary = await fetch(`${session.origin}/image/review`, {
 		method: "POST",
-		headers: { origin: session.origin, cookie: session.cookie, "content-type": "application/json" },
+		headers: {
+			origin: session.origin,
+			authorization: session.authorization,
+			"content-type": "application/json",
+		},
 		body: chunked,
 	});
 	expect(ordinary.status).toBe(413);
@@ -174,17 +166,17 @@ test("draft discard requires the owner session, this origin and a valid draft", 
 		fetch(`${session.origin}/image/files/${draft}`, { method: "DELETE", headers });
 	const preview = async () => {
 		const response = await fetch(`${session.origin}/image/files/${staged.draft}/${staged.handle}`, {
-			headers: { cookie: session.cookie },
+			headers: { authorization: session.authorization },
 		});
 		await response.body?.cancel();
 		return response.status;
 	};
 	expect((await discard({ origin: session.origin })).status).toBe(401);
-	expect((await discard({ cookie: session.cookie })).status).toBe(403);
-	expect((await discard({ origin: "http://evil.example", cookie: session.cookie })).status).toBe(
-		403,
-	);
-	const signedIn = { origin: session.origin, cookie: session.cookie };
+	expect((await discard({ authorization: session.authorization })).status).toBe(403);
+	expect(
+		(await discard({ origin: "http://evil.example", authorization: session.authorization })).status,
+	).toBe(403);
+	const signedIn = { origin: session.origin, authorization: session.authorization };
 	expect((await discard(signedIn, "not-a-draft")).status).toBe(404);
 	expect(await preview()).toBe(200);
 	expect((await discard(signedIn)).status).toBe(204);
@@ -204,24 +196,16 @@ test("sign-out retires an open preview and removes its scratch file", async () =
 	const session = await signIn(studio);
 	const { stage: staged } = await (await stage(session, await largePng())).json();
 	const preview = await fetch(`${session.origin}/image/files/${staged.draft}/${staged.handle}`, {
-		headers: { cookie: session.cookie },
+		headers: { authorization: session.authorization },
 	});
 	const reader = preview.body?.getReader();
 	if (!reader) throw new Error("Missing preview body.");
 	expect((await reader.read()).done).toBe(false);
 	const scratch = join(directory, "scratch", "image");
 	expect(await readdir(scratch)).toEqual([staged.handle]);
-	const signOut = await fetch(`${session.origin}/?/signout`, {
-		method: "POST",
-		redirect: "manual",
-		headers: {
-			origin: session.origin,
-			cookie: session.cookie,
-			"content-type": "application/x-www-form-urlencoded",
-		},
-		body: "",
-	});
-	expect(signOut.status).toBeLessThan(400);
+	const loginId = session.client.session?.loginId ?? "";
+	const signOut = await session.client.signOut(loginId);
+	expect(signOut.status).toBe(200);
 	// Sign-out removes the scratch file after it responds; wait for it.
 	await until(
 		() => readdir(scratch),
@@ -232,7 +216,7 @@ test("sign-out retires an open preview and removes its scratch file", async () =
 		while (!(await reader.read()).done);
 	} catch {}
 	const after = await fetch(`${session.origin}/image/files/${staged.draft}/${staged.handle}`, {
-		headers: { cookie: session.cookie },
+		headers: { authorization: session.authorization },
 		redirect: "manual",
 	});
 	expect(after.status).not.toBe(200);

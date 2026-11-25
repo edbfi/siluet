@@ -7,9 +7,9 @@ import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-direct
 import { filePlaceholder } from "../../../shared/image-studio/file-edit";
 import { createSeedreamDraft, type SeedreamProvider } from "../../../shared/image-studio/seedream";
 import type { MediaDescriptor } from "../../../shared/media-staging/descriptor";
-import { accessStore } from "../../db/access-store";
 import { imageJobStore } from "../../db/image-job-store";
 import type { Installation } from "../../db/installation";
+import { claimOwner, revokeSession } from "../../db/owner-session.fixture";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation } from "../../db/runtime-installation";
 import { type StageOptions, stageIdleMs } from "../media-staging/stages";
@@ -52,7 +52,7 @@ async function harness(
 	cleanup.push(() => stages.close());
 	let clock = Date.now();
 	const credentials = providerStore(db);
-	await accessStore(db).claim(owner.owner, "unused", owner.session, clock, () => {});
+	await claimOwner(db, owner.owner, owner.session, clock);
 	await credentials.save(provider, "reviewed-key", clock, true, 0);
 	const uploads: number[][] = [];
 	const edits: string[][] = [];
@@ -534,7 +534,7 @@ test("R1b bodies: Review is invalid, an unused Queue is stale, a claimed one rep
 	expect(await h.queue.submit(owner, parsedRequest(r1bBody(token, false)))).toEqual({
 		error: "invalid",
 	});
-	await accessStore(h.db).revoke(owner.session);
+	await revokeSession(h.db, owner.session);
 	expect(await h.queue.submit(owner, live)).toEqual({ error: "invalid" });
 	expect(h.uploads).toEqual([]);
 });

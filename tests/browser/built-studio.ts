@@ -35,8 +35,11 @@ export async function startStudio(
 	let setupUrl = "";
 	lines.on("line", (line) => {
 		diagnostics += `${line}\n`;
-		const address = /^Listening on (http:\/\/127\.0\.0\.1:\d+)\/?$/.exec(line);
-		if (address) listening.resolve(new URL(address[1]));
+		const address = /^Listening on http:\/\/(127\.0\.0\.1|\[?::1\]?):(\d+)\/?$/.exec(line);
+		if (address)
+			listening.resolve(
+				new URL(`http://${address[1] === "127.0.0.1" ? address[1] : "[::1]"}:${address[2]}`),
+			);
 		if (line.startsWith("Claim token: ")) {
 			announcements++;
 			token = line.slice("Claim token: ".length);

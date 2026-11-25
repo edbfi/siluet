@@ -1,4 +1,5 @@
 <script lang="ts">
+import { privateSource } from "#lib/components/media/private-media.ts";
 import type { MediaDescriptor } from "#lib/shared/media-staging/descriptor.ts";
 import type { LocalCopy } from "./local-copy.svelte.ts";
 import * as styles from "./local-copy-styles.ts";
@@ -46,7 +47,13 @@ const caption = $derived.by(() => {
 		<figure class={styles.figure}>
 			<img
 				class={styles.preview}
-				src={resource(stage)}
+				data-source={resource(stage)}
+				{@attach privateSource(resource(stage), stage.mime, "staged", {
+					// A missing copy is unavailable; an interrupted read is not.
+					failed: (unavailable) => {
+						if (unavailable) copy.unavailable(stage);
+					},
+				})}
 				alt={copy.cleaned ? "Cleaned local copy" : "Attached file"}
 				onload={() => copy.loaded(stage)}
 				onerror={() => copy.unavailable(stage)}

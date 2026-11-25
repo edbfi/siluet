@@ -12,6 +12,7 @@ import {
 import { referenceGif, referencePng, truncatedReferenceGif } from "../fixtures/reference-image";
 import { writeReviewPricing } from "../fixtures/review-pricing";
 import { startStudio } from "./built-studio";
+import { ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 const username = "image-owner";
@@ -838,10 +839,13 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(page).toHaveURL(origin.href);
 			await page.getByRole("button", { name: "Sign out" }).press("Enter");
 			await expect(page).toHaveURL(signInUrl);
+			// Let the sign-in document finish starting; Firefox reports an import cut short by the next load.
+			await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 
-			const signedOut = await page.request.get(imageUrl, { maxRedirects: 0 });
-			expect(signedOut.status()).toBe(303);
-			expect(signedOut.headers().location).toBe("/sign-in");
+			// The signed-out page holds no bearer; a private data request is refused.
+			const signedOut = await page.request.get(`${imageUrl}/__data.json`, { maxRedirects: 0 });
+			expect(signedOut.status()).toBe(401);
+			expect((await signedOut.json()).location).toBe("/sign-in");
 			await page.goto(imageUrl);
 			await expect(page).toHaveURL(signInUrl);
 			await enterOwnerDetails(page, password);
@@ -949,7 +953,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 		const files = (draft: string) => new URL(`/image/files/${draft}`, origin).href;
 		const draftOf = (src: string) => src.split("/")[3] ?? "";
 		const stage = (draft: string, data: Buffer, headers: Record<string, string> = {}) =>
-			page.request.post(files(draft), {
+			ownerRequest(page).post(files(draft), {
 				headers: {
 					origin: origin.origin,
 					"content-type": "application/octet-stream",
@@ -959,7 +963,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			});
 		const gone = (src: string) =>
 			expect
-				.poll(async () => (await page.request.get(new URL(src, origin).href)).status())
+				.poll(async () => (await ownerRequest(page).get(new URL(src, origin).href)).status())
 				.toBe(404);
 
 		const operation = page.getByLabel("Operation", { exact: true });
@@ -1005,14 +1009,14 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			await expect(page.getByRole("button", { name: /prepar/i })).toHaveCount(0);
 			await expect(tryAgain).toHaveCount(0);
 			await expect(queue).toBeDisabled();
-			const src = (await cleaned.getAttribute("src")) ?? "";
+			const src = (await cleaned.getAttribute("data-source")) ?? "";
 			const [, draft, handle] =
 				/^\/image\/files\/([0-9a-f-]{36})\/([0-9a-f-]{36})$/.exec(src) ?? [];
 			expect(handle).toBeTruthy();
 			await expect
 				.poll(() => cleaned.evaluate((image) => (image as HTMLImageElement).naturalWidth))
 				.toBe(30);
-			const media = await page.request.get(`${files(draft)}/${handle}`);
+			const media = await ownerRequest(page).get(`${files(draft)}/${handle}`);
 			expect(media.status()).toBe(200);
 			expect(media.headers()).toMatchObject({
 				"content-type": "image/png",
@@ -1023,7 +1027,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			expect(Buffer.from(await media.body()).equals(png)).toBe(true);
 			expect(
 				(
-					await page.request.get(`${files(draft)}/${handle}`, {
+					await ownerRequest(page).get(`${files(draft)}/${handle}`, {
 						headers: { "sec-fetch-site": "cross-site" },
 					})
 				).status(),
@@ -1063,10 +1067,10 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			await fileStatus("Cleaned copy ready.");
 			await expect(firstFile).toBeFocused();
 			await expect(cleaned).toHaveAttribute(
-				"src",
+				"data-source",
 				/^\/image\/files\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/,
 			);
-			first = (await cleaned.getAttribute("src")) ?? "";
+			first = (await cleaned.getAttribute("data-source")) ?? "";
 			await expect
 				.poll(() =>
 					cleaned.evaluate((image) => [
@@ -1093,7 +1097,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			await expect(localCopy.getByRole("button")).toHaveCount(0);
 			await expect(queue).toBeDisabled();
 			await expect(queue).toHaveAccessibleDescription(/Review the completed request/);
-			const served = await page.request.get(new URL(first, origin).href);
+			const served = await ownerRequest(page).get(new URL(first, origin).href);
 			expect(served.headers()["content-type"]).toBe("image/jpeg");
 			const bytes = Buffer.from(await served.body());
 			expect(bytes.includes(Buffer.from(localImageMarker))).toBe(false);
@@ -1131,7 +1135,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			await expect(localCopy).toContainText(/PNG · /);
 			await expect(localCopy).not.toContainText("Re-encoded to apply rotation");
 			await gone(first);
-			const replacement = (await cleaned.getAttribute("src")) ?? "";
+			const replacement = (await cleaned.getAttribute("data-source")) ?? "";
 			expect(draftOf(replacement)).not.toBe(draftOf(first));
 			expect(refused).toBe(true);
 			expect(sentWith("POST")).toHaveLength(3);
@@ -1139,7 +1143,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 		});
 
 		await test.step("a failed preparation offers Try again, which cleans the file once more", async () => {
-			const previous = (await cleaned.getAttribute("src")) ?? "";
+			const previous = (await cleaned.getAttribute("data-source")) ?? "";
 			await page.route("**/image/files/*", (route) =>
 				route.request().method() === "POST" ? route.abort() : route.continue(),
 			);
@@ -1224,7 +1228,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 				buffer: await uprightPng(),
 			});
 			await fileStatus("Cleaned copy ready.");
-			const src = (await cleaned.getAttribute("src")) ?? "";
+			const src = (await cleaned.getAttribute("data-source")) ?? "";
 			const security = await context.newPage();
 			try {
 				await security.goto(new URL("/settings/security", origin).href);
@@ -1236,13 +1240,13 @@ test("built Image Studio cleans an attached local copy automatically before its 
 					.getByLabel("New authenticator code")
 					.fill(new TOTP({ secret: seed }).generate());
 				await security.getByRole("button", { name: "Confirm authenticator" }).click();
-				await expect(security.locator("section li")).toHaveCount(10);
+				await expect(security.getByRole("dialog").locator("li")).toHaveCount(10);
 			} finally {
 				await security.close();
 			}
 			await expect(cleaned).toHaveCount(0);
 			await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toHaveValue("");
-			expect((await page.request.get(new URL(src, origin).href)).status()).toBe(404);
+			expect((await ownerRequest(page).get(new URL(src, origin).href)).status()).toBe(404);
 		});
 
 		await test.step("a copy that reaches its idle deadline is cleaned again once, then offers Try again", async () => {
@@ -1256,7 +1260,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 				buffer: await uprightPng(),
 			});
 			await fileStatus("Cleaned copy ready.");
-			const expiring = (await cleaned.getAttribute("src")) ?? "";
+			const expiring = (await cleaned.getAttribute("data-source")) ?? "";
 			await page.clock.fastForward("14:50");
 			await expect(cleaned).toBeVisible();
 			const release = await holdPosts();
@@ -1267,7 +1271,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			await release();
 			await fileStatus("Cleaned copy ready.");
 			await expect(cleaned).toBeVisible();
-			const renewed = (await cleaned.getAttribute("src")) ?? "";
+			const renewed = (await cleaned.getAttribute("data-source")) ?? "";
 			expect(renewed).not.toBe(expiring);
 			await gone(expiring);
 			// An idle tab does not keep cleaning the file: the second expiry retires it.
@@ -1299,13 +1303,13 @@ test("built Image Studio cleans an attached local copy automatically before its 
 				buffer: await uprightPng(),
 			});
 			await fileStatus("Cleaned copy ready.");
-			const src = (await cleaned.getAttribute("src")) ?? "";
+			const src = (await cleaned.getAttribute("data-source")) ?? "";
 			let posts = sentWith("POST").length;
 			await transition("pagehide");
 			await gone(src);
 			await transition("pageshow");
 			await fileStatus("Cleaned copy ready.");
-			await expect(cleaned).not.toHaveAttribute("src", src);
+			await expect(cleaned).not.toHaveAttribute("data-source", src);
 			expect(sentWith("POST")).toHaveLength(posts + 1);
 
 			await page.route("**/image/files/*", (route) =>
@@ -1328,7 +1332,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 		});
 
 		await test.step("leaving the page retires the copy", async () => {
-			const src = (await cleaned.getAttribute("src")) ?? "";
+			const src = (await cleaned.getAttribute("data-source")) ?? "";
 			await page
 				.getByRole("navigation", { name: "Studio navigation" })
 				.getByRole("link", { name: "Studio home", exact: true })
@@ -1347,8 +1351,8 @@ test("built Image Studio cleans an attached local copy automatically before its 
 				buffer: await uprightPng(),
 			});
 			await fileStatus("Cleaned copy ready.");
-			const src = (await cleaned.getAttribute("src")) ?? "";
-			expect((await page.request.get(new URL(src, origin).href)).status()).toBe(200);
+			const src = (await cleaned.getAttribute("data-source")) ?? "";
+			expect((await ownerRequest(page).get(new URL(src, origin).href)).status()).toBe(200);
 			// The keepalive DELETE leaves with the old document; the server drops the copy
 			// long before its 15-minute idle deadline.
 			await page.reload();

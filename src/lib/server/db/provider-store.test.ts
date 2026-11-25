@@ -244,7 +244,7 @@ test("a failed directory sync leaves the credential unpublished", async () => {
 	expect(await store.revision("poyo")).toBe(revision);
 });
 
-test("an owner-only installation upgrades in place with its existing session", async () => {
+test("an owner-only installation upgrades in place and revokes its cookie session", async () => {
 	await installation.close();
 	await rm(directory, { recursive: true, force: true });
 	directory = await createOwnerDirectory();
@@ -263,9 +263,8 @@ test("an owner-only installation upgrades in place with its existing session", a
 	installation = await openInstallation(directory);
 	expect(installation.id).toBe(id);
 	expect(await installation.hasOwner()).toBe(true);
-	expect(await installation.use((db) => db.get(sql`SELECT digest FROM session`))).toEqual({
-		digest: "fixture-digest",
-	});
+	// A cookie session may have reached another port, so the browser-key upgrade revokes it.
+	expect(await installation.use((db) => db.all(sql`SELECT digest FROM session`))).toEqual([]);
 	expect(await statusOf(providerStore(installation), "poyo")).toEqual({
 		id: "poyo",
 		state: "disconnected",

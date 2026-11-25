@@ -6,6 +6,13 @@ import { expect, type Locator, type Page } from "@playwright/test";
  */
 export async function seekThenPlay(page: Page, video: Locator) {
 	expect(await video.evaluate((v: HTMLVideoElement) => v.autoplay)).toBe(false);
+	if (!(await playsH264(video))) {
+		// Playwright's Linux Firefox has no H.264 decoder: Gallery says so and keeps Download.
+		await expect(
+			page.getByText("This browser can't play this video.", { exact: false }),
+		).toBeVisible();
+		return false;
+	}
 	await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThan(0);
 	await video.evaluate((v: HTMLVideoElement) => {
 		v.dataset.seeked = "0";
@@ -33,3 +40,7 @@ export async function seekThenPlay(page: Page, video: Locator) {
 		0,
 	);
 }
+
+/** Whether this engine decodes the H.264 fixture clips at all. */
+export const playsH264 = (video: Locator) =>
+	video.evaluate((v: HTMLVideoElement) => v.canPlayType('video/mp4; codecs="avc1.42E01E"') !== "");

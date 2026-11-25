@@ -34,6 +34,7 @@ Open the setup URL printed in the terminal, paste the claim token, and choose a 
 - Image Studio and Video Studio share one Gallery. Video Studio creates clips from a prompt, optionally guided by public frame URLs, or edits a clip from a public video URL. Review shows the limits each clip must meet to save there.
 - Siluet removes metadata from every attached image before upload. Turn this off in Settings → Attached files.
 - An authenticator is optional. Add one in Settings → Security.
+- Each browser keeps a sign-in key for this exact address and needs JavaScript. Another port, `[::1]` instead of `127.0.0.1`, cleared site data or this upgrade means signing in again.
 - Locked out? Stop Siluet and run `bun run owner:recover`.
 - Refresh price estimates with `bun run pricing:refresh` (add `--provider toapis` for ToAPIs) before the expiry Review shows.
 
@@ -58,7 +59,7 @@ bun run --bun lint
 bun run --bun test
 bun test --timeout 60000 ./tests/media-cleanup
 bun run --bun build
-bunx --bun --no-install playwright install chromium
+bunx --bun --no-install playwright install chromium firefox  # and webkit on macOS
 bun run --bun smoke
 prek run --all-files --hook-stage manual
 ```

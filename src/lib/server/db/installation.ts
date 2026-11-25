@@ -71,7 +71,9 @@ export async function openInstallation(
 				throw storageError();
 			return row.claimed === 1;
 		}
-		await db.all(sql`SELECT digest, owner_id, created_at, last_activity FROM session LIMIT 0`);
+		await db.all(
+			sql`SELECT digest, owner_id, public_key, session_id, login_id, created_at, last_activity FROM session LIMIT 0`,
+		);
 		await db.all(sql`SELECT id, kind, started FROM auth_attempt LIMIT 0`);
 		await db.all(sql`SELECT id, username, password_hash, created_at FROM owner LIMIT 0`);
 		await db.all(

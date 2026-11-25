@@ -35,13 +35,13 @@ test("temporary key lookup failures retry; a verified envelope mismatch remains 
 	try {
 		const password = randomUUID();
 		const access = createOwnerAccess(install);
-		const session = await access.claim(access.rotate(), "owner", password);
+		const { digest: session } = await access.claim(access.rotate(), "owner", password, "key-a");
 		const grant = await access.security.authorize("enable", session, password, "");
 		if (grant.kind !== "candidate") throw new Error();
 		await access.security.activate(
 			"enable",
 			session,
-			grant.proof,
+			grant.digest,
 			new TOTP({ secret: grant.manual }).generate(),
 		);
 		await expect(
@@ -111,13 +111,13 @@ test.each(["success", "permanent", "temporary"] as const)(
 		try {
 			const access = createOwnerAccess(install);
 			const password = randomUUID();
-			const session = await access.claim(access.rotate(), "owner", password);
+			const { digest: session } = await access.claim(access.rotate(), "owner", password, "key-a");
 			const grant = await access.security.authorize("enable", session, password, "");
 			if (grant.kind !== "candidate") throw new Error("Missing enrollment.");
 			const enabled = await access.security.activate(
 				"enable",
 				session,
-				grant.proof,
+				grant.digest,
 				new TOTP({ secret: grant.manual }).generate(),
 			);
 			const pending = Promise.allSettled(
@@ -128,7 +128,7 @@ test.each(["success", "permanent", "temporary"] as const)(
 			const progress = await Promise.race([install.hasOwner(), Bun.sleep(600).then(() => false)]);
 			expect(progress).toBe(true);
 			// Disable on the live revision while the old lookup is still outstanding.
-			await access.security.authorize("disable", enabled.session, password, enabled.codes[0]);
+			await access.security.authorize("disable", enabled.digest, password, enabled.codes[0]);
 			expect((await checkedSecurity(install)).factor).toBeNull();
 			release.resolve();
 			expect(await request).toMatchObject([{ status: "fulfilled" }]);

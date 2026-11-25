@@ -3,6 +3,7 @@ import { expect, type Page, type Route } from "@playwright/test";
 import sharp from "sharp";
 import { cmykJpeg, markedFile } from "../fixtures/local-image";
 import { prompt, withEditStudio } from "./edit-studio-fixture";
+import { ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 // A JPEG with an APP9 segment the cleaner cannot classify. An original may carry it.
@@ -39,8 +40,10 @@ async function openEdit(page: Page, origin: string) {
 
 // The owner changes the setting in another tab; this tab is then shown again.
 async function changeElsewhere(page: Page, origin: string, enabled: boolean) {
-	const { revision } = await (await page.request.get(`${origin}/settings/files/state`)).json();
-	const saved = await page.request.post(`${origin}/settings/files`, {
+	const { revision } = await (
+		await ownerRequest(page).get(`${origin}/settings/files/state`)
+	).json();
+	const saved = await ownerRequest(page).post(`${origin}/settings/files`, {
 		headers: { origin, accept: "text/html" },
 		form: { expectedRevision: String(revision), ...(enabled ? { enabled: "on" } : {}) },
 	});

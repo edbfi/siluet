@@ -130,16 +130,16 @@ test.each(["missing", "unsafe"])(
 			const original = crypto.randomUUID(),
 				password = crypto.randomUUID();
 			const access = createOwnerAccess(install),
-				session = await access.claim(access.rotate(), "owner", original);
+				session = (await access.claim(access.rotate(), "owner", original, "browser-key-a")).digest;
 			const grant = await access.security.authorize("enable", session, original, "");
 			if (grant.kind !== "candidate") throw new Error("Expected candidate.");
 			const issued = await access.security.activate(
 				"enable",
 				session,
-				grant.proof,
+				grant.digest,
 				new TOTP({ secret: grant.manual }).generate(),
 			);
-			const proof = await access.signIn("owner", original);
+			const proof = await access.signIn("owner", original, "browser-key-a");
 			const provider = providerStore(install);
 			await provider.save("poyo", "fixture-only", 10, true, await provider.revision("poyo"));
 			await install.use(async (db) => {
@@ -221,10 +221,14 @@ test.each(["missing", "unsafe"])(
 			active = true;
 			expect(install.id).toBe(id);
 			const recovered = createOwnerAccess(install);
-			expect(await recovered.session(issued.session)).toBeNull();
-			await expect(recovered.security.complete(proof.token, issued.codes[0])).rejects.toThrow();
-			await expect(recovered.signIn("owner", original)).rejects.toThrow();
-			expect((await recovered.signIn("owner", password)).kind).toBe("session");
+			expect(await recovered.session(issued.bearer)).toBeNull();
+			expect(await recovered.resume("browser-key-a", undefined)).toBeNull();
+			if (proof.kind !== "pending") throw new Error("Expected a pending sign-in.");
+			await expect(
+				recovered.security.complete(proof.token, "browser-key-a", issued.codes[0]),
+			).rejects.toThrow();
+			await expect(recovered.signIn("owner", original, "browser-key-a")).rejects.toThrow();
+			expect((await recovered.signIn("owner", password, "browser-key-a")).kind).toBe("session");
 			expect((await providerStore(install).credential("poyo"))?.key).toBe("fixture-only");
 			expect(
 				await install.use((db) =>

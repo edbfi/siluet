@@ -11,6 +11,7 @@ import { seedanceProvider } from "../fixtures/seedance-provider";
 import { undecodableH264Aac } from "../fixtures/video/mp4-boxes";
 import { seedanceShape } from "../fixtures/video/real-clips";
 import { startStudio } from "./built-studio";
+import { claimOwner, ownerRequest } from "./owner-session";
 import { seekThenPlay } from "./saved-video-playback";
 import { test } from "./studio-test";
 
@@ -58,7 +59,7 @@ test("video-only key reviews once, saves one video and reopens its original byte
 		const { origin, port } = server.origin;
 		await expect.poll(server.token).not.toBe("");
 		const post = (path: string, data: unknown, from = origin) =>
-			page.request.post(origin + path, { data, headers: { origin: from } });
+			ownerRequest(page).post(origin + path, { data, headers: { origin: from } });
 		const input = {
 			draft,
 			operationKey: seedanceOperation.key,
@@ -66,10 +67,7 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			retryLimit: 0,
 			acceptTerms: false,
 		};
-		await page.request.post(`${origin}/setup`, {
-			headers: { origin, accept: "text/html" },
-			form: { token: server.token(), username: "creator", password: crypto.randomUUID() },
-		});
+		await claimOwner(page, server, crypto.randomUUID());
 		const other = await browser.newContext();
 		try {
 			for (const path of ["/video/review", "/video/queue"]) {
@@ -78,7 +76,7 @@ test("video-only key reviews once, saves one video and reopens its original byte
 				).toBe(401);
 				expect((await post(path, input, "http://localhost:4444")).status()).toBe(403);
 			}
-			await page.request.post(`${origin}/settings/providers?/connect`, {
+			await ownerRequest(page).post(`${origin}/settings/providers?/connect`, {
 				headers: { origin, accept: "text/html" },
 				form: { provider: "toapis", key: providerFixtureKeys.restricted },
 			});
@@ -164,7 +162,7 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			const before = fixture.requests.length;
 			await server.stop();
 			server = await startStudio(directory, port, false, fixture.env, release);
-			await page.request.post(`${origin}/settings/providers?/remove`, {
+			await ownerRequest(page).post(`${origin}/settings/providers?/remove`, {
 				headers: { origin, accept: "text/html" },
 				form: { provider: "toapis" },
 			});
@@ -173,9 +171,9 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			const video = page.getByLabel("Saved video playback");
 			await expect(video).toBeVisible();
 			await seekThenPlay(page, video);
-			// Opened on its own, the saved clip plays in a sandboxed document that no page can frame.
-			const inline = await page.goto(media);
-			expect(inline?.headers()).toMatchObject({
+			// The saved clip's own headers keep it sandboxed and unframeable.
+			const inline = await ownerRequest(page).get(media);
+			expect(inline.headers()).toMatchObject({
 				"content-type": "video/mp4",
 				"cross-origin-resource-policy": "same-origin",
 				"x-frame-options": "DENY",
@@ -184,17 +182,11 @@ test("video-only key reviews once, saves one video and reopens its original byte
 				"content-security-policy":
 					"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; media-src 'self'; sandbox allow-same-origin",
 			});
-			const direct = page.locator("video");
-			await expect
-				.poll(() => direct.evaluate((v: HTMLVideoElement) => v.readyState))
-				.toBeGreaterThan(0);
-			await direct.evaluate((v: HTMLVideoElement) => v.play());
-			await expect
-				.poll(() => direct.evaluate((v: HTMLVideoElement) => v.played.length && v.played.end(0)))
-				.toBeGreaterThan(0);
+			// Opened on its own, a media link carries no bearer and gets nothing.
+			expect((await page.goto(media))?.status()).toBe(401);
 			await page.goto(origin + path);
-			expect(await (await page.request.get(`${media}?download=1`)).body()).toEqual(bytes);
-			const head = await page.request.head(media, { headers: { range: "bytes=0-1" } });
+			expect(await (await ownerRequest(page).get(`${media}?download=1`)).body()).toEqual(bytes);
+			const head = await ownerRequest(page).head(media, { headers: { range: "bytes=0-1" } });
 			expect(head.status()).toBe(200);
 			expect(head.headers()["content-length"]).toBe(String(bytes.length));
 			for (const [range, start, end] of [
@@ -202,32 +194,33 @@ test("video-only key reviews once, saves one video and reopens its original byte
 				["bytes=32-", 32, bytes.length - 1],
 				["bytes=-9", bytes.length - 9, bytes.length - 1],
 			] as const) {
-				const response = await page.request.get(media, { headers: { range } });
+				const response = await ownerRequest(page).get(media, { headers: { range } });
 				expect(response.status()).toBe(206);
 				expect(response.headers()["content-range"]).toBe(`bytes ${start}-${end}/${bytes.length}`);
 				expect(await response.body()).toEqual(bytes.subarray(start, end + 1));
 			}
 			expect(
-				(await page.request.get(media, { headers: { range: `bytes=${bytes.length}-` } })).status(),
+				(
+					await ownerRequest(page).get(media, { headers: { range: `bytes=${bytes.length}-` } })
+				).status(),
 			).toBe(416);
 			for (const headers of [
 				{ range: "bytes=1-2,5-7" },
 				{ range: "seconds=2-" },
 				{ "if-range": '"other"', range: "bytes=0-1" },
 			] as Record<string, string>[])
-				expect((await page.request.get(media, { headers })).status()).toBe(200);
+				expect((await ownerRequest(page).get(media, { headers })).status()).toBe(200);
 			for (const headers of [
 				{ origin: "http://127.0.0.1:9999" },
 				{ "sec-fetch-site": "same-site" },
 			] as Record<string, string>[])
-				expect((await page.request.get(media, { headers })).status()).toBe(403);
-			expect((await other.request.head(media, { maxRedirects: 0 })).status()).toBe(303);
+				expect((await ownerRequest(page).get(media, { headers })).status()).toBe(403);
+			expect((await other.request.head(media, { maxRedirects: 0 })).status()).toBe(401);
 			await page.getByRole("link", { name: "Remove from Gallery" }).press("Enter");
 			await page.getByRole("button", { name: "Remove from Gallery" }).press("Enter");
 			await expect(page).toHaveURL(`${origin}/gallery`);
-			expect((await page.request.get(media)).status()).toBe(404);
-			// A removed file's page renders under the policy; studio-test fails on a violation.
-			expect((await page.goto(media))?.status()).toBe(404);
+			expect((await ownerRequest(page).get(media)).status()).toBe(404);
+			expect((await page.goto(media))?.status()).toBe(401);
 			await page.goto(`${origin}/gallery`);
 			expect(fixture.requests.length).toBe(before);
 			expect(server.diagnostics()).not.toContain("secret-result");
@@ -256,11 +249,8 @@ test("Gallery says when this browser cannot play a saved clip and keeps Download
 		server = await startStudio(directory, "0", false, fixture.env);
 		const { origin } = server.origin;
 		await expect.poll(server.token).not.toBe("");
-		await page.request.post(`${origin}/setup`, {
-			headers: { origin, accept: "text/html" },
-			form: { token: server.token(), username: "creator", password: crypto.randomUUID() },
-		});
-		await page.request.post(`${origin}/settings/providers?/connect`, {
+		await claimOwner(page, server, crypto.randomUUID());
+		await ownerRequest(page).post(`${origin}/settings/providers?/connect`, {
 			headers: { origin, accept: "text/html" },
 			form: { provider: "toapis", key: providerFixtureKeys.restricted },
 		});
@@ -274,7 +264,7 @@ test("Gallery says when this browser cannot play a saved clip and keeps Download
 			retryLimit: 0,
 		};
 		const post = (path: string, data: unknown) =>
-			page.request.post(origin + path, { data, headers: { origin } });
+			ownerRequest(page).post(origin + path, { data, headers: { origin } });
 		const review = await (await post("/video/review", { ...input, acceptTerms: false })).json();
 		expect(review.blockers).toEqual([]);
 		const { jobId } = await (
@@ -287,11 +277,16 @@ test("Gallery says when this browser cannot play a saved clip and keeps Download
 			hasText: "This browser can't play this video. Download it to open it in another player.",
 		});
 		const video = page.getByLabel("Saved video playback");
-		await video.evaluate((v: HTMLVideoElement) => v.play().catch(() => {}));
+		// The clip arrives as a blob; ask it to play without waiting on a promise an engine may
+		// leave pending for undecodable media.
+		await expect(video).toHaveAttribute("src", /^blob:/);
+		await video.evaluate((v: HTMLVideoElement) => {
+			v.play().catch(() => {});
+		});
 		await expect(note).toBeVisible();
 		const download = page.getByRole("link", { name: "Download video" });
 		await expect(download).toBeVisible();
-		const media = await page.request.get(origin + (await download.getAttribute("href")));
+		const media = await ownerRequest(page).get(origin + (await download.getAttribute("href")));
 		expect(await media.body()).toEqual(bytes);
 	} finally {
 		await server?.stop();

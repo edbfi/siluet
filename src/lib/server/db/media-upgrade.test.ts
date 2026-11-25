@@ -83,9 +83,9 @@ test("a saved-video installation upgrades with its owner, Gallery bytes and reco
 		try {
 			expect(upgraded.id).toBe(id);
 			const access = createOwnerAccess(upgraded);
-			const signIn = await access.signIn("creator", password);
-			expect(signIn.kind).toBe("session");
-			expect(await access.session(signIn.token)).toBe("creator");
+			const signIn = await access.signIn("creator", password, "key-a");
+			if (signIn.kind !== "session") throw new Error("Expected a session.");
+			expect((await access.session(signIn.bearer))?.username).toBe("creator");
 			expect((await access.security.snapshot()).state.enabled).toBe(0);
 			expect(
 				await upgraded.use((db) =>
@@ -378,7 +378,7 @@ test.each([
 					[],
 				);
 				const access = createOwnerAccess(upgraded);
-				expect((await access.signIn("creator", password)).kind).toBe("session");
+				expect((await access.signIn("creator", password, "key-a")).kind).toBe("session");
 				const gallery = galleryStorage(upgraded);
 				await gallery.recover();
 				expect((await gallery.read("saved"))?.bytes).toEqual(referencePng);

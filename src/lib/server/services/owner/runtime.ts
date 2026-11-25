@@ -22,6 +22,9 @@ import { createSubmissionQueue } from "../queue/submission";
 import { createVideoQueue } from "../queue/video";
 import { createOwnerAccess, rotationMs } from "./access";
 import { AccessError } from "./access-error";
+import { createBearers } from "./bearers";
+import { createBrowserSessions } from "./browser-session";
+import { createChallenges } from "./challenges";
 import { ownerDirectory } from "./data-directory";
 import { studioOrigin } from "./origin";
 
@@ -67,15 +70,23 @@ async function openOwner(dev: boolean) {
 		const scratch = createScratchPool(installation);
 		await scratch.reclaim();
 		const stages = createStages(await scratch.scope("image"));
-		// Owner changes that remove sessions also retire their staged copies.
-		const ownerInstallation = { ...installation, retireSessions: stages.retireSessions };
+		// Owner changes that remove sessions also retire their bearers and staged copies, in
+		// the storage turn that committed them.
+		const bearers = createBearers();
+		const ownerInstallation = {
+			...installation,
+			retireSessions(digests: ReadonlySet<string>) {
+				bearers.retireSessions(digests);
+				stages.retireSessions(digests);
+			},
+		};
 		const shutdown = new AbortController();
 		const cleaning = mediaCleaning(installation);
 		const prepareMedia = createMediaPreparation(installation, {
 			shutdown: shutdown.signal,
 			readCleaning: cleaning.read,
 		});
-		const access = createOwnerAccess(ownerInstallation, Date.now, origin.origin);
+		const access = createOwnerAccess(ownerInstallation, Date.now, origin.origin, bearers);
 		await access.security.initialize();
 		const store = providerStore(installation);
 		const providers = createProviderConnections(store, {
@@ -173,8 +184,17 @@ async function openOwner(dev: boolean) {
 			});
 			lifecycle.emit("siluet:ready", ready);
 		}
+		const browserSessions = createBrowserSessions({
+			access,
+			challenges: createChallenges(),
+			origin,
+			installation: installation.id,
+			hasOwner: installation.hasOwner,
+			checkAccess,
+		});
 		return {
 			close,
+			browserSessions,
 			stages,
 			cleaning,
 			prepareMedia,
@@ -190,7 +210,7 @@ async function openOwner(dev: boolean) {
 			access,
 			providers,
 			hasOwner: installation.hasOwner,
-			cookieName: `siluet_${installation.id}`,
+			installationId: installation.id,
 		};
 	} catch (e) {
 		await installation.close();

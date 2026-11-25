@@ -11,7 +11,7 @@ import { recoverOwner } from "../../db/recover-owner";
 import { openRuntimeInstallation } from "../../db/runtime-installation";
 import { checkRequestSecurity } from "../../db/security-state";
 import { createOwnerAccess } from "../owner/access";
-import { hashPassword, sessionDigest } from "../owner/credentials";
+import { hashPassword } from "../owner/credentials";
 import { createScratchPool } from "./scratch";
 import { createStages } from "./stages";
 
@@ -44,9 +44,9 @@ async function studio(now = Date.now) {
 	const ownerInstallation = { ...installation, retireSessions: stages.retireSessions };
 	const access = createOwnerAccess(ownerInstallation, now);
 	const password = crypto.randomUUID();
-	const raw = await access.claim(access.rotate(), "owner", password);
-	async function stage(token: string) {
-		const scope = { owner: "owner", session: sessionDigest(token), draft: crypto.randomUUID() };
+	const raw = await access.claim(access.rotate(), "owner", password, "browser-key-a");
+	async function stage(session: string) {
+		const scope = { owner: "owner", session, draft: crypto.randomUUID() };
 		const descriptor = await stages.put(scope, media);
 		const preview = await stages.openPreview(scope, descriptor.handle);
 		if (!preview) throw new Error("Missing staged preview");
@@ -62,8 +62,8 @@ async function settled(directory: string) {
 
 test("rotateSecurity retires open previews and tentative claims, retaining committed transfers", async () => {
 	const { installation, stages, access, password, raw, stage } = await studio();
-	const old = await stage(raw);
-	const winner = await stage(raw);
+	const old = await stage(raw.digest);
+	const winner = await stage(raw.digest);
 	const held = await stages.claim(winner.scope, winner.descriptor, (_valid, durable) =>
 		durable(async () => true),
 	);
@@ -76,7 +76,7 @@ test("rotateSecurity retires open previews and tentative claims, retaining commi
 		return durable(async () => true);
 	});
 	await ready.promise;
-	const grant = await access.security.authorize("enable", raw, password, "");
+	const grant = await access.security.authorize("enable", raw.digest, password, "");
 	if (!("manual" in grant)) throw new Error("Missing authenticator candidate");
 	const step = new TOTP({ secret: grant.manual }).generate();
 	await installation.use((db) =>
@@ -85,16 +85,18 @@ test("rotateSecurity retires open previews and tentative claims, retaining commi
 		),
 	);
 	// A rolled-back rotation retires nothing.
-	await expect(access.security.activate("enable", raw, grant.proof, step)).rejects.toThrow();
+	await expect(
+		access.security.activate("enable", raw.digest, grant.digest, step),
+	).rejects.toThrow();
 	expect(old.preview.signal.aborted).toBeFalse();
 	await installation.use((db) => db.run(sql`DROP TRIGGER refuse_stage_rotation`));
-	const rotated = await access.security.activate("enable", raw, grant.proof, step);
+	const rotated = await access.security.activate("enable", raw.digest, grant.digest, step);
 	expect(old.preview.signal.aborted).toBeTrue();
 	resume.resolve();
 	expect(await tentative).toBeNull();
 	expect(held?.bytes).toEqual(media.bytes);
 	held?.release();
-	const next = await stage(rotated.session);
+	const next = await stage(rotated.digest);
 	expect(next.preview.signal.aborted).toBeFalse();
 	await installation.use((db) => db.run(sql`DELETE FROM recovery_code`));
 	await expect(access.security.snapshot()).rejects.toThrow();
@@ -104,11 +106,11 @@ test("rotateSecurity retires open previews and tentative claims, retaining commi
 
 test("checkRequestSecurity(ownerInstallation), including its 403 retry, aborts open previews", async () => {
 	const { installation, ownerInstallation, scratch, access, password, raw, stage } = await studio();
-	const grant = await access.security.authorize("enable", raw, password, "");
+	const grant = await access.security.authorize("enable", raw.digest, password, "");
 	if (!("manual" in grant)) throw new Error("Missing authenticator candidate");
 	const step = new TOTP({ secret: grant.manual }).generate();
-	const { session } = await access.security.activate("enable", raw, grant.proof, step);
-	const open = await stage(session);
+	const session = await access.security.activate("enable", raw.digest, grant.digest, step);
+	const open = await stage(session.digest);
 	let reads = 0;
 	// The first read races a policy change (403). The retry finds a damaged key.
 	const readKey = async () => {
@@ -122,19 +124,19 @@ test("checkRequestSecurity(ownerInstallation), including its 403 retry, aborts o
 	expect(reads).toBe(2);
 	expect(open.preview.signal.aborted).toBeTrue();
 	expect(await settled(scratch.directory)).toEqual([]);
-	expect(await access.session(session)).toBeNull();
+	expect(await access.session(session.bearer)).toBeNull();
 }, 30_000);
 
 test("sign-out and idle expiry retire only affected sessions, including while a stage is being validated", async () => {
 	const time = Date.now();
 	const { installation, stages, access, password, raw, stage } = await studio(() => time);
-	const second = await access.signIn("owner", password);
-	const third = await access.signIn("owner", password);
+	const second = await access.signIn("owner", password, "browser-key-b");
+	const third = await access.signIn("owner", password, "browser-key-c");
 	if (second.kind !== "session" || third.kind !== "session") throw new Error("Missing sessions");
-	const active = await stage(second.token);
-	const expired = await stage(third.token);
-	const leaving = await stage(raw);
-	expect(await access.signOut(raw)).toBeTrue();
+	const active = await stage(second.digest);
+	const expired = await stage(third.digest);
+	const leaving = await stage(raw.digest);
+	expect(await access.signOut("browser-key-a", raw.loginId)).toBe("revoked");
 	expect(leaving.preview.signal.aborted).toBeTrue();
 	expect(active.preview.signal.aborted).toBeFalse();
 	await installation.use((db) =>
@@ -143,7 +145,7 @@ test("sign-out and idle expiry retire only affected sessions, including while a 
 		),
 	);
 	await expect(
-		stages.put(expired.scope, media, { valid: async () => !!(await access.session(third.token)) }),
+		stages.put(expired.scope, media, { valid: async () => !!(await access.session(third.bearer)) }),
 	).rejects.toThrow();
 	expect(expired.preview.signal.aborted).toBeTrue();
 	expect(active.preview.signal.aborted).toBeFalse();
@@ -157,7 +159,12 @@ test("recoverOwner retires every staged session it removes", async () => {
 	cleanup.push(() => rm(root, { recursive: true, force: true }));
 	const claimed = await openInstallation(root);
 	const access = createOwnerAccess(claimed);
-	const token = await access.claim(access.rotate(), "owner", crypto.randomUUID());
+	const claimedSession = await access.claim(
+		access.rotate(),
+		"owner",
+		crypto.randomUUID(),
+		"browser-key-a",
+	);
 	await claimed.close();
 	const retired: string[] = [];
 	const recovery: Installation = {
@@ -169,5 +176,5 @@ test("recoverOwner retires every staged session it removes", async () => {
 	} finally {
 		await recovery.close();
 	}
-	expect(retired).toEqual([sessionDigest(token)]);
+	expect(retired).toEqual([claimedSession.digest]);
 });

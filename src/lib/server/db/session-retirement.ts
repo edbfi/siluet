@@ -3,10 +3,16 @@ import type { Installation, OwnerTransaction } from "./installation";
 
 const retiring = new WeakMap<OwnerTransaction, Set<string>>();
 
-export function ownerTransaction<T>(
+/**
+ * Run `work` in an immediate transaction. After commit, in the same `install.use` turn,
+ * retire the sessions it removed, then run `afterCommit`, so a bearer it registers for a
+ * new session is dropped by any later retirement.
+ */
+export function ownerTransaction<T, R = T>(
 	install: Installation,
 	work: (tx: OwnerTransaction) => Promise<T>,
-) {
+	afterCommit?: (result: T) => R,
+): Promise<R> {
 	return install.use(async (db) => {
 		const digests = new Set<string>();
 		const result = await db.transaction(
@@ -22,7 +28,7 @@ export function ownerTransaction<T>(
 		);
 		// Abort readers in commit order. The stage store schedules filesystem cleanup independently.
 		if (digests.size) install.retireSessions?.(digests);
-		return result;
+		return afterCommit ? afterCommit(result) : (result as unknown as R);
 	});
 }
 
@@ -30,6 +36,9 @@ export async function deleteOwnerSessions(tx: OwnerTransaction, where: SQL = sql
 	const rows = await tx.all<{ digest: string }>(
 		sql`DELETE FROM session WHERE ${where} RETURNING digest`,
 	);
+	// A Security candidate belongs to its session and ends with it.
+	for (const row of rows)
+		await tx.run(sql`DELETE FROM owner_proof WHERE session_digest=${row.digest}`);
 	const digests = retiring.get(tx);
 	if (digests) for (const row of rows) digests.add(row.digest);
 	return rows.length > 0;
