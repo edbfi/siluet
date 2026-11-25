@@ -1471,11 +1471,13 @@ const editTarget = () => {
 	if (!input || "input" in input.body) throw new Error("Invalid edit fixture.");
 	return { provider: "toapis", body: input.body, business: editBusiness } as const;
 };
+// Queue stores the edit operation's Save limit with the job.
 async function insertEdit(id = "edit") {
+	const saveSeconds = seedanceEditOperation.save?.seconds ?? null;
 	await installation.use((db) =>
-		db.run(sql`INSERT INTO image_job (id,binding,provider,revision,quote,state,created_at,model,operation,poll_deadline,business_id,video_terms)
+		db.run(sql`INSERT INTO image_job (id,binding,provider,revision,quote,state,created_at,model,operation,poll_deadline,business_id,video_terms,save_seconds)
 			VALUES (${id},'binding','toapis',1,${JSON.stringify(quote)},'submitting',${now},'seedance-2-5',
-				'video-edit',${now + imageJobPollingWindowMs},${editBusiness},'["terms"]')`),
+				'video-edit',${now + imageJobPollingWindowMs},${editBusiness},'["terms"]',${saveSeconds})`),
 	);
 }
 const editTask = {
@@ -1614,8 +1616,29 @@ test("edit asset review outlasts automatic tracking; Refresh saves it and Retry 
 	await editRows();
 });
 
-test("a 15-second edit is held outside the Gallery profile with no retry, Gallery entry or new POST", async () => {
-	const edit = await trackEdit(async () => retimeClip(h264Aac(), 15, 2));
+test("a 15-second edit saves within the edit's 30-second limit with no new POST", async () => {
+	const sample = retimeClip(h264Aac(), 15, 2);
+	const edit = await trackEdit(async () => sample);
+	try {
+		edit.saver.start();
+		await edit.complete(completedEdit());
+		expect(await latest("edit")).toMatchObject({ state: "completed", library: "saved" });
+	} finally {
+		await edit.saver.close();
+	}
+	expect(edit.transfers).toEqual([signedUrl]);
+	expect(edit.posts).toHaveLength(1);
+	const video = await createGallery(installation).openVideo("edit");
+	try {
+		expect(await video?.handle.readFile()).toEqual(sample);
+	} finally {
+		await video?.handle.close();
+	}
+	await editRows();
+});
+
+test("a 31.1-second edit is held outside the Gallery profile with no retry, Gallery entry or new POST", async () => {
+	const edit = await trackEdit(async () => retimeClip(h264Aac(), 311, 20));
 	try {
 		edit.saver.start();
 		await edit.complete(completedEdit());

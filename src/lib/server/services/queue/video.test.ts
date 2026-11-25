@@ -990,6 +990,7 @@ describe("Seedance source-video edit", () => {
 		expect(await imageJobStore(db).get(result.jobId)).toMatchObject({
 			operation: "video-edit",
 			video_terms: JSON.stringify(videoReviewDisclosures(seedanceEditOperation)),
+			save_seconds: 30,
 		});
 		const rows = await durable();
 		for (const secret of ["X-Amz-Signature", "clips.example.com", "take-3", "Make it dusk"])
