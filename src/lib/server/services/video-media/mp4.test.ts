@@ -181,6 +181,8 @@ test("edits stay within the composition timeline and select samples", () => {
 	refused(twoEdits, /leading empty edit/);
 });
 
+// Records the refusal path only: it passes with or without the BigInt sum, since any
+// sum near the duration cap is far below 2^53 and a sum past it is refused either way.
 test("a version-1 empty edit and presented edit that sum past the safe range are refused", () => {
 	const wide = rewrite(h264Aac(), `${video}/edts/elst`, (data) => {
 		const entry = (segment: number, time: number) => {
