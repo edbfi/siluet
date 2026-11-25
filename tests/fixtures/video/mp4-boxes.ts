@@ -139,6 +139,26 @@ export function setField(
 }
 
 /**
+ * Replace the audio track's AudioSpecificConfig, fixing the three `esds` descriptor lengths
+ * around it. Expects h264Aac's layout: four-byte lengths and no optional ES fields.
+ */
+export function setAudioConfig(bytes: Buffer, config: Buffer) {
+	return rewrite(bytes, "moov/trak#1/mdia/minf/stbl/stsd/mp4a/esds", (data) => {
+		const [es, decoder, info] = [5, 13, 31];
+		if (data[4] !== 3 || data[11] !== 0 || data[12] !== 4 || data[30] !== 5)
+			throw new Error("Fixture esds moved.");
+		const old = data[info + 3];
+		const out = Buffer.concat([data.subarray(0, 35), config, data.subarray(35 + old)]);
+		const delta = config.length - old;
+		const length = (at: number, value: number) => out.writeUInt32BE(0x8080_8000 + value, at);
+		length(es, data[es + 3] + delta);
+		length(decoder, data[decoder + 3] + delta);
+		length(info, config.length);
+		return out;
+	});
+}
+
+/**
  * h264Aac whose avcC PPS names a missing SPS (pps_id 0, sps_id 31). The declared
  * configuration verifies; no frame can decode, because the samples carry no
  * in-band parameter sets.

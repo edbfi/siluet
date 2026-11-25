@@ -28,6 +28,12 @@ export const seedanceShape = () =>
 		96_000,
 	);
 
+type RecordedClip = "h3-max" | "seedance";
+
+/** The `moov` box recorded from an inspected clip. */
+export const recordedMovie = (name: RecordedClip) =>
+	readFileSync(join(import.meta.dir, "real-clips", `${name}.moov`));
+
 /**
  * The two inspected clips' structure: the `moov` bytes as recorded (in `real-clips/`; every
  * creation and modification time is 0, and the only strings are muxer and handler names) in
@@ -35,8 +41,8 @@ export const seedanceShape = () =>
  * is a synthetic stand-in and the `mdat` holds zeros, so the recorded chunk offsets still
  * land inside media data. No manifest, sample or identifier is kept.
  */
-export function recordedClip(name: "h3-max" | "seedance") {
-	const moov = readFileSync(join(import.meta.dir, "real-clips", `${name}.moov`));
+export function recordedClip(name: RecordedClip) {
+	const moov = recordedMovie(name);
 	const ftyp = topLevelBox(h264Aac(), "ftyp");
 	const free = box("free");
 	if (name === "h3-max")

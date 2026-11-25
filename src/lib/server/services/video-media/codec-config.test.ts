@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { payload } from "../../../../../tests/fixtures/video/mp4-boxes";
+import { recordedMovie } from "../../../../../tests/fixtures/video/real-clips";
 import { checkAacConfig } from "./aac";
 import { checkAvcConfig, readSps } from "./avc";
 import { UnsupportedVideoError } from "./errors";
@@ -152,11 +154,13 @@ test("the fixture declares 8-bit 4:2:0 High profile video and AAC-LC 48 kHz mono
 		sampleRate: 48000,
 		channels: 1,
 		frameLength: 1024,
+		plain: true,
 	});
 	expect(checkAacConfig(esds({ asc: asc(2, 3, 2) }))).toEqual({
 		sampleRate: 48000,
 		channels: 2,
 		frameLength: 1024,
+		plain: true,
 	});
 	// GASpecificConfig's frameLengthFlag selects 960-sample frames.
 	expect(checkAacConfig(esds({ asc: asc(2, 3, 2, 0, true) }))).toMatchObject({
@@ -214,4 +218,43 @@ test("esds must declare AAC-LC at a sample rate up to 48 kHz with one or two cha
 	refuses(() => checkAacConfig(esds({ asc: asc(2, 0, 2) })));
 	refuses(() => checkAacConfig(esds({ asc: asc(2, 3, 6) })));
 	refuses(() => checkAacConfig(fixtureEsds.subarray(0, 20)));
+});
+
+/** AAC-LC 48 kHz stereo from bit strings: GASpecificConfig's flags, then what follows them. */
+function lc(tail: string, gaSpecific = "000") {
+	const bits = `00010 0011 0010 ${gaSpecific} ${tail}`.replaceAll(" ", "");
+	const padded = bits.padEnd(Math.ceil(bits.length / 8) * 8, "0");
+	const bytes = padded.match(/.{8}/g) ?? [];
+	return checkAacConfig(esds({ asc: bytes.map((byte) => Number.parseInt(byte, 2)) }));
+}
+// The backward-compatible sync extension (14496-3 §1.6.2.1): 0x2b7, extension object type 5 (SBR).
+const sbrExtension = "01010110111 00101";
+
+test("plain AAC-LC has no sync extension or one that declares SBR absent", () => {
+	expect(lc("")).toMatchObject({ plain: true });
+	expect(lc(`${sbrExtension} 0`)).toMatchObject({ plain: true });
+	// dependsOnCoreCoder with a 14-bit coreCoderDelay before the extension.
+	const coreCoder = `0 1 ${"0".repeat(14)} 0`;
+	expect(lc(`${sbrExtension} 0`, coreCoder)).toMatchObject({ plain: true });
+	expect(lc(`${sbrExtension} 1 0011`, coreCoder)).toMatchObject({ plain: false });
+	// SBR present, alone and with PS (sync extension 0x548).
+	expect(lc(`${sbrExtension} 1 0011`)).toMatchObject({ sampleRate: 48000, plain: false });
+	expect(lc(`${sbrExtension} 1 0011 10101001000 1`)).toMatchObject({ plain: false });
+	// Another extension object type, or 16 trailing bits that are not a sync extension.
+	expect(lc("01010110111 10110 0")).toMatchObject({ plain: false });
+	expect(lc("0".repeat(16))).toMatchObject({ plain: false });
+});
+
+test("the recorded H3 Max and Seedance audio declares SBR absent", () => {
+	for (const name of ["h3-max", "seedance"] as const) {
+		const config = payload(recordedMovie(name), "moov/trak#1/mdia/minf/stbl/stsd/mp4a/esds");
+		// AAC-LC 32 kHz stereo, then 0x2b7, object type 5 and sbrPresentFlag 0.
+		expect(config.includes(Buffer.from("0580808005129056e500", "hex")), name).toBe(true);
+		expect(checkAacConfig(config), name).toEqual({
+			sampleRate: 32000,
+			channels: 2,
+			frameLength: 1024,
+			plain: true,
+		});
+	}
 });

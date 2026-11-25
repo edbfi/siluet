@@ -225,17 +225,17 @@ function presentation(
 
 /**
  * Muxer compatibility (D6): some muxers write an AAC track's `mdhd` without its encoder
- * priming. Excuse that only for 1,024-sample frames with no composition offsets, when the
- * single edit skips exactly the first access unit and presents the rest of the decode
- * timeline to within one movie tick.
+ * priming. Excuse that only for plain AAC-LC with 1,024-sample frames and no composition
+ * offsets, when the single edit skips exactly the first access unit and presents the rest of
+ * the decode timeline to within one movie tick.
  */
 function primingExcluded(
-	audio: { sampleRate: number; frameLength: number },
+	audio: { sampleRate: number; frameLength: number; plain: boolean },
 	media: { scale: number; duration: number; durations: number[]; offsets: number[] },
 	movieScale: number,
 	edit: Edit | null,
 ) {
-	if (audio.frameLength !== 1024 || !edit) return false;
+	if (audio.frameLength !== 1024 || !audio.plain || !edit) return false;
 	const priming = (1024 * media.scale) / audio.sampleRate;
 	const total = media.durations.reduce((sum, value) => sum + value, 0);
 	if (edit.time !== priming) return false;

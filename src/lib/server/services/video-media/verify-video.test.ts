@@ -11,6 +11,7 @@ import {
 	h264Aac,
 	locate,
 	payload,
+	setAudioConfig,
 	topLevelBox,
 	undecodableH264Aac,
 } from "../../../../../tests/fixtures/video/mp4-boxes";
@@ -168,6 +169,24 @@ test("a Seedance-shaped clip verifies", async () => {
 	expect(await verifyVideoFile(await file(bytes))).toEqual(
 		await verifyVideoFile(await file(h264Aac())),
 	);
+});
+
+test("the priming exception holds only for plain AAC-LC, without active SBR", async () => {
+	// AAC-LC 48 kHz mono, then nothing, an SBR-absent or an SBR-present sync extension.
+	const [none, absent, present] = ["1188", "118856e500", "118856e598"].map((hex) =>
+		Buffer.from(hex, "hex"),
+	);
+	for (const config of [none, absent])
+		expect(
+			await verifyVideoFile(await file(setAudioConfig(seedanceShape(), config))),
+		).toMatchObject({ duration: 2 });
+	const error = await refusal(setAudioConfig(seedanceShape(), present));
+	expect(error).toBeInstanceOf(UnsupportedVideoError);
+	expect(error.message).toMatch(/stts duration differs from mdhd/);
+	// Without priming, D6 accepts the same configuration as before.
+	expect(await verifyVideoFile(await file(setAudioConfig(h264Aac(), present)))).toMatchObject({
+		duration: 2,
+	});
 });
 
 test("C2PA boxes with 64-bit headers and one of exactly 1 MiB verify", async () => {
