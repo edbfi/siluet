@@ -23,7 +23,7 @@ Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scop
     --toapis /tmp/toapis-v2.json --bundled-poyo pricing/v2/poyo.json --bundled-toapis pricing/v2/toapis.json
   ```
   It passed during release preparation on 2026-11-25. The bundled Poyo.ai rates expire first, at 2026-12-24T16:04:23Z, so it fails from 2026-12-10T16:04Z. Run it again on the commit to tag.
-- [x] Documentation sync, done by this PR: capability map through #61, D11, D12, the promoted decisions and the plan.
+- [x] Documentation sync, done by [#64](https://github.com/edbfi/siluet/pull/64): capability map through #61, D11, D12, the promoted decisions and the plan.
 - [x] Generate one real clip per shipped video family with owner approval (2026-11-24): Poyo.ai H3 Max 5 s 480p for 50 credits, ToAPIs Seedance 2.5 4 s 480p for 77.66 credits. Both fail `verifyVideoFile` on `5321d7f`. Originals are kept outside git in `audit/realclip/`, SHA-256 `0942ac5a…be96d` (H3 Max) and `bad803dc…76363` (Seedance).
 - [x] The council confirms the D6 revision for these structures: an approved plan and three code rounds ending in unanimous approval, then [#65](https://github.com/edbfi/siluet/pull/65) ([CI on the merged commit](https://github.com/edbfi/siluet/actions/runs/45525368090)).
 - [x] On the release candidate, both untouched originals pass `verifyVideoFile` from `src/`, with its output and their SHA-256 recorded, and the saved bytes stay the provider's. On `6b94cd7` (2026-11-25), under each mode's limit and under the legacy limit: H3 Max `0942ac5a…be96d` 832×480, 5.1667 s, 124 video and 162 audio samples; Seedance `bad803dc…76363` 854×480, 4.064 s, 97 and 128. Auto-save verifies the downloaded scratch file and renames it into Gallery unchanged.
@@ -32,9 +32,9 @@ Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scop
 - [x] The council confirms the per-mode video Save limits spec, the implementation merges, and Review states each mode's limits ([#67](https://github.com/edbfi/siluet/pull/67), [SPEC](../docs/SPEC-video-save-limits.md)).
 - [x] [#62](https://github.com/edbfi/siluet/pull/62) is rebased onto the per-mode limits with its source-length disclosure at 30 s, passes its checks and merges (`49b1451`, [CI on the merged commit](https://github.com/edbfi/siluet/actions/runs/45542430661)).
 - [ ] A cross-cutting security review is recorded as one short entry in `docs/decisions.md` with its scope, date, findings and their dispositions, and every blocker is resolved or explicitly accepted by the owner. Recorded on 2026-11-25 with its fixes ([#69](https://github.com/edbfi/siluet/pull/69)); the cross-port session cookie waits on the owner.
-- [x] Re-check the README against shipped behaviour after the per-mode limits and #62. Done in release preparation on `6b94cd7`. The cookie note waits on the owner's decision.
-- [x] The release coverage table lists each operation as verified, Review-only or pending and cites the real-clip results, and `package.json` reads `0.1.0` on the commit to tag. The table is drafted for the owner's GitHub release, and `package.json` reads `0.1.0` from release preparation.
-- [ ] Local checks and hosted `ci-ok` pass on the commit to tag, and the owner tags `v0.1.0`.
+- [x] Re-check the README against shipped behaviour after the per-mode limits and #62. Checked against `6b94cd7`, edited in `6141ea1` and `c071be3`. The cookie note waits on the owner's decision.
+- [x] The release coverage table lists each operation as verified, Review-only or pending and cites the real-clip results, and `package.json` reads `0.1.0`. `package.json` is set on `chore/release-0.1.0` and the table is drafted for the owner's GitHub release; confirm both on the commit to tag.
+- [ ] Remaining: the owner's cross-port session cookie decision and any README note it implies; on the commit to tag, the local checks, both archived clips through `verifyVideoFile`, the four-feed 14-day pricing check and hosted `ci-ok`; then the owner's tag.
 
 ## R0 operations
 
