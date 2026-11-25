@@ -25,6 +25,7 @@ test("every released video operation has a valid save or null", () => {
 test("each released (provider, model, operation) has one route", () => {
 	const keys = releasedOperations.map(({ key }) => `${key.provider} ${key.model} ${key.operation}`);
 	expect(new Set(keys).size).toBe(keys.length);
+	expect(keys).toContain("toapis seedance-2-5 video-edit");
 });
 
 test("saveSecondsProblem refuses 0, -1, 15.5, 61, NaN, null and text, and accepts 1 and 60", () => {
