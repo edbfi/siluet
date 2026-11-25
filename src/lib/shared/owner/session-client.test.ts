@@ -31,8 +31,10 @@ const key: BrowserKey = {
 function harness() {
 	const resumes: { status: number; body?: unknown }[] = [];
 	const navigations: string[] = [];
+	const requests: string[] = [];
 	const native = (async (input: RequestInfo | URL) => {
 		const path = new URL(String(input), origin).pathname;
+		requests.push(path);
 		const answer =
 			path === "/owner/challenge"
 				? { status: 200, body: { nonce: "n" } }
@@ -57,7 +59,7 @@ function harness() {
 		status: 200,
 		body: { bearer: `bearer-${sessionId}`, sessionId, loginId },
 	});
-	return { client, resumes, navigations, states, session };
+	return { client, resumes, navigations, requests, states, session };
 }
 async function bound(h: ReturnType<typeof harness>, sessionId = "s1") {
 	h.resumes.push(h.session(sessionId));
@@ -141,4 +143,24 @@ test("a response after the owner left installs nothing; pagehide and pageshow lo
 	h.client.pageshow(true);
 	h.client.pageshow(true);
 	expect(h.navigations.filter((n) => n.startsWith("replace") || n === "reload")).toHaveLength(1);
+});
+
+test("a back/forward-cache restore with a destination loads it and checks nothing; without one it checks", async () => {
+	const h = harness();
+	await bound(h);
+	h.client.registerDestination("/settings/security");
+	h.client.pagehide();
+	h.requests.length = 0;
+	h.client.pageshow(true);
+	await Bun.sleep(5);
+	expect(h.navigations).toEqual([`replace ${origin}/settings/security`]);
+	expect(h.requests).toEqual([]);
+	// The control: a restore with nothing pending revalidates the session.
+	const plain = harness();
+	await bound(plain);
+	plain.requests.length = 0;
+	plain.client.pageshow(true);
+	await Bun.sleep(5);
+	expect(plain.navigations).toEqual([]);
+	expect(plain.requests).toContain("/owner/session");
 });
