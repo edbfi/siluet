@@ -277,7 +277,12 @@ test("Gallery says when this browser cannot play a saved clip and keeps Download
 			hasText: "This browser can't play this video. Download it to open it in another player.",
 		});
 		const video = page.getByLabel("Saved video playback");
-		await video.evaluate((v: HTMLVideoElement) => v.play().catch(() => {}));
+		// The clip arrives as a blob; ask it to play without waiting on a promise an engine may
+		// leave pending for undecodable media.
+		await expect(video).toHaveAttribute("src", /^blob:/);
+		await video.evaluate((v: HTMLVideoElement) => {
+			v.play().catch(() => {});
+		});
 		await expect(note).toBeVisible();
 		const download = page.getByRole("link", { name: "Download video" });
 		await expect(download).toBeVisible();
