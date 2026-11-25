@@ -96,7 +96,8 @@ export function createSessionClient(
 				if (document.visibilityState === "hidden") {
 					if (bearer) previous = bearer.value;
 					bearer = null;
-					// A check already in flight may answer for the old session: run it once more.
+					// A check already in flight may answer for the old session: run it once more,
+					// or, if it ends while the tab is still hidden, check afresh on return.
 					if (checking) recheck = true;
 				} else void check();
 			})
@@ -301,7 +302,7 @@ export function createSessionClient(
 		mode === "signed-out";
 	/**
 	 * Check the tab's session. A tab coming back (`join`) shares a check already in flight; a
-	 * notice or a stale answer asks for another pass.
+	 * notice or a stale answer asks for another pass, which a hidden tab leaves for its return.
 	 */
 	async function check(join = false) {
 		if (settled()) return;
@@ -335,7 +336,7 @@ export function createSessionClient(
 				if (row.kind === "other" || row.kind === "gone") leave(row, null);
 				// A stale answer applies nothing; ask again where the tab is now.
 				if (row.kind === "stale") recheck = true;
-			} while (recheck && !settled());
+			} while (recheck && !settled() && document.visibilityState !== "hidden");
 		})().finally(() => {
 			checking = null;
 		});

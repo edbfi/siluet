@@ -154,7 +154,8 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 					const recovery = await recoveryRequired(response);
 					const remounted = client.remountKey !== generation;
 					// A remount while the body was read makes the answer stale, as in `send`. A
-					// recovery answer covers the whole host, so it still reaches its caller.
+					// recovery answer read during a remount covers the whole host, so it still
+					// reaches its caller.
 					if (remounted && !securityPost && !recovery)
 						throw new DOMException("The studio changed session.", "AbortError");
 					if (recovery && !remounted) client.dropDrafts();

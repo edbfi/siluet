@@ -286,3 +286,31 @@ test("returning to the tab checks once, though focus and visibility both fire", 
 	await Bun.sleep(1);
 	expect(h.requests.filter((path) => path === "/owner/session")).toHaveLength(1);
 });
+
+test("a notice reaching a hidden tab mid-check waits for the tab to come back", async () => {
+	const h = harness();
+	await bound(h);
+	const view = globalThis.document as { visibilityState: string };
+	const channel = new BroadcastChannel("siluet-owner-7d4f3f0e-2a1b-4c5d-8e9f-0a1b2c3d4e5f");
+	const resumes = () => h.requests.filter((path) => path === "/owner/resume").length;
+	try {
+		const answer = Promise.withResolvers<Answer>();
+		h.checks.push(answer.promise);
+		const first = h.client.check();
+		await Bun.sleep(1);
+		view.visibilityState = "hidden";
+		channel.postMessage({ id: crypto.randomUUID(), kind: "sign-in", sessionId: "s2" });
+		await Bun.sleep(5);
+		answer.resolve({ status: 200, body: { sessionId: "s1", loginId: "login-1" } });
+		await first;
+		// Hidden, the tab dropped its bearer and asked nothing more.
+		expect(resumes()).toBe(1);
+		view.visibilityState = "visible";
+		h.resumes.push(h.session("s2", "login-2"));
+		await h.client.check(true);
+		expect(resumes()).toBe(2);
+	} finally {
+		view.visibilityState = "visible";
+		channel.close();
+	}
+});
