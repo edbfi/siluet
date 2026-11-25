@@ -8,7 +8,11 @@ const MiB = 1024 * 1024;
 const bytes = new Uint8Array(64 * MiB);
 let session: string | null = "s1";
 let remountKey = 0;
+let leaving = false;
 setSessionClient({
+	get leaving() {
+		return leaving;
+	},
 	bound: () => (session ? { sessionId: session, loginId: "l" } : null),
 	get remountKey() {
 		return remountKey;
@@ -95,6 +99,7 @@ afterEach(async () => {
 	undeclared.clear();
 	session = "s1";
 	remountKey = 0;
+	leaving = false;
 	clicks = 0;
 });
 
@@ -302,6 +307,58 @@ test("a download whose session ended while it waited saves nothing, and a second
 		remountKey++;
 		await deliver("/mine");
 		await first;
+		expect(clicks).toBe(0);
+	});
+});
+
+test("eviction skips a shown file a download link still holds, which would free nothing", async () => {
+	await withLinks(async () => {
+		sizes.set("/p1", 64 * MiB);
+		sizes.set("/p2", 64 * MiB);
+		sizes.set("/p3", 32 * MiB);
+		const p1 = show("/p1");
+		await tick();
+		await deliver("/p1");
+		const p2 = show("/p2");
+		await tick();
+		await deliver("/p2");
+		const p3 = show("/p3");
+		await tick();
+		await deliver("/p3");
+		// The oldest shown file is also being downloaded.
+		await downloadPrivate("/p1", "video/mp4", "video", "clip.mp4");
+		sizes.set("/n", 64 * MiB);
+		show("/n");
+		await tick();
+		calls.find((call) => call.src === "/n")?.answer();
+		await tick();
+		expect([p1.src !== "", p2.src !== "", p3.src !== ""]).toEqual([true, false, true]);
+	});
+});
+
+test("a click after a remount starts its own download instead of joining the old one", async () => {
+	await withLinks(async () => {
+		const old = downloadPrivate("/again", "image/png", "image", "a.png");
+		await tick();
+		remountKey++;
+		const fresh = downloadPrivate("/again", "image/png", "image", "a.png");
+		expect(fresh).not.toBe(old);
+		await tick();
+		expect(calls.filter((call) => call.src === "/again")).toHaveLength(2);
+		for (const call of calls) call.answer();
+		await Promise.all([old, fresh]);
+		expect(clicks).toBe(1);
+	});
+});
+
+test("a download that finishes while the tab is leaving saves nothing", async () => {
+	await withLinks(async () => {
+		sizes.set("/late", 1);
+		const download = downloadPrivate("/late", "image/png", "image", "a.png");
+		await tick();
+		leaving = true;
+		await deliver("/late");
+		await download;
 		expect(clicks).toBe(0);
 	});
 });

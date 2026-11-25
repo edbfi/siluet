@@ -62,11 +62,12 @@ function free() {
  * evicted when evicting every shown file would still leave too little room.
  */
 function makeRoom(size: number, keep: Holder | null) {
-	const others = [...holders]
-		.filter((h) => h !== keep && h.blob)
-		.sort((a, b) => a.visibleAt - b.visibleAt);
+	// A blob a download link still holds frees nothing when its tile is evicted.
 	const pinned = new Set(downloads);
-	const evictable = new Set(others.flatMap((h) => (h.blob && !pinned.has(h.blob) ? [h.blob] : [])));
+	const others = [...holders]
+		.filter((h) => h !== keep && h.blob && !pinned.has(h.blob))
+		.sort((a, b) => a.visibleAt - b.visibleAt);
+	const evictable = new Set(others.flatMap((h) => (h.blob ? [h.blob] : [])));
 	const freeable = [...evictable].reduce((sum, blob) => sum + blob.size, 0);
 	if (held() - freeable + size > maxBytes) return;
 	while (held() + size > maxBytes && others.length) others.shift()?.evict();
@@ -232,7 +233,7 @@ export function privateSource(
 	};
 }
 
-/** Downloads still reading, by source: a second click on the same file joins the first. */
+/** Downloads still reading, by session generation and source: a second click joins the first. */
 const downloading = new Map<string, Promise<void>>();
 
 /**
@@ -242,9 +243,10 @@ const downloading = new Map<string, Promise<void>>();
  * ended while it waited saves nothing.
  */
 export function downloadPrivate(src: string, mime: string, kind: MediaKind, name: string) {
-	const pending = downloading.get(src);
-	if (pending) return pending;
 	const started = sessionClient().remountKey;
+	const key = `${started}:${src}`;
+	const pending = downloading.get(key);
+	if (pending) return pending;
 	const download = (async () => {
 		const shown = [...holders].find((h) => h.src === src && h.blob)?.blob;
 		if (shown) downloads.push(shown);
@@ -252,7 +254,7 @@ export function downloadPrivate(src: string, mime: string, kind: MediaKind, name
 			shown ?? (await readPrivate(src, mime, kind, new AbortController().signal, downloads));
 		let url: string | null = null;
 		try {
-			if (sessionClient().remountKey !== started) return;
+			if (sessionClient().remountKey !== started || sessionClient().leaving) return;
 			url = URL.createObjectURL(blob);
 			const link = document.createElement("a");
 			link.href = url;
@@ -271,7 +273,7 @@ export function downloadPrivate(src: string, mime: string, kind: MediaKind, name
 			if (linked) setTimeout(forget, downloadMs);
 			else forget();
 		}
-	})().finally(() => downloading.delete(src));
-	downloading.set(src, download);
+	})().finally(() => downloading.delete(key));
+	downloading.set(key, download);
 	return download;
 }
