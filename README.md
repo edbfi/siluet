@@ -59,7 +59,7 @@ bun run --bun lint
 bun run --bun test
 bun test --timeout 60000 ./tests/media-cleanup
 bun run --bun build
-bunx --bun --no-install playwright install chromium
+bunx --bun --no-install playwright install chromium firefox  # and webkit on macOS
 bun run --bun smoke
 prek run --all-files --hook-stage manual
 ```

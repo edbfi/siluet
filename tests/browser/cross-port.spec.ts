@@ -145,8 +145,11 @@ test("the upgrade revokes cookie sessions, expires legacy cookies and keeps the 
 }) => {
 	test.setTimeout(60000);
 	const directory = await createOwnerDirectory();
+	// The migrations of a507bde, the last release with cookie sessions.
 	const released = Object.fromEntries(
-		Object.entries(installationMigrations).filter(([name]) => releasedMigrations.has(name)),
+		Object.entries(installationMigrations).filter(
+			([name]) => releasedMigrations.has(name) && name < "20261127120000_browser_key_sessions",
+		),
 	);
 	const token = "legacy-cookie-session-token-that-leaked-to-another-port0";
 	const { id, password } = await createInstallation37(
