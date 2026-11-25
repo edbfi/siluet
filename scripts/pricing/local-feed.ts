@@ -21,7 +21,7 @@ export {
 	readLocalPricing,
 } from "../../src/lib/server/services/pricing/local-feed";
 
-/** Read bundled rates from the checkout. A missing v2 file falls back to the v1 feed. */
+/** The checkout path of a bundled pricing file, in its versioned directory. */
 export function pricingBundledPath(file: PricingFile): string {
 	return fileURLToPath(new URL(`../../pricing/${pricingFileLocation(file)}`, import.meta.url));
 }
