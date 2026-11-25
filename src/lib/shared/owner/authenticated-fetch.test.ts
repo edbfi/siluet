@@ -53,7 +53,7 @@ type Resume = Answer | ((body: { previous?: string }) => Answer);
 function harness({ stored = key as BrowserKey | null } = {}) {
 	const resumes: Resume[] = [];
 	const inits: (RequestInit | undefined)[] = [];
-	const routes: ((request: Request) => Answer | Promise<Answer>)[] = [];
+	const routes: ((request: Request) => Answer | Response | Promise<Answer | Response>)[] = [];
 	const sent: Request[] = [];
 	const credentials: (RequestCredentials | undefined)[] = [];
 	const navigations: string[] = [];
@@ -71,7 +71,8 @@ function harness({ stored = key as BrowserKey | null } = {}) {
 		sent.push(request);
 		inits.push(init);
 		credentials.push(init?.credentials);
-		return json(await (routes.shift() ?? (() => ({ status: 200, body: { ok: true } })))(request));
+		const answer = await (routes.shift() ?? (() => ({ status: 200, body: { ok: true } })))(request);
+		return answer instanceof Response ? answer : json(answer);
 	}) as typeof fetch;
 	const client = createSessionClient(
 		installation,
@@ -336,6 +337,37 @@ describe("concurrent requests and studio errors", () => {
 			await h.fetch("/jobs/__data.json");
 			expect(h.client.remountKey).toBe(1);
 		}
+	});
+
+	test("a recovery answer read while another request remounts still reaches its caller", async () => {
+		const h = harness();
+		h.resumes.push(session("s1"));
+		await h.fetch("/jobs/__data.json");
+		const body = Promise.withResolvers<void>();
+		const recovery = { ...access, retry: false, recoveryRequired: true };
+		h.routes.push(
+			() =>
+				new Response(
+					new ReadableStream({
+						async pull(controller) {
+							await body.promise;
+							controller.enqueue(new TextEncoder().encode(JSON.stringify(recovery)));
+							controller.close();
+						},
+					}),
+					{ status: 503, headers: { "content-type": "application/json" } },
+				),
+		);
+		const load = h.fetch("/gallery/__data.json");
+		await Bun.sleep(1);
+		// A sibling request's recovery answer remounts the studio while this body is read.
+		h.client.dropDrafts();
+		body.resolve();
+		const response = await load;
+		expect(response.status).toBe(503);
+		expect(await response.json()).toEqual(recovery);
+		// The remount already dropped the drafts; this answer drops nothing more.
+		expect(h.client.remountKey).toBe(1);
 	});
 
 	test("SvelteKit's load flag reaches its own fetch, still hidden from enumeration", async () => {

@@ -96,6 +96,8 @@ export function createSessionClient(
 				if (document.visibilityState === "hidden") {
 					if (bearer) previous = bearer.value;
 					bearer = null;
+					// A check already in flight may answer for the old session: run it once more.
+					if (checking) recheck = true;
 				} else void check();
 			})
 		: null;

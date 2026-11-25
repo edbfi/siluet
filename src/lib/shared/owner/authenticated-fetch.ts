@@ -152,10 +152,12 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 				const response = await send(bearer);
 				if (!hookRefusal(response) || publicData) {
 					const recovery = await recoveryRequired(response);
-					// A remount while the body was read makes the answer stale, as in `send`.
-					if (client.remountKey !== generation && !securityPost)
+					const remounted = client.remountKey !== generation;
+					// A remount while the body was read makes the answer stale, as in `send`. A
+					// recovery answer covers the whole host, so it still reaches its caller.
+					if (remounted && !securityPost && !recovery)
 						throw new DOMException("The studio changed session.", "AbortError");
-					if (recovery) client.dropDrafts();
+					if (recovery && !remounted) client.dropDrafts();
 					return response;
 				}
 				// A route's own 401 is final; only the hook's invalid_token is resent, once.
