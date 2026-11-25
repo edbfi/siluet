@@ -1,11 +1,9 @@
 import { type SeedanceOperation, seedanceOperation } from "../media-catalog/registry";
 import { readFrames } from "./keyframes";
-import { saveProfileDisclosure } from "./save-profile";
 export const videoRatios = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"] as const;
 export const videoDisclosures = [
 	"The prompt is sent to ToAPIs for one potentially billable submission.",
 	"The total charge is unknown. Fallback may be available on eligible accounts and regions. Its route and price are unknown.",
-	saveProfileDisclosure,
 ];
 export const videoDefaults = {
 	prompt: "",

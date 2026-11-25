@@ -5,6 +5,7 @@ import { queueEvidenceProblem } from "../../../shared/media-catalog/registry";
 import { frameReviewLabels } from "../../../shared/video-studio/keyframes";
 import type { PoyoVideoBody } from "../../../shared/video-studio/poyo-video";
 import { previewVideo, type VideoRequest } from "../../../shared/video-studio/request";
+import { saveLimitProblem } from "../../../shared/video-studio/save-profile";
 import type { SeedanceBody } from "../../../shared/video-studio/seedance";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import type { Installation } from "../../db/installation";
@@ -68,6 +69,7 @@ export async function createVideoQueue(
 		const state = current?.state ?? "disconnected";
 		const blockers = [
 			queueEvidenceProblem(input.operation.evidence),
+			saveLimitProblem(input.operation),
 			state === "eligible" ? null : provider === "poyo" ? poyoAccessMessage : accessMessage[state],
 		].filter((s): s is string => !!s);
 		const digest = sign(
@@ -78,6 +80,7 @@ export async function createVideoQueue(
 			quote,
 			input.disclosures,
 			blockers,
+			input.operation.save,
 		);
 		return { quote, blockers, digest };
 	}
@@ -130,8 +133,10 @@ export async function createVideoQueue(
 						const business = provider === "toapis" ? `siluet-${crypto.randomUUID()}` : null;
 						const send = target(input, business);
 						if (!send) return invalid;
-						await tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,model,operation,quote,accepted_unknown,state,created_at,poll_deadline,business_id,video_terms)
-					VALUES(${id},${binding},${provider},${current.revision},${input.body.model},${operation},${JSON.stringify(termsNow.quote)},${Number(termsNow.quote.status === "unknown")},'submitting',${time},${time + imageJobPollingWindowMs},${business},${JSON.stringify(input.disclosures)})`);
+						// No blocker means the operation has a valid Save limit; the job keeps it.
+						const save = input.operation.save?.seconds ?? null;
+						await tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,model,operation,quote,accepted_unknown,state,created_at,poll_deadline,business_id,video_terms,save_seconds)
+					VALUES(${id},${binding},${provider},${current.revision},${input.body.model},${operation},${JSON.stringify(termsNow.quote)},${Number(termsNow.quote.status === "unknown")},'submitting',${time},${time + imageJobPollingWindowMs},${business},${JSON.stringify(input.disclosures)},${save})`);
 						return { send, key: context.saved.key };
 					},
 					{ behavior: "immediate" },

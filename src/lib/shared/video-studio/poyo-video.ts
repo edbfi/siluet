@@ -1,3 +1,5 @@
+import type { SaveLimit } from "./save-profile";
+
 // One Poyo.ai `POST /api/generate/submit` video contract: Bearer JSON `{model, input}`.
 // A descriptor lists the reviewed inputs of one model in that family as data.
 export type PoyoVideoField =
@@ -14,7 +16,10 @@ export type PoyoVideoDescriptor = Readonly<{
 	fields: Readonly<Record<string, PoyoVideoField>>;
 	/** The D4 field, always sent as the JSON boolean `false`. */
 	d4Field: "enable_safety_checker";
+	/** Review appends the Save limit's disclosure after these. */
 	disclosures: readonly string[];
+	/** The documented maximum output, quoted with its source; null keeps the mode Review-only. */
+	save: SaveLimit | null;
 	/** The model's entry in the Poyo v2 rate feed. */
 	rateKey: string;
 }>;

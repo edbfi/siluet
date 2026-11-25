@@ -77,6 +77,8 @@ export type ImageJob = {
 	video_poll_deadline: number | null;
 	video_progress: number | null;
 	video_observation_id: string | null;
+	/** The video Save limit in seconds the job was claimed with; null for images and legacy jobs. */
+	save_seconds: number | null;
 	read_token: string | null;
 	updated_at: number | null;
 	task_id: string | null;

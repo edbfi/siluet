@@ -137,6 +137,7 @@ test("model switch keeps prompt, clears consent, and a Poyo-only owner saves one
 		await expect(page.getByText(/Estimated 80 Poyo\.ai credits/)).toBeVisible();
 		await expect(page.getByRole("link", { name: /Public catalog, 2026-/ })).toBeVisible();
 		await expect(page.getByText("1 potentially billable submission")).toBeVisible();
+		await expect(page.getByText(/MP4 files up to 15 seconds, the provider's/)).toBeVisible();
 		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
 			true,
 		);

@@ -77,7 +77,7 @@ async function publishVideo(token: string | null, id = jobId) {
 	await writeFile(path, bytes, { mode: 0o600 });
 	try {
 		return await storage.publishVideo(id, path, token ?? "", {
-			...(await verifyVideoFile(path)),
+			...(await verifyVideoFile(path, null)),
 			size: bytes.length,
 			digest: digest(bytes),
 		});

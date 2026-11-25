@@ -22,7 +22,7 @@ v0.1.0 is a scoped preview of what main verifies when it is tagged. The phases b
 Per-mode limits and Phase 1's real-clip fix both touch `mp4.ts`, so limits wait for the real-clip fix; #62 follows the limits in the owner-approved order.
 
 3. **Per-mode video Save limits.** Spec, council, implementation.
-4. **Seedance URL edit.** Rebase [#62](https://github.com/edbfi/siluet/pull/62) onto the per-mode limits without its over-12 s disclosure, then merge it.
+4. **Seedance URL edit.** Rebase [#62](https://github.com/edbfi/siluet/pull/62) onto the per-mode limits with its source-length disclosure at 30 s, then merge it.
 
 ### Checkpoint: video modes
 

@@ -12,6 +12,7 @@ import { saveIntentStore, saveTryLimit } from "../../db/save-intent";
 import type { SaveRead } from "../jobs/tracking";
 import { downloadVideo, type VideoDelivery } from "../video-media/download";
 import { UnsupportedVideoError } from "../video-media/errors";
+import { saveBounds } from "../video-media/limits";
 import { verifyVideoFile } from "../video-media/verify-video";
 import { direct, downloadImage, type Transport } from "./download";
 import { galleryStorage, type Publication, unremovedScratch } from "./storage";
@@ -97,10 +98,13 @@ export function createAutoSave(
 			const bytes = await transferImage(delivery.url, transport, signal);
 			return storage.publish(job.id, token, bytes, await verifyImage(bytes));
 		}
+		// A malformed stored limit fails before any transfer, not after a download.
+		saveBounds(job.save_seconds);
 		const path = storage.scratchPath(token);
 		try {
 			const bytes = await transferVideo(delivery, path, transport, signal);
-			const info = await verifyVideoFile(path);
+			// The limit the job was reviewed and claimed with (D6); null keeps the legacy rule.
+			const info = await verifyVideoFile(path, job.save_seconds);
 			return await storage.publishVideo(job.id, path, token, { ...bytes, ...info });
 		} finally {
 			// Publication renames the scratch away; any other outcome discards only this attempt's file.

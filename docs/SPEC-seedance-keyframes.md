@@ -29,7 +29,7 @@ Review shows the operation label, "one clip, zero retries, zero uploads" beside 
 2. Asset review can keep the task queued for up to 20 minutes per round by default. After the ten-minute automatic tracking ends, use Refresh status in Jobs. ToAPIs documents no video generation fee for a failed asset review; Jobs shows a refund only when billing confirms it.
 3. Use still images within ToAPIs' 30 MB limit. Upstream, BytePlus lists JPEG, PNG, WebP, BMP, TIFF, GIF, HEIC and HEIF, 300–6,000 px per edge, a width-to-height ratio of 0.4–2.5, and refuses direct images that contain real human faces. Whether this route enforces those limits is unverified; Siluet does not check them.
 4. Actual usage and account charges are unknown. Eligible accounts or regions may use fallback with unknown availability and price.
-5. Gallery's video Save profile: "Gallery saves complete H.264/AAC MP4 files within its size, dimension and 12-second limits. A completed billable clip outside them stays with the provider."
+5. The mode's [Save limit](SPEC-video-save-limits.md): "Gallery saves complete H.264/AAC MP4 files up to 30 seconds, the provider's documented maximum for this mode, plus 1 second for container rounding, within its size and dimension limits. A completed billable clip outside them stays with the provider."
 
 Both operations use ToAPIs' advertised rate for generation without video input ($10 per million total tokens, observed 2026-11-21); Review says the total depends on token usage. A price never unlocks Queue; the 30-day cutoff applies.
 

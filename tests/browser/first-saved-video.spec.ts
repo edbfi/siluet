@@ -107,6 +107,7 @@ test("video-only key reviews once, saves one video and reopens its original byte
 				await page.getByRole("button", { name: "Review request" }).press("Enter");
 				review = await (await reviewed).json();
 				await expect(page.getByText("1 potentially billable submission")).toBeVisible();
+				await expect(page.getByText(/MP4 files up to 30 seconds, the provider's/)).toBeVisible();
 				expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
 					true,
 				);

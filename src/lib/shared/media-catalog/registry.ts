@@ -1,6 +1,7 @@
 import type { ProviderId } from "../providers/connections";
 import { h3Max } from "../video-studio/h3-max";
 import type { PoyoVideoDescriptor } from "../video-studio/poyo-video";
+import type { SaveLimit } from "../video-studio/save-profile";
 
 // The browser needs only released operations. The ledger test reconciles these
 // exact keys against the dated inventory and its explicit family aliases.
@@ -80,6 +81,11 @@ function zImageEntry(operation: keyof typeof ordinaryOperations) {
 	} as const;
 }
 
+// https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation (2026-11-24):
+// "The official range is `4`–`30`; use `-1` to let the model choose the duration."
+// Typed as a limit or none, so a catalog row or test copy may carry either.
+const seedanceSave = { seconds: 30, basis: "provider" } as SaveLimit | null;
+
 export const seedanceOperation = {
 	modelId: seedanceModel.id,
 	profile: "seedance-generate",
@@ -93,6 +99,7 @@ export const seedanceOperation = {
 	label: "Create video",
 	evidence: { d4: "declared", catalogD4: "unknown" },
 	roles: [],
+	save: seedanceSave,
 } as const;
 
 // Public-URL keyframes on the same ToAPIs route, in the order sent in image_with_roles.
@@ -138,6 +145,7 @@ function poyoVideoEntry<Model extends string, Descriptor extends PoyoVideoDescri
 		mode: "generate",
 		label: "Create video",
 		evidence: { d4: "declared", catalogD4: "declared" },
+		save: descriptor.save,
 		descriptor,
 	} as const;
 }
@@ -177,6 +185,7 @@ export function resolveOperationKey(value: unknown) {
 }
 
 export type SeedanceOperation = (typeof seedanceOperations)[number];
+export type PoyoVideoOperation = (typeof poyoVideoOperations)[number];
 export type ReleasedImageOperation = (typeof releasedImageOperations)[number];
 export type SeedreamOperation = ReleasedImageOperation["mode"];
 

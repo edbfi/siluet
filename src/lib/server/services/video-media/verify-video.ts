@@ -7,7 +7,7 @@ import {
 	contentCredentialsPrefix,
 } from "./content-credentials";
 import { check, TruncatedVideoError } from "./errors";
-import { movieByteLimit, videoByteLimit } from "./limits";
+import { movieByteLimit, saveBounds, videoByteLimit } from "./limits";
 import { inspectMovie, type Span } from "./mp4";
 import { boxHeader } from "./mp4-boxes";
 
@@ -31,9 +31,11 @@ async function readAt(file: FileHandle, position: number, length: number) {
  * Verify a downloaded video's structure (D6). Reads top-level box headers from the
  * file and buffers only `ftyp`, `moov` and the first bytes of one C2PA manifest box.
  * Throws `TruncatedVideoError` when the file ends inside a box or before `moov` or `mdat`,
- * and `UnsupportedVideoError` for anything outside the profile.
+ * and `UnsupportedVideoError` for anything outside the profile under the job's Save limit in
+ * seconds (null for a job queued before limits existed).
  */
-export async function verifyVideoFile(path: string) {
+export async function verifyVideoFile(path: string, seconds: number | null) {
+	saveBounds(seconds);
 	const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
 	try {
 		const { size } = await file.stat();
@@ -74,7 +76,7 @@ export async function verifyVideoFile(path: string) {
 		check(ftyp, "file type box");
 		// A download cut exactly at a box boundary ends before the movie or its media.
 		if (!moov || !media.length) throw truncated();
-		return inspectMovie(ftyp, moov, media);
+		return inspectMovie(ftyp, moov, media, seconds);
 	} finally {
 		await file.close();
 	}

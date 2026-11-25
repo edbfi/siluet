@@ -52,6 +52,10 @@ const released = [
 		"c4d05c681441475cfd9520da666e80060d1cc0b22d486918644187243e39b317",
 		"20261125120000_video_profile_rearm",
 	],
+	[
+		"62acac07668b6123488d13da82d9b39b9ea884c6720ee48016f454b8eff8b6d1",
+		"20261126120000_video_save_limits",
+	],
 ] as const;
 
 /** Released migration name → SQL digest. */
