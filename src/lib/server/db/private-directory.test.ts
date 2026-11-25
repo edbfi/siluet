@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import { chmod, exists, mkdir, rm } from "node:fs/promises";
+import { userInfo } from "node:os";
 import { join } from "node:path";
 import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
 import { UnsupportedPlatformError } from "../platform";
 import { openInstallation } from "./installation";
-import { preparePrivateDirectory } from "./private-directory";
+import { preparePrivateDirectory, requireStableFolder } from "./private-directory";
 
 test("preparation refuses a foreign platform without mkdir", async () => {
 	const parent = await createOwnerDirectory();
@@ -30,7 +31,8 @@ test("startup and recovery refuse a data directory below a folder others can wri
 	try {
 		await mkdir(shared, { mode: 0o700 });
 		await preparePrivateDirectory(directory);
-		for (const mode of [0o770, 0o707, 0o775]) {
+		// Group write is covered below, as this host's own groups decide it.
+		for (const mode of [0o707, 0o777]) {
 			await chmod(shared, mode);
 			await expect(preparePrivateDirectory(directory)).rejects.toThrow(replaceable);
 			await expect(preparePrivateDirectory(directory, true)).rejects.toThrow(replaceable);
@@ -72,5 +74,71 @@ test("a new data directory below a folder others can write is refused before mkd
 	} finally {
 		await chmod(parent, 0o700);
 		await rm(parent, { recursive: true, force: true });
+	}
+});
+
+const uid = process.getuid?.() ?? 0;
+const gid = process.getgid?.() ?? 0;
+const name = userInfo().username;
+const accounts =
+	(group: string, passwd = `${name}:x:${uid}:${gid}::/home/${name}:/bin/sh\n`) =>
+	async () => ({ group, passwd });
+const privateGroup = accounts(`root:x:0:\n${name}:x:${gid}:\n`);
+
+test("a folder only this user's private group can write is stable", async () => {
+	const parent = await createOwnerDirectory();
+	const shared = join(parent, "shared");
+	const directory = join(shared, "siluet");
+	try {
+		await mkdir(shared, { mode: 0o700 });
+		await chmod(shared, 0o775);
+		await preparePrivateDirectory(directory, false, privateGroup);
+		for (const readAccounts of [
+			accounts(`${name}:x:${gid}:${name},guest\n`),
+			accounts(`staff:x:${gid}:\n`),
+			accounts(
+				`${name}:x:${gid}:\n`,
+				`${name}:x:${uid}:${gid}::/:/bin/sh\nguest:x:${uid + 1}:${gid}::/:/bin/sh\n`,
+			),
+			accounts(`${name}:x:${gid + 1}:\n`),
+			async () => {
+				throw new Error("EACCES");
+			},
+		])
+			await expect(preparePrivateDirectory(directory, true, readAccounts)).rejects.toThrow(
+				replaceable,
+			);
+		await chmod(shared, 0o777);
+		await expect(preparePrivateDirectory(directory, true, privateGroup)).rejects.toThrow(
+			replaceable,
+		);
+		await chmod(shared, 0o775);
+		const realGid = process.getgid;
+		try {
+			process.getgid = () => gid + 1;
+			await expect(preparePrivateDirectory(directory, true, privateGroup)).rejects.toThrow(
+				replaceable,
+			);
+		} finally {
+			process.getgid = realGid;
+		}
+	} finally {
+		await chmod(shared, 0o700).catch(() => {});
+		await rm(parent, { recursive: true, force: true });
+	}
+});
+
+test("a root-owned folder its group can write is stable only when sticky", async () => {
+	const folder = (mode: number) => ({ uid: 0, gid, mode, isDirectory: () => true });
+	const rootGroup = accounts(`root:x:${gid}:\n`, `root:x:0:${gid}::/root:/bin/sh\n`);
+	await expect(requireStableFolder(folder(0o40775), rootGroup)).rejects.toThrow(replaceable);
+	await requireStableFolder(folder(0o41775), rootGroup);
+	const realUid = process.getuid;
+	try {
+		// Root's own group is never treated as private.
+		process.getuid = () => 0;
+		await expect(requireStableFolder(folder(0o40775), rootGroup)).rejects.toThrow(replaceable);
+	} finally {
+		process.getuid = realUid;
 	}
 });
