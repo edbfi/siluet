@@ -21,7 +21,7 @@ The ground floor needs no persistence, credentials, model catalog or paid submis
 
 ## Production capability map
 
-The baseline includes the releases through [#61](https://github.com/edbfi/siluet/pull/61) (2026-11-24) and the provider evidence recorded with each module spec. Siluet serves one creator on loopback, with their own credentials, explicit spending authorization and media saved in the private installation. [D1–D12](decisions.md) and the approved module specs set the scope.
+The baseline includes the releases through [#67](https://github.com/edbfi/siluet/pull/67) (2026-11-25) and the provider evidence recorded with each module spec. Siluet serves one creator on loopback, with their own credentials, explicit spending authorization and media saved in the private installation. [D1–D12](decisions.md) and the approved module specs set the scope.
 
 ### Shipped on the baseline
 
@@ -36,7 +36,7 @@ The baseline includes the releases through [#61](https://github.com/edbfi/siluet
 - Poyo.ai H3 Max queues text-to-video as the representative of the Poyo.ai video family, with partial coverage: 5–10 s, 480p or 768p and six fixed ratios. Recovery and Retry download never send a second request, and the clip saves automatically. [Poyo.ai video family](SPEC-poyo-first-video.md) · [D2](decisions.md#poyoai-video-family) ([#57](https://github.com/edbfi/siluet/pull/57))
 - ToAPIs Seedance 2.5 also animates a still from one public starting-frame URL, or guides a clip between distinct starting- and ending-frame URLs. Review names each frame by host, Queue sends one request with zero uploads, and the clip saves automatically. Poyo.ai keyframes stay unavailable under D4. [Seedance keyframes](SPEC-seedance-keyframes.md) ([#61](https://github.com/edbfi/siluet/pull/61))
 - Queue, tracking and Save ship for both video families. Real provider clips from both families save with their C2PA content-credentials box kept, including Seedance's AAC priming; clips Save held outside the profile re-arm once; any still refused are held again. Other output shapes still fail closed until a real sample qualifies them. [D6](decisions.md#d6--verify-downloaded-video-structure-in-typescript) ([#65](https://github.com/edbfi/siluet/pull/65))
-- Each video mode has a Save limit, its documented maximum output: 30 s for every Seedance mode and 15 s for H3 Max. Review states it, Queue stores it with the job, and Save accepts a clip up to the limit plus 1 s. A mode without one stays Review-only. Clips held for length before the upgrade re-arm once; any still refused are held again. [Per-mode limits](SPEC-video-save-limits.md) · [D6](decisions.md#d6--verify-downloaded-video-structure-in-typescript)
+- Each video mode has a Save limit, its documented maximum output: 30 s for every Seedance mode and 15 s for H3 Max. Review states it, Queue stores it with the job, and Save accepts a clip up to the limit plus 1 s. A mode without one stays Review-only. Clips held for length before the upgrade re-arm once; any still refused are held again. [Per-mode limits](SPEC-video-save-limits.md) · [D6](decisions.md#d6--verify-downloaded-video-structure-in-typescript) ([#67](https://github.com/edbfi/siluet/pull/67))
 - The owner can require an authenticator at sign-in and recover access on the host with the service stopped. [Owner authenticator](SPEC-owner-authenticator.md) ([#37](https://github.com/edbfi/siluet/pull/37))
 
 ### Remaining deliverables and release checks
