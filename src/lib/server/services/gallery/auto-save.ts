@@ -12,6 +12,7 @@ import { saveIntentStore, saveTryLimit } from "../../db/save-intent";
 import type { SaveRead } from "../jobs/tracking";
 import { downloadVideo, type VideoDelivery } from "../video-media/download";
 import { UnsupportedVideoError } from "../video-media/errors";
+import { saveBounds } from "../video-media/limits";
 import { verifyVideoFile } from "../video-media/verify-video";
 import { direct, downloadImage, type Transport } from "./download";
 import { galleryStorage, type Publication, unremovedScratch } from "./storage";
@@ -97,6 +98,8 @@ export function createAutoSave(
 			const bytes = await transferImage(delivery.url, transport, signal);
 			return storage.publish(job.id, token, bytes, await verifyImage(bytes));
 		}
+		// A malformed stored limit fails before any transfer, not after a download.
+		saveBounds(job.save_seconds);
 		const path = storage.scratchPath(token);
 		try {
 			const bytes = await transferVideo(delivery, path, transport, signal);
