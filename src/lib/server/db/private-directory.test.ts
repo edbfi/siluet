@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, exists, mkdir, rm } from "node:fs/promises";
+import { chmod, exists, mkdir, realpath, rm, symlink } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
@@ -140,5 +140,28 @@ test("a root-owned folder its group can write is stable only when sticky", async
 		await expect(requireStableFolder(folder(0o40775), rootGroup)).rejects.toThrow(replaceable);
 	} finally {
 		process.getuid = realUid;
+	}
+});
+
+test("a link in the configured path is checked where it sits, then the canonical path is used", async () => {
+	const parent = await createOwnerDirectory();
+	const open = join(parent, "open");
+	const target = join(parent, "private");
+	try {
+		await mkdir(open, { mode: 0o700 });
+		await mkdir(target, { mode: 0o700 });
+		await symlink(target, join(open, "link"));
+		const canonical = join(await realpath(target), "siluet");
+		expect(await preparePrivateDirectory(join(open, "link", "siluet"))).toBe(canonical);
+		expect(await preparePrivateDirectory(join(open, "link", "siluet"), true)).toBe(canonical);
+		// Another user could repoint the link, whatever its target.
+		await chmod(open, 0o777);
+		for (const existing of [false, true])
+			await expect(preparePrivateDirectory(join(open, "link", "siluet"), existing)).rejects.toThrow(
+				replaceable,
+			);
+	} finally {
+		await chmod(open, 0o700).catch(() => {});
+		await rm(parent, { recursive: true, force: true });
 	}
 });

@@ -13,12 +13,22 @@ function requireOutsideCheckout(checkout: string, directory: string) {
 		throw new DirectoryPolicyError("Choose a data directory outside the studio files.");
 }
 
+const missing = (error: unknown) =>
+	error instanceof Error && "code" in error && error.code === "ENOENT";
+
+function lstatIfPresent(path: string) {
+	return lstat(path).catch((error: unknown) => {
+		if (missing(error)) return null;
+		throw error;
+	});
+}
+
 // Resolve even a not-yet-created path before making directories through an alias.
 async function prospectivePath(directory: string): Promise<string> {
 	try {
 		return await realpath(directory);
 	} catch (error) {
-		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+		if (!missing(error)) throw error;
 		const parent = dirname(directory);
 		if (parent === directory) throw error;
 		return join(await prospectivePath(parent), basename(directory));
@@ -57,19 +67,39 @@ export async function requireStableFolder(info: Folder, readAccounts: ReadLocalA
 	if (info.mode & 0o020 && !(await privateGroupFolder(info, readAccounts))) throw replaceable();
 }
 
-/** Refuse a directory that another user could swap out through any folder above it. */
-async function requireStableAncestors(directory: string, readAccounts: ReadLocalAccounts) {
-	for (let folder = dirname(directory); ; folder = dirname(folder)) {
+/**
+ * Refuse a path that another user could redirect through a folder or link it
+ * passes. A link only needs a trusted owner (macOS /var and /tmp are root's);
+ * the folder holding it and its target's folders are checked in turn.
+ */
+async function requireStablePath(path: string, readAccounts: ReadLocalAccounts) {
+	for (let entry = path; ; entry = dirname(entry)) {
 		// Folders that do not exist yet are created private.
-		const info = await lstat(folder).catch((error: unknown) => {
-			if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
-			throw error;
-		});
-		if (info) await requireStableFolder(info, readAccounts);
-		if (dirname(folder) === folder) return;
+		const info = await lstatIfPresent(entry);
+		if (info?.isSymbolicLink()) {
+			if (info.uid !== 0 && info.uid !== process.getuid?.()) throw replaceable();
+		} else if (info && entry !== path) await requireStableFolder(info, readAccounts);
+		if (dirname(entry) === entry) return;
 	}
 }
 
+// Create each missing folder alone and check it before creating the next one in it.
+async function createPrivatePath(path: string, readAccounts: ReadLocalAccounts) {
+	const absent: string[] = [];
+	for (let folder = path; !(await lstatIfPresent(folder)); folder = dirname(folder))
+		absent.unshift(folder);
+	for (const folder of absent) {
+		await mkdir(folder, { mode: 0o700 }).catch((error: unknown) => {
+			if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+		});
+		await requireStableFolder(await lstat(folder), readAccounts);
+	}
+}
+
+/**
+ * Check, create if needed and return the canonical data directory. The studio
+ * uses only the returned path, so a link cannot redirect it after these checks.
+ */
 export async function preparePrivateDirectory(
 	directory: string,
 	existing = false,
@@ -80,17 +110,14 @@ export async function preparePrivateDirectory(
 		throw new DirectoryPolicyError("An absolute data directory is required.");
 	const checkout = dirname(createRequire(import.meta.url).resolve("#studio-manifest"));
 	requireOutsideCheckout(checkout, directory);
-	const realCheckout = await realpath(checkout);
-	const prospective = await prospectivePath(directory);
-	requireOutsideCheckout(realCheckout, prospective);
-	await requireStableAncestors(prospective, readAccounts);
-	if (!existing) await mkdir(directory, { recursive: true, mode: 0o700 });
-	const info = await lstat(directory);
+	const canonical = await prospectivePath(directory);
+	requireOutsideCheckout(await realpath(checkout), canonical);
+	await requireStablePath(directory, readAccounts);
+	await requireStablePath(canonical, readAccounts);
+	if (!existing) await createPrivatePath(canonical, readAccounts);
+	const info = await lstat(canonical);
 	if (!info.isDirectory()) throw new DirectoryPolicyError("Expected a private directory.");
-	const resolved = await realpath(directory);
-	requireOutsideCheckout(realCheckout, resolved);
-	// The resolved path has no links, so its folders are the ones the studio relies on.
-	await requireStableAncestors(resolved, readAccounts);
 	if (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
 		throw new DirectoryPolicyError("The data directory must be private.");
+	return canonical;
 }

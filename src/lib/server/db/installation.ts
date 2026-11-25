@@ -1,4 +1,4 @@
-import { chmod, lstat, readdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { chmod, lstat, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { connect } from "@tursodatabase/database";
 import { sql } from "drizzle-orm";
@@ -24,8 +24,7 @@ export async function openInstallation(
 	let client: Awaited<ReturnType<typeof connect>> | undefined;
 	requireSupportedPlatform();
 	try {
-		await preparePrivateDirectory(directory, recovery);
-		directory = await realpath(directory);
+		directory = await preparePrivateDirectory(directory, recovery);
 		const marker = join(directory, "installation.id");
 		const database = join(directory, "studio.db");
 		const contents = await readdir(directory);
