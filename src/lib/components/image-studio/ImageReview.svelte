@@ -16,6 +16,7 @@ import {
 	reviewBatchCounts,
 	reviewPriceExpiry,
 	reviewPriceReason,
+	reviewReferenceCharge,
 	reviewRetryLimits,
 	watchReviewExpiry,
 } from "#lib/shared/image-studio/review-price.ts";
@@ -665,6 +666,9 @@ $effect(() => {
 							<p>Estimated {quote.perRequest} {providerName} credits per request</p>
 							{#if quote.unit === "toapis_credit"}
 								<p>Standard-route estimate ${quote.usd.perRequest} USD.</p>
+								{#if quote.referenceImages}
+									<p>{reviewReferenceCharge(quote.referenceImages)}</p>
+								{/if}
 							{/if}
 							{#if !current || count > 1 || retryLimit > 0}
 								<p>Estimated {quote.batch} {providerName} credits for the initial batch</p>

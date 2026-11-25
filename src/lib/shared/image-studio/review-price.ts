@@ -1,4 +1,9 @@
-import { estimatePrice, type PriceEstimate, type PriceInput } from "../pricing/estimate";
+import {
+	estimatePrice,
+	type PriceEstimate,
+	type PriceInput,
+	type ToapisReferenceImages,
+} from "../pricing/estimate";
 import { parsePricingInstant } from "../pricing/feed";
 import type { PricingFeeds, PricingProvider } from "../pricing/feeds";
 
@@ -36,6 +41,18 @@ const priceReasons = {
 
 export function reviewPriceReason(estimate: PriceEstimate): string | undefined {
 	if (estimate.status === "unknown") return priceReasons[estimate.reason];
+}
+
+/** The per-reference charge included in a known ToAPIs edit estimate. */
+export function reviewReferenceCharge(
+	references: ToapisReferenceImages | undefined,
+): string | undefined {
+	if (!references) return;
+	const { count, usdEach, approximateCreditsEach } = references;
+	const rate = `$${usdEach} (≈${approximateCreditsEach} credits)`;
+	return count === 1
+		? `Includes 1 reference image at ${rate}.`
+		: `Includes ${count} reference images at ${rate} each.`;
 }
 
 export function reviewPriceExpiry(estimate: PriceEstimate | undefined): number | undefined {

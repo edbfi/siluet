@@ -33,6 +33,12 @@ export type ToapisRate = Rate &
 				conditions: { size: Size; outputCount: 1; layerDecomposition: false };
 		  }
 		| {
+				// Each reference image in `image_urls`, charged on top of the output tier.
+				model: typeof imageModel;
+				unit: "reference-image";
+				conditions: { freeAllowance: 0 };
+		  }
+		| {
 				model: typeof videoModel;
 				unit: "million-total-tokens";
 				conditions: { videoInput: boolean };
@@ -45,13 +51,13 @@ const gaps = [
 ] as const;
 
 export type ToapisPricingFeed = Readonly<{
-	version: 1;
+	version: 2;
 	provider: "toapis";
 	observedAt: string;
 	creditsPerUsd: string;
 	conversionSourceUrl: typeof toapisConversionUrl;
-	// Whole seconds from each response's receipt to observedAt. Older bundles omit this field.
-	receiptDelaySeconds?: Readonly<{ conversion: number; image: number; video: number }>;
+	// Whole seconds from each response's receipt to observedAt.
+	receiptDelaySeconds: Readonly<{ conversion: number; image: number; video: number }>;
 	conversionCacheAgeSeconds: number | null;
 	rates: readonly ToapisRate[];
 	gaps: typeof gaps;
@@ -141,6 +147,14 @@ function decodeRate(value: unknown, observedMs: number): ToapisRate | undefined 
 			};
 	}
 	if (
+		model === imageModel &&
+		unit === "reference-image" &&
+		hasKeys(conditions, ["freeAllowance"]) &&
+		conditions.freeAllowance === 0
+	) {
+		return { model, unit, conditions: { freeAllowance: 0 }, ...rate };
+	}
+	if (
 		model === videoModel &&
 		unit === "million-total-tokens" &&
 		hasKeys(conditions, ["videoInput"]) &&
@@ -150,18 +164,23 @@ function decodeRate(value: unknown, observedMs: number): ToapisRate | undefined 
 	}
 }
 
+/** The rate's position: the tiers, the reference image, then the two video inputs. */
 function rateKey(rate: ToapisRate): number {
-	return rate.unit === "image"
-		? sizes.indexOf(rate.conditions.size)
-		: sizes.length + Number(rate.conditions.videoInput);
+	switch (rate.unit) {
+		case "image":
+			return sizes.indexOf(rate.conditions.size);
+		case "reference-image":
+			return sizes.length;
+		case "million-total-tokens":
+			return sizes.length + 1 + Number(rate.conditions.videoInput);
+	}
 }
 
+/** Decode a v2 feed. The frozen v1 feed cannot express the reference-image rate. */
 export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | undefined {
-	const hasDelays =
-		value !== null && typeof value === "object" && Object.hasOwn(value, "receiptDelaySeconds");
 	if (
 		!hasKeys(value, [
-			...(hasDelays ? ["receiptDelaySeconds"] : []),
+			"receiptDelaySeconds",
 			"version",
 			"provider",
 			"observedAt",
@@ -182,7 +201,7 @@ export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | und
 		conversionCacheAgeSeconds,
 	} = value;
 	if (
-		version !== 1 ||
+		version !== 2 ||
 		provider !== "toapis" ||
 		creditsPerUsd !== "200" ||
 		conversionSourceUrl !== toapisConversionUrl ||
@@ -197,29 +216,26 @@ export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | und
 		!validToapisCacheAge(conversionCacheAgeSeconds, observedMs)
 	)
 		return;
-	let receiptDelaySeconds: ToapisPricingFeed["receiptDelaySeconds"];
-	if (hasDelays) {
-		const delays = value.receiptDelaySeconds;
-		if (!hasKeys(delays, ["conversion", "image", "video"])) return;
-		const { conversion, image, video } = delays;
-		if (
-			typeof conversion !== "number" ||
-			typeof image !== "number" ||
-			typeof video !== "number" ||
-			![conversion, image, video].every(Number.isSafeInteger) ||
-			video < 0 ||
-			image < video ||
-			conversion < image ||
-			(conversion + (conversionCacheAgeSeconds ?? 0)) * 1000 > observedMs
-		)
-			return;
-		receiptDelaySeconds = { conversion, image, video };
-	}
+	const delays = value.receiptDelaySeconds;
+	if (!hasKeys(delays, ["conversion", "image", "video"])) return;
+	const { conversion, image, video } = delays;
+	if (
+		typeof conversion !== "number" ||
+		typeof image !== "number" ||
+		typeof video !== "number" ||
+		![conversion, image, video].every(Number.isSafeInteger) ||
+		video < 0 ||
+		image < video ||
+		conversion < image ||
+		(conversion + (conversionCacheAgeSeconds ?? 0)) * 1000 > observedMs
+	)
+		return;
+	const receiptDelaySeconds = { conversion, image, video };
 	const rawRates: unknown = value.rates;
 	const rawGaps: unknown = value.gaps;
 	if (
 		!Array.isArray(rawRates) ||
-		rawRates.length !== sizes.length + 2 ||
+		rawRates.length !== sizes.length + 3 ||
 		!Array.isArray(rawGaps) ||
 		rawGaps.length !== gaps.length ||
 		!gaps.every(({ model, reason }, index) => {
@@ -235,12 +251,14 @@ export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | und
 		if (effectiveRateObservationMs(observedMs, receiptDelaySeconds, rate) < 0) return;
 		rates.push(rate);
 	}
-	const [one, oneAndHalf, two, withoutVideo, withVideo] = rates;
+	const [one, oneAndHalf] = rates;
+	// The reference rate comes from the same Seedream page as the tiers.
+	const seedream = rates.slice(0, sizes.length + 1);
+	const [withoutVideo, withVideo] = rates.slice(sizes.length + 1);
 	if (
 		one.usd !== oneAndHalf.usd ||
 		one.approximateCredits !== oneAndHalf.approximateCredits ||
-		one.source.cacheAgeSeconds !== oneAndHalf.source.cacheAgeSeconds ||
-		one.source.cacheAgeSeconds !== two.source.cacheAgeSeconds ||
+		seedream.some((rate) => rate.source.cacheAgeSeconds !== one.source.cacheAgeSeconds) ||
 		withoutVideo.source.cacheAgeSeconds !== withVideo.source.cacheAgeSeconds
 	)
 		return;
@@ -251,7 +269,7 @@ export function decodeToapisPricingFeed(value: unknown): ToapisPricingFeed | und
 		creditsPerUsd,
 		conversionSourceUrl,
 		conversionCacheAgeSeconds,
-		...(receiptDelaySeconds && { receiptDelaySeconds }),
+		receiptDelaySeconds,
 		rates,
 		gaps,
 	};
@@ -262,14 +280,14 @@ function effectiveRateObservationMs(
 	delays: ToapisPricingFeed["receiptDelaySeconds"],
 	rate: ToapisRate,
 ): number {
-	const delay = rate.unit === "image" ? delays?.image : delays?.video;
-	return observedMs - ((delay ?? 0) + (rate.source.cacheAgeSeconds ?? 0)) * 1000;
+	const delay = rate.model === imageModel ? delays.image : delays.video;
+	return observedMs - (delay + (rate.source.cacheAgeSeconds ?? 0)) * 1000;
 }
 
 function conversionObservationMs(feed: ToapisPricingFeed, observedMs: number): number {
 	return (
 		observedMs -
-		((feed.receiptDelaySeconds?.conversion ?? 0) + (feed.conversionCacheAgeSeconds ?? 0)) * 1000
+		(feed.receiptDelaySeconds.conversion + (feed.conversionCacheAgeSeconds ?? 0)) * 1000
 	);
 }
 

@@ -361,6 +361,31 @@ describe("PoYo client recovery", () => {
 });
 
 describe("ToAPIs advertised pricing refresh", () => {
+	test("fetches only the v2 feed and keeps the bundled rates before it is published", async () => {
+		expect(toapisPricingFeedUrl).toBe(
+			"https://raw.githubusercontent.com/edbfi/siluet/pricing-data-toapis/pricing/v2/toapis.json",
+		);
+		const provider = "toapis";
+		const publicBundle = join(directory, "bundled-toapis.json");
+		const publicCache = pricingCachePath(join(directory, "cache-home"), provider);
+		await writeFile(publicBundle, JSON.stringify(toapisRates));
+		const requested: string[] = [];
+		await expect(
+			refreshPricingFeed({
+				provider,
+				bundledPath: publicBundle,
+				cachePath: publicCache,
+				now: () => nowMs,
+				async fetchFeed(url) {
+					requested.push(url);
+					return new Response("404: Not Found", { status: 404 });
+				},
+			}),
+		).rejects.toThrow("ToAPIs v2 rates are not published yet; bundled rates stay in use.");
+		expect(requested).toEqual([toapisPricingFeedUrl]);
+		expect(await Bun.file(publicCache).exists()).toBe(false);
+	});
+
 	test("uses its own public URL and cache and preserves the last good observation", async () => {
 		const provider = "toapis";
 		const publicBundle = join(directory, "bundled-toapis.json");
@@ -432,7 +457,7 @@ test("rejects newer ToAPIs wrappers over older model or conversion evidence", as
 		{
 			...later,
 			rates: later.rates.map((rate) =>
-				rate.unit === "image"
+				rate.model === "doubao-seedream-5-5"
 					? { ...rate, source: { ...rate.source, cacheAgeSeconds: 3601 } }
 					: rate,
 			),

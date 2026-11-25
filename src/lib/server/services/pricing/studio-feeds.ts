@@ -1,6 +1,6 @@
 import poyoFeed from "../../../../../pricing/v1/feed.json";
-import toapisFeed from "../../../../../pricing/v1/toapis.json";
 import poyoV2Feed from "../../../../../pricing/v2/poyo.json";
+import toapisFeed from "../../../../../pricing/v2/toapis.json";
 import { decodePricingFeed } from "../../../shared/pricing/feed";
 import type { PricingFeeds, PricingProvider } from "../../../shared/pricing/feeds";
 import { decodePoyoV2Feed } from "../../../shared/pricing/poyo-feed";

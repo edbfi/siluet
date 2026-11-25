@@ -288,12 +288,12 @@
 			count: 1,
 			retryLimit: 0,
 		});
-		return restoreEstimate(quote, provider, model);
+		return restoreEstimate(quote, provider, model, sourceIds.length);
 	}
 
-	function restoreEstimate(quote, provider, model) {
+	function restoreEstimate(quote, provider, model, sourceCount) {
 		if (provider === "toapis") {
-			return window.SiluetPricing?.restoreToapisAttempt?.(quote, model) ?? null;
+			return window.SiluetPricing?.restoreToapisAttempt?.(quote, model, sourceCount) ?? null;
 		}
 		if (quote?.status === "unknown") return { status: "unknown" };
 		if (quote?.status !== "known" || quote.unit !== "poyo_credit") return null;
@@ -757,7 +757,7 @@
 			sourceIds,
 			sources,
 			options: options && typeof options === "object" && !Array.isArray(options) ? options : {},
-			estimate: restoreEstimate(value.estimate, provider, model),
+			estimate: restoreEstimate(value.estimate, provider, model, sourceIds.length),
 			throttleSeen: value.throttleSeen === true,
 			retryRevoked: value.retryRevoked === true,
 		};

@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import toapisBundle from "../../pricing/v1/toapis.json";
 import poyoBundle from "../../pricing/v2/poyo.json";
+import toapisBundle from "../../pricing/v2/toapis.json";
 import { pricingCachePath } from "../../src/lib/server/services/pricing/local-feed";
 import { toapisRates } from "./toapis-feed";
 

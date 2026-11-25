@@ -21,7 +21,10 @@ import {
 	toapisEffectiveObservations,
 } from "../../../shared/pricing/toapis-feed";
 
-/** A local pricing file. `poyo` is the v1 Poyo.ai feed and `poyo-v2` its confirmed successor. */
+/**
+ * A local pricing file. `poyo` is the v1 Poyo.ai feed and `poyo-v2` its confirmed successor.
+ * `toapis` is the v2 ToAPIs feed. The frozen v1 ToAPIs feed is never read.
+ */
 export type PricingFile = PricingProvider | "poyo-v2";
 /** Feeds already in memory, such as those embedded in the Studio build. */
 export type BundledPricingFeeds = Readonly<
@@ -45,7 +48,7 @@ export const poyoV2FileByteLimit = 256 * 1024;
 const pricingFiles = {
 	poyo: { directory: "v1", name: "feed.json", byteLimit: pricingFeedByteLimit },
 	"poyo-v2": { directory: "v2", name: "poyo.json", byteLimit: poyoV2FileByteLimit },
-	toapis: { directory: "v1", name: "toapis.json", byteLimit: pricingFeedByteLimit },
+	toapis: { directory: "v2", name: "toapis.json", byteLimit: pricingFeedByteLimit },
 } as const satisfies Record<PricingFile, unknown>;
 
 export function pricingFileLocation(file: PricingFile): string {

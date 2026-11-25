@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import bundledToapis from "../../pricing/v1/toapis.json";
 import bundledV2 from "../../pricing/v2/poyo.json";
+import bundledToapis from "../../pricing/v2/toapis.json";
 import { estimatePrice } from "../../src/lib/shared/pricing/estimate";
 import h3Feed from "../../tests/fixtures/h3-rate.v2.json";
 import { toapisRates } from "../../tests/fixtures/toapis-feed";
@@ -94,8 +94,9 @@ test("the offline CLI selects the ToAPIs cache and uses the same tier and attemp
 		expect(JSON.parse(stdout)).toMatchObject({
 			status: "known",
 			unit: "toapis_credit",
-			perRequest: "6",
-			batch: "30",
+			// The 2K tier at $0.03 plus two references at $0.0064 each.
+			perRequest: "8.56",
+			batch: "42.8",
 			maxAttempts: 20,
 			source: { scope: "public-advertised" },
 		});

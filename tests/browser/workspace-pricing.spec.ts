@@ -246,6 +246,37 @@ for (const filename of ["index.html", "workspace.html"]) {
 		await expect(price).toContainText("Up to 20 attempts");
 		expect(requests).toEqual([]);
 	});
+
+	test(`${filename} adds the ToAPIs per-reference charge to a 2K edit offline`, async ({
+		page,
+	}) => {
+		const requests: string[] = [];
+		await page.route(/^https?:/, (route) => {
+			requests.push(route.request().url());
+			return route.abort();
+		});
+		const entry = filename === "index.html" ? sourceEntry : portableEntry;
+		if (filename === "workspace.html") await page.setViewportSize({ width: 320, height: 720 });
+		await page.goto(`${entry.href}#image`);
+		await page.getByLabel("Model", { exact: true }).selectOption("seedream-5.5");
+		await page.getByRole("radio", { name: "ToAPIs", exact: true }).check();
+		await page.getByLabel("Operation", { exact: true }).selectOption("edit");
+		for (const index of [1, 2]) {
+			await page
+				.getByText("Use a URL", { exact: true })
+				.nth(index - 1)
+				.click();
+			await page
+				.getByLabel(`HTTP or HTTPS URL for reference image ${index}`)
+				.fill(`https://images.example.invalid/ref-${index}.png`);
+			await page.getByRole("button", { name: "Use URL", exact: true }).click();
+		}
+		// The 2K tier at $0.028 plus two references at $0.0064 each.
+		const price = reviewPrice(page);
+		await expect(price).toContainText("≈8.16 ToAPIs credits");
+		await expect(price).toContainText("($0.0408)");
+		expect(requests).toEqual([]);
+	});
 }
 
 reloadTest(

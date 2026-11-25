@@ -41,6 +41,12 @@ type UnknownReason =
 	| "rate-unavailable"
 	| "token-usage-unknown";
 
+export type ToapisReferenceImages = {
+	count: number;
+	usdEach: string;
+	approximateCreditsEach: string;
+};
+
 type ToapisProvenance = {
 	sourceDate: string;
 	source: ToapisRateSource;
@@ -68,6 +74,8 @@ export type PriceEstimate =
 			batch: string;
 			usd: { perRequest: string; batch: string };
 			maxAttempts: number;
+			/** The per-reference charge included in each request. Older stored quotes omit it. */
+			referenceImages?: ToapisReferenceImages;
 	  } & ToapisProvenance)
 	| {
 			status: "unknown";

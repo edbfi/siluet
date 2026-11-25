@@ -101,7 +101,7 @@ describe("publication size limits", () => {
 
 	test.each([
 		["poyoV1", poyoV1Feed, "Published PoYo v1 rates"],
-		["toapis", toapisRates, "Published ToAPIs rates"],
+		["toapis", toapisRates, "Published ToAPIs v2 rates"],
 	] as const)(
 		"a published %s feed may be 4096 bytes including its LF",
 		async (key, feed, label) => {
@@ -138,6 +138,42 @@ test("the bundled feed uses the same thresholds", async () => {
 	}
 });
 
+describe("ToAPIs v2 freshness", () => {
+	const at = Date.parse(toapisRates.observedAt) + day;
+
+	test("checks the published and bundled v2 feeds with their own limits", async () => {
+		const bundled = path("bundled-toapis.json");
+		writeFileSync(bundled, JSON.stringify(toapisRates, null, "\t").padEnd(64 * 1024, " "));
+		expect(await check({ toapis: path("toapis.json"), bundledToapis: bundled }, at)).toEqual([
+			expect.objectContaining({
+				message: expect.stringMatching(/^Published ToAPIs v2 rates expire /),
+			}),
+			expect.objectContaining({
+				message: expect.stringMatching(/^Bundled ToAPIs rates on main expire /),
+			}),
+		]);
+		expect(await check({ toapis: bundled }, at)).toEqual([
+			{ level: "error", message: "Published ToAPIs v2 rates are missing or invalid." },
+		]);
+	});
+
+	test("reports the frozen v1 shape as invalid", async () => {
+		const { receiptDelaySeconds: _delays, ...fields } = toapisRates;
+		const v1 = {
+			...fields,
+			version: 1,
+			rates: toapisRates.rates.filter((rate) => rate.unit !== "reference-image"),
+		};
+		writeFileSync(path("v1-toapis.json"), JSON.stringify(v1));
+		expect(
+			await check({ toapis: path("v1-toapis.json"), bundledToapis: path("v1-toapis.json") }, at),
+		).toEqual([
+			{ level: "error", message: "Published ToAPIs v2 rates are missing or invalid." },
+			{ level: "error", message: "Bundled ToAPIs rates on main are missing or invalid." },
+		]);
+	});
+});
+
 test("ToAPIs uses its own effective expiry", async () => {
 	const aged = { ...toapisRates, conversionCacheAgeSeconds: 3 * 86_400 };
 	writeFileSync(path("toapis.json"), JSON.stringify(aged));
@@ -148,7 +184,7 @@ test("ToAPIs uses its own effective expiry", async () => {
 	expect(await check({ toapis: path("toapis.json") }, expires - 10 * day)).toEqual([
 		{
 			level: "warning",
-			message: `Published ToAPIs rates expire ${new Date(expires).toISOString().replace(".000Z", "Z")} (10.0 days left).`,
+			message: `Published ToAPIs v2 rates expire ${new Date(expires).toISOString().replace(".000Z", "Z")} (10.0 days left).`,
 		},
 	]);
 });
@@ -166,6 +202,8 @@ test("the command reports every feed before failing and writes the summary", () 
 			path("toapis.json"),
 			"--bundled-poyo",
 			path("v2.json"),
+			"--bundled-toapis",
+			path("toapis.json"),
 			"--fail-within-days",
 			"14",
 		],
@@ -173,20 +211,24 @@ test("the command reports every feed before failing and writes the summary", () 
 	);
 	expect(result.exitCode).toBe(1);
 	const lines = result.stdout.toString().trim().split("\n");
-	expect(lines).toHaveLength(3);
+	expect(lines).toHaveLength(4);
 	expect(lines[0]).toStartWith(
 		"::error title=Pricing freshness::Published PoYo v2 rates are missing or invalid.",
 	);
 	expect(lines[1]).toMatch(
-		/^::(notice|warning|error) title=Pricing freshness::Published ToAPIs rates/,
+		/^::(notice|warning|error) title=Pricing freshness::Published ToAPIs v2 rates/,
 	);
 	expect(lines[2]).toMatch(/^::(notice|warning|error) title=Pricing freshness::Bundled PoYo rates/);
-	expect(readFileSync(summary, "utf8").trim().split("\n")).toHaveLength(3);
+	expect(lines[3]).toMatch(
+		/^::(notice|warning|error) title=Pricing freshness::Bundled ToAPIs rates/,
+	);
+	expect(readFileSync(summary, "utf8").trim().split("\n")).toHaveLength(4);
 });
 
 test("arguments require a feed and ordered thresholds", () => {
 	expect(defaults).toMatchObject({ warnWithinDays: 14, failWithinDays: 7 });
 	expect(() => readFreshnessArgs([])).toThrow(/at least one/);
+	expect(readFreshnessArgs(["--bundled-toapis", "x"])).toMatchObject({ bundledToapis: "x" });
 	expect(() => readFreshnessArgs(["--toapis", "x", "--warn-within-days", "5"])).toThrow();
 	expect(() => readFreshnessArgs(["--toapis", "x", "--fail-within-days", "1.5"])).toThrow();
 	expect(readFreshnessArgs(["--toapis", "x", "--fail-within-days", "14"])).toMatchObject({

@@ -1,12 +1,16 @@
 import { type APIResponse, expect, type Page, test } from "@playwright/test";
-import toapisBundle from "../../pricing/v1/toapis.json";
 import poyoBundle from "../../pricing/v2/poyo.json";
+import toapisBundle from "../../pricing/v2/toapis.json";
 import { pricingCachePath } from "../../src/lib/server/services/pricing/local-feed";
 import {
 	createSeedreamDraft,
 	type SeedreamProvider,
 } from "../../src/lib/shared/image-studio/seedream";
 import { decodePoyoV2Feed, poyoFeedExpiryMs } from "../../src/lib/shared/pricing/poyo-feed";
+import {
+	decodeToapisPricingFeed,
+	toapisFeedExpiryMs,
+} from "../../src/lib/shared/pricing/toapis-feed";
 import { seedLegacyToapisReviews } from "../fixtures/legacy-reference-review";
 import {
 	editedImagePath,
@@ -27,9 +31,11 @@ import {
 
 const bundledPoyo = decodePoyoV2Feed(poyoBundle);
 if (!bundledPoyo) throw new Error("Invalid bundled Poyo.ai rates");
+const bundledToapis = decodeToapisPricingFeed(toapisBundle);
+if (!bundledToapis) throw new Error("Invalid bundled ToAPIs rates");
 const bundledExpiry = {
 	poyo: poyoFeedExpiryMs(bundledPoyo),
-	toapis: Date.parse(toapisBundle.observedAt) + 30 * 86_400_000,
+	toapis: toapisFeedExpiryMs(bundledToapis),
 };
 
 function edit(provider: SeedreamProvider, urls: readonly string[] = [signedReference]) {
@@ -101,11 +107,18 @@ for (const provider of ["poyo", "toapis"] as const) {
 				const pair = [secondSignedReference, signedReference];
 				const selections = [[signedReference], pair, tenSignedReferences];
 				const quotes = ["8.6", "10.2", "23"];
+				// ToAPIs adds $0.0064 (1.28 credits) per reference to the 2K tier.
+				const toapisQuotes = [
+					["6.88", "0.0344"],
+					["8.16", "0.0408"],
+					["18.4", "0.092"],
+				];
 				const clicks = await Promise.all(
 					selections.map(async (urls, index) => {
 						const input = edit(provider, urls);
 						const review = await readReview(await post("/image/review", input));
-						const perRequest = provider === "poyo" ? quotes[index] : "5.6";
+						const [toapisCredits, toapisUsd] = toapisQuotes[index];
+						const perRequest = provider === "poyo" ? quotes[index] : toapisCredits;
 						expect(review).toMatchObject({
 							requiresConsent: provider === "toapis",
 							quote: {
@@ -114,7 +127,14 @@ for (const provider of ["poyo", "toapis"] as const) {
 								perRequest,
 								batch: perRequest,
 								maxAttempts: 1,
-								...(provider === "toapis" && { usd: { perRequest: "0.028", batch: "0.028" } }),
+								...(provider === "toapis" && {
+									usd: { perRequest: toapisUsd, batch: toapisUsd },
+									referenceImages: {
+										count: urls.length,
+										usdEach: "0.0064",
+										approximateCreditsEach: "1.28",
+									},
+								}),
 							},
 						});
 						return { ...input, token: review.token, acceptUnknown: review.requiresConsent };
@@ -328,10 +348,15 @@ for (const provider of ["poyo", "toapis"] as const) {
 				);
 				if (provider === "toapis") await expect(disclosure).toContainText(/through a fallback/i);
 				await expect(facts.locator("[data-studio-price]")).toContainText(
-					provider === "poyo" ? "10.2 Poyo.ai credits" : "5.6 ToAPIs credits",
+					provider === "poyo" ? "10.2 Poyo.ai credits" : "8.16 ToAPIs credits",
 				);
-				if (provider === "toapis")
-					await expect(facts.locator("[data-studio-price]")).toContainText("$0.028 USD");
+				if (provider === "toapis") {
+					const price = facts.locator("[data-studio-price]");
+					await expect(price).toContainText("$0.0408 USD");
+					await expect(price).toContainText(
+						"Includes 2 reference images at $0.0064 (≈1.28 credits) each.",
+					);
+				}
 				await expect(facts.locator("[data-studio-price]")).toContainText(
 					rates.observedAt.slice(0, 10),
 				);
@@ -470,7 +495,7 @@ test("direct edit guards reject invalid scope and stale authorization before any
 			const review = await readReview(await post("/image/review", input));
 			expect(review).toMatchObject({
 				requiresConsent: true,
-				quote: { status: "known", perRequest: "5.6" },
+				quote: { status: "known", perRequest: "8.16" },
 			});
 			const click = { ...input, token: review.token, acceptUnknown: true };
 			const key = editOperationKey("toapis");
@@ -681,7 +706,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 				const queue = review.getByRole("button", { name: "Queue 5 requests" });
 				await expect(review).toContainText("3 extra attempts per request");
 				await expect(review).toContainText(
-					provider === "poyo" ? "204 Poyo.ai credits" : "112 ToAPIs credits",
+					provider === "poyo" ? "204 Poyo.ai credits" : "163.2 ToAPIs credits",
 				);
 				if (provider === "toapis") {
 					await expect(queue).toBeDisabled();

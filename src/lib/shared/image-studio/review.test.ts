@@ -8,6 +8,7 @@ import {
 	maximumReviewAttempts,
 	reviewPriceExpiry,
 	reviewPriceReason,
+	reviewReferenceCharge,
 	watchReviewExpiry,
 } from "./review-price";
 
@@ -346,4 +347,15 @@ test("rechecking a suspended Review re-arms the timer from the current wall cloc
 	expect(delay).toBe(500);
 	watch.stop();
 	expect(cancelled).toBe(2);
+});
+
+test("Review names the per-reference charge included in a ToAPIs edit", () => {
+	const each = { usdEach: "0.0064", approximateCreditsEach: "1.28" };
+	expect(reviewReferenceCharge({ count: 1, ...each })).toBe(
+		"Includes 1 reference image at $0.0064 (≈1.28 credits).",
+	);
+	expect(reviewReferenceCharge({ count: 10, ...each })).toBe(
+		"Includes 10 reference images at $0.0064 (≈1.28 credits) each.",
+	);
+	expect(reviewReferenceCharge(undefined)).toBeUndefined();
 });

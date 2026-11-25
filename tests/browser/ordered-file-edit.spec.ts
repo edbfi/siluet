@@ -116,6 +116,15 @@ for (const provider of ["poyo", "toapis"] as const) {
 					for (const marker of [referencePathMarker, referenceQueryMarker, referenceFragmentMarker])
 						await expect(outgoing).not.toContainText(marker);
 					await review.getByRole("tab", { name: "Review", exact: true }).press("Enter");
+					if (provider === "toapis") {
+						// Files and URLs are billed alike: the 2K tier plus three references.
+						const price = review.locator("[data-studio-price]");
+						await expect(price).toContainText("Estimated 9.44 ToAPIs credits per request");
+						await expect(price).toContainText("$0.0472 USD");
+						await expect(price).toContainText(
+							"Includes 3 reference images at $0.0064 (≈1.28 credits) each.",
+						);
+					}
 					await expect(consent).toHaveAccessibleName(
 						"I accept the unknown total cost of the uploads and edit, the provider access and retention terms above, and that uploaded copies may stay accessible even if the edit never runs.",
 					);

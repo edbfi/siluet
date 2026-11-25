@@ -155,7 +155,7 @@ jobs:
           bash scripts/pricing/stage-feeds.sh "$RUNNER_TEMP/pricing-feeds"
           pricing-data:pricing/v2/poyo.json:poyo-v2.json
           pricing-data:pricing/v1/feed.json:poyo-v1.json
-          pricing-data-toapis:pricing/v1/toapis.json:toapis.json
+          pricing-data-toapis:pricing/v2/toapis.json:toapis.json
       - name: Check the published rates
         if: ${{ !cancelled() }}
         run: >-
