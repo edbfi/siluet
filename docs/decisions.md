@@ -158,7 +158,7 @@ Fixed in the security hardening PR:
 - libvips' cache is off for the whole process (Gallery verification and media cleanup each turn it off, whichever loads first), and Gallery image verification decodes every image once under a 5 s timeout. sharp enforces it in `toBuffer` only, so an image outside the Gallery profile decodes to one byte a pixel there instead of through `stats()`.
 - MP4 edit durations add as BigInt, and the provider key opens with `O_NONBLOCK`.
 
-Fixed before v0.1.0 in [#NN](https://github.com/edbfi/siluet/pull/NN) with a browser key ([D1](#browser-credential)); the upgrade revokes every session and proof; a cross-port test passes.
+Fixed before v0.1.0 in [#71](https://github.com/edbfi/siluet/pull/71) with a browser key ([D1](#browser-credential)); the upgrade revokes every session and proof; a cross-port test passes.
 
 Follow-up: refusing non-443 ports on result downloads (Gemini) was declined for now. Downloads already pin a vetted public address with TLS and no credentials, and no evidence shows which ports provider CDNs use. Revisit once real result URLs are observed.
 
