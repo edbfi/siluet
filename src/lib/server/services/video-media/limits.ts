@@ -1,5 +1,4 @@
 import {
-	maxSaveSeconds,
 	saveAllowanceSeconds,
 	saveSecondsProblem,
 } from "../../../shared/video-studio/save-profile";
@@ -11,9 +10,8 @@ export const movieByteLimit = 4 * 1024 * 1024;
 export const contentCredentialsByteLimit = 1024 * 1024;
 export const edgeLimit = 1920;
 export const areaLimit = 2_073_600;
-export { maxSaveSeconds, saveAllowanceSeconds };
 /** A video job queued before any Save limit existed keeps ≤ 12 s with no allowance. */
-export const legacySaveSeconds = 12;
+const legacySaveSeconds = 12;
 
 const framesPerSecond = 60;
 const audioRate = 48_000;
