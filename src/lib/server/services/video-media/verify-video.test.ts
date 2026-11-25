@@ -263,6 +263,18 @@ test("every other uuid and every misframed or misplaced C2PA box is refused", as
 
 test("a file that ends inside the C2PA box is truncated", async () => {
 	expect(await refusal(h3MaxShape().subarray(0, 32 + 5000))).toBeInstanceOf(TruncatedVideoError);
+	// The extended type is cut short, so the box could still be C2PA.
+	expect(await refusal(h3MaxShape().subarray(0, 32 + 20))).toBeInstanceOf(TruncatedVideoError);
+});
+
+test("another uuid that overruns the file is unsupported, not truncated", async () => {
+	const xmp = "be7acfcb97a942e89c71999491e3afac";
+	for (const wideBox of [false, true]) {
+		const bytes = afterFileType(h264Aac(), c2paBox(4096, { extendedType: xmp, wideBox }));
+		const error = await refusal(bytes.subarray(0, 32 + 100));
+		expect(error).toBeInstanceOf(UnsupportedVideoError);
+		expect(error.message).toMatch(/uuid at the top level/);
+	}
 });
 
 test("a 1 MiB C2PA box and a 60 MiB mdat verify with under 64 KiB read", async () => {

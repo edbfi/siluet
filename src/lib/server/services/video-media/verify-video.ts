@@ -1,7 +1,11 @@
 import { constants } from "node:fs";
 import { type FileHandle, open } from "node:fs/promises";
 import { refuseEbml, sniffBytes } from "./container";
-import { checkContentCredentials, contentCredentialsPrefix } from "./content-credentials";
+import {
+	checkContentCredentials,
+	checkUuidType,
+	contentCredentialsPrefix,
+} from "./content-credentials";
 import { check, TruncatedVideoError } from "./errors";
 import { movieByteLimit, videoByteLimit } from "./limits";
 import { inspectMovie, type Span } from "./mp4";
@@ -42,11 +46,13 @@ export async function verifyVideoFile(path: string) {
 		let boxes = 0;
 		for (let at = 0; at < size; ) {
 			check(++boxes <= topLevelBoxLimit, "too many boxes");
-			const head = await readAt(file, at, Math.min(16, size - at));
+			// Up to a 64-bit header and a `uuid` extended type.
+			const head = await readAt(file, at, Math.min(32, size - at));
 			// Refuse a foreign type before its size, so a complete non-MP4 file is not truncated.
 			if (head.length >= 8) {
 				const type = head.toString("latin1", 4, 8);
 				check(topLevel.has(type), type === "moof" ? "fragmented MP4" : `${type} at the top level`);
+				if (type === "uuid") checkUuidType(head);
 			}
 			const { type, size: length, header } = boxHeader(head, 0, size - at, truncated);
 			if (type === "ftyp") {

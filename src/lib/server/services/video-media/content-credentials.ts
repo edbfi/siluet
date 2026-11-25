@@ -16,6 +16,16 @@ const description = { size: 8 + 16 + 1 + 5, toggles: 3, label: "c2pa\0" };
 export const contentCredentialsPrefix = 128;
 
 /**
+ * Refuse a top-level `uuid` box from its first bytes, before its size: one whose extended type
+ * is readable in `head` and is not C2PA's is unsupported even when the file ends inside it.
+ */
+export function checkUuidType(head: Buffer) {
+	const at = head.readUInt32BE(0) === 1 ? 16 : 8;
+	if (head.length >= at + 16)
+		check(head.subarray(at, at + 16).equals(extendedType), "uuid at the top level");
+}
+
+/**
  * Check a top-level `uuid` box of `size` bytes with a `header`-byte header from `prefix`, its
  * first `contentCredentialsPrefix` bytes or fewer. Any `uuid` other than one framed C2PA
  * manifest store that fills its box is refused.
