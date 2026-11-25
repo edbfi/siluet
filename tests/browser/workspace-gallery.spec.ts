@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+import { test } from "./studio-test";
 
 const entry = new URL("../../design/workspace/workspace.html", import.meta.url).href;
 test.beforeAll(() => {

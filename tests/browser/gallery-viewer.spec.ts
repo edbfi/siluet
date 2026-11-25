@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "./studio-test";
 
 test("a late error from the previous image preserves the current preview", async ({ page }) => {
 	await page.setContent("<main></main>");

@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { h3MaxOperation } from "../../src/lib/shared/media-catalog/registry";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
@@ -14,6 +14,7 @@ import {
 import { h3MaxShape } from "../fixtures/video/real-clips";
 import { startStudio } from "./built-studio";
 import { seekThenPlay } from "./saved-video-playback";
+import { test } from "./studio-test";
 
 type Studio = Awaited<ReturnType<typeof startStudio>>;
 const prompt = "Waves move past a painted pier.";

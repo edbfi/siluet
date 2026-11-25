@@ -2,11 +2,12 @@ import { cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { exportWorkspace } from "../../design/workspace/export";
 import type { PricingFeed } from "../../src/lib/shared/pricing/feed";
 import { decodeToapisPricingFeed } from "../../src/lib/shared/pricing/toapis-feed";
 import { toapisRates } from "../fixtures/toapis-feed";
+import { test } from "./studio-test";
 import { reloadTest, reloadUrl } from "./workspace-reload";
 
 const workspace = new URL("../../design/workspace/", import.meta.url);

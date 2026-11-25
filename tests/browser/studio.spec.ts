@@ -5,10 +5,10 @@ import { mkdtemp, readdir, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
-
 import { startStudio } from "./built-studio";
+import { test } from "./studio-test";
 
 test("one owner can claim the studio and sign in after a process restart", async ({ browser }) => {
 	const directory = await createOwnerDirectory();

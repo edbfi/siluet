@@ -15,7 +15,33 @@ const bunAdapter = adapter({
 export default defineConfig({
 	plugins: [
 		guardPublicAssets("static"),
-		sveltekit({ adapter: bunAdapter }),
+		sveltekit({
+			adapter: bunAdapter,
+			// Pages render dynamically, so SvelteKit adds a per-response nonce for its own
+			// inline scripts and styles. The hook adds frame, sniffing and referrer headers.
+			csp: {
+				mode: "auto",
+				directives: {
+					"default-src": ["self"],
+					"script-src": ["self"],
+					"style-src": ["self"],
+					// Style attributes only, never <style> elements: Svelte renders `style:`
+					// directives with runtime values (Seedream and video frame sizes, setup
+					// artwork) and its route announcer as attributes, and app.html wraps the
+					// body in one. Hashes cannot cover runtime values. Attribute URLs still
+					// obey img-src.
+					"style-src-attr": ["unsafe-inline"],
+					// data: for the Siluet icon, which Vite inlines as a small asset; blob: for
+					// local image previews before staging.
+					"img-src": ["self", "data:", "blob:"],
+					"media-src": ["self"],
+					"object-src": ["none"],
+					"base-uri": ["none"],
+					"form-action": ["self"],
+					"frame-ancestors": ["none"],
+				},
+			},
+		}),
 		panda({ transform: true }),
 	],
 	server: {

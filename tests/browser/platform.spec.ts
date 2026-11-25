@@ -1,8 +1,9 @@
 import { exists, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { unsupportedPlatformMessage } from "../../src/lib/server/platform";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
+import { test } from "./studio-test";
 
 test("the built server refuses a foreign platform", async () => {
 	const parent = await createOwnerDirectory();

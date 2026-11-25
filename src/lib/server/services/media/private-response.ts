@@ -1,3 +1,4 @@
+import { mediaHeaders } from "../../http/security-headers";
 import { byteRange } from "./range";
 export type PrivateMediaLease = {
 	handle: {
@@ -25,9 +26,8 @@ export async function privateMediaResponse(
 	}
 	const headers = new Headers({
 		"Content-Type": mime,
-		"Cache-Control": "private, no-store",
-		"X-Content-Type-Options": "nosniff",
-		"Cross-Origin-Resource-Policy": "same-origin",
+		// Staging accepts still JPEG and PNG only.
+		...mediaHeaders("image"),
 		"Accept-Ranges": "bytes",
 		"Content-Length": String(size),
 		"Content-Disposition": disposition,

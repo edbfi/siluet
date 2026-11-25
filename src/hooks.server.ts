@@ -1,4 +1,5 @@
 import type { Handle, HandleServerError, ServerInit } from "@sveltejs/kit/hooks";
+import { withSecurityHeaders } from "#lib/server/http/security-headers.ts";
 import { requireSupportedPlatform } from "#lib/server/platform.ts";
 import { AccessError, recoverMessage } from "#lib/server/services/owner/access-error.ts";
 import { securityNotice } from "#lib/server/services/owner/cookies.ts";
@@ -14,12 +15,27 @@ export const init: ServerInit = async () => {
 	const { initializeOwner } = await import("#lib/server/services/owner/runtime.ts");
 	studio = await initializeOwner(dev);
 };
+const failure = "The studio could not complete the request.";
+const reportFailure = (route: string | null) =>
+	console.error("Studio request failed on route", route ?? "(unmatched)");
 export const handleError: HandleServerError = ({ event, kind }) => {
 	if (kind !== "unknown") return;
-	console.error("Studio request failed on route", event.route.id ?? "(unmatched)");
-	return { message: "The studio could not complete the request." };
+	reportFailure(event.route.id);
+	return { message: failure };
 };
-export const handle: Handle = async ({ event, resolve }) => {
+// Every response from this hook, including a failure SvelteKit would otherwise render
+// without hooks, carries the framing, sniffing and referrer headers.
+export const handle: Handle = async (input) => {
+	try {
+		return withSecurityHeaders(await admit(input));
+	} catch {
+		reportFailure(input.event.route.id);
+		return withSecurityHeaders(
+			new Response(failure, { status: 500, headers: { "cache-control": "no-store" } }),
+		);
+	}
+};
+const admit: Handle = async ({ event, resolve }) => {
 	const { request, route, locals, cookies } = event;
 	const headers: Record<string, string> = {
 		"cache-control":

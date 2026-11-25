@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "./studio-test";
 
 const workspace = new URL("../../design/workspace/index.html", import.meta.url);
 

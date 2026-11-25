@@ -1,4 +1,5 @@
 import type { FileHandle } from "node:fs/promises";
+import { mediaHeaders } from "../../http/security-headers";
 import { byteRange } from "../media/range";
 export async function videoResponse(
 	request: Request,
@@ -8,9 +9,7 @@ export async function videoResponse(
 ) {
 	const headers = new Headers({
 		"Content-Type": "video/mp4",
-		"Cache-Control": "private, no-store",
-		"X-Content-Type-Options": "nosniff",
-		"Cross-Origin-Resource-Policy": "same-origin",
+		...mediaHeaders("video"),
 		"Accept-Ranges": "bytes",
 		"Content-Length": String(size),
 		"Content-Disposition":

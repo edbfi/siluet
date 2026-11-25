@@ -1,5 +1,5 @@
 import { readFile, rm } from "node:fs/promises";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { sql } from "drizzle-orm";
 import { openInstallation } from "../../src/lib/server/db/installation";
 import { duplicateFrames, keyframeAcceptance } from "../../src/lib/shared/video-studio/keyframes";
@@ -7,6 +7,7 @@ import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
 import { seedanceProvider } from "../fixtures/seedance-provider";
 import { startStudio } from "./built-studio";
+import { test } from "./studio-test";
 
 // Two signed frames on one host. Nothing may read either URL.
 // A maximal 63-character DNS label: a long signed-storage host must still fit 320 px.

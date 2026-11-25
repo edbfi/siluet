@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
+import { type APIRequestContext, expect, type Page } from "@playwright/test";
 import { jobResponses } from "../fixtures/job-responses";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import {
@@ -10,6 +10,7 @@ import {
 	startProviderFixtures,
 } from "../fixtures/provider-connections";
 import { startStudio } from "./built-studio";
+import { test } from "./studio-test";
 
 type Studio = Awaited<ReturnType<typeof startStudio>>;
 

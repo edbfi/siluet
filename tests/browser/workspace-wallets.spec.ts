@@ -1,4 +1,5 @@
-import { test as base, expect, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
+import { test as base } from "./studio-test";
 
 const workspace = new URL("../../design/workspace/index.html", import.meta.url);
 

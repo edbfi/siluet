@@ -1,4 +1,4 @@
-import { type APIResponse, expect, type Page, test } from "@playwright/test";
+import { type APIResponse, expect, type Page } from "@playwright/test";
 import poyoBundle from "../../pricing/v2/poyo.json";
 import toapisBundle from "../../pricing/v2/toapis.json";
 import { pricingCachePath } from "../../src/lib/server/services/pricing/local-feed";
@@ -28,6 +28,7 @@ import {
 	providerPayload,
 	withEditStudio,
 } from "./edit-studio-fixture";
+import { test } from "./studio-test";
 
 const bundledPoyo = decodePoyoV2Feed(poyoBundle);
 if (!bundledPoyo) throw new Error("Invalid bundled Poyo.ai rates");

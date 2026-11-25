@@ -1,12 +1,13 @@
 import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { createSeedreamDraft } from "../../src/lib/shared/image-studio/seedream";
 import { jobResponses } from "../fixtures/job-responses";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
 import { referencePng } from "../fixtures/reference-image";
 import { startStudio } from "./built-studio";
+import { test } from "./studio-test";
 
 type Studio = Awaited<ReturnType<typeof startStudio>>;
 
@@ -79,6 +80,19 @@ test("Gallery tiles and the viewer download the original image, and Jobs downloa
 		expect(await download(page, tileDownload)).toEqual({ name, bytes: referencePng });
 		const attachment = await page.request.get(`${origin}/gallery/${jobId}/media?download=1`);
 		expect(attachment.headers()["content-disposition"]).toBe(`attachment; filename="${name}"`);
+		// Opened on its own, the saved image is a sandboxed document that no page can frame.
+		const inline = await page.goto(`${origin}/gallery/${jobId}/media`);
+		expect(inline?.headers()).toMatchObject({
+			"content-type": "image/png",
+			"cross-origin-resource-policy": "same-origin",
+			"x-frame-options": "DENY",
+			"x-content-type-options": "nosniff",
+			"referrer-policy": "same-origin",
+			"content-security-policy":
+				"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; sandbox",
+		});
+		await expect(page.locator("img")).toHaveJSProperty("naturalWidth", 1);
+		await page.goto(`${origin}/gallery`);
 		await page.getByRole("link", { name: new RegExp(`Image ${short}`) }).press("Enter");
 		// Exact, so it cannot match the outgoing tile's "Download image <id>" mid-navigation.
 		const viewerDownload = page.getByRole("link", { name: "Download image", exact: true });

@@ -1,10 +1,11 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { sql } from "drizzle-orm";
 import sharp from "sharp";
 import { openInstallation } from "../../src/lib/server/db/installation";
 import { localImageMarker, markedFile, rotatedJpeg } from "../fixtures/local-image";
 import { editedPng } from "../fixtures/reference-edit";
 import { prompt, providerPayload, withEditStudio } from "./edit-studio-fixture";
+import { test } from "./studio-test";
 
 for (const provider of ["poyo", "toapis"] as const) {
 	for (const [format, cleaning] of [

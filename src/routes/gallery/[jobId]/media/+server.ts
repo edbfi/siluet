@@ -1,4 +1,5 @@
 import { error } from "@sveltejs/kit";
+import { mediaHeaders } from "#lib/server/http/security-headers.ts";
 import { videoResponse } from "#lib/server/services/gallery/video-response.ts";
 import type { RequestHandler } from "./$types";
 
@@ -19,9 +20,8 @@ export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 	const extension = image.mime === "image/png" ? "png" : "jpg";
 	return new Response(request.method === "HEAD" ? null : image.bytes, {
 		headers: {
-			"cache-control": "private, no-store",
+			...mediaHeaders("image"),
 			"content-type": image.mime,
-			"x-content-type-options": "nosniff",
 			"content-disposition":
 				url.searchParams.get("download") === "1"
 					? `attachment; filename="siluet-image-${name}.${extension}"`
