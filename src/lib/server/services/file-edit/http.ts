@@ -4,7 +4,6 @@ import { privateMediaResponse } from "../media/private-response";
 import { PreparationError } from "../media-cleanup/preparation";
 import { opaqueId } from "../media-staging/opaque-id";
 import { CleaningChangedError, maxStageBytes, StageError } from "../media-staging/stages";
-import { sessionDigest } from "../owner/credentials";
 import { parseFileRequest } from "./request";
 
 const settingFields = (setting: CleaningSetting | null) => ({
@@ -12,10 +11,9 @@ const settingFields = (setting: CleaningSetting | null) => ({
 	revision: setting?.revision ?? null,
 });
 
-/** The signed-in owner and this session, from the cookie. */
-function ownerScope({ locals, cookies }: RequestEvent) {
-	const token = cookies.get(locals.studio.cookieName);
-	return locals.owner && token ? { owner: locals.owner, session: sessionDigest(token) } : null;
+/** The signed-in owner and the internal digest of the session the bearer belongs to. */
+function ownerScope({ locals }: RequestEvent) {
+	return locals.session ? { owner: locals.session.username, session: locals.session.digest } : null;
 }
 
 function scopeFor(event: RequestEvent, draft: unknown) {
@@ -36,7 +34,6 @@ export async function stageFile(event: RequestEvent) {
 	const declared = request.headers.get("content-length");
 	if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxStageBytes))
 		return new Response(null, { status: 413 });
-	const token = event.cookies.get(locals.studio.cookieName);
 	// The setting this preparation was admitted under, so another tab can tell when a
 	// change in Settings made this copy or refusal stale and describe the current mode.
 	let admitted: CleaningSetting | null = null;
@@ -49,7 +46,8 @@ export async function stageFile(event: RequestEvent) {
 			(media, stop) =>
 				locals.studio.stages.put(scope, media, {
 					...stop,
-					valid: async () => (await locals.studio.access.session(token)) === scope.owner,
+					// A bearer expiring mid-upload leaves its session, and so the stage, valid.
+					valid: async () => (await locals.studio.access.live(scope.session)) === scope.owner,
 				}),
 			(setting) => {
 				admitted = setting;

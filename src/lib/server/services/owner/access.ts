@@ -4,7 +4,8 @@ import type { Installation } from "../../db/installation";
 
 import { AccessError } from "./access-error";
 import { createAuthenticator } from "./authenticator";
-import { hashPassword, sessionDigest, token } from "./credentials";
+import { type Bearers, createBearers } from "./bearers";
+import { hashPassword, token } from "./credentials";
 
 const invalidClaim = () => new AccessError("Check the claim token in your terminal.", 403);
 const invalidLogin = () => new AccessError("Check your username and password.", 403);
@@ -14,8 +15,9 @@ export function createOwnerAccess(
 	installation: Installation,
 	clock = Date.now,
 	origin = "http://127.0.0.1",
+	bearers: Bearers = createBearers(),
 ) {
-	const store = accessStore(installation);
+	const store = accessStore(installation, bearers);
 	let claimDigest: Buffer | null = null;
 	let expires = 0;
 	function rotate() {
@@ -32,24 +34,31 @@ export function createOwnerAccess(
 		if (!id) throw new AccessError("Too many attempts. Try again in five minutes.", 429);
 		return id;
 	}
-	const security = createAuthenticator(installation, origin, clock, async (name, password) => {
-		const attempt = await reserve("signin");
-		const owner = await store.owner();
-		if (
-			!owner ||
-			Buffer.byteLength(password) > 1024 ||
-			!(await Bun.password.verify(password, owner.password_hash)) ||
-			(name !== null && owner.username !== name.trim().normalize("NFC"))
-		)
-			throw invalidLogin();
-		await store.release(attempt);
-		return owner;
-	});
+	const security = createAuthenticator(
+		installation,
+		origin,
+		clock,
+		async (name, password) => {
+			const attempt = await reserve("signin");
+			const owner = await store.owner();
+			if (
+				!owner ||
+				Buffer.byteLength(password) > 1024 ||
+				!(await Bun.password.verify(password, owner.password_hash)) ||
+				(name !== null && owner.username !== name.trim().normalize("NFC"))
+			)
+				throw invalidLogin();
+			await store.release(attempt);
+			return owner;
+		},
+		bearers,
+	);
 	return {
 		rotate,
 		security,
 		signIn: security.signIn,
-		async claim(value: string, name: string, password: string) {
+		/** Claim for the browser key `key`; its session is the only one. */
+		async claim(value: string, name: string, password: string, key: string) {
 			const attempt = await reserve("claim");
 			if (value.length > 128 || !current(value)) throw invalidClaim();
 			await store.release(attempt);
@@ -57,20 +66,35 @@ export function createOwnerAccess(
 			if (!username || Array.from(username).length > 64 || /\p{Cc}/u.test(username))
 				throw new AccessError("Use a username of 1–64 characters without control characters.", 400);
 			const hash = await hashPassword(password);
-			const session = token();
-			const won = await store.claim(username, hash, sessionDigest(session), clock(), () => {
+			const won = await store.claim(username, hash, key, clock(), () => {
 				if (!current(value)) throw invalidClaim();
 			});
 			if (!won) throw invalidClaim();
 			claimDigest = null;
-			return session;
+			return won;
 		},
-		async session(value: string | undefined) {
-			if (!value || !/^[\w-]{43}$/.test(value)) return null;
-			return store.checkSession(sessionDigest(value), clock());
+		/** The live session behind a bearer, marking its activity. */
+		async session(bearer: string | null) {
+			const session = bearers.session(bearer);
+			if (!session) return null;
+			const row = await store.checkSession(session, clock());
+			return row && { ...row, digest: session };
 		},
-		async signOut(value: string | undefined) {
-			return !!value && !!(await store.revoke(sessionDigest(value)));
+		/** The live session behind a bearer, read-only. */
+		async peek(bearer: string | null) {
+			const session = bearers.session(bearer);
+			if (!session) return null;
+			const row = await store.sessionIds(session, clock());
+			return row && { ...row, digest: session };
 		},
+		/** The owner of a session that is still live, by its internal digest. */
+		async live(digest: string) {
+			return (await store.sessionIds(digest, clock()))?.username ?? null;
+		},
+		resume: (key: string, previous: unknown) => store.resume(key, previous, clock()),
+		signOut: (key: string, loginId: string) => store.revokeLogin(key, loginId, clock()),
 	};
 }
+export type OwnerAccess = ReturnType<typeof createOwnerAccess>;
+/** The session the hook admitted a private request under. */
+export type OwnerSession = NonNullable<Awaited<ReturnType<OwnerAccess["session"]>>>;

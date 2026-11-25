@@ -5,6 +5,8 @@ import {
 	parseStageDescriptor,
 } from "#lib/shared/media-staging/descriptor.ts";
 import { localImageLimitRefusal } from "#lib/shared/media-staging/limits.ts";
+import type { SessionInit } from "#lib/shared/owner/authenticated-fetch.ts";
+import { sessionClient } from "#lib/shared/owner/session-client.ts";
 import { invalidateAll } from "$app/navigation";
 import {
 	duplicatePositions,
@@ -129,6 +131,9 @@ export class LocalCopy {
 
 	// One opaque draft per attached file. Preparing again replaces its earlier copy.
 	#draftId = crypto.randomUUID();
+	// The session this copy was attached under. Its staging and cleanup go out only with that
+	// session's bearer; after a session change they send nothing.
+	#session = sessionClient().bound()?.sessionId;
 	#used = false;
 	#preparing: AbortController | null = null;
 	#expiry: ReturnType<typeof setTimeout> | undefined;
@@ -235,7 +240,11 @@ export class LocalCopy {
 		clearTimeout(this.#expiry);
 		if (this.#used) {
 			this.#pool.deletes.track(
-				fetch(`/image/files/${this.#draftId}`, { method: "DELETE", keepalive: true }),
+				fetch(`/image/files/${this.#draftId}`, {
+					method: "DELETE",
+					keepalive: true,
+					siluetSession: this.#session,
+				} as SessionInit),
 			);
 			this.#draftId = crypto.randomUUID();
 			this.#used = false;
@@ -310,7 +319,8 @@ export class LocalCopy {
 						body: file,
 						headers: { "Content-Type": "application/octet-stream" },
 						signal: abort.signal,
-					});
+						siluetSession: this.#session,
+					} as SessionInit);
 					const result: unknown = await response.json().catch(() => null);
 					if (this.#preparing !== abort) return;
 					const { stage, error, code } = record(result);

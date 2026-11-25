@@ -28,8 +28,7 @@ function event(
 		body: new Uint8Array([1, 2, 3]),
 	});
 	const studio = {
-		cookieName: "siluet_test",
-		access: { session: async () => "creator" },
+		access: { live: async () => "creator" },
 		cleaning: { read: async () => current },
 		stages: { put: async () => descriptor },
 		async prepareMedia(
@@ -48,8 +47,11 @@ function event(
 	return {
 		request,
 		params: { draft },
-		locals: { owner: "creator", studio },
-		cookies: { get: () => "token" },
+		locals: {
+			owner: "creator",
+			session: { username: "creator", digest: "d".repeat(64) },
+			studio,
+		},
 	} as unknown as RequestEvent;
 }
 
@@ -121,8 +123,8 @@ test("duplicate positions answer only the signed-in owner's session, before Queu
 				}),
 				locals: {
 					owner: signedIn ? "creator" : null,
+					session: signedIn ? { username: "creator", digest: "d".repeat(64) } : null,
 					studio: {
-						cookieName: "siluet_test",
 						files: {
 							review: async (...args: unknown[]) => {
 								calls.push(args);
@@ -131,7 +133,6 @@ test("duplicate positions answer only the signed-in owner's session, before Queu
 						},
 					},
 				},
-				cookies: { get: () => (signedIn ? "token" : undefined) },
 			} as unknown as RequestEvent,
 			"review",
 		);
@@ -155,6 +156,6 @@ test("duplicate positions answer only the signed-in owner's session, before Queu
 	expect(calls).toHaveLength(1);
 	expect((calls[0] as [{ owner: string; session: string }])[0]).toEqual({
 		owner: "creator",
-		session: expect.any(String),
+		session: "d".repeat(64),
 	});
 });

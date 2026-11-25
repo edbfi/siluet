@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { invalidFactor, staleProof } from "../services/owner/access-error";
 import { sessionDigest, token } from "../services/owner/credentials";
 import { checkStep, makeRecoverySet, recoveryDigest } from "../services/owner/factors";
-import { idleMs, insertSession, lifetimeMs } from "./access-store";
+import { idleMs, insertSession, lifetimeMs, newLogin, successor } from "./access-store";
 import type { OwnerTransaction } from "./installation";
 import type { Factor, Policy } from "./security-state";
 import { deleteOwnerSessions } from "./session-retirement";
@@ -16,6 +16,7 @@ export async function requireSession(tx: OwnerTransaction, digest: string, now: 
 	)
 		throw staleProof();
 }
+/** Store a proof and return its secret value; only its digest is kept. */
 export async function issueProof(
 	tx: OwnerTransaction,
 	state: Policy,
@@ -24,41 +25,49 @@ export async function issueProof(
 	expires: number,
 	session: string | null,
 	candidate: string | null,
-	method: "password" = "password",
+	{ key = null, method = "password" }: { key?: string | null; method?: "password" } = {},
 ) {
 	const value = token();
 	await tx.run(
-		sql`INSERT INTO owner_proof VALUES(${sessionDigest(value)},1,${method},${state.primary_revision},${state.revision},${origin},${purpose},${session},${candidate},${expires})`,
+		sql`INSERT INTO owner_proof (digest, owner_id, method, primary_revision, revision, origin, purpose, session_digest, candidate, expires, public_key)
+		VALUES(${sessionDigest(value)},1,${method},${state.primary_revision},${state.revision},${origin},${purpose},${session},${candidate},${expires},${key})`,
 	);
 	return value;
 }
+/**
+ * A live proof by digest. A pending sign-in names the browser key that may finish it
+ * (`key`); Security proofs name the initiating session and no key.
+ */
 export async function requireProof(
 	tx: OwnerTransaction,
 	state: Policy,
-	value: string,
+	digest: string,
 	origin: string,
 	purpose: string,
 	now: number,
 	session: string | null,
+	key: string | null = null,
 ) {
 	const row = await tx.get<{ candidate: string | null; expires: number }>(
-		sql`SELECT candidate,expires FROM owner_proof WHERE digest=${sessionDigest(value)} AND owner_id=1 AND method='password' AND primary_revision=${state.primary_revision} AND revision=${state.revision} AND origin=${origin} AND purpose=${purpose} AND expires>${now} AND session_digest IS ${session}`,
+		sql`SELECT candidate,expires FROM owner_proof WHERE digest=${digest} AND owner_id=1 AND method='password' AND primary_revision=${state.primary_revision} AND revision=${state.revision} AND origin=${origin} AND purpose=${purpose} AND expires>${now} AND session_digest IS ${session} AND public_key IS ${key}`,
 	);
 	if (!row) throw staleProof();
 	return row;
 }
+/** The candidate named by `requested`, only for its live session, action and revisions. */
 export function resumableCandidate(
 	tx: OwnerTransaction,
 	state: Policy,
 	origin: string,
 	session: string,
+	requested: string,
 	now: number,
 ) {
 	const action = state.enabled ? "replace" : "enable";
 	return tx.get<{ digest: string; candidate: string }>(sql`SELECT digest,candidate FROM owner_proof
-		WHERE owner_id=1 AND method='password' AND primary_revision=${state.primary_revision}
+		WHERE digest=${requested} AND owner_id=1 AND method='password' AND primary_revision=${state.primary_revision}
 		AND revision=${state.revision} AND origin=${origin} AND purpose=${action}
-		AND session_digest=${session} AND expires>${now} AND candidate IS NOT NULL`);
+		AND session_digest=${session} AND expires>${now} AND candidate IS NOT NULL AND public_key IS NULL`);
 }
 export async function consumeFactor(
 	tx: OwnerTransaction,
@@ -94,46 +103,73 @@ export async function consumeFactor(
 	}
 	throw invalidFactor();
 }
+/**
+ * Commit a Security change: every session is replaced by the initiator's successor, which
+ * keeps its browser key and login ID under a new session ID.
+ */
 export async function rotateSecurity(
 	tx: OwnerTransaction,
 	installation: string,
 	enabled: boolean,
 	now: number,
+	initiating: string,
 ) {
+	const initiator = await tx.get<{ key: string; loginId: string }>(
+		sql`SELECT public_key AS key, login_id AS loginId FROM session WHERE digest=${initiating}`,
+	);
+	if (!initiator) throw staleProof();
 	await tx.run(sql`UPDATE owner_security SET enabled=${enabled ? 1 : 0},revision=revision+1`);
 	await tx.run(sql`DELETE FROM owner_proof`);
 	await deleteOwnerSessions(tx);
 	await tx.run(sql`DELETE FROM recovery_code`);
-	const session = token();
-	await tx.run(insertSession(sessionDigest(session), now));
+	const ids = successor(initiator.loginId);
+	await tx.run(insertSession(initiator.key, ids, now));
 	const set = enabled ? makeRecoverySet(installation) : null;
 	if (set) {
 		await tx.run(sql`UPDATE owner_factor SET set_id=${set.id},remaining=10`);
 		for (const digest of set.digests)
 			await tx.run(sql`INSERT INTO recovery_code VALUES(${digest},${set.id})`);
 	} else await tx.run(sql`DELETE FROM owner_factor`);
-	return { session, codes: set?.codes ?? [] };
+	return { ...ids, codes: set?.codes ?? [] };
 }
 
+/** Replace this session's candidate; returns the new candidate's digest, which names it. */
 export async function replaceCandidateProof(
 	tx: OwnerTransaction,
 	state: Policy,
 	origin: string,
 	action: "enable" | "replace",
-	digest: string,
+	session: string,
 	candidate: string,
 	now: number,
 ) {
-	await tx.run(sql`DELETE FROM owner_proof WHERE session_digest=${digest} OR expires<=${now}`);
-	return issueProof(tx, state, origin, action, now + 300000, digest, candidate);
+	await tx.run(sql`DELETE FROM owner_proof WHERE session_digest=${session} OR expires<=${now}`);
+	return sessionDigest(
+		await issueProof(tx, state, origin, action, now + 300000, session, candidate),
+	);
 }
-export const dropProof = (tx: OwnerTransaction, value: string) =>
-	tx.run(sql`DELETE FROM owner_proof WHERE digest=${sessionDigest(value)}`);
-export async function completeChallenge(tx: OwnerTransaction, value: string, now: number) {
-	await dropProof(tx, value);
-	const session = token();
-	await tx.run(insertSession(sessionDigest(session), now));
-	return session;
+const pendingSignIn = (digest: string, key: string) =>
+	sql`digest=${digest} AND public_key=${key} AND purpose='signin' AND session_digest IS NULL`;
+/** Cancel this key's pending sign-in. */
+export const dropProof = (tx: OwnerTransaction, digest: string, key: string) =>
+	tx.run(sql`DELETE FROM owner_proof WHERE ${pendingSignIn(digest, key)}`);
+/** Spend this key's pending sign-in and replace the key's session with a new login. */
+export async function completeChallenge(
+	tx: OwnerTransaction,
+	digest: string,
+	key: string,
+	now: number,
+) {
+	if (
+		!(await tx.get(
+			sql`DELETE FROM owner_proof WHERE ${pendingSignIn(digest, key)} RETURNING digest`,
+		))
+	)
+		throw staleProof();
+	await deleteOwnerSessions(tx, sql`public_key=${key}`);
+	const ids = newLogin();
+	await tx.run(insertSession(key, ids, now));
+	return ids;
 }
 export async function activateFactor(
 	tx: OwnerTransaction,
@@ -142,8 +178,9 @@ export async function activateFactor(
 	envelope: string,
 	used: number,
 	now: number,
+	initiating: string,
 ) {
 	await tx.run(sql`DELETE FROM owner_factor`);
 	await tx.run(sql`INSERT INTO owner_factor VALUES(1,${id},${envelope},${used},'',0)`);
-	return rotateSecurity(tx, installation, true, now);
+	return rotateSecurity(tx, installation, true, now, initiating);
 }

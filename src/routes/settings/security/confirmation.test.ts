@@ -20,13 +20,13 @@ test.each(["publication", "throttling", "expiry during publication"] as const)(
 			const password = crypto.randomUUID();
 			const origin = new URL("http://127.0.0.1");
 			const access = createOwnerAccess(install, Date.now, origin.origin);
-			const session = await access.claim(access.rotate(), "owner", password);
+			const { digest: session } = await access.claim(access.rotate(), "owner", password, "key-a");
 			const initial = await access.security.authorize("enable", session, password, "");
 			if (initial.kind !== "candidate") throw new Error("Expected enrollment.");
 			const enabled = await access.security.activate(
 				"enable",
 				session,
-				initial.proof,
+				initial.digest,
 				new TOTP({ secret: initial.manual }).generate(),
 			);
 			const { factor } = await access.security.snapshot();
@@ -49,7 +49,7 @@ test.each(["publication", "throttling", "expiry during publication"] as const)(
 			}
 			const replacement = await access.security.authorize(
 				"replace",
-				enabled.session,
+				enabled.digest,
 				password,
 				last,
 			);
@@ -57,20 +57,20 @@ test.each(["publication", "throttling", "expiry during publication"] as const)(
 			expect((await access.security.snapshot()).factor?.remaining).toBe(0);
 			const totp = new TOTP({ secret: replacement.manual });
 			// The action uses only these fields of the framework request event.
-			const confirm = (proof: string, code = totp.generate(), sessionToken = enabled.session) =>
+			const confirm = (proof: string, code = totp.generate(), digest = enabled.digest) =>
 				actions.default({
-					locals: { studio: { access, origin, cookieName: "session" } },
-					cookies: { get: () => sessionToken, set: () => {}, delete: () => {} },
+					locals: { studio: { access, origin }, session: { digest } },
+					setHeaders: () => {},
 					request: new Request(origin, {
 						method: "POST",
 						body: new URLSearchParams({ change: "replace", code, proof }),
 					}),
 				} as unknown as Parameters<typeof actions.default>[0]);
 			if (failure === "throttling") {
-				const mismatch = await confirm(replacement.proof, "invalid");
+				const mismatch = await confirm(replacement.digest, "invalid");
 				if (!("status" in mismatch)) throw new Error("Expected an invalid code.");
 				expect(mismatch.status).toBe(403);
-				expect(mismatch.data.proof === replacement.proof).toBe(true);
+				expect(mismatch.data.proof === replacement.digest).toBe(true);
 			}
 			const collision =
 				failure === "throttling"
@@ -81,7 +81,7 @@ test.each(["publication", "throttling", "expiry during publication"] as const)(
 								if (failure === "expiry during publication") elapsed += 300000;
 								return factor.id as ReturnType<typeof crypto.randomUUID>;
 							});
-			const failed = await confirm(replacement.proof).finally(() => collision?.mockRestore());
+			const failed = await confirm(replacement.digest).finally(() => collision?.mockRestore());
 			if (!("status" in failed)) throw new Error("Expected failed confirmation.");
 			if (failure === "expiry during publication") {
 				expect(failed.status).toBe(403);
@@ -89,15 +89,16 @@ test.each(["publication", "throttling", "expiry during publication"] as const)(
 				return;
 			}
 			expect(failed.status).toBe(failure === "publication" ? 503 : 429);
-			expect(failed.data.proof === replacement.proof).toBe(true);
+			expect(failed.data.proof === replacement.digest).toBe(true);
 			expect(failed.data.action).toBe("replace");
 			if (failure === "throttling") elapsed += 10000;
 			const changed = await confirm(failed.data.proof);
 			if (!("codes" in changed)) throw new Error("Expected the original candidate to commit.");
 			expect(changed.codes).toHaveLength(10);
-			const rotated = await access.signIn("owner", password);
-			const newSession = await access.security.complete(rotated.token, changed.codes[0]);
-			const consumed = await confirm(replacement.proof, totp.generate(), newSession);
+			const rotated = await access.signIn("owner", password, "key-a");
+			if (rotated.kind !== "pending") throw new Error("Expected a pending sign-in.");
+			const newSession = await access.security.complete(rotated.token, "key-a", changed.codes[0]);
+			const consumed = await confirm(replacement.digest, totp.generate(), newSession.digest);
 			if (!("status" in consumed)) throw new Error("Expected consumed proof to be refused.");
 			expect(consumed.data.proof === "").toBe(true);
 		} finally {

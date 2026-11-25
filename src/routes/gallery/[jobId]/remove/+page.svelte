@@ -2,6 +2,7 @@
 import { actions, link, page } from "#lib/components/gallery/gallery-styles.ts";
 import SavedImageDetails from "#lib/components/gallery/SavedImageDetails.svelte";
 import { css } from "#styled-system/css";
+import { enhance } from "$app/forms";
 import type { PageProps } from "./$types";
 
 let { data, form }: PageProps = $props();
@@ -23,7 +24,7 @@ let { data, form }: PageProps = $props();
 	{#if form?.message}
 		<p role="alert">{form.message}</p>
 	{/if}
-	<form method="POST" class={actions}>
+	<form method="POST" class={actions} use:enhance>
 		<a class={link} href={`/gallery/${encodeURIComponent(data.image.jobId)}`}>Cancel</a>
 		<button
 			type="submit"

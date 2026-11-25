@@ -154,9 +154,9 @@ test("released migrations keep their SQL and new ones sort after the last releas
 		expect(digest(value)).toBe(releasedMigrations.get(name) ?? "");
 });
 
-test("per-mode video Save limits sort last", () => {
+test("browser-key sessions sort last", () => {
 	expect(Object.keys(installationMigrations).sort().slice(-2)).toEqual([
-		"20261125120000_video_profile_rearm",
 		"20261126120000_video_save_limits",
+		"20261127120000_browser_key_sessions",
 	]);
 });

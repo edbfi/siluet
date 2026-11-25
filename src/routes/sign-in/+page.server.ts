@@ -1,9 +1,8 @@
-import { pendingCredential } from "#lib/server/services/owner/cookies.ts";
-import { authenticate } from "#lib/server/services/owner/form.ts";
-import type { Actions, PageServerLoad } from "./$types";
-export const actions = { default: (event) => authenticate(event, false) } satisfies Actions;
+import { redirect } from "@sveltejs/kit";
+import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ locals, cookies }) => {
-	const proof = pendingCredential(cookies, locals.studio.cookieName);
-	return { pending: !!proof && (await locals.studio.access.security.pending(proof)) };
+export const load: PageServerLoad = async ({ locals }) => {
+	if (!(await locals.studio.hasOwner())) redirect(303, "/setup");
+	if (locals.session) redirect(303, "/");
+	return {};
 };

@@ -6,8 +6,8 @@ import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-direct
 import { filePlaceholder } from "../../../shared/image-studio/file-edit";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
-import { accessStore, insertSession } from "../../db/access-store";
 import { imageJobStore } from "../../db/image-job-store";
+import { addSession, claimOwner, revokeSession } from "../../db/owner-session.fixture";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation } from "../../db/runtime-installation";
 import { loadBundledPricing } from "../pricing/studio-feeds";
@@ -26,7 +26,7 @@ test("one claim returns while upload is pending, keeps the reviewed key and repl
 	const received: string[] = [];
 	try {
 		const credentials = providerStore(db);
-		await accessStore(db).claim(scope.owner, "unused", scope.session, clock, () => {});
+		await claimOwner(db, scope.owner, scope.session, clock);
 		await credentials.save("poyo", "reviewed-credential", clock, true, 0);
 		const bytes = new Uint8Array([4, 2]);
 		const stage = await stages.put(scope, {
@@ -164,7 +164,7 @@ test("one claim returns while upload is pending, keeps the reviewed key and repl
 		);
 		expect(await reopened.submit(scope, click)).toEqual(one);
 		const next = { ...scope, session: "subsequent-owner-session" };
-		await db.use((tx) => tx.run(insertSession(next.session, Date.now())));
+		await addSession(db, next.session, Date.now());
 		expect(await reopened.submit(next, click)).toEqual(one);
 		expect(
 			await reopened.submit(
@@ -173,7 +173,7 @@ test("one claim returns while upload is pending, keeps the reviewed key and repl
 			),
 		).toEqual({ error: "invalid" });
 		expect(await reopened.submit({ ...next, owner: "another" }, click)).not.toEqual(one);
-		await accessStore(db).revoke(scope.session);
+		await revokeSession(db, scope.session);
 		expect(await reopened.submit(scope, click)).toEqual({ error: "invalid" });
 		await db.use((tx) => tx.run(sql`UPDATE owner_security SET recovery_required=1`));
 		expect(await reopened.submit(next, click)).not.toEqual(one);
@@ -208,7 +208,7 @@ test("revocation, changed terms and replacement prevent first use without dispat
 	let pause = false;
 	let feeds: PricingFeeds = {};
 	try {
-		await accessStore(db).claim(scope.owner, "unused", scope.session, now, () => {});
+		await claimOwner(db, scope.owner, scope.session, now);
 		await credentials.save("toapis", "first-credential", now, true, 0);
 		const stage = await stages.put(scope, media);
 		const draft = { ...createSeedreamDraft("toapis", "edit"), prompt: "Color the tree" };
@@ -291,7 +291,7 @@ test("revocation, changed terms and replacement prevent first use without dispat
 		const waiting = queue.submit(scope, second);
 		await loaded.promise;
 		await stages.revoke(scope.session);
-		await accessStore(db).revoke(scope.session);
+		await revokeSession(db, scope.session);
 		release.resolve();
 		expect(await waiting).toEqual({ error: "stale", positions: [1] });
 		await stages.revoke(scope.session);

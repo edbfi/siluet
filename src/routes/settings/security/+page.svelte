@@ -1,7 +1,9 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onDestroy, onMount } from "svelte";
+import { sessionClient } from "#lib/shared/owner/session-client.ts";
 import { css } from "#styled-system/css";
-import { beforeNavigate } from "$app/navigation";
+import { enhance, type SubmitFunction } from "$app/forms";
+import { page } from "$app/state";
 import { styles } from "../providers/providers-styles";
 import type { PageProps } from "./$types";
 
@@ -22,26 +24,72 @@ const fields = css({
 	"& input": { width: "100%", minHeight: "44px" },
 });
 const manual = css({ overflowWrap: "anywhere", userSelect: "all", fontFamily: "monospace" });
-let secretArea = $state<HTMLElement>();
-function forget() {
-	if (secretArea) {
-		secretArea.replaceChildren();
-		for (const script of document.querySelectorAll("script:not([src])")) script.remove();
-	}
-}
-beforeNavigate(forget);
-onMount(() => {
-	const restored = (event: PageTransitionEvent) => {
-		if (event.persisted)
-			location.replace(data.offer ? "/settings/security?offer" : "/settings/security");
-	};
-	window.addEventListener("pagehide", forget);
-	window.addEventListener("pageshow", restored);
-	return () => {
-		window.removeEventListener("pagehide", forget);
-		window.removeEventListener("pageshow", restored);
-	};
+const banner = css({
+	padding: "0.75rem 1rem",
+	borderRadius: "0.5rem",
+	backgroundColor: "canvas",
+	border: "1px solid {colors.line}",
 });
+
+// sessionStorage names this tab's candidate by its digest, so a reload can offer Resume.
+const candidateKey = "siluet-security-candidate";
+let saved = $state<string | null>(null);
+let submitting = $state(false);
+let mounted = true;
+let secretArea = $state<HTMLElement>();
+const offerQuery = $derived(data.offer ? "&offer" : "");
+$effect(() => {
+	const shown =
+		result?.kind === "candidate"
+			? result.digest
+			: result?.kind === "error" && result.proof
+				? result.proof
+				: null;
+	try {
+		if (shown) sessionStorage.setItem(candidateKey, shown);
+		else if (result?.kind === "changed" || (page.url.searchParams.has("resume") && !data.candidate))
+			sessionStorage.removeItem(candidateKey);
+		saved = sessionStorage.getItem(candidateKey);
+	} catch {}
+});
+/** Clear a shown candidate when the page goes, so history cannot reveal its seed. */
+function forget() {
+	if (!secretArea?.childElementCount) return;
+	secretArea.replaceChildren();
+	sessionClient().registerDestination(`/settings/security${data.offer ? "?offer" : ""}`);
+}
+onMount(() => {
+	window.addEventListener("pagehide", forget);
+	return () => window.removeEventListener("pagehide", forget);
+});
+onDestroy(() => {
+	mounted = false;
+});
+
+const submit: SubmitFunction = ({ cancel }) => {
+	if (submitting) return cancel();
+	submitting = true;
+	const client = sessionClient();
+	const from = location.href;
+	client.beginSecurity();
+	return async ({ result: outcome, update }) => {
+		try {
+			if (outcome.type === "success" && outcome.data?.kind === "changed") {
+				// Codes go to the dialog only, never into the form result.
+				const changed = outcome.data as { sessionId: string; codes?: string[] };
+				const codes = changed.codes ?? [];
+				Reflect.deleteProperty(changed, "codes");
+				if (client.settleSecurity({ sessionId: changed.sessionId, codes }, mounted, from))
+					await update({ reset: true });
+				return;
+			}
+			client.settleSecurity(null, mounted, from);
+			if (mounted) await update({ reset: false });
+		} finally {
+			submitting = false;
+		}
+	};
+};
 const choices = [
 	["replace", "Replace authenticator"],
 	["regenerate", "Regenerate recovery codes"],
@@ -49,7 +97,7 @@ const choices = [
 ] as const;
 </script>
 <svelte:head><title>Security · Siluet</title></svelte:head>
-<div class={styles.settings} data-sveltekit-reload>
+<div class={styles.settings}>
 	<h1 class={styles.heading}>Settings</h1>
 	<nav class={styles.categories} aria-label="Settings categories">
 		<a class={styles.categoryLink} href="/settings/providers">Providers</a
@@ -60,7 +108,7 @@ const choices = [
 		<h2
 			tabindex="-1"
 			{@attach (node) => {
-				if (!result || (result.kind === "changed" && !result.codes.length)) node.focus();
+				if (!result || result.kind === "changed") node.focus();
 			}}
 		>
 			Security
@@ -69,20 +117,14 @@ const choices = [
 			<p role="alert" tabindex="-1" {@attach (node) => node.focus()}>{result.message}</p>
 		{/if}
 		{#if result?.kind === "changed"}
-			<p role="status">Security updated. Other sessions have been signed out.</p>
-			{#if result.codes.length}
-				<div bind:this={secretArea}>
-					<h3 tabindex="-1" {@attach (node) => node.focus()}>Save your recovery codes</h3>
-					<p>Keep these ten single-use codes somewhere private. They are shown once.</p>
-					<ul class={manual}>
-						{#each result.codes as code (code)}
-							<li>{code}</li>
-						{/each}
-					</ul>
-				</div>
-			{/if}
-			<a href={data.offer ? "/settings/files?offer" : "/settings/security"}>Done</a>
-		{:else if result?.kind === "candidate" ||
+			<div class={banner} role="status">
+				<p>Security updated. Other sessions have been signed out.</p>
+				{#if data.offer}
+					<a href="/settings/files?offer">Continue to attached files</a>
+				{/if}
+			</div>
+		{/if}
+		{#if result?.kind === "candidate" ||
 			(result?.kind === "error" && result.proof && result.action)}
 			<div bind:this={secretArea}>
 				{#if result.kind === "candidate"}
@@ -95,9 +137,13 @@ const choices = [
 					>
 					<p class={manual}><code>{result.manual}</code></p>
 				{/if}
-				<form class={fields} method="POST">
+				<form class={fields} method="POST" use:enhance={submit}>
 					<input type="hidden" name="change" value={result.action}>
-					<input type="hidden" name="proof" value={result.proof}>
+					<input
+						type="hidden"
+						name="proof"
+						value={result.kind === "candidate" ? result.digest : result.proof}
+					>
 					<label
 						>New authenticator code<input
 							name="code"
@@ -108,17 +154,15 @@ const choices = [
 							maxlength="6"
 						></label
 					>
-					<button type="submit">Confirm authenticator</button>
+					<button type="submit" disabled={submitting}>Confirm authenticator</button>
 				</form>
 			</div>
 			<a href={data.offer ? "/settings/security?offer" : "/settings/security"}
 				>Return to Security</a
 			>
 		{:else}
-			{#if data.canResume}
-				<a href={data.offer ? "/settings/security?resume&offer" : "/settings/security?resume"}
-					>Resume authenticator setup</a
-				>
+			{#if saved && !data.candidate}
+				<a href={`/settings/security?resume=${saved}${offerQuery}`}>Resume authenticator setup</a>
 			{/if}
 			{#if data.enabled}
 				<p>
@@ -134,7 +178,7 @@ const choices = [
 			{:else}
 				<p>Add an authenticator to require a one-time code when you sign in.</p>
 			{/if}
-			<form class={fields} method="POST">
+			<form class={fields} method="POST" use:enhance={submit}>
 				<label
 					>Current password<input
 						type="password"
@@ -159,13 +203,13 @@ const choices = [
 							{/each}
 						</select></label
 					>
-					<button type="submit">Continue</button>
+					<button type="submit" disabled={submitting}>Continue</button>
 				{:else}
 					<input type="hidden" name="change" value="enable">
-					<button type="submit">Set up authenticator</button>
+					<button type="submit" disabled={submitting}>Set up authenticator</button>
 				{/if}
 			</form>
-			{#if data.offer && !data.enabled}
+			{#if data.offer && !data.enabled && result?.kind !== "changed"}
 				<a href="/settings/files?offer">Skip for now</a>
 			{/if}
 		{/if}

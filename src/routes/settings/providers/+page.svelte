@@ -145,7 +145,19 @@ function save(
 									? `${dateFormat.format(data.videoAccess.checkedAt)} UTC`
 									: ""}
 							</p>
-							<form method="POST" action="?/video&provider=toapis">
+							<form
+								method="POST"
+								action="?/video&provider=toapis"
+								use:enhance={() =>
+									async ({ result, update }) => {
+										if (result.type === "success" && result.data?.provider === "toapis")
+											feedbackByProvider.toapis = result.data as ConnectionFeedback;
+										else {
+											delete feedbackByProvider.toapis;
+											await update({ navigate: false });
+										}
+									}}
+							>
 								<button type="submit" class={styles.action}>Check video access</button>
 							</form>
 						{/if}
