@@ -9,6 +9,7 @@ import {
 	signedReference,
 } from "../fixtures/reference-edit";
 import { prompt, providerPayload, withEditStudio } from "./edit-studio-fixture";
+import { ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 const providerName = { poyo: "Poyo.ai", toapis: "ToAPIs" } as const;
@@ -43,7 +44,7 @@ const ready = (cleaning: boolean) =>
 	cleaning ? /Cleaned copy ready\./ : /File checked · Not cleaned\./;
 
 async function turnCleaningOff(page: Page, origin: string) {
-	const off = await page.request.post(`${origin}/settings/files`, {
+	const off = await ownerRequest(page).post(`${origin}/settings/files`, {
 		headers: { origin, accept: "text/html" },
 		form: { expectedRevision: "0" },
 	});
@@ -165,13 +166,13 @@ for (const provider of ["poyo", "toapis"] as const) {
 						.getAttribute("href");
 					if (!gallery) throw new Error("Missing Gallery entry");
 					await restart();
-					const removed = await page.request.post(`${origin}/settings/providers?/remove`, {
+					const removed = await ownerRequest(page).post(`${origin}/settings/providers?/remove`, {
 						headers: { origin, accept: "text/html" },
 						form: { provider },
 					});
 					expect(removed.ok()).toBe(true);
 					const after = fixtures.requests.length;
-					expect(await (await page.request.get(`${origin + gallery}/media`)).body()).toEqual(
+					expect(await (await ownerRequest(page).get(`${origin + gallery}/media`)).body()).toEqual(
 						editedPng,
 					);
 					expect(fixtures.requests.length).toBe(after);

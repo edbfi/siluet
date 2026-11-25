@@ -6,6 +6,7 @@ import { TOTP } from "otpauth";
 import { uprightPng } from "../fixtures/local-image";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { startStudio } from "./built-studio";
+import { ownerRequest, signInOwner } from "./owner-session";
 import { test } from "./studio-test";
 
 type Studio = Awaited<ReturnType<typeof startStudio>>;
@@ -48,7 +49,7 @@ async function attachPng(page: Page, origin: string) {
 }
 
 async function stored(page: Page, origin: string) {
-	return (await page.request.get(new URL("/settings/files/state", origin).href)).json();
+	return (await ownerRequest(page).get(new URL("/settings/files/state", origin).href)).json();
 }
 
 test("Skip leads to the offer, which keeps cleaning on and saves nothing until Continue", async ({
@@ -108,8 +109,11 @@ test("setup with an authenticator reaches the offer, and Return to Security and 
 			.getByLabel("New authenticator code")
 			.fill(new TOTP({ secret: manual }).generate({ timestamp: Date.now() }));
 		await page.getByRole("button", { name: "Confirm authenticator" }).click();
-		await expect(page.locator("section li")).toHaveCount(10);
-		await page.getByRole("link", { name: "Done" }).click();
+		await expect(page.getByRole("dialog").locator("li")).toHaveCount(10);
+		// The Security page shows no second Done; it continues the offer below its banner.
+		await expect(page.locator("a", { hasText: "Continue to attached files" })).toBeAttached();
+		await expect(page.locator("a", { hasText: "Skip for now" })).toHaveCount(0);
+		await page.getByRole("dialog").getByRole("button", { name: "Done" }).click();
 		await expect(page).toHaveURL(/\/settings\/files\?offer$/);
 		await expect(page.getByRole("button", { name: "Continue to studio" })).toBeVisible();
 	});
@@ -121,7 +125,7 @@ test("a change in this tab re-prepares the attached file, and a stale tab shows 
 }) => {
 	await withStudio(async (studio) => {
 		const { origin } = studio;
-		await claim(page, studio);
+		const password = await claim(page, studio);
 		await page.getByRole("link", { name: "Skip for now" }).click();
 		await page.getByRole("button", { name: "Continue to studio" }).click();
 		const file = await attachPng(page, origin.href);
@@ -135,7 +139,7 @@ test("a change in this tab re-prepares the attached file, and a stale tab shows 
 		await page.getByRole("link", { name: "Image Studio" }).first().click();
 		await expect(file).toHaveAccessibleDescription(/File checked · Not cleaned\./);
 
-		const other = await secondTab(browser, page, origin.href);
+		const other = await secondTab(browser, origin.href, password);
 		await page.goto(new URL("/settings/files", origin).href);
 		await expect(cleaningSwitch(page)).not.toBeChecked();
 		await cleaningSwitch(other).click();
@@ -196,8 +200,8 @@ test("the access Retry link and a back-forward restore keep the offer", async ({
 			.getByLabel("New authenticator code")
 			.fill(new TOTP({ secret: manual }).generate({ timestamp: Date.now() }));
 		await page.getByRole("button", { name: "Confirm authenticator" }).click();
-		await expect(page.locator("section li")).toHaveCount(10);
-		await page.getByRole("link", { name: "Done" }).click();
+		await expect(page.getByRole("dialog").locator("li")).toHaveCount(10);
+		await page.getByRole("dialog").getByRole("button", { name: "Done" }).click();
 		await expect(page).toHaveURL(/\/settings\/files\?offer$/);
 
 		// Leaving by a category link and coming back restores the offer.
@@ -227,7 +231,7 @@ test("the access Retry link and a back-forward restore keep the offer", async ({
 			await page.goto(new URL("/settings/security?offer", origin).href);
 			await expect(page.getByRole("link", { name: "Retry" })).toHaveAttribute(
 				"href",
-				"/settings/security?resume&offer",
+				"/settings/security?offer",
 			);
 			await page.goto(new URL("/settings/files?offer", origin).href);
 		} finally {
@@ -288,29 +292,30 @@ test("Continue with the default whose answer is lost reports it saved", async ({
 	});
 });
 
-async function secondTab(browser: Browser, page: Page, origin: string) {
-	const context = await browser.newContext({ storageState: await page.context().storageState() });
+/** Another browser, which signs in for itself: browser keys never leave their profile. */
+async function secondTab(browser: Browser, origin: string, password: string) {
+	const context = await browser.newContext();
 	const other = await context.newPage();
+	await signInOwner(other, origin, password, "owner");
 	await other.goto(new URL("/settings/files", origin).href);
 	return other;
 }
 
-test("the switch saves without scripts", async ({ browser }) => {
+test("without scripts the settings page is a shell that shows nothing private", async ({
+	browser,
+}) => {
 	await withStudio(async (studio) => {
 		const { origin } = studio;
 		const scripted = await browser.newPage();
 		await claim(scripted, studio);
-		const context = await browser.newContext({
-			javaScriptEnabled: false,
-			storageState: await scripted.context().storageState(),
-		});
+		const context = await browser.newContext({ javaScriptEnabled: false });
 		const page = await context.newPage();
 		try {
 			await page.goto(new URL("/settings/files", origin).href);
-			await cleaningSwitch(page).uncheck();
-			await page.getByRole("button", { name: "Save" }).click();
-			await expect(cleaningSwitch(page)).not.toBeChecked();
-			expect(await stored(page, origin.href)).toEqual({ enabled: false, revision: 1 });
+			expect(await page.content()).toContain("Siluet needs JavaScript");
+			await expect(page.locator("main")).toHaveCount(0);
+			await expect(cleaningSwitch(page)).toHaveCount(0);
+			expect(await stored(scripted, origin.href)).toEqual({ enabled: true, revision: 0 });
 		} finally {
 			await context.close();
 			await scripted.close();

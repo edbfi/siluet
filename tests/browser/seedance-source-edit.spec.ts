@@ -12,6 +12,7 @@ import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider
 import { writeReviewPricing } from "../fixtures/review-pricing";
 import { seedanceProvider } from "../fixtures/seedance-provider";
 import { startStudio } from "./built-studio";
+import { claimOwner, ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 // One signed source clip on a maximal 63-character DNS label. Nothing may read or resolve it.
@@ -60,11 +61,8 @@ test("a source-video edit reviews by keyboard, queues once, saves automatically 
 			return route.abort();
 		});
 		await expect.poll(server.token).not.toBe("");
-		await page.request.post(`${origin}/setup`, {
-			headers: { origin, accept: "text/html" },
-			form: { token: server.token(), username: "creator", password: crypto.randomUUID() },
-		});
-		await page.request.post(`${origin}/settings/providers?/connect`, {
+		await claimOwner(page, server, crypto.randomUUID());
+		await ownerRequest(page).post(`${origin}/settings/providers?/connect`, {
 			headers: { origin, accept: "text/html" },
 			form: { provider: "toapis", key: providerFixtureKeys.restricted },
 		});

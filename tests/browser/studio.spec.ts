@@ -28,12 +28,11 @@ test("one owner can claim the studio and sign in after a process restart", async
 		const token = server.token();
 		expect(server.announcements()).toBe(1);
 		expect((await page.content()).includes(token)).toBe(false);
-		const wrongOrigin = await page.request.post(server.setupUrl(), {
+		const wrongOrigin = await page.request.post(new URL("/owner/challenge", origin).href, {
 			headers: { Origin: "http://localhost" },
-			form: { token, username: "other", password },
+			data: { purpose: "claim" },
 		});
 		expect(wrongOrigin.status()).toBe(403);
-		expect((await wrongOrigin.text()).includes(token)).toBe(false);
 		expect(await (await page.request.get(new URL("/healthz", origin).href)).json()).toEqual({
 			status: "ok",
 		});
@@ -49,43 +48,23 @@ test("one owner can claim the studio and sign in after a process restart", async
 		await page.getByRole("button", { name: "Continue to studio" }).click();
 		await expect(page).toHaveURL(origin.href);
 		await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-		const serverRendered = await browser.newPage({
-			storageState: await owner.storageState(),
-			javaScriptEnabled: false,
-			colorScheme: "dark",
-		});
+		// Without JavaScript a page is a public shell: it shows no private data and no studio.
+		const scriptless = await browser.newPage({ javaScriptEnabled: false, colorScheme: "dark" });
 		try {
-			await serverRendered.goto(origin.href);
-			const panel = serverRendered.getByRole("region", { name: "Your workspace" });
-			await expect(panel).toHaveCSS("background-color", "rgb(29, 41, 59)");
-			await expect(panel.getByRole("button", { name: "Sign out" })).toHaveCSS(
-				"background-color",
-				"rgb(29, 41, 59)",
-			);
-			const jobsLink = serverRendered.getByRole("link", { name: "Jobs", exact: true });
-			await jobsLink.click();
-			await expect(jobsLink).toHaveAttribute("aria-current", "page");
-			await expect(serverRendered).toHaveTitle("Jobs · Siluet");
-			await expect(serverRendered.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
-			await expect(
-				serverRendered.getByRole("link", { name: "Gallery", exact: true }),
-			).toBeVisible();
+			await scriptless.goto(new URL("/jobs", origin).href);
+			// The shell carries a <noscript> notice and nothing else.
+			expect(await scriptless.content()).toContain("Siluet needs JavaScript");
+			await expect(scriptless.locator("main")).toHaveCount(0);
+			await expect(scriptless.getByText("studio-owner")).toHaveCount(0);
+			await expect(scriptless.getByRole("link", { name: "Jobs", exact: true })).toHaveCount(0);
 		} finally {
-			await serverRendered.close();
+			await scriptless.close();
 		}
 		const missing = await page.request.get(new URL("/missing-studio-route", origin).href);
 		expect(missing.status()).toBe(404);
-		expect(await missing.text()).toContain("Not Found");
-		const signInUrl = new URL("/sign-in", origin).href;
-		const signedInGet = await page.request.get(signInUrl, { maxRedirects: 0 });
-		expect(signedInGet.status()).toBe(303);
-		expect(signedInGet.headers().location).toBe("/");
-		const signedInPost = await page.request.post(signInUrl, { headers: { Origin: origin.origin } });
-		expect(signedInPost.status()).toBe(403);
-		const cookies = await owner.cookies();
-		expect(
-			cookies.map(({ httpOnly, sameSite, path, secure }) => ({ httpOnly, sameSite, path, secure })),
-		).toContainEqual({ httpOnly: true, sameSite: "Lax", path: "/", secure: false });
+		expect(await missing.text()).toContain('name="siluet-installation"');
+		// The studio never sets a cookie.
+		expect(await owner.cookies()).toEqual([]);
 		await page.keyboard.press("Tab");
 		await page.keyboard.press("Tab");
 		const homeLink = page.getByRole("link", { name: "Studio home" });
@@ -106,33 +85,44 @@ test("one owner can claim the studio and sign in after a process restart", async
 		await server.stop();
 		server = undefined;
 		server = await startStudio(directory, origin.port);
+		// The browser key resumes its stored session after a restart.
 		await page.reload();
 		await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 		await expect(page.locator("html")).toHaveCSS("background-color", "rgb(242, 245, 250)");
+		// A signed-in tab opening the sign-in page lands in the studio.
+		await page.goto(new URL("/sign-in", origin).href);
+		await expect(page).toHaveURL(origin.href);
 		await page.getByRole("button", { name: "Sign out" }).click();
+		await expect(page).toHaveURL(new URL("/sign-in", origin).href);
 		await page.goto(origin.href);
 		await expect(page).toHaveURL(new URL("/sign-in", origin).href);
 		const fresh = await browser.newContext();
 		try {
-			await fresh.addCookies(cookies);
 			const revisit = await fresh.newPage();
 			await revisit.goto(origin.href);
 			await expect(revisit).toHaveURL(new URL("/sign-in", origin).href);
-			const denied = await fresh.request.post(origin.href, {
+			const denied = await fresh.request.post(new URL("/jobs?/lookup", origin).href, {
 				headers: { Origin: origin.origin },
 				maxRedirects: 0,
 			});
 			expect(denied.status()).toBe(401);
 			expect(denied.headers()["cache-control"]).toBe("no-store");
-			const repeat = await fresh.request.post(new URL("/setup", origin).href, {
+			const repeat = await fresh.request.post(new URL("/owner/claim", origin).href, {
 				headers: { Origin: origin.origin },
-				form: { token, username: "other", password },
-				maxRedirects: 0,
+				data: { token, username: "other", password },
 			});
-			expect(repeat.status()).toBe(404);
+			expect(repeat.status()).toBe(403);
 			expect(server.announcements()).toBe(0);
-			await revisit.goto(new URL("/setup", origin).href);
+			// Client navigation to a claimed /setup finds nothing.
+			await revisit.evaluate(() => {
+				const link = document.createElement("a");
+				link.href = "/setup";
+				link.textContent = "setup";
+				document.body.append(link);
+			});
+			await revisit.getByRole("link", { name: "setup" }).click();
 			await expect(revisit.getByLabel("Claim token")).toHaveCount(0);
+			await expect(revisit.getByRole("heading", { name: "Not found" })).toBeVisible();
 			await revisit.goto(origin.href);
 			await expect(revisit).toHaveURL(new URL("/sign-in", origin).href);
 			await revisit.getByLabel("Username", { exact: true }).fill("studio-owner");

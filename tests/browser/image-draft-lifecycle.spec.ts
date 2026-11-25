@@ -84,16 +84,16 @@ test("a truncated local image cannot become a reference or replace a decoded ima
 	await expect(second).toBeVisible();
 });
 
-for (const cookieEvents of [true, false]) {
-	test(`a successful plain POST sign-out clears another tab's draft ${cookieEvents ? "with scripts blocked in the submitter" : "through the browser fallback"}`, async ({
+for (const channel of [true, false]) {
+	test(`sign-out in another tab clears this tab's draft ${channel ? "over the broadcast channel" : "through the storage fallback"}`, async ({
 		context,
 		page,
 		studio,
 	}) => {
 		const { origin, password } = studio;
-		if (!cookieEvents) {
+		if (!channel) {
 			await context.addInitScript(() => {
-				Object.defineProperty(globalThis, "cookieStore", { value: undefined });
+				Object.defineProperty(globalThis, "BroadcastChannel", { value: undefined });
 			});
 			await page.reload();
 		}
@@ -108,33 +108,27 @@ for (const cookieEvents of [true, false]) {
 
 		const otherTab = await context.newPage();
 		try {
-			await otherTab.route("**/*", (route) =>
-				route.request().resourceType() === "script" ? route.abort() : route.fallback(),
-			);
 			await otherTab.goto(origin.href);
-			const form = otherTab.locator('form[action="?/signout"]');
-			await expect(form).toHaveAttribute("method", "POST");
-			await otherTab.route("**/?/signout", (route) =>
+			const signOut = otherTab.getByRole("button", { name: "Sign out" });
+			// A failed sign-out keeps the session and every draft, and offers Retry.
+			await otherTab.route("**/owner/sign-out", (route) =>
 				route.fulfill({ status: 503, body: "Fixture rejected the sign-out request" }),
 			);
-			await form.evaluate((element: HTMLFormElement) => element.submit());
-			await expect(otherTab.getByText("Fixture rejected the sign-out request")).toBeVisible();
+			await signOut.click();
+			await expect(otherTab.getByRole("alert")).toHaveText("Sign-out did not finish. Retry.");
 			await expect(prompt).toHaveValue(privatePrompt);
 			await expect(localPreview).toBeVisible();
-			await otherTab.unroute("**/?/signout");
+			await otherTab.unroute("**/owner/sign-out");
 
-			await otherTab.goto(origin.href);
-			await form.evaluate((element: HTMLFormElement) => element.submit());
+			await signOut.click();
 			await expect(otherTab).toHaveURL(signIn);
 			await expect(page).toHaveURL(signIn);
 			await expect(prompt).toHaveCount(0);
 			await expect(localPreview).toHaveCount(0);
 
 			const { cookies, origins } = await context.storageState();
-			const storage = JSON.stringify({
-				cookies: cookies.filter((cookie) => !cookie.httpOnly),
-				origins,
-			});
+			expect(cookies).toEqual([]);
+			const storage = JSON.stringify(origins);
 			expect(storage).not.toContain(privatePrompt);
 			expect(storage).not.toContain(image.name);
 			await page.getByLabel("Username", { exact: true }).fill(username);
@@ -144,20 +138,13 @@ for (const cookieEvents of [true, false]) {
 			await page.getByRole("link", { name: "Image Studio", exact: true }).click();
 			await expect(prompt).toHaveValue("");
 			await expect(localPreview).toHaveCount(0);
-			if (cookieEvents) {
-				await prompt.fill(privatePrompt);
-				await otherTab.goto(origin.href);
-				await form.evaluate((element: HTMLFormElement) => element.submit());
-				await expect(page).toHaveURL(signIn);
-				await expect(prompt).toHaveCount(0);
-			}
 		} finally {
 			await otherTab.close();
 		}
 	});
 }
 
-test("a paused fallback tab clears its old draft after another tab signs back in", async ({
+test("a tab that missed the notices drops its old draft once another tab signs back in", async ({
 	context,
 	page,
 	studio,
@@ -165,10 +152,11 @@ test("a paused fallback tab clears its old draft after another tab signs back in
 	const { origin, password } = studio;
 	const signIn = new URL("/sign-in", origin).href;
 	const imageStudio = new URL("/image", origin).href;
+	// This tab hears no notices, as if it was suspended while the others changed session.
 	await page.addInitScript(() => {
-		Object.defineProperty(globalThis, "cookieStore", { value: undefined });
+		Object.defineProperty(globalThis, "BroadcastChannel", { value: undefined });
+		addEventListener("storage", (event) => event.stopImmediatePropagation(), { capture: true });
 	});
-	await page.clock.install();
 	await page.reload();
 	const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
 	await prompt.fill(privatePrompt);
@@ -176,17 +164,12 @@ test("a paused fallback tab clears its old draft after another tab signs back in
 	await page.getByLabel("Reference image 1", { exact: true }).setInputFiles(image);
 	const preview = page.getByRole("img", { name: "Reference image 1", exact: true });
 	await expect(preview).toHaveAttribute("src", /^blob:/);
-	await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 2000);
 
 	const otherTab = await context.newPage();
+	const staged: string[] = [];
 	try {
-		await otherTab.route("**/*", (route) =>
-			route.request().resourceType() === "script" ? route.abort() : route.fallback(),
-		);
 		await otherTab.goto(origin.href);
-		await otherTab.locator('form[action="?/signout"]').evaluate((form: HTMLFormElement) => {
-			form.submit();
-		});
+		await otherTab.getByRole("button", { name: "Sign out" }).click();
 		await expect(otherTab).toHaveURL(signIn);
 		await otherTab.getByLabel("Username", { exact: true }).fill(username);
 		await otherTab.getByLabel("Password", { exact: true }).fill(password);
@@ -195,42 +178,25 @@ test("a paused fallback tab clears its old draft after another tab signs back in
 		await expect(prompt).toHaveValue(privatePrompt);
 		await expect(preview).toBeVisible();
 
-		await page.evaluate((destination) => {
-			window.navigation.addEventListener(
-				"navigate",
-				(event) => {
-					if (event.destination.url !== destination) return;
-					event.preventDefault();
-					const workspace = document.getElementById("workspace-main");
-					document.body.dataset.draftClearedBeforeNavigation = String(
-						workspace?.childElementCount === 0,
-					);
-				},
-				{ once: true },
-			);
-		}, signIn);
-		await page.clock.runFor(1000);
-		await expect(page.locator("body")).toHaveAttribute(
-			"data-draft-cleared-before-navigation",
-			"true",
-		);
-		await expect(prompt).toHaveCount(0);
-		await expect(preview).toHaveCount(0);
-		await page.goto(signIn);
-		await expect(page).toHaveURL(origin.href);
-		await page.goto(imageStudio);
+		// After the new sign-in, no request of the old draft goes out under the new session.
+		page.on("request", (request) => {
+			if (request.url().includes("/image/files/")) staged.push(request.method());
+		});
+		const reloaded = page.waitForEvent("load");
+		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+		await reloaded;
+		await expect(page).toHaveURL(imageStudio);
 		await expect(prompt).toHaveValue("");
 		await expect(preview).toHaveCount(0);
-		await prompt.fill("A fresh draft after signing back in.");
-		await page.clock.runFor(1000);
-		await expect(prompt).toHaveValue("A fresh draft after signing back in.");
+		expect(staged).toEqual([]);
+		await page.goto(signIn);
+		await expect(page).toHaveURL(origin.href);
 	} finally {
 		await otherTab.close();
 	}
 });
 
-test("Security rotation clears a sibling draft and a delayed stale request leaves the new session and issued codes readable", async ({
-	browser,
+test("a Security change reloads sibling tabs, and a delayed stale request leaves the new session and issued codes readable", async ({
 	context,
 	page,
 	studio,
@@ -242,7 +208,7 @@ test("Security rotation clears a sibling draft and a delayed stale request leave
 	await draft.fill(privatePrompt);
 	const video = await context.newPage();
 	const security = await context.newPage();
-	const stale = await browser.newContext({ storageState: await context.storageState() });
+	const observer = await context.newPage();
 	const started = Promise.withResolvers<void>(),
 		deliver = Promise.withResolvers<void>();
 	try {
@@ -259,42 +225,37 @@ test("Security rotation clears a sibling draft and a delayed stale request leave
 		const seed = await security.locator("section code").first().textContent();
 		if (!seed) throw new Error("Missing manual setup.");
 		await security.getByLabel("New authenticator code").fill(new TOTP({ secret: seed }).generate());
-		// Keep the original browser credentials while the winning response is in transit.
-		const observer = await context.newPage();
-		await observer.goto(origin.href);
-		await observer.route("**/image/queue", async (route) => {
+		// A request sent with the old bearer arrives after the rotation.
+		await observer.goto(new URL("/jobs", origin).href);
+		await observer.route("**/settings/files/state", async (route) => {
 			started.resolve();
 			await deliver.promise;
-			const response = await stale.request.post(route.request().url(), {
-				headers: { Origin: origin.origin },
-				maxRedirects: 0,
-			});
-			expect(response.status()).toBe(401);
-			expect(response.headers()["set-cookie"] ?? "").not.toMatch(/(?:^|\n)siluet_[a-f0-9-]+=/);
-			await route.fulfill({ response });
+			await route.continue();
 		});
-		const delayed = observer.evaluate(
-			async () => (await fetch("/image/queue", { method: "POST" })).status,
-		);
+		const delayed = observer
+			.evaluate(async () => (await fetch("/settings/files/state")).status)
+			.catch(() => "reloaded");
 		await started.promise;
 		await security.getByRole("button", { name: "Confirm authenticator" }).click();
-		const codes = security.locator("section li");
+		const codes = security.getByRole("dialog").locator("li");
 		await expect(codes).toHaveCount(10);
 		const before = await codes.allTextContents();
 		deliver.resolve();
-		expect(await delayed).toBe(401);
+		expect(await delayed).not.toBe(200);
 		await expect(draft).toHaveValue("");
 		await expect(videoPrompt).toHaveValue("");
 		await expect(consent).toHaveCount(0);
 		await expect(video.getByRole("button", { name: "Queue 1 request" })).toHaveCount(0);
-		expect((await security.request.get(origin.href, { maxRedirects: 0 })).status()).toBe(200);
+		// Every tab ends on the successor session.
+		await expect(observer.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
 		expect(JSON.stringify(await codes.allTextContents()) === JSON.stringify(before)).toBe(true);
-		await security.getByRole("link", { name: "Done" }).click();
+		await security.getByRole("dialog").getByRole("button", { name: "Done" }).click();
+		await expect(codes).toHaveCount(0);
 		await security.goBack();
 		expect((await security.locator("body").textContent())?.includes(before[0])).toBe(false);
 	} finally {
 		deliver.resolve();
-		await stale.close();
+		await observer.close();
 		await security.close();
 		await video.close();
 	}

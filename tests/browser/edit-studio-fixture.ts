@@ -17,6 +17,7 @@ import {
 } from "../fixtures/reference-edit";
 import { writeReviewPricing } from "../fixtures/review-pricing";
 import { startStudio } from "./built-studio";
+import { claimOwner, ownerRequest, signInOwner } from "./owner-session";
 
 // A signed-in studio with one connected provider and the Seedream edit fixtures, shared by
 // the URL and local-file edit specs.
@@ -110,13 +111,8 @@ export async function withEditStudio(
 		});
 		await expect.poll(studio.token).not.toBe("");
 		const password = crypto.randomUUID();
-		const setup = await page.request.post(`${origin}/setup`, {
-			headers: { origin, accept: "text/html" },
-			form: { token: studio.token(), username: "creator", password },
-			maxRedirects: 0,
-		});
-		expect(setup.status()).toBe(303);
-		const connected = await page.request.post(`${origin}/settings/providers?/connect`, {
+		await claimOwner(page, studio, password);
+		const connected = await ownerRequest(page).post(`${origin}/settings/providers?/connect`, {
 			headers: { origin, accept: "text/html" },
 			form: { provider, key: providerFixtureKeys[provider] },
 		});
@@ -174,7 +170,7 @@ export async function withEditStudio(
 			rates,
 			fixtures,
 			async post(path, data, from = origin) {
-				const response = await page.request.post(origin + path, {
+				const response = await ownerRequest(page).post(origin + path, {
 					data,
 					headers: { origin: from },
 				});
@@ -196,12 +192,9 @@ export async function withEditStudio(
 				return prepared;
 			},
 			async newSession() {
-				const signedIn = await page.request.post(`${origin}/sign-in`, {
-					headers: { origin, accept: "text/html" },
-					form: { username: "creator", password },
-					maxRedirects: 0,
-				});
-				expect(signedIn.status()).toBe(303);
+				// The page's browser key signs in again; its next load resumes the new session.
+				await signInOwner(page, origin, password);
+				ownerRequest(page).reset();
 			},
 			assertRedacted,
 			assertPrivate,

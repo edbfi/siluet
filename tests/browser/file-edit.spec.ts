@@ -5,6 +5,7 @@ import { openInstallation } from "../../src/lib/server/db/installation";
 import { localImageMarker, markedFile, rotatedJpeg } from "../fixtures/local-image";
 import { editedPng } from "../fixtures/reference-edit";
 import { prompt, providerPayload, withEditStudio } from "./edit-studio-fixture";
+import { ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 for (const provider of ["poyo", "toapis"] as const) {
@@ -25,7 +26,7 @@ for (const provider of ["poyo", "toapis"] as const) {
 				"completed",
 				async ({ origin, fixtures, restart, assertPrivate, assertOneSubmission }) => {
 					if (!cleaning) {
-						const off = await page.request.post(`${origin}/settings/files`, {
+						const off = await ownerRequest(page).post(`${origin}/settings/files`, {
 							headers: { origin, accept: "text/html" },
 							form: { expectedRevision: "0" },
 						});
@@ -102,13 +103,13 @@ for (const provider of ["poyo", "toapis"] as const) {
 							await db.close();
 						}
 					});
-					const removed = await page.request.post(`${origin}/settings/providers?/remove`, {
+					const removed = await ownerRequest(page).post(`${origin}/settings/providers?/remove`, {
 						headers: { origin, accept: "text/html" },
 						form: { provider },
 					});
 					expect(removed.ok()).toBe(true);
 					const after = fixtures.requests.length;
-					expect(await (await page.request.get(`${origin + gallery}/media`)).body()).toEqual(
+					expect(await (await ownerRequest(page).get(`${origin + gallery}/media`)).body()).toEqual(
 						editedPng,
 					);
 					await page.goto(origin + gallery);
@@ -141,9 +142,9 @@ for (const provider of ["poyo", "toapis"] as const) {
 			await expect(localCopy).toContainText("Re-encoded to apply rotation.");
 			const src = await localCopy
 				.getByRole("img", { name: "Cleaned local copy" })
-				.getAttribute("src");
+				.getAttribute("data-source");
 			if (!src) throw new Error("Missing preview");
-			const previewed = await (await page.request.get(origin + src)).body();
+			const previewed = await (await ownerRequest(page).get(origin + src)).body();
 			const { width, height } = await sharp(previewed).metadata();
 			expect([width, height]).toEqual([32, 48]);
 			await review.getByRole("button", { name: "Review request", exact: true }).press("Enter");

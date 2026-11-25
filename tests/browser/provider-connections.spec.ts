@@ -10,6 +10,7 @@ import {
 	startProviderFixtures,
 } from "../fixtures/provider-connections";
 import { startStudio } from "./built-studio";
+import { ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 type Studio = Awaited<ReturnType<typeof startStudio>>;
@@ -52,7 +53,7 @@ function assertRedacted(text: string) {
 }
 
 function postAction(
-	client: APIRequestContext,
+	client: Pick<APIRequestContext, "post">,
 	studio: Studio,
 	action: "connect" | "remove",
 	provider: string,
@@ -88,9 +89,11 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 
 		const visitor = await browser.newContext();
 		try {
-			const denied = await visitor.request.get(settingsUrl(server), { maxRedirects: 0 });
-			expect(denied.status()).toBe(303);
-			expect(denied.headers().location).toBe("/sign-in");
+			const denied = await visitor.request.get(`${settingsUrl(server)}/__data.json`, {
+				maxRedirects: 0,
+			});
+			expect(denied.status()).toBe(401);
+			expect((await denied.json()).location).toBe("/sign-in");
 			expect(
 				(await postAction(visitor.request, server, "connect", "poyo", keys.poyo)).status(),
 			).toBe(401);
@@ -98,7 +101,7 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 			await visitor.close();
 		}
 		const wrongOrigin = await postAction(
-			page.request,
+			ownerRequest(page),
 			server,
 			"connect",
 			"poyo",
@@ -107,7 +110,13 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 		);
 		expect(wrongOrigin.status()).toBe(403);
 		assertRedacted(await wrongOrigin.text());
-		const invalidProvider = await postAction(page.request, server, "connect", "invalid", keys.poyo);
+		const invalidProvider = await postAction(
+			ownerRequest(page),
+			server,
+			"connect",
+			"invalid",
+			keys.poyo,
+		);
 		expect(invalidProvider.status()).toBe(400);
 		assertRedacted(await invalidProvider.text());
 		expect(fixtures.requests).toEqual([]);
@@ -269,10 +278,10 @@ test("removing a connection while the built server checks a replacement leaves i
 	try {
 		server = await startStudio(directory, "0", false, fixtures.env);
 		await claimStudio(page, server);
-		expect((await postAction(page.request, server, "connect", "poyo", keys.poyo)).status()).toBe(
-			200,
-		);
-		const replacement = postAction(page.request, server, "connect", "poyo", keys.slow);
+		expect(
+			(await postAction(ownerRequest(page), server, "connect", "poyo", keys.poyo)).status(),
+		).toBe(200);
+		const replacement = postAction(ownerRequest(page), server, "connect", "poyo", keys.slow);
 		try {
 			await Promise.race([
 				fixtures.slowStarted,
@@ -280,13 +289,13 @@ test("removing a connection while the built server checks a replacement leaves i
 					throw new Error("Replacement completed before reaching the delayed fixture.");
 				}),
 			]);
-			expect((await postAction(page.request, server, "connect", "poyo", keys.poyo)).status()).toBe(
-				409,
-			);
 			expect(
-				(await postAction(page.request, server, "connect", "toapis", keys.toapis)).status(),
+				(await postAction(ownerRequest(page), server, "connect", "poyo", keys.poyo)).status(),
+			).toBe(409);
+			expect(
+				(await postAction(ownerRequest(page), server, "connect", "toapis", keys.toapis)).status(),
 			).toBe(200);
-			expect((await postAction(page.request, server, "remove", "poyo")).status()).toBe(200);
+			expect((await postAction(ownerRequest(page), server, "remove", "poyo")).status()).toBe(200);
 		} finally {
 			fixtures.releaseSlow();
 		}

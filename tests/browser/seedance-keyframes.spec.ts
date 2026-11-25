@@ -7,6 +7,7 @@ import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
 import { seedanceProvider } from "../fixtures/seedance-provider";
 import { startStudio } from "./built-studio";
+import { claimOwner, ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 // Two signed frames on one host. Nothing may read either URL.
@@ -51,11 +52,8 @@ test("URL keyframes review by keyboard, queue once, save automatically and reope
 			return route.abort();
 		});
 		await expect.poll(server.token).not.toBe("");
-		await page.request.post(`${origin}/setup`, {
-			headers: { origin, accept: "text/html" },
-			form: { token: server.token(), username: "creator", password: crypto.randomUUID() },
-		});
-		await page.request.post(`${origin}/settings/providers?/connect`, {
+		await claimOwner(page, server, crypto.randomUUID());
+		await ownerRequest(page).post(`${origin}/settings/providers?/connect`, {
 			headers: { origin, accept: "text/html" },
 			form: { provider: "toapis", key: providerFixtureKeys.restricted },
 		});
