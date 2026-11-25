@@ -1,4 +1,6 @@
 import type { Attachment } from "svelte/attachments";
+import type { SessionInit } from "#lib/shared/owner/authenticated-fetch.ts";
+import { sessionClient } from "#lib/shared/owner/session-client.ts";
 
 /**
  * Private media reaches the page only as bearer-fetched blobs, never as a URL another page
@@ -17,20 +19,43 @@ export class MediaUnavailable extends Error {}
 
 type Holder = { src: string; blob: Blob | null; visibleAt: number; evict: () => void };
 const holders = new Set<Holder>();
+/** Download blobs whose link is not yet revoked, once per link. */
+const downloads: Blob[] = [];
+/** Bytes that reads in flight declared and are still streaming. */
+let reserved = 0;
 let reads = 0;
 const waiting: (() => void)[] = [];
-const held = () => [...holders].reduce((sum, h) => sum + (h.blob?.size ?? 0), 0);
+const held = () => {
+	const blobs = new Set(downloads);
+	for (const holder of holders) if (holder.blob) blobs.add(holder.blob);
+	return [...blobs].reduce((sum, blob) => sum + blob.size, reserved);
+};
 
-async function slot(signal: AbortSignal) {
-	while (reads >= maxReads) {
-		await new Promise<void>((resolve) => waiting.push(resolve));
-		signal.throwIfAborted();
+/** Take one of the tab's reads. An abort while waiting leaves the queue and rejects at once. */
+function slot(signal: AbortSignal) {
+	signal.throwIfAborted();
+	if (reads < maxReads) {
+		reads++;
+		return Promise.resolve();
 	}
-	reads++;
+	return new Promise<void>((resolve, reject) => {
+		const abort = () => {
+			waiting.splice(waiting.indexOf(next), 1);
+			reject(signal.reason);
+		};
+		// `free` hands its read straight to the next waiter.
+		const next = () => {
+			signal.removeEventListener("abort", abort);
+			resolve();
+		};
+		waiting.push(next);
+		signal.addEventListener("abort", abort, { once: true });
+	});
 }
 function free() {
-	reads--;
-	waiting.shift()?.();
+	const next = waiting.shift();
+	if (next) next();
+	else reads--;
 }
 /** Make room for `size` bytes, evicting the least recently visible holders first. */
 function makeRoom(size: number, keep: Holder | null) {
@@ -39,6 +64,8 @@ function makeRoom(size: number, keep: Holder | null) {
 		.sort((a, b) => a.visibleAt - b.visibleAt);
 	while (held() + size > maxBytes && others.length) others.shift()?.evict();
 }
+/** The session a read belongs to, captured before it waits for a read. */
+const currentSession = () => sessionClient().bound()?.sessionId;
 
 /**
  * Read one private file through the page's authenticated fetch, refusing more than the
@@ -50,16 +77,21 @@ export async function readPrivate(
 	kind: MediaKind,
 	signal: AbortSignal,
 	holder: Holder | null = null,
+	session = currentSession(),
 ) {
 	await slot(signal);
+	let reservation = 0;
 	try {
-		const response = await fetch(src, { signal, cache: "no-store" });
+		const init: SessionInit = { signal, cache: "no-store", siluetSession: session };
+		const response = await fetch(src, init);
 		if (response.status === 404 || response.status === 410) throw new MediaUnavailable();
 		if (!response.ok || !response.body) throw new TypeError("The file could not be read.");
 		const limit = mediaLimits[kind];
 		const declared = Number(response.headers.get("content-length") ?? Number.NaN);
 		if (declared > limit) throw new MediaUnavailable();
-		makeRoom(Number.isFinite(declared) ? declared : 0, holder);
+		reservation = Number.isFinite(declared) ? declared : 0;
+		makeRoom(reservation, holder);
+		reserved += reservation;
 		const chunks: Uint8Array<ArrayBuffer>[] = [];
 		let size = 0;
 		const reader = response.body.getReader();
@@ -75,6 +107,7 @@ export async function readPrivate(
 		}
 		return new Blob(chunks, { type: mime });
 	} finally {
+		reserved -= reservation;
 		free();
 	}
 }
@@ -154,8 +187,10 @@ export function privateSource(
  * The temporary link is revoked a minute after the click.
  */
 export async function downloadPrivate(src: string, mime: string, kind: MediaKind, name: string) {
-	const shown = [...holders].find((h) => h.src === src && h.blob)?.blob;
-	const blob = shown ?? (await readPrivate(src, mime, kind, new AbortController().signal));
+	const shown = [...holders].find((h) => h.src === src && h.blob);
+	const blob = shown?.blob ?? (await readPrivate(src, mime, kind, new AbortController().signal));
+	downloads.push(blob);
+	makeRoom(0, shown ?? null);
 	const url = URL.createObjectURL(blob);
 	const link = document.createElement("a");
 	link.href = url;
@@ -164,5 +199,8 @@ export async function downloadPrivate(src: string, mime: string, kind: MediaKind
 	document.body.append(link);
 	link.click();
 	link.remove();
-	setTimeout(() => URL.revokeObjectURL(url), downloadMs);
+	setTimeout(() => {
+		URL.revokeObjectURL(url);
+		downloads.splice(downloads.indexOf(blob), 1);
+	}, downloadMs);
 }
