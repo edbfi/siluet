@@ -74,6 +74,9 @@ test("edit Review discloses the source, asset review, limits, length and charges
 	);
 	for (const text of [sourceClipHint, editAcceptance, ...editDisclosures])
 		expect(text).not.toMatch(/12.second|cannot save an edit/);
+	// The source threshold is the edit's registry Save limit, so the two numbers cannot drift.
+	for (const text of [sourceClipHint, editAcceptance, editDisclosures[3]])
+		expect(text).toContain(`longer than ${seedanceEditOperation.save?.seconds} seconds`);
 	expect(sourceClipHint).toBe(
 		"Public HTTP or HTTPS video URL, up to 2,048 UTF-8 bytes. Siluet does not open, check or clean it before sending it to ToAPIs. A source longer than 30 seconds can be charged for an edit Gallery may not save; Gallery allows the returned clip up to 1 second over its limit for container rounding.",
 	);
