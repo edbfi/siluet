@@ -45,9 +45,9 @@ onMount(() => {
 	// Revalidate when the tab comes back. The one pageshow handler loads a pending destination
 	// instead, and checks nothing on that path. Hiding keeps the bearer for a pagehide keepalive.
 	const visible = () => {
-		if (document.visibilityState === "visible") void client.check();
+		if (document.visibilityState === "visible") void client.check(true);
 	};
-	const focus = () => void client.check();
+	const focus = () => void client.check(true);
 	const pageshow = (event: PageTransitionEvent) => client.pageshow(event.persisted);
 	const pagehide = () => client.pagehide();
 	addEventListener("focus", focus);

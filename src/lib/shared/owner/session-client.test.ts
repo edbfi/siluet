@@ -260,3 +260,29 @@ test("an access error answered after a Security adoption drops nothing and asks 
 	expect(h.client.remountKey).toBe(1);
 	expect(h.requests.filter((path) => path === "/owner/session")).toHaveLength(2);
 });
+
+test("every caller sharing a renewal that needs recovery gets the access answer", async () => {
+	const h = harness();
+	await bound(h);
+	h.resumes.push({
+		status: 503,
+		body: { message: "Recover the host first.", retry: false, recoveryRequired: true },
+	});
+	const renewal = h.client.renew();
+	const first = await h.client.classify(await renewal);
+	const second = await h.client.classify(await renewal);
+	expect([first.kind, second.kind]).toEqual(["access", "access"]);
+});
+
+test("returning to the tab checks once, though focus and visibility both fire", async () => {
+	const h = harness();
+	await bound(h);
+	const answer = Promise.withResolvers<Answer>();
+	h.checks.push(answer.promise);
+	const visible = h.client.check(true);
+	void h.client.check(true);
+	answer.resolve({ status: 200, body: { sessionId: "s1", loginId: "login-1" } });
+	await visible;
+	await Bun.sleep(1);
+	expect(h.requests.filter((path) => path === "/owner/session")).toHaveLength(1);
+});

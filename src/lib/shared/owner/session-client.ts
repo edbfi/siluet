@@ -192,8 +192,10 @@ export function createSessionClient(
 		if (!start || (start.sessionId === bound?.sessionId && start.generation === state.remountKey))
 			return false;
 		if (result.kind === "session") return result.sessionId !== bound?.sessionId;
-		// An access error from before the move says nothing about where the tab is now.
-		return result.kind === "access" || (result.kind === "gone" && bound !== null);
+		// An access error for a session the tab has since left says nothing about where it is now.
+		// A remount alone does not count: a shared renewal's first caller may have caused it.
+		if (result.kind === "access") return start.sessionId !== bound?.sessionId;
+		return result.kind === "gone" && bound !== null;
 	}
 
 	function holdCodes(row: Row & { kind: "other" | "gone" }) {
@@ -295,10 +297,14 @@ export function createSessionClient(
 		mode === "held" ||
 		mode === "keyless" ||
 		mode === "signed-out";
-	async function check() {
+	/**
+	 * Check the tab's session. A tab coming back (`join`) shares a check already in flight; a
+	 * notice or a stale answer asks for another pass.
+	 */
+	async function check(join = false) {
 		if (settled()) return;
 		if (checking) {
-			recheck = true;
+			if (!join) recheck = true;
 			return checking;
 		}
 		checking = (async () => {

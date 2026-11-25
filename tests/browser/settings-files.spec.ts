@@ -351,3 +351,28 @@ test("without scripts the settings page is a shell that shows nothing private", 
 		}
 	});
 });
+
+test("an error answered after a committed save shows what was stored, not the error page", async ({
+	page,
+}) => {
+	await withStudio(async (studio) => {
+		const { origin } = studio;
+		await claim(page, studio);
+		await page.goto(new URL("/settings/files", origin).href);
+		await page.route("**/settings/files", async (route) => {
+			if (route.request().method() !== "POST") return route.fallback();
+			// The save commits; a later step of the same action fails with an ordinary error.
+			await route.fetch();
+			return route.fulfill({
+				status: 500,
+				contentType: "application/json",
+				body: JSON.stringify({ type: "error", error: { message: "Internal Error" } }),
+			});
+		});
+		await cleaningSwitch(page).click();
+		await expect(page.getByRole("status")).toHaveText("Saved.");
+		await expect(cleaningSwitch(page)).not.toBeChecked();
+		await expect(page.getByRole("heading", { name: "Studio access" })).toHaveCount(0);
+		expect(await stored(page, origin.href)).toEqual({ enabled: false, revision: 1 });
+	});
+});
