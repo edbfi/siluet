@@ -119,8 +119,8 @@ Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scop
 
 - [x] Register Edit video on ToAPIs after the keyframes, with a partial ledger profile (`ledger.test.ts`).
 - [x] Send one source URL exactly as trimmed in `video_with_roles` with `duration: -1` and adaptive framing; refuse a duration, ratio, 1080p, wrong role or slot count, 2,049-byte URL and non-public source with zero calls (`source-edit.test.ts`, `request.test.ts`).
-- [x] Quote the $6 video-input rate, bind the six disclosures and exact source to Review, and keep source URLs and hosts out of job rows (`video.test.ts`).
-- [x] Name the source clip in confirmed refusals and failures; keep undocumented codes uncertain; follow asset review to Save, Retry download, expiry and a held 15-second edit with one POST (`video.test.ts`, `summary.test.ts`, `tracking.test.ts`).
+- [x] Quote the $6 video-input rate, bind the five edit disclosures, the generated Save limit and exact source to Review, and keep source URLs and hosts out of job rows (`video.test.ts`).
+- [x] Name the source clip in confirmed refusals and failures; keep undocumented codes uncertain; follow asset review to Save, Retry download, expiry, a saved 15-second edit and a held 31.1-second edit with one POST (`video.test.ts`, `summary.test.ts`, `tracking.test.ts`).
 - [x] Review by keyboard at desktop and 320 px, queue once, save and reopen offline with zero source-host reads or DNS resolutions (`seedance-source-edit.spec.ts`).
-- [ ] The owner confirms disclosure and consent for edits Gallery cannot save (over 12 seconds) before merge; a decline ships Edit video Review-only.
+- [x] The owner decided (2026-11-25): the edit saves up to 30 s from upstream evidence, disclosed as unverified on this route, and the source-length and cost warning stays at 30 s (`registry.test.ts`, `request.test.ts`, `source-edit.test.ts`, `tracking.test.ts`).
 - [ ] Hosted `smoke` (Linux x64) passes the edit journey; `native-owner` (macOS) keeps passing its existing video checks.

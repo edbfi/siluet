@@ -36,7 +36,7 @@
 		"seedance-edit": {
 			"addedSinceBaseline": true,
 			"review": "one public HTTP(S) source-clip URL up to 2,048 UTF-8 bytes, length and framing from the source, 480p or 720p",
-			"queue": "one reviewed request with video access and consent to Gallery's 12-second Save limit, zero uploads, zero retries",
+			"queue": "one reviewed request with video access and consent to Gallery's 30-second upstream Save limit, zero uploads, zero retries",
 			"optionCoverage": "partial"
 		},
 		"z-image-generate": {
