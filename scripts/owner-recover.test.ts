@@ -81,17 +81,18 @@ test("recovery creates files for the owner only, whatever the shell's umask", as
 });
 test("recovery names a folder another user could write and how to close it", async () => {
 	const parent = await createOwnerDirectory();
-	const shared = join(parent, "shared");
-	const recovery = command(join(shared, "siluet"));
+	let recovery: ReturnType<typeof command> | undefined;
 	try {
+		// Open the folder before the child starts, so it cannot check the folder first.
 		await chmod(parent, 0o777);
+		recovery = command(join(parent, "shared", "siluet"));
 		await recovery.child.exited;
 		expect(recovery.child.exitCode).toBe(1);
 		expect(recovery.output()).toContain(
 			`Another user could replace the data directory through ${parent}. Run chmod g-w,o-w ${parent}`,
 		);
 	} finally {
-		recovery.term.close();
+		recovery?.term.close();
 		await chmod(parent, 0o700);
 		await rm(parent, { recursive: true, force: true });
 	}
