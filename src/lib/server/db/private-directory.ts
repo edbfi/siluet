@@ -62,10 +62,12 @@ export async function requireStableFolder(
 		throw new DirectoryPolicyError(
 			`The data directory cannot pass through ${folder}, which is not a folder. Choose another data directory.`,
 		);
-	if (info.uid !== 0 && info.uid !== process.getuid?.()) throw replaceable(folder, false);
+	const owned = info.uid === process.getuid?.();
+	if (info.uid !== 0 && !owned) throw replaceable(folder, false);
 	if (info.mode & 0o1000) return;
+	// Only the folder's owner can run chmod on it, so a root folder gets no such hint.
 	if (info.mode & 0o002 || (info.mode & 0o020 && !(await privateGroupFolder(info, readAccounts))))
-		throw replaceable(folder, true);
+		throw replaceable(folder, owned);
 }
 
 // Linux's own limit on links followed in one lookup.

@@ -140,6 +140,12 @@ test("a root-owned folder its group can write is stable only when sticky", async
 		replaceable,
 	);
 	await requireStableFolder("/srv", folder(0o41775), rootGroup);
+	// Only root could run chmod on it, so the refusal does not suggest it.
+	const error = await requireStableFolder("/srv", folder(0o40777), rootGroup).catch(
+		(e: unknown) => e,
+	);
+	expect((error as Error).message).toContain("/srv, which belongs to another user");
+	expect((error as Error).message).not.toContain("chmod");
 	const realUid = process.getuid;
 	try {
 		// Root's own group is never treated as private.
