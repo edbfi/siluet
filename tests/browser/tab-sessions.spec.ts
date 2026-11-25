@@ -650,3 +650,72 @@ test("a hidden tab keeps its bearer, so a request from it goes out without renew
 	expect(status).toBe(200);
 	expect(renewals).toEqual([]);
 });
+
+test("Done after Back moved the URL loads Security on the new session, and Back stays signed in", async ({
+	page,
+	context,
+	studio,
+}) => {
+	const { origin, password } = studio;
+	// Routed entries: /jobs, Providers, then Security.
+	await page.goto(`${origin}/jobs`);
+	await page.getByRole("link", { name: "Settings" }).first().click();
+	await page.getByRole("link", { name: "Security" }).first().click();
+	await page.getByLabel("Current password").fill(password);
+	await page.getByRole("button", { name: "Set up authenticator" }).click();
+	const seed = (await page.locator("section code").first().textContent()) ?? "";
+	await page.getByLabel("New authenticator code").fill(new TOTP({ secret: seed }).generate());
+	await page.getByRole("button", { name: "Confirm authenticator" }).click();
+	const dialog = page.getByRole("dialog");
+	await expect(dialog.locator("li")).toHaveCount(10);
+	// Another tab in this browser signs in again: the codes are held for Done.
+	const other = await context.newPage();
+	const pending = await signInOwner(other, origin, password, "owner");
+	if (!("proof" in pending)) throw new Error("Expected a pending sign-in.");
+	const code = new TOTP({ secret: seed }).generate({ timestamp: Date.now() + 30000 });
+	const factor = await signedInPage(
+		other,
+		"factor",
+		"/owner/factor",
+		{ proof: pending.proof, code },
+		{ proof: pending.proof },
+	);
+	expect(factor.status).toBe(200);
+	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+	await expect(dialog).toContainText("Session changed.");
+	await page.goBack();
+	await expect(page).toHaveURL(`${origin}/settings/providers`);
+	await expect(dialog.locator("li")).toHaveCount(10);
+	const loaded = page.waitForEvent("load");
+	await dialog.getByRole("button", { name: "Done" }).click();
+	await loaded;
+	await expect(page).toHaveURL(`${origin}/settings/security`);
+	await expect(page.getByText(/Authenticator on · 10 recovery\s+codes remaining/)).toBeVisible();
+	// Done replaced the moved entry: Back reaches the studio on the new session.
+	await page.goBack();
+	await expect(page).toHaveURL(`${origin}/jobs`);
+	await expect(page.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
+	expect(await sessionOf(page, origin)).toBe(await sessionOf(other, origin));
+});
+
+test("onboarding Done from a resumed candidate continues to attached files", async ({
+	page,
+	studio,
+}) => {
+	const { origin, password } = studio;
+	await page.goto(`${origin}/settings/security?offer`);
+	await page.getByLabel("Current password").fill(password);
+	await page.getByRole("button", { name: "Set up authenticator" }).click();
+	const seed = (await page.locator("section code").first().textContent()) ?? "";
+	await page.goto(`${origin}/jobs`);
+	await page.goBack();
+	await page.getByRole("link", { name: "Resume authenticator setup" }).click();
+	await expect(page).toHaveURL(/\/settings\/security\?resume=[0-9a-f]{64}&offer$/);
+	await page.getByLabel("New authenticator code").fill(new TOTP({ secret: seed }).generate());
+	await page.getByRole("button", { name: "Confirm authenticator" }).click();
+	const dialog = page.getByRole("dialog");
+	await expect(dialog.locator("li")).toHaveCount(10);
+	await dialog.getByRole("button", { name: "Done" }).click();
+	await expect(page).toHaveURL(`${origin}/settings/files?offer`);
+	await expect(page.getByRole("button", { name: "Continue to studio" })).toBeVisible();
+});
