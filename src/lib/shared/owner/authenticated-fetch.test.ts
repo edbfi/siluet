@@ -151,6 +151,8 @@ describe("a keyed tab", () => {
 		h.routes.push(() => refused());
 		await expect(h.fetch("/image/review", { method: "POST" })).rejects.toBeInstanceOf(TypeError);
 		expect(h.navigations).toEqual(["reload"]);
+		// The document is going: later requests wait for the unload instead of failing.
+		expect(await settled(h.fetch("/jobs/__data.json"))).toBe("pending");
 		const other = harness();
 		other.resumes.push(session("s1"));
 		await other.fetch("/jobs/__data.json");

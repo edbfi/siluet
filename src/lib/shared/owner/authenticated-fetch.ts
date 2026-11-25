@@ -33,6 +33,8 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 		if (url.origin !== location.origin) return native(input, init);
 		const method = (init.method ?? request?.method ?? "GET").toUpperCase();
 		const { siluetSession, ...forwarded } = init;
+		// The document is being replaced; nothing more goes out from this page.
+		if (client.leaving) return pending();
 		if (method === "POST" && signedPaths.test(url.pathname))
 			return native(input, { ...forwarded, credentials: "omit" });
 

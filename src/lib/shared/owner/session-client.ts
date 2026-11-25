@@ -39,9 +39,25 @@ const isAccessBody = (value: unknown): value is AccessBody =>
 export function createSessionClient(
 	installation: string | null,
 	nativeFetch: typeof fetch,
-	navigate: { assign(url: string): void; reload(): void; replace(url: string): void } = location,
+	browser: { assign(url: string): void; reload(): void; replace(url: string): void } = location,
 	keys: { read: typeof readKey; ensure: typeof ensureKey } = { read: readKey, ensure: ensureKey },
 ) {
+	/** Set once this client starts a document load; requests then wait for the unload. */
+	let leaving = false;
+	const navigate = {
+		assign(url: string) {
+			leaving = true;
+			browser.assign(url);
+		},
+		reload() {
+			leaving = true;
+			browser.reload();
+		},
+		replace(url: string) {
+			leaving = true;
+			browser.replace(url);
+		},
+	};
 	let record: BrowserKey | null | undefined;
 	let mode: "cold" | "bound" | "keyless" | "signed-out" | "held" = "cold";
 	let bound: Ids | null = null;
@@ -316,6 +332,9 @@ export function createSessionClient(
 		get mode() {
 			return mode;
 		},
+		get leaving() {
+			return leaving;
+		},
 		get remountKey() {
 			return state.remountKey;
 		},
@@ -514,6 +533,8 @@ export function createSessionClient(
 		},
 		/** The sole `pageshow` path: load a pending destination atomically and check nothing. */
 		pageshow(persisted: boolean) {
+			// A page restored from the back/forward cache was not replaced after all.
+			if (persisted) leaving = false;
 			if (destination) {
 				const url = new URL(destination.url, location.href).href;
 				destination = null;
