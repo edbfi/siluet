@@ -29,6 +29,8 @@ test("restarts between challenge, resume and resend recover as the session table
 		await server.stop();
 		server = await startStudio(directory, port);
 	};
+	// Each step waits for a studio restart, which a slow runner can take seconds to finish.
+	const restarted = { timeout: 15000 };
 	try {
 		await claimOwner(page, server, crypto.randomUUID());
 		const seen = watch(page);
@@ -45,7 +47,7 @@ test("restarts between challenge, resume and resend recover as the session table
 			await route.fulfill({ response });
 		});
 		await page.goto(`${origin}/jobs`);
-		await expect(page.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
+		await expect(page.getByRole("heading", { name: "No jobs yet" })).toBeVisible(restarted);
 		await page.unroute("**/owner/challenge");
 		expect(seen.filter((entry) => entry.startsWith("/owner/resume"))).toEqual([
 			"/owner/resume 403",
@@ -57,7 +59,7 @@ test("restarts between challenge, resume and resend recover as the session table
 		seen.length = 0;
 		await restart();
 		await page.getByRole("link", { name: "Gallery" }).first().click();
-		await expect(heading("Gallery")).toBeVisible();
+		await expect(heading("Gallery")).toBeVisible(restarted);
 		expect(seen).toEqual([
 			"/gallery/__data.json 401",
 			"/owner/resume 200",
@@ -78,11 +80,11 @@ test("restarts between challenge, resume and resend recover as the session table
 			await route.fulfill({ response });
 		});
 		await page.getByRole("link", { name: "Jobs" }).first().click();
-		await expect(page.getByRole("alert")).toHaveText("Internal Error");
+		await expect(page.getByRole("alert")).toHaveText("Internal Error", restarted);
 		expect(seen).toEqual(["/jobs/__data.json 401", "/owner/resume 200", "/jobs/__data.json 401"]);
 		seen.length = 0;
 		await page.getByRole("link", { name: "Open the studio" }).click();
-		await expect(heading("Studio home")).toBeVisible();
+		await expect(heading("Studio home")).toBeVisible(restarted);
 		await expect(page).toHaveURL(`${origin}/`);
 		expect(seen).toEqual(["/__data.json 401", "/owner/resume 200", "/__data.json 200"]);
 	} finally {
