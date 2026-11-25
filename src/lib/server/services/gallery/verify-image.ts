@@ -119,8 +119,8 @@ export async function verifyImage(bytes: Buffer) {
 
 	// Some libjpeg warnings are emitted even when toBuffer() resolves.
 	// https://sharp.pixelplumbing.com/api-constructor/
-	// sharp enforces the timeout in its pipeline (toBuffer) only; metadata() reads headers
-	// and stats() stays bounded by limitInputPixels.
+	// sharp enforces the timeout in its pipeline (toBuffer) only, so every full decode
+	// goes through toBuffer; metadata() reads headers alone.
 	// https://sharp.pixelplumbing.com/api-output/#timeout
 	const decoder = sharp(bytes, {
 		limitInputPixels: verificationPixels,
@@ -135,8 +135,8 @@ export async function verifyImage(bytes: Buffer) {
 	if (warned || format !== expected || width > verificationEdge || height > verificationEdge)
 		throw invalid();
 	if (!galleryFormat || width > maxEdge || height > maxEdge || width * height > maxPixels) {
-		// Read every pixel for decoder errors without allocating out-of-profile output.
-		await decoder.stats();
+		// Read every pixel for decoder errors, keeping one byte a pixel of output.
+		await decoder.extractChannel(0).raw({ depth: "uchar" }).toBuffer();
 		if (warned) throw invalid();
 		throw new UnsupportedGalleryImage();
 	}

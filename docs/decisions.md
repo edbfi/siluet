@@ -151,7 +151,7 @@ Fixed in the security hardening PR:
 - Saved and staged media send `Cross-Origin-Resource-Policy: same-origin`, `X-Frame-Options: DENY` and a sandboxed, script-free CSP. A video keeps its origin (`sandbox allow-same-origin`) so the browser's own player can fetch its ranges.
 - The launcher, server and `owner:recover` set umask 0077, and opening storage tightens `studio.db*` to 0600. Public assets refuse `owner-recovery.sqlite*` and `*.key`.
 - Startup and recovery refuse a data directory below a folder that another user owns or can write without the sticky bit.
-- Gallery image verification turns libvips' cache off and sets a 5 s decode timeout. sharp enforces it in `toBuffer` only, so the `stats()` path stays bounded by the pixel limit.
+- Gallery image verification turns libvips' cache off and decodes every image once under a 5 s timeout. sharp enforces it in `toBuffer` only, so an image outside the Gallery profile decodes to one byte a pixel there instead of through `stats()`.
 - MP4 edit durations add as BigInt, and the provider key opens with `O_NONBLOCK`.
 
 Pending owner acceptance: browsers send cookies to every port on a host, so another local web service the owner visits on 127.0.0.1 can receive Siluet's session cookie (Sol: blocker; Opus: accepted risk). A real fix changes how Siluet is reached. Recommendation: accept for v0.1.0, tell creators in the README to use a browser profile without untrusted local web services or to sign out after use, and spec host-isolated access after v0.1.0. The D11 gate stays open until the owner decides.
