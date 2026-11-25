@@ -15,13 +15,13 @@ test("saved ToAPIs estimates must agree with their conversion and public source"
 		conversionSourceUrl: toapisRates.conversionSourceUrl,
 		conversionCacheAgeSeconds: null,
 	};
-	expect(restoreToapisAttempt(estimate, model)).toEqual(estimate);
+	expect(restoreToapisAttempt(estimate, model, 0)).toEqual(estimate);
 	for (const change of [
 		{ creditsPerUsd: "1" },
 		{ perRequest: "3.2" },
 		{ conversionSourceUrl: "https://example.invalid" },
 	]) {
-		expect(restoreToapisAttempt({ ...estimate, ...change }, model)).toBeNull();
+		expect(restoreToapisAttempt({ ...estimate, ...change }, model, 0)).toBeNull();
 	}
 });
 
@@ -40,7 +40,10 @@ test("a saved ToAPIs edit keeps a consistent per-reference charge", () => {
 		conversionSourceUrl: toapisRates.conversionSourceUrl,
 		conversionCacheAgeSeconds: null,
 	};
-	expect(restoreToapisAttempt(estimate, model)).toEqual(estimate);
+	expect(restoreToapisAttempt(estimate, model, 2)).toEqual(estimate);
+	// The saved charge must cover exactly the attempt's references.
+	expect(restoreToapisAttempt(estimate, model, 1)).toBeNull();
+	expect(restoreToapisAttempt(estimate, model, 3)).toBeNull();
 	for (const change of [
 		{ count: 0 },
 		{ count: 11 },
@@ -54,8 +57,9 @@ test("a saved ToAPIs edit keeps a consistent per-reference charge", () => {
 			restoreToapisAttempt(
 				{ ...estimate, referenceImages: { ...referenceImages, ...change } },
 				model,
+				2,
 			),
 		).toBeNull();
 	}
-	expect(restoreToapisAttempt({ ...estimate, referenceImages: null }, model)).toBeNull();
+	expect(restoreToapisAttempt({ ...estimate, referenceImages: null }, model, 2)).toBeNull();
 });
