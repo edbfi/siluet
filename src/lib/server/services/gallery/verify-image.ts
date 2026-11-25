@@ -2,6 +2,10 @@ import { crc32 } from "node:zlib";
 import sharp from "sharp";
 import { hasCompleteGifStream } from "../../../shared/image-studio/gif";
 
+// libvips' operation cache would keep decoded results between downloads.
+// https://sharp.pixelplumbing.com/api-utility/#cache
+sharp.cache(false);
+
 const maxPixels = 16_000_000;
 const maxEdge = 16_384;
 // Allow a bounded decode beyond the publication profile to classify complete results.
@@ -115,11 +119,14 @@ export async function verifyImage(bytes: Buffer) {
 
 	// Some libjpeg warnings are emitted even when toBuffer() resolves.
 	// https://sharp.pixelplumbing.com/api-constructor/
+	// sharp enforces the timeout in its pipeline (toBuffer) only; metadata() reads headers
+	// and stats() stays bounded by limitInputPixels.
+	// https://sharp.pixelplumbing.com/api-output/#timeout
 	const decoder = sharp(bytes, {
 		limitInputPixels: verificationPixels,
 		failOn: "warning",
 		animated: !galleryFormat,
-	});
+	}).timeout({ seconds: 5 });
 	let warned = false;
 	decoder.on("warning", () => {
 		warned = true;

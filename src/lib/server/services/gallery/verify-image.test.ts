@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { crc32 } from "node:zlib";
 import sharp from "sharp";
 import { referenceGif, referencePng } from "../../../../../tests/fixtures/reference-image";
@@ -182,3 +182,24 @@ test.each(["regular", "extended", "to EOF"])(
 		}
 	},
 );
+
+test("decodes under a 5 s libvips timeout with the operation cache off", async () => {
+	const prototype = Object.getPrototypeOf(sharp());
+	const timeout = spyOn(prototype, "timeout");
+	try {
+		await verifyImage(referencePng);
+		await verifyImage(jpeg);
+		expect(timeout.mock.calls).toEqual([[{ seconds: 5 }], [{ seconds: 5 }]]);
+	} finally {
+		timeout.mockRestore();
+	}
+	// Alone in a process, so no other module has turned the cache off first.
+	const child = Bun.spawnSync([
+		process.execPath,
+		"-e",
+		`await import(${JSON.stringify(`${import.meta.dir}/verify-image.ts`)});
+		const { memory, files, items } = (await import("sharp")).default.cache();
+		console.log(JSON.stringify([memory.max, files.max, items.max]));`,
+	]);
+	expect(child.stdout.toString().trim()).toBe("[0,0,0]");
+});
