@@ -1,12 +1,20 @@
-import { createHash } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { createHash, createHmac } from "node:crypto";
+import { rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { installationMigrations } from "../../src/lib/server/db/migrations";
 import { releasedMigrations } from "../../src/lib/server/db/released-migrations";
+import { verifyImage } from "../../src/lib/server/services/gallery/verify-image";
+import { parseQueueRequest } from "../../src/lib/server/services/queue/request";
+import { reviewBinding } from "../../src/lib/server/services/queue/review-binding";
+import { editDisclosure } from "../../src/lib/shared/image-studio/edit-disclosure";
+import { createSeedreamDraft } from "../../src/lib/shared/image-studio/seedream";
 import { createInstallation37 } from "../fixtures/db/installation-37";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
+import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
+import { referencePng } from "../fixtures/reference-image";
 import { startStudio } from "./built-studio";
-import { claimOwner, ownerRequest, signedInPage } from "./owner-session";
+import { claimOwner, connectProvider, ownerRequest, signedInPage } from "./owner-session";
 import { test } from "./studio-test";
 
 /** Another web service on the same loopback host: a page Siluet's owner might visit. */
@@ -139,12 +147,57 @@ for (const host of ["127.0.0.1", "::1"] as const) {
 	});
 }
 
-test("the upgrade revokes cookie sessions, expires legacy cookies and keeps the studio", async ({
+/**
+ * A Poyo generation the cookie release queued, charged and saved: its accepted Review token,
+ * the job its Queue recorded and the Gallery copy, as `a507bde` left them.
+ */
+async function savedSubmission(
+	db: Parameters<NonNullable<Parameters<typeof createInstallation37>[1]>>[0],
+) {
+	const { sql } = await import("drizzle-orm");
+	const key = await db.get<{ secret: string }>(
+		sql`SELECT secret FROM image_review_key WHERE singleton=1`,
+	);
+	if (!key) throw new Error("Missing the Review signing key.");
+	const digest = (...parts: unknown[]) =>
+		createHmac("sha256", Buffer.from(key.secret, "hex"))
+			.update(JSON.stringify(parts))
+			.digest("hex");
+	const draft = {
+		...createSeedreamDraft("poyo"),
+		prompt: "A paper lantern, saved before the upgrade.",
+	};
+	const live = parseQueueRequest({ draft, count: 1, retryLimit: 0, acceptUnknown: false });
+	if (!live) throw new Error("Invalid Queue fixture.");
+	const id = crypto.randomUUID();
+	const terms = digest("review-terms-fixture");
+	const signed = reviewBinding(digest, editDisclosure).signature(id, terms, "creator", live);
+	const now = Date.now();
+	await db.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,accepted_unknown,state,model,created_at,poll_deadline,task_id,submission_recorded_at)
+		VALUES(${id},${digest("accepted-v1", signed, false)},'poyo',1,'{}',0,'completed',${live.input.model},${now},${now + 120_000},'pre-upgrade-task',${now})`);
+	const image = await verifyImage(referencePng);
+	await db.run(sql`INSERT INTO gallery_image(job_id,state,mime,width,height,size,digest,saved_at)
+		VALUES(${id},'saved',${image.mime},${image.width},${image.height},${referencePng.length},${createHash("sha256").update(referencePng).digest("hex")},${now})`);
+	return {
+		id,
+		queue: {
+			draft,
+			count: 1,
+			retryLimit: 0,
+			acceptUnknown: false,
+			token: [id, terms, signed].join("."),
+		},
+	};
+}
+
+test("the upgrade revokes cookie sessions and expires legacy cookies; the saved Gallery opens offline and a replayed Queue charges nothing", async ({
 	page,
 	context,
 }) => {
 	test.setTimeout(60000);
 	const directory = await createOwnerDirectory();
+	const fixtures = startProviderFixtures();
+	let saved: Awaited<ReturnType<typeof savedSubmission>> | undefined;
 	// The migrations of a507bde, the last release with cookie sessions.
 	const released = Object.fromEntries(
 		Object.entries(installationMigrations).filter(
@@ -158,11 +211,19 @@ test("the upgrade revokes cookie sessions, expires legacy cookies and keeps the 
 			const { sql } = await import("drizzle-orm");
 			const digest = createHash("sha256").update(token).digest("hex");
 			await db.run(sql`INSERT INTO session VALUES (${digest}, 1, ${Date.now()}, ${Date.now()})`);
+			saved = await savedSubmission(db);
 		},
 		undefined,
 		released,
 	);
-	const server = await startStudio(directory);
+	if (!saved) throw new Error("Missing the saved submission.");
+	const { id: jobId, queue } = saved;
+	await writeFile(
+		join(directory, `gallery-${createHash("sha256").update(jobId).digest("hex")}`),
+		referencePng,
+		{ mode: 0o600 },
+	);
+	const server = await startStudio(directory, "0", false, fixtures.env);
 	try {
 		const origin = server.origin.origin;
 		const hex = "a".repeat(64);
@@ -185,11 +246,40 @@ test("the upgrade revokes cookie sessions, expires legacy cookies and keeps the 
 		await page.getByLabel("Password", { exact: true }).fill(password);
 		await page.getByRole("button", { name: "Sign in" }).click();
 		await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+		// Offline, the Gallery opens the image saved before the upgrade from this studio alone.
+		const outbound: string[] = [];
+		await page.route(/^https?:/, (route) => {
+			if (new URL(route.request().url()).origin === origin) return route.continue();
+			outbound.push(route.request().url());
+			return route.abort();
+		});
 		await page.goto(`${origin}/gallery`);
 		await expect(page.getByRole("heading", { name: "Gallery" })).toBeVisible();
+		const tile = page.getByRole("list", { name: "Saved media" }).locator("img");
+		await expect(tile).toHaveCount(1);
+		await expect(tile).toHaveAttribute("src", /^blob:/);
+		await expect
+			.poll(() => tile.evaluate((image: HTMLImageElement) => image.naturalWidth))
+			.toBe((await verifyImage(referencePng)).width);
+		const media = await ownerRequest(page).get(`${origin}/gallery/${jobId}/media`);
+		expect(await media.body()).toEqual(referencePng);
+		expect(outbound).toEqual([]);
 		expect((await ownerRequest(page).get(`${origin}/jobs/__data.json`)).status()).toBe(200);
+		// Replaying the cookie release's accepted Queue names its job and charges nothing, even
+		// with a working key.
+		await connectProvider(page, origin, "poyo", providerFixtureKeys.poyo);
+		const before = fixtures.requests.length;
+		const replay = await ownerRequest(page).post(`${origin}/image/queue`, {
+			headers: { origin },
+			data: queue,
+		});
+		expect(replay.status()).toBe(200);
+		expect(await replay.json()).toEqual({ jobId });
+		expect(fixtures.requests.slice(before)).toEqual([]);
+		expect(fixtures.requests.filter((row) => row.path.endsWith("/submit"))).toEqual([]);
 	} finally {
 		await server.stop();
+		fixtures.stop();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
