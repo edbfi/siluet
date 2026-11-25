@@ -168,7 +168,7 @@ function withSave(save: SaveLimit | null, disclosuresFrom: SaveLimit | null = sa
 	// `live` parsed as Seedance text-to-video, so its body matches the copied operation.
 	return { ...live, operation, disclosures } as VideoRequest;
 }
-test("a 20-second mode reviews its limit and binds the number into the terms digest", async () => {
+test("a 20-second mode reviews its limit, binds it into the terms digest and stores it", async () => {
 	const { store, access } = fixture();
 	await store.save("toapis", "video-only", now, false, 0);
 	await access.check();
@@ -194,8 +194,11 @@ test("a 20-second mode reviews its limit and binds the number into the terms dig
 	const click = { token: review.token, acceptTerms: true };
 	expect(await queue.submit("owner", { ...changed, ...click })).toEqual({ error: "stale" });
 	expect(sent).toHaveLength(0);
-	expect(await queue.submit("owner", { ...twenty, ...click })).toHaveProperty("jobId");
+	const claimed = await queue.submit("owner", { ...twenty, ...click });
+	if (!("jobId" in claimed)) throw new Error("Missing claim");
 	expect(sent).toHaveLength(1);
+	// Save reads the limit the job was reviewed and claimed with.
+	expect(await imageJobStore(db).get(claimed.jobId)).toMatchObject({ save_seconds: 20 });
 });
 test("a mode without a Save limit is Review-only and Queue makes zero POSTs", async () => {
 	const { store, access } = fixture();

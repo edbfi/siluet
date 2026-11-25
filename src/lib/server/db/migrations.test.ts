@@ -154,8 +154,9 @@ test("released migrations keep their SQL and new ones sort after the last releas
 		expect(digest(value)).toBe(releasedMigrations.get(name) ?? "");
 });
 
-test("the video profile re-arm sorts last", () => {
-	expect(Object.keys(installationMigrations).sort().at(-1)).toBe(
+test("per-mode video Save limits sort last", () => {
+	expect(Object.keys(installationMigrations).sort().slice(-2)).toEqual([
 		"20261125120000_video_profile_rearm",
-	);
+		"20261126120000_video_save_limits",
+	]);
 });

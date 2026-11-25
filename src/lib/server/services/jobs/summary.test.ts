@@ -21,6 +21,7 @@ const h3: ImageJob = {
 	video_poll_deadline: null,
 	video_progress: null,
 	video_observation_id: null,
+	save_seconds: 15,
 	read_token: null,
 	next_read_at: null,
 	read_failures: 0,

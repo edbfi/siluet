@@ -756,3 +756,126 @@ test("refused MP4 clips are re-armed once and save with one status read and no P
 		await rm(directory, { recursive: true, force: true });
 	}
 }, 30_000);
+
+/** A write the database refuses with a CHECK constraint (Drizzle wraps the driver error). */
+async function refusedByCheck(write: Promise<unknown>) {
+	const error = await write.then(
+		() => null,
+		(caught: unknown) => caught,
+	);
+	expect(error).toBeInstanceOf(Error);
+	expect(String((error as Error).cause ?? error)).toMatch(/CHECK/i);
+}
+
+// Every migration released before per-mode Save limits, through the real-clip re-arm.
+const saveLimitHistory = Object.fromEntries(
+	Object.entries(installationMigrations).filter(
+		([name]) => name <= "20261125120000_video_profile_rearm",
+	),
+);
+
+test("jobs queued before per-mode limits adopt their mode's limit and Gallery rows stay byte-identical", async () => {
+	const directory = await createOwnerDirectory();
+	try {
+		await createInstallation37(
+			directory,
+			async (db) => {
+				const job = (
+					id: string,
+					provider: "poyo" | "toapis",
+					model: string,
+					operation: string | null,
+					kind: "seedance" | "poyo-video" | "image",
+				) =>
+					db.run(sql`INSERT INTO image_job
+						(id,binding,provider,revision,quote,state,model,operation,created_at,poll_deadline,
+						submission_recorded_at,task_id,business_id,video_terms)
+						VALUES (${id},${`${id}-binding`},${provider},1,'{}','completed',${model},${operation},
+						1,120002,2,${`${id}-task`},${kind === "seedance" ? `${id}-business` : null},
+						${kind === "poyo-video" ? "[]" : null})`);
+				await job("text", "toapis", "seedance-2-5", "text-to-video", "seedance");
+				await job("animate", "toapis", "seedance-2-5", "first-frame-to-video", "seedance");
+				await job(
+					"interpolate",
+					"toapis",
+					"seedance-2-5",
+					"first-and-last-frame-to-video",
+					"seedance",
+				);
+				await job("h3", "poyo", "h3-max", "text-to-video", "poyo-video");
+				await job("edit", "toapis", "seedance-2-5", "video-edit", "seedance");
+				await job("poyo-unknown", "poyo", "h3-max-turbo", "text-to-video", "poyo-video");
+				await job("seedream", "toapis", "doubao-seedream-5-5", "text-to-image", "image");
+				await job("z-image", "poyo", "z-image", "text-to-image", "image");
+				await db.run(sql`INSERT INTO gallery_image
+					(job_id,state,mime,width,height,size,digest,saved_at,duration,file_identity)
+					VALUES ('seedream','saved','image/png',1,1,10,'image-digest',3,NULL,NULL),
+					('text','saved','video/mp4',96,64,20,'video-digest',4,12,'1/2/3'),
+					('h3','unavailable','video/mp4',832,480,30,'h3-digest',5,5.166666666666667,'4/5/6')`);
+			},
+			undefined,
+			saveLimitHistory,
+		);
+		const gallery = sql`SELECT * FROM gallery_image ORDER BY job_id`;
+		const before = await (async () => {
+			const client = await connect(join(directory, "studio.db"));
+			try {
+				return JSON.stringify(await drizzle({ client }).all(gallery));
+			} finally {
+				await client.close();
+			}
+		})();
+
+		const upgraded = await openInstallation(directory);
+		try {
+			expect(await upgraded.use((db) => schemaFingerprint(db))).toBe(currentSchema);
+			const limits = await upgraded.use((db) =>
+				db.all<{ id: string; save_seconds: number | null }>(
+					sql`SELECT id, save_seconds FROM image_job ORDER BY id`,
+				),
+			);
+			expect(Object.fromEntries(limits.map((row) => [row.id, row.save_seconds]))).toEqual({
+				animate: 30,
+				edit: null,
+				h3: 15,
+				interpolate: 30,
+				"poyo-unknown": null,
+				seedream: null,
+				text: 30,
+				"z-image": null,
+			});
+			expect(JSON.stringify(await upgraded.use((db) => db.all(gallery)))).toBe(before);
+
+			// A limit is a positive integer on a video job only; text that SQLite cannot read as an
+			// integer is refused, and integer text is stored as the integer.
+			const limit = (id: string, value: unknown) =>
+				upgraded.use((db) =>
+					db.run(sql`UPDATE image_job SET save_seconds=${value} WHERE id=${id}`),
+				);
+			for (const value of [0, -1, 1.5, "30s"]) await refusedByCheck(limit("edit", value));
+			await refusedByCheck(limit("seedream", 30));
+			await limit("edit", "30");
+			expect(
+				await upgraded.use((db) =>
+					db.get(
+						sql`SELECT save_seconds, typeof(save_seconds) AS type FROM image_job WHERE id='edit'`,
+					),
+				),
+			).toEqual({ save_seconds: 30, type: "integer" });
+
+			// Gallery stores up to 61 seconds: the 60-second ceiling plus the allowance.
+			const clip = (id: string, duration: number) =>
+				upgraded.use((db) =>
+					db.run(sql`INSERT INTO gallery_image
+						(job_id,state,mime,width,height,size,digest,saved_at,duration,file_identity)
+						VALUES (${id},'saved','video/mp4',96,64,1,'d',6,${duration},'7/8/9')`),
+				);
+			await clip("animate", 61);
+			await refusedByCheck(clip("interpolate", 61.01));
+		} finally {
+			await upgraded.close();
+		}
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}, 30_000);

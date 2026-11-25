@@ -63,7 +63,8 @@ test("no business_id truthiness test remains outside the job helpers", async () 
 		if (
 			path.endsWith(".test.ts") ||
 			path.endsWith("video-schema.ts") ||
-			path.endsWith("video-profile-rearm.ts")
+			path.endsWith("video-profile-rearm.ts") ||
+			path.endsWith("video-save-limit-schema.ts")
 		)
 			continue;
 		const text = await Bun.file(resolve(root, path)).text();

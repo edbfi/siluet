@@ -133,8 +133,10 @@ export async function createVideoQueue(
 						const business = provider === "toapis" ? `siluet-${crypto.randomUUID()}` : null;
 						const send = target(input, business);
 						if (!send) return invalid;
-						await tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,model,operation,quote,accepted_unknown,state,created_at,poll_deadline,business_id,video_terms)
-					VALUES(${id},${binding},${provider},${current.revision},${input.body.model},${operation},${JSON.stringify(termsNow.quote)},${Number(termsNow.quote.status === "unknown")},'submitting',${time},${time + imageJobPollingWindowMs},${business},${JSON.stringify(input.disclosures)})`);
+						// No blocker means the operation has a valid Save limit; the job keeps it.
+						const save = input.operation.save?.seconds ?? null;
+						await tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,model,operation,quote,accepted_unknown,state,created_at,poll_deadline,business_id,video_terms,save_seconds)
+					VALUES(${id},${binding},${provider},${current.revision},${input.body.model},${operation},${JSON.stringify(termsNow.quote)},${Number(termsNow.quote.status === "unknown")},'submitting',${time},${time + imageJobPollingWindowMs},${business},${JSON.stringify(input.disclosures)},${save})`);
 						return { send, key: context.saved.key };
 					},
 					{ behavior: "immediate" },
