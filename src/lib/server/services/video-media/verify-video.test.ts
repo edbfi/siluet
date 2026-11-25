@@ -200,14 +200,6 @@ test("C2PA boxes with 64-bit headers and one of exactly 1 MiB verify", async () 
 		});
 });
 
-/** A 4 KiB C2PA box cut to `size` bytes, its store resized to fill what is left. */
-function cutC2pa(size: number) {
-	const out = Buffer.from(c2paBox(4096).subarray(0, size));
-	out.writeUInt32BE(size, 0);
-	if (size >= 49) out.writeUInt32BE(size - 45, 45);
-	return out;
-}
-
 test("every other uuid and every misframed or misplaced C2PA box is refused", async () => {
 	const source = h264Aac();
 	const shaped = (shape: ContentCredentialsShape) => afterFileType(source, c2paBox(4096, shape));
@@ -236,8 +228,8 @@ test("every other uuid and every misframed or misplaced C2PA box is refused", as
 		["label", shaped({ label: "c2pb" }), /content credentials description/],
 		["toggles", shaped({ toggles: 7 }), /content credentials description/],
 		["jumb size 0", shaped({ storeSize: 0 }), /content credentials store size/],
-		["40 bytes", afterFileType(source, cutC2pa(40)), /box is too short/],
-		["82 bytes", afterFileType(source, cutC2pa(82)), /content credentials store size/],
+		["40 bytes", afterFileType(source, c2paBox(40)), /box is too short/],
+		["82 bytes", afterFileType(source, c2paBox(82)), /content credentials store size/],
 		["trailing", shaped({ storeSize: 4096 - 45 - 8 }), /store must fill its box/],
 		["overrun", shaped({ storeSize: 4096 - 45 + 8 }), /store must fill its box/],
 		[

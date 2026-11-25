@@ -203,7 +203,8 @@ export type ContentCredentialsShape = {
 /**
  * A synthetic C2PA manifest box of `size` bytes: a `manifest` FullBox with a zero Merkle offset
  * whose `jumb` store fills the box, led by a 30-byte `jumd` (C2PA store type, toggles 3,
- * label `c2pa`) and zero fill. A size below the full headers cuts the box short.
+ * label `c2pa`) and zero fill. A size below the full headers cuts the box short, its store
+ * size clamped at 0 when the store starts past the end.
  */
 export function c2paBox(size: number, shape: ContentCredentialsShape = {}) {
 	const out = Buffer.alloc(Math.max(size, 128));
@@ -219,7 +220,7 @@ export function c2paBox(size: number, shape: ContentCredentialsShape = {}) {
 	out.write(purpose, header + 20, "latin1");
 	out.writeBigUInt64BE(shape.merkleOffset ?? 0n, header + 20 + purpose.length);
 	const store = header + 28 + purpose.length;
-	const storeSize = shape.storeSize ?? size - store;
+	const storeSize = shape.storeSize ?? Math.max(0, size - store);
 	let description = store + 8;
 	if (shape.wideStore) {
 		out.writeUInt32BE(1, store);
