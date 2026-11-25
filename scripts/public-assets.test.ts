@@ -22,6 +22,11 @@ test("public assets admit regular media and exclude linked directories and owner
 			"owner-recovery.sqlite-journal",
 			"owner-recovery.sqlite.bak",
 			"studio.db.bak",
+			"Studio.DB-shm",
+			// A regex `.` stops at a line break, which file names may hold.
+			"studio.db\n.bak",
+			"owner-recovery.sqlite\n-journal",
+			"factor\n1.key",
 			providerKeyFilename,
 			"factor-1.key",
 		]) {
