@@ -81,7 +81,6 @@ export function createSessionClient(
 	} | null = null;
 	let checking: Promise<void> | null = null;
 	let recheck = false;
-	let checkWhenVisible = false;
 	/** A document load waiting for Done or a back/forward-cache return. Higher priority wins. */
 	let destination: { url: string; priority: number } | null = null;
 	let codesFrom: { url: string; offer: boolean } | null = null;
@@ -97,7 +96,6 @@ export function createSessionClient(
 				if (document.visibilityState === "hidden") {
 					if (bearer) previous = bearer.value;
 					bearer = null;
-					checkWhenVisible = true;
 				} else void check();
 			})
 		: null;
@@ -194,7 +192,8 @@ export function createSessionClient(
 		if (!start || (start.sessionId === bound?.sessionId && start.generation === state.remountKey))
 			return false;
 		if (result.kind === "session") return result.sessionId !== bound?.sessionId;
-		return result.kind === "gone" && bound !== null;
+		// An access error from before the move says nothing about where the tab is now.
+		return result.kind === "access" || (result.kind === "gone" && bound !== null);
 	}
 
 	function holdCodes(row: Row & { kind: "other" | "gone" }) {
@@ -289,9 +288,15 @@ export function createSessionClient(
 		if (navigateSelf && !isPublicPath(location.pathname)) navigate.assign(row.location);
 	}
 
+	/** No check runs while the tab loads or awaits another document, or has no session to check. */
+	const settled = () =>
+		leaving ||
+		destination !== null ||
+		mode === "held" ||
+		mode === "keyless" ||
+		mode === "signed-out";
 	async function check() {
-		if (leaving || destination || mode === "held" || mode === "keyless" || mode === "signed-out")
-			return;
+		if (settled()) return;
 		if (checking) {
 			recheck = true;
 			return checking;
@@ -314,14 +319,15 @@ export function createSessionClient(
 								? { kind: "bound" }
 								: await classify({ kind: "session", bearer: live, ...body, start });
 					else if (response && isAccessBody(body))
-						row = await classify({ kind: "access", status: response.status, body });
+						row = await classify({ kind: "access", status: response.status, body, start });
 				}
+				// An earlier pass may have started a document load or a hold.
+				if (!row && settled()) return;
 				row ??= await classify(await renew());
 				if (row.kind === "other" || row.kind === "gone") leave(row, null);
 				// A stale answer applies nothing; ask again where the tab is now.
 				if (row.kind === "stale") recheck = true;
-				checkWhenVisible = row.kind === "failure";
-			} while (recheck);
+			} while (recheck && !settled());
 		})().finally(() => {
 			checking = null;
 		});
@@ -392,9 +398,6 @@ export function createSessionClient(
 		dropDrafts() {
 			state.remountKey++;
 			changed();
-		},
-		visible() {
-			if (checkWhenVisible) void check();
 		},
 		/**
 		 * The hook refused `value`. Drop it if it is still the tab's bearer, keeping it as `previous`

@@ -150,7 +150,10 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 				}
 				const response = await send(bearer);
 				if (!hookRefusal(response) || publicData) {
-					if (await recoveryRequired(response)) client.dropDrafts();
+					// Drop drafts only if the tab has not remounted while the body was read.
+					const generation = client.remountKey;
+					if ((await recoveryRequired(response)) && client.remountKey === generation)
+						client.dropDrafts();
 					return response;
 				}
 				// A route's own 401 is final; only the hook's invalid_token is resent, once.

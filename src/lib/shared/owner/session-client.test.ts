@@ -225,3 +225,38 @@ test("a check answered for the session the tab just left by its own Security cha
 		expect(h.navigations).toEqual([]);
 	}
 });
+
+test("a check queued behind one that starts a document load sends nothing more", async () => {
+	const h = harness();
+	await bound(h);
+	const answer = Promise.withResolvers<Answer>();
+	h.checks.push(answer.promise);
+	const first = h.client.check();
+	void h.client.check();
+	await Bun.sleep(1);
+	answer.resolve({ status: 200, body: { sessionId: "s2", loginId: "login-2" } });
+	await first;
+	expect(h.navigations).toEqual(["reload"]);
+	expect(h.requests.filter((path) => path === "/owner/challenge")).toHaveLength(1);
+});
+
+test("an access error answered after a Security adoption drops nothing and asks again", async () => {
+	const h = harness();
+	await bound(h);
+	const answer = Promise.withResolvers<Answer>();
+	h.checks.push(answer.promise);
+	const check = h.client.check();
+	await Bun.sleep(1);
+	h.client.beginSecurity();
+	h.client.stashSecurityBearer("successor");
+	h.client.settleSecurity({ sessionId: "s2", codes: [] }, true, page.href);
+	expect(h.client.remountKey).toBe(1);
+	answer.resolve({
+		status: 503,
+		body: { message: "Recover the host first.", retry: false, recoveryRequired: true },
+	});
+	h.checks.push(Promise.resolve({ status: 200, body: { sessionId: "s2", loginId: "login-1" } }));
+	await check;
+	expect(h.client.remountKey).toBe(1);
+	expect(h.requests.filter((path) => path === "/owner/session")).toHaveLength(2);
+});
