@@ -6,7 +6,6 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { exportWorkspace } from "../../design/workspace/export";
 import poyoBundle from "../../pricing/v2/poyo.json";
-import toapisBundle from "../../pricing/v2/toapis.json";
 import { loadBundledPricing } from "../../scripts/pricing/local-feed";
 import { reloadOrigin, reloadTest, reloadUrl } from "./workspace-reload";
 
