@@ -13,8 +13,8 @@
 
 Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview).
 
-- [ ] The bundled Poyo.ai v2 feed is refreshed first. `pricing/v2/poyo.json` includes `h3-max` (on `pricing-data` since `db0551e`, 2026-11-23) and matches `pricing-data` semantically.
-- [ ] The ToAPIs collector publishes a v2 feed (`pricing-data-toapis:pricing/v2/toapis.json`) with the Seedream reference-image rate, still fails closed on any other change, and is bundled. Review adds $0.0064 per reference image to ToAPIs edits. `freshness.ts --toapis` reads v2, `--bundled-toapis` exists, and both freshness jobs (`pricing.yml` `check-freshness`, `ci.yml` `pricing-freshness`) check the published v2 feed, with `check-freshness` also checking the bundled one.
+- [x] The bundled Poyo.ai v2 feed is refreshed first. `pricing/v2/poyo.json` includes `h3-max` (on `pricing-data` since `db0551e`, 2026-11-23) and matches `pricing-data` semantically ([#63](https://github.com/edbfi/siluet/pull/63)). On 2026-11-25 the rates equal `pricing-data` `b08488a`; only `confirmedAt` differs.
+- [x] The ToAPIs collector publishes a v2 feed (`pricing-data-toapis:pricing/v2/toapis.json`) with the Seedream reference-image rate, still fails closed on any other change, and is bundled. Review adds $0.0064 per reference image to ToAPIs edits. `freshness.ts --toapis` reads v2, `--bundled-toapis` exists, and both freshness jobs (`pricing.yml` `check-freshness`, `ci.yml` `pricing-freshness`) check the published v2 feed, with `check-freshness` also checking the bundled one. [#66](https://github.com/edbfi/siluet/pull/66); [pricing run](https://github.com/edbfi/siluet/actions/runs/45527357589) published the v2 feed and kept the v1 blob, and the [dispatched CI run](https://github.com/edbfi/siluet/actions/runs/45527441871) passed `pricing-freshness`.
 - [ ] On the commit to tag, after `git fetch origin pricing-data pricing-data-toapis`, this passes; it fails at 14 days or fewer. Leave out `--poyo-v1`, which would stand in for a missing Poyo.ai v2 feed. The feeds price every shipped priced operation, including `h3-max` and the Seedream reference image.
   ```sh
   git show origin/pricing-data:pricing/v2/poyo.json > /tmp/poyo-v2.json
@@ -22,18 +22,19 @@ Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scop
   bun scripts/pricing/freshness.ts --fail-within-days 14 --poyo-v2 /tmp/poyo-v2.json \
     --toapis /tmp/toapis-v2.json --bundled-poyo pricing/v2/poyo.json --bundled-toapis pricing/v2/toapis.json
   ```
-- [x] Documentation sync, done by this PR: capability map through #61, D11, D12, the promoted decisions and the plan.
+  It passed during release preparation on 2026-11-25. The bundled Poyo.ai rates expire first, at 2026-12-24T16:04:23Z, so it fails from 2026-12-10T16:04Z. Run it again on the commit to tag.
+- [x] Documentation sync, done by [#64](https://github.com/edbfi/siluet/pull/64): capability map through #61, D11, D12, the promoted decisions and the plan.
 - [x] Generate one real clip per shipped video family with owner approval (2026-11-24): Poyo.ai H3 Max 5 s 480p for 50 credits, ToAPIs Seedance 2.5 4 s 480p for 77.66 credits. Both fail `verifyVideoFile` on `5321d7f`. Originals are kept outside git in `audit/realclip/`, SHA-256 `0942ac5a…be96d` (H3 Max) and `bad803dc…76363` (Seedance).
-- [ ] The council confirms the D6 revision for these structures.
-- [ ] On the release candidate, both untouched originals pass `verifyVideoFile` from `src/`, with its output and their SHA-256 recorded, and the saved bytes stay the provider's.
+- [x] The council confirms the D6 revision for these structures: an approved plan and three code rounds ending in unanimous approval, then [#65](https://github.com/edbfi/siluet/pull/65) ([CI on the merged commit](https://github.com/edbfi/siluet/actions/runs/45525368090)).
+- [x] Preparation evidence: both untouched originals pass `verifyVideoFile` from `src/`, with its output and their SHA-256 recorded, and the saved bytes stay the provider's. On `6b94cd7` (2026-11-25), under each mode's limit and under the legacy limit: H3 Max `0942ac5a…be96d` 832×480, 5.1667 s, 124 video and 162 audio samples; Seedance `bad803dc…76363` 854×480, 4.064 s, 97 and 128. Auto-save verifies the downloaded scratch file and renames it into Gallery unchanged.
 - [x] CI fixtures built from the recorded structures pass, while another `uuid` box, a bad JUMBF or `jumd`, a C2PA box over 1 MiB and, under the AAC priming exception, over-priming, non-1,024-sample AAC frames and an edit past the first sample are refused.
 - [x] Completed, unsaved clips held for an MP4 refusal the fix now accepts re-arm once: those with unexpired links save with one status read and no generation call; expired ones settle as expired with zero status reads.
-- [ ] The council confirms the per-mode video Save limits spec, the implementation merges, and Review states each mode's limits.
-- [ ] [#62](https://github.com/edbfi/siluet/pull/62) is rebased onto the per-mode limits with its source-length disclosure at 30 s, passes its checks and merges.
-- [ ] A cross-cutting security review is recorded as one short entry in `docs/decisions.md` with its scope, date, findings and their dispositions, and every blocker is resolved or explicitly accepted by the owner. Recorded on 2026-11-25 with its fixes; the cross-port session cookie waits on the owner.
-- [ ] Re-check the README against shipped behaviour after the per-mode limits and #62.
-- [ ] The release coverage table lists each operation as verified, Review-only or pending and cites the real-clip results, and `package.json` reads `0.1.0` on the commit to tag.
-- [ ] Local checks and hosted `ci-ok` pass on the commit to tag, and the owner tags `v0.1.0`.
+- [x] The council confirms the per-mode video Save limits spec, the implementation merges, and Review states each mode's limits ([#67](https://github.com/edbfi/siluet/pull/67), [SPEC](../docs/SPEC-video-save-limits.md)).
+- [x] [#62](https://github.com/edbfi/siluet/pull/62) is rebased onto the per-mode limits with its source-length disclosure at 30 s, passes its checks and merges (`49b1451`, [CI on the merged commit](https://github.com/edbfi/siluet/actions/runs/45542430661)).
+- [ ] A cross-cutting security review is recorded as one short entry in `docs/decisions.md` with its scope, date, findings and their dispositions, and every blocker is resolved or explicitly accepted by the owner. Recorded on 2026-11-25 with its fixes ([#69](https://github.com/edbfi/siluet/pull/69)); the cross-port session cookie waits on the owner.
+- [x] Re-check the README against shipped behaviour after the per-mode limits and #62. Checked against `6b94cd7`, edited in [#70](https://github.com/edbfi/siluet/pull/70). The cookie item is now a fix (owner decision 2026-11-25), not a README note; see the remaining item. Former note: waits on the owner's decision.
+- [x] The release coverage table lists each operation as verified, Review-only or pending and cites the real-clip results, and `package.json` reads `0.1.0`. `package.json` is set on `chore/release-0.1.0` and the table is drafted for the owner's GitHub release; confirm both on the commit to tag.
+- [ ] Remaining: the cross-port session cookie fix (owner decided 2026-11-25 to fix it before v0.1.0; council chooses the design); on the commit to tag, the local checks, both archived clips through `verifyVideoFile`, the four-feed 14-day pricing check and hosted `ci-ok`; then the owner's tag `0.1.0` with the release titled `v0.1.0`.
 
 ## R0 operations
 
@@ -53,7 +54,7 @@ Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scop
 - [x] Estimate H3 from the v2 `h3-max` rate with the unknown-price consent path. Keep the v1 feed bytes.
 - [x] Save H3 through the D6 structural verifier and play it offline in the built studio.
 - [x] After merge, a pricing run publishes `h3-max` to `pricing-data` (`db0551e`, 2026-11-23). The bundle refresh is superseded by the v0.1.0 item.
-- [ ] `smoke` and `native-owner` pass both video journeys on hosted Linux and macOS.
+- [x] `smoke` and `native-owner` pass both video journeys on hosted Linux and macOS ([CI on `6d7838d`](https://github.com/edbfi/siluet/actions/runs/45545827248)).
 
 ## Automatic Save (D9)
 
@@ -123,4 +124,4 @@ Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scop
 - [x] Name the source clip in confirmed refusals and failures; keep undocumented codes uncertain; follow asset review to Save, Retry download, expiry, a saved 15-second edit and a held 31.1-second edit with one POST (`video.test.ts`, `summary.test.ts`, `tracking.test.ts`).
 - [x] Review by keyboard at desktop and 320 px, queue once, save and reopen offline with zero source-host reads or DNS resolutions (`seedance-source-edit.spec.ts`).
 - [x] The owner decided (2026-11-25): the edit saves up to 30 s from upstream evidence, disclosed as unverified on this route, and the source-length and cost warning stays at 30 s (`registry.test.ts`, `request.test.ts`, `source-edit.test.ts`, `tracking.test.ts`).
-- [ ] Hosted `smoke` (Linux x64) passes the edit journey; `native-owner` (macOS) keeps passing its existing video checks.
+- [x] Hosted `smoke` (Linux x64) passes the edit journey; `native-owner` (macOS) keeps passing its existing video checks ([CI on `49b1451`](https://github.com/edbfi/siluet/actions/runs/45542430661)).

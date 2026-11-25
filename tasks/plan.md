@@ -4,7 +4,9 @@ Source: [capability map](../docs/SPEC.md#production-capability-map) and [D11](..
 
 ## Overview
 
-v0.1.0 is a scoped preview of what main verifies when it is tagged. The phases below close the D11 gates in dependency order, then later work follows. This documentation sync is done when its PR merges. Retire this plan when v0.1.0 is tagged.
+v0.1.0 is a scoped preview of what main verifies when it is tagged. The phases below close the D11 gates in dependency order, then later work follows. Retire this plan when v0.1.0 is tagged.
+
+**Status, 2026-11-25.** Phases 1 and 2 are merged ([#63](https://github.com/edbfi/siluet/pull/63), [#65](https://github.com/edbfi/siluet/pull/65)–[#67](https://github.com/edbfi/siluet/pull/67), [#62](https://github.com/edbfi/siluet/pull/62)), and so are the security fixes ([#69](https://github.com/edbfi/siluet/pull/69)). Release preparation on `chore/release-0.1.0` sets `0.1.0`, re-checks the README and drafts the coverage table. Remaining: the cross-port session cookie fix (owner decided 2026-11-25 to fix it before v0.1.0; council chooses the design); on the commit to tag, the local checks, both archived clips through `verifyVideoFile`, the four-feed 14-day pricing check and hosted `ci-ok`; then the owner's tag `0.1.0` with the release titled `v0.1.0`. The cookie fix keeps the security gate open.
 
 ## Phase 1 · in parallel
 
@@ -13,9 +15,9 @@ v0.1.0 is a scoped preview of what main verifies when it is tagged. The phases b
 
 ### Checkpoint: real clips
 
-- [ ] The D6 revision is council-confirmed.
-- [ ] Both untouched originals pass `verifyVideoFile` from `src/`, with the output and SHA-256 recorded; the fixture refusals and the one-time re-arm hold ([todo](todo.md#v010-scoped-preview)).
-- [ ] `ci-ok` is green on the merged commit.
+- [x] The D6 revision is council-confirmed.
+- [x] Both untouched originals pass `verifyVideoFile` from `src/`, with the output and SHA-256 recorded; the fixture refusals and the one-time re-arm hold ([todo](todo.md#v010-scoped-preview)).
+- [x] `ci-ok` is green on the merged commit ([run](https://github.com/edbfi/siluet/actions/runs/45525368090)).
 
 ## Phase 2 · after the real-clip fix
 
@@ -26,7 +28,7 @@ Per-mode limits and Phase 1's real-clip fix both touch `mp4.ts`, so limits wait 
 
 ### Checkpoint: video modes
 
-- [ ] Review states each mode's limits, and #62 is merged with green checks.
+- [x] Review states each mode's limits, and #62 is merged with green checks ([run](https://github.com/edbfi/siluet/actions/runs/45542430661)).
 
 ## Phase 3 · last
 
@@ -36,7 +38,7 @@ Per-mode limits and Phase 1's real-clip fix both touch `mp4.ts`, so limits wait 
 
 ### Checkpoint: release
 
-- [ ] Every [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview) gate holds on the commit to tag.
+- [ ] Every [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview) gate holds on the commit to tag. Open: the remaining items in the status above.
 
 ## After v0.1.0
 
