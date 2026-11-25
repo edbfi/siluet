@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, copyFile, exists, readdir, readFile, rm } from "node:fs/promises";
+import { chmod, copyFile, exists, readdir, readFile, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { TOTP } from "otpauth";
@@ -88,8 +88,10 @@ test("recovery names a folder another user could write and how to close it", asy
 		recovery = command(join(parent, "shared", "siluet"));
 		await recovery.child.exited;
 		expect(recovery.child.exitCode).toBe(1);
+		// Recovery names the canonical folder, which differs under a linked TMPDIR (macOS /var).
+		const folder = await realpath(parent);
 		expect(recovery.output()).toContain(
-			`Another user could replace the data directory through ${parent}. Run chmod g-w,o-w ${parent}`,
+			`Another user could replace the data directory through ${folder}. Run chmod g-w,o-w ${folder}`,
 		);
 	} finally {
 		recovery?.term.close();
