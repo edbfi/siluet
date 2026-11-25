@@ -2,7 +2,8 @@ import { crc32 } from "node:zlib";
 import sharp from "sharp";
 import { hasCompleteGifStream } from "../../../shared/image-studio/gif";
 
-// libvips' operation cache would keep decoded results between downloads.
+// libvips' operation cache would keep decoded results between downloads. The setting is
+// process-wide, as in media-cleanup/preparation.ts; this keeps it off even when Gallery loads first.
 // https://sharp.pixelplumbing.com/api-utility/#cache
 sharp.cache(false);
 
