@@ -16,8 +16,7 @@
   <a href="https://github.com/edbfi/siluet/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/edbfi/siluet/ci.yml?branch=main&amp;event=push&amp;label=CI&amp;style=flat" alt="CI on main"></a>
 </p>
 
-Siluet is a private image and video studio that runs on your own machine. Connect your Poyo.ai or ToAPIs key, review each request and its estimated cost before anything is sent, and follow the job; Siluet saves the result to your Gallery.
-Saved images and videos stay in your local Gallery and open offline.
+Siluet is a private image and video studio that runs on your own machine. Connect your Poyo.ai or ToAPIs key and review each request before anything is sent: Review shows an estimate when a rate is known, or asks you to accept an unknown price. Gallery saves results that pass verification and stay within the mode's limits, and they open offline.
 
 ## Quick start
 
@@ -32,7 +31,7 @@ bun run start
 Open the setup URL printed in the terminal, paste the claim token, and choose a password. Later starts open at `http://127.0.0.1:3000`.
 
 - Data lives in `~/.local/share/siluet` (or `$XDG_DATA_HOME/siluet`). Set `SILUET_DATA_DIR` for a separate installation, and back up the whole directory while Siluet is stopped.
-- Image Studio and Video Studio share one Gallery. Video Studio creates a clip from text or public frame URLs, or edits one from a public video URL. Review shows the limits each clip must meet to save there.
+- Image Studio and Video Studio share one Gallery. Video Studio creates clips from a prompt, optionally guided by public frame URLs, or edits a clip from a public video URL. Review shows the limits each clip must meet to save there.
 - Siluet removes metadata from every attached image before upload. Turn this off in Settings → Attached files.
 - An authenticator is optional. Add one in Settings → Security.
 - Locked out? Stop Siluet and run `bun run owner:recover`.
