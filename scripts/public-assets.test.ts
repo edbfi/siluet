@@ -20,6 +20,8 @@ test("public assets admit regular media and exclude linked directories and owner
 			"studio.db-wal",
 			"owner-recovery.sqlite",
 			"owner-recovery.sqlite-journal",
+			"owner-recovery.sqlite.bak",
+			"studio.db.bak",
 			providerKeyFilename,
 			"factor-1.key",
 		]) {

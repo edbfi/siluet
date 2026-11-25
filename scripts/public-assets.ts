@@ -3,12 +3,13 @@ import { join } from "node:path";
 import type { Plugin } from "vite";
 
 // Vite copies the public tree verbatim, outside its dev-server fs.deny policy.
+// Storage names match by prefix, so journals and copies such as .bak are refused too.
 export function checkPublicAssets(root: string) {
 	function visit(path: string, name: string) {
 		const entry = lstatSync(path);
 		if (
 			entry.isSymbolicLink() ||
-			/^(?:installation\.id|studio\.db(?:-.*)?|owner-recovery\.sqlite(?:-.*)?|.*\.key)$/i.test(name)
+			/^(?:installation\.id|studio\.db.*|owner-recovery\.sqlite.*|.*\.key)$/i.test(name)
 		)
 			throw new Error("Public assets must exclude filesystem links and owner storage files.");
 		if (entry.isDirectory()) for (const child of readdirSync(path)) visit(join(path, child), child);
