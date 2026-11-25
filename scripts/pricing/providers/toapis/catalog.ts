@@ -218,10 +218,26 @@ function readInputImageData(
 				throw new Error(`Unreadable ToAPIs ${title} page data.`);
 			}
 		});
-	if (owners.length !== 1 || owners[0].modelId !== model) {
+	const changed = new Error(
+		`The ToAPIs ${title} reference-image page data has changed or is missing.`,
+	);
+	if (owners.length !== 1) throw changed;
+	if (owners[0].modelId !== model) {
 		throw new Error(`The ToAPIs ${title} reference-image page data belongs to another model.`);
 	}
+	// The decoded entry must carry exactly the matched amount and allowance, so a second key
+	// spelled another way (JSON keeps the last duplicate) cannot change the price unseen.
 	const [, usd, freeCount] = matches[0];
+	const entry = owners[0].inputImage;
+	if (
+		entry === null ||
+		typeof entry !== "object" ||
+		Object.keys(entry).join() !== "usd,freeCount" ||
+		(entry as Record<string, unknown>).usd !== Number(usd) ||
+		(entry as Record<string, unknown>).freeCount !== Number(freeCount)
+	) {
+		throw changed;
+	}
 	return { usd, freeCount };
 }
 

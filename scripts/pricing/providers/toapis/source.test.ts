@@ -303,6 +303,27 @@ test.each([
 		"another model",
 	],
 	[
+		"a second, escaped inputImage key that changes the decoded price",
+		imagePage({ scripts: flight(`${inputImage},"\\u0069nputImage":{"usd":0.01,"freeCount":0}`) }),
+		"page data has changed",
+	],
+	[
+		"two records that each carry an inputImage",
+		imagePage({
+			scripts: flight(
+				`${inputImage},"other":{"modelId":"doubao-seedream-5-5","\\u0069nputImage":{"usd":0.0056,"freeCount":0}}`,
+			),
+		}),
+		"page data has changed",
+	],
+	[
+		"an inputImage row split across two page data chunks",
+		imagePage({
+			scripts: `<script>self.__next_f.push([1,${JSON.stringify('1a:{"heroPricing":{"variants":[{"modelId":"doubao-seedream-5-5",')}])</script><script>self.__next_f.push([1,${JSON.stringify(`${inputImage}}]}}\n`)}])</script>`,
+		}),
+		"Unreadable",
+	],
+	[
 		"an inputImage in an unreadable page data row",
 		imagePage({
 			scripts: `<script>self.__next_f.push([1,${JSON.stringify(`1a:{"variants":[{"modelId":"doubao-seedream-5-5",${inputImage}}\n`)}])</script>`,
