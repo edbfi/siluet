@@ -26,8 +26,8 @@ const rows = {
 const note = (amount: string) =>
 	`<p>Ordinary generation returns one image; layer decomposition returns a base image and PNG layers. Reference images are billed at $${amount} per image. Billing settles when the task completes.</p>`;
 // The page embeds its pricing data in a Next.js flight string, so the JSON arrives escaped.
-const flight = (data: string) =>
-	`<script>self.__next_f.push([1,${JSON.stringify(`1a:{"heroPricing":{"variants":[{"modelId":"doubao-seedream-5-5","tiers":[{"label":"2K","usd":0.027,"unitLabel":"image"}],${data}}]}}\n`)}])</script>`;
+const flight = (data: string, modelId = "doubao-seedream-5-5") =>
+	`<script>self.__next_f.push([1,${JSON.stringify(`1a:{"heroPricing":{"variants":[{"modelId":"${modelId}","tiers":[{"label":"2K","usd":0.027,"unitLabel":"image"}],${data}}]}}\n`)}])</script>`;
 const inputImage = '"inputImage":{"usd":0.0056,"freeCount":0}';
 const imagePage = ({
 	body = Object.values(rows).join(""),
@@ -289,6 +289,25 @@ test.each([
 		"a changed freeCount",
 		imagePage({ scripts: flight('"inputImage":{"usd":0.0056,"freeCount":1}') }),
 		"prices disagree",
+	],
+	[
+		"an inputImage on another model's pricing record",
+		imagePage({ scripts: flight(inputImage, "doubao-seedream-4-5") }),
+		"another model",
+	],
+	[
+		"an inputImage on a pricing record without a model",
+		imagePage({
+			scripts: `<script>self.__next_f.push([1,${JSON.stringify(`1a:{"heroPricing":{"variants":[{${inputImage}}]}}\n`)}])</script>`,
+		}),
+		"another model",
+	],
+	[
+		"an inputImage in an unreadable page data row",
+		imagePage({
+			scripts: `<script>self.__next_f.push([1,${JSON.stringify(`1a:{"variants":[{"modelId":"doubao-seedream-5-5",${inputImage}}\n`)}])</script>`,
+		}),
+		"Unreadable",
 	],
 	[
 		"an inputImage with more fields",

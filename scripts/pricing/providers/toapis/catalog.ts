@@ -160,10 +160,25 @@ function readReferenceNote(html: string, title: string): string {
 
 // One Next.js flight chunk: self.__next_f.push([1,"<JSON string literal>"]).
 const flightChunk = /^self\.__next_f\.push\(\[\d+(?:,("(?:[^"\\]|\\.)*"))?\]\)$/;
+// One flight row: <hex id>:<JSON>.
+const flightRow = /^[0-9a-f]+:(.*)$/s;
 const inputImageData = /"inputImage":\{"usd":(\d+(?:\.\d+)?),"freeCount":(\d+)\}/g;
 
-/** The page's own pricing data for reference images, decoded from its escaped flight string. */
-function readInputImageData(html: string, title: string): { usd: string; freeCount: string } {
+/** Every record in the decoded rows that carries its own inputImage entry. */
+function inputImageOwners(value: unknown): Record<string, unknown>[] {
+	if (Array.isArray(value)) return value.flatMap(inputImageOwners);
+	if (value === null || typeof value !== "object") return [];
+	const record = value as Record<string, unknown>;
+	const nested = Object.values(record).flatMap(inputImageOwners);
+	return Object.hasOwn(record, "inputImage") ? [record, ...nested] : nested;
+}
+
+/** The page's own pricing data for the model's reference images, decoded from its flight string. */
+function readInputImageData(
+	html: string,
+	model: string,
+	title: string,
+): { usd: string; freeCount: string } {
 	const scripts: string[] = [];
 	new HTMLRewriter()
 		.on("script", {
@@ -175,7 +190,7 @@ function readInputImageData(html: string, title: string): { usd: string; freeCou
 			},
 		})
 		.transform(html);
-	const matches = scripts.flatMap((script) => {
+	const payloads = scripts.flatMap((script) => {
 		const literal = flightChunk.exec(script.trim())?.[1];
 		if (literal === undefined) return [];
 		let payload: unknown;
@@ -184,11 +199,27 @@ function readInputImageData(html: string, title: string): { usd: string; freeCou
 		} catch {
 			throw new Error(`Unreadable ToAPIs ${title} page data.`);
 		}
-		return typeof payload === "string" ? [...payload.matchAll(inputImageData)] : [];
+		return typeof payload === "string" ? [payload] : [];
 	});
+	const matches = payloads.flatMap((payload) => [...payload.matchAll(inputImageData)]);
 	// Any other copy of the entry, escaped or not, makes the source ambiguous.
 	if (matches.length !== 1 || html.split("inputImage").length !== 2) {
 		throw new Error(`The ToAPIs ${title} reference-image page data has changed or is missing.`);
+	}
+	// The amount counts only when the record holding it names this model. A row split across
+	// chunks does not decode on its own and fails closed.
+	const owners = payloads
+		.flatMap((payload) => payload.split("\n"))
+		.filter((row) => row.includes("inputImage"))
+		.flatMap((row) => {
+			try {
+				return inputImageOwners(JSON.parse(flightRow.exec(row)?.[1] ?? ""));
+			} catch {
+				throw new Error(`Unreadable ToAPIs ${title} page data.`);
+			}
+		});
+	if (owners.length !== 1 || owners[0].modelId !== model) {
+		throw new Error(`The ToAPIs ${title} reference-image page data belongs to another model.`);
 	}
 	const [, usd, freeCount] = matches[0];
 	return { usd, freeCount };
@@ -224,7 +255,7 @@ export function readImageRates(page: PricingPage) {
 	}
 	const reference = readPrice(input[1], "image", title);
 	const noteUsd = readReferenceNote(page.html, title);
-	const data = readInputImageData(page.html, title);
+	const data = readInputImageData(page.html, model, title);
 	const amount = creditUnits(reference.usd);
 	if (
 		creditUnits(noteUsd) !== amount ||
