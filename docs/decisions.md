@@ -128,7 +128,7 @@ Siluet cleans every attached file automatically (owner decision 2026-11-22). The
 
 ## D11 · v0.1.0 is a scoped preview
 
-Approved by the owner on 2026-11-24. The first release, v0.1.0, is a preview for one local creator containing everything verified on main when it is tagged. GitHub generates the change list from the merged pull requests; there is no CHANGELOG file. Release preparation adds a hand-written coverage table that lists each operation as verified, Review-only or pending and cites each video family's real-clip result, so the preview is not mistaken for full D2 coverage. `package.json` takes the version at tag time. The orchestrator prepares the release and the owner tags it.
+Approved by the owner on 2026-11-24. The first release, v0.1.0, is a preview for one local creator containing everything verified on main when it is tagged. GitHub generates the change list from the merged pull requests; there is no CHANGELOG file. Release preparation adds a hand-written coverage table that lists each operation as verified, Review-only or pending and cites each video family's real-clip result, so the preview is not mistaken for full D2 coverage. `package.json` takes the version at tag time. The GitHub release is titled `v0.1.0` and its tag is `0.1.0`, the owner's convention (2026-11-25). The orchestrator prepares the release and the owner tags it.
 
 Tag only when the commit to tag meets every gate:
 
@@ -154,7 +154,7 @@ Fixed in the security hardening PR:
 - libvips' cache is off for the whole process (Gallery verification and media cleanup each turn it off, whichever loads first), and Gallery image verification decodes every image once under a 5 s timeout. sharp enforces it in `toBuffer` only, so an image outside the Gallery profile decodes to one byte a pixel there instead of through `stats()`.
 - MP4 edit durations add as BigInt, and the provider key opens with `O_NONBLOCK`.
 
-Pending owner acceptance: browsers send cookies to every port on a host, so another local web service the owner visits on 127.0.0.1 can receive Siluet's session cookie (Sol: blocker; Opus: accepted risk). A real fix changes how Siluet is reached. Recommendation: accept for v0.1.0, tell creators in the README to use a browser profile without untrusted local web services or to sign out after use, and spec host-isolated access after v0.1.0. The D11 gate stays open until the owner decides.
+Owner decision 2026-11-25: fix it before v0.1.0 rather than accept it. Browsers send cookies to every port on a host, so another local web service the owner visits on 127.0.0.1 can receive Siluet's session cookie (Sol: blocker; Opus: accepted risk). The council chooses the design and it ships as its own reviewed change; the D11 gate stays open until it merges.
 
 Follow-up: refusing non-443 ports on result downloads (Gemini) was declined for now. Downloads already pin a vetted public address with TLS and no credentials, and no evidence shows which ports provider CDNs use. Revisit once real result URLs are observed.
 
