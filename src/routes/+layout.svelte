@@ -31,21 +31,23 @@ onMount(() => {
 		applyAppearance(localStorage.getItem("siluet-appearance"));
 	} catch {}
 	const client = sessionClient();
+	let latest = 0;
 	const unsubscribe = client.subscribe(async (state) => {
+		const notification = ++latest;
 		remountKey = state.remountKey;
 		if (state.codes && !shown) {
 			menuOpen = false;
 			await tick();
 		}
-		shown = state.codes;
+		// A later notification has already set what shows.
+		if (notification === latest) shown = state.codes;
 	});
 	// Revalidate when the tab comes back. The one pageshow handler loads a pending destination
-	// instead, and checks nothing on that path.
+	// instead, and checks nothing on that path. Hiding keeps the bearer for a pagehide keepalive.
 	const visible = () => {
-		if (document.visibilityState === "visible") {
-			client.visible();
-			void client.check();
-		} else client.hidden();
+		if (document.visibilityState !== "visible") return;
+		client.visible();
+		void client.check();
 	};
 	const focus = () => void client.check();
 	const pageshow = (event: PageTransitionEvent) => client.pageshow(event.persisted);

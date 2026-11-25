@@ -23,6 +23,17 @@ const jsonResponse = (body: unknown, status = 200) =>
 const hookRefusal = (response: Response) =>
 	response.status === 401 && (response.headers.get("www-authenticate") ?? "").startsWith("Bearer");
 
+/** An access error that requires recovery, as data JSON or an action's error envelope. */
+async function recoveryRequired(response: Response) {
+	if (response.ok || !response.headers.get("content-type")?.includes("application/json"))
+		return false;
+	const body = await response
+		.clone()
+		.json()
+		.catch(() => null);
+	return (body?.type === "error" ? body.error : body)?.recoveryRequired === true;
+}
+
 export function authenticatedFetch(client: SessionClient, native: typeof fetch) {
 	return function fetchWithSession(
 		input: RequestInfo | URL,
@@ -33,10 +44,14 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 		if (url.origin !== location.origin) return native(input, init);
 		const method = (init.method ?? request?.method ?? "GET").toUpperCase();
 		const { siluetSession, ...forwarded } = init;
+		// SvelteKit marks its own load fetches with a non-enumerable flag the spread drops.
+		const flag = Object.getOwnPropertyDescriptor(init, "__sveltekit_fetch__");
+		const flagged = <T extends object>(options: T) =>
+			flag ? Object.defineProperty(options, "__sveltekit_fetch__", flag) : options;
 		// The document is being replaced; nothing more goes out from this page.
 		if (client.leaving) return pending();
 		if (method === "POST" && signedPaths.test(url.pathname))
-			return native(input, { ...forwarded, credentials: "omit" });
+			return native(input, flagged({ ...forwarded, credentials: "omit" as const }));
 
 		const data = url.pathname.endsWith(dataSuffix);
 		const page = data ? url.pathname.slice(0, -dataSuffix.length) || "/" : url.pathname;
@@ -60,7 +75,7 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 			const outgoing = new Headers(headers);
 			if (bearer) outgoing.set("authorization", `Bearer ${bearer}`);
 			else outgoing.delete("authorization");
-			const options = { ...forwarded, headers: outgoing, credentials: "omit" as const };
+			const options = flagged({ ...forwarded, headers: outgoing, credentials: "omit" as const });
 			return native(request ? new Request(request, options) : input, options).then((response) => {
 				// A response from before a remount applies nothing. A Security response always
 				// reaches its settlement, which decides for itself.
@@ -134,13 +149,18 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 					bearer = next.bearer;
 				}
 				const response = await send(bearer);
-				if (!hookRefusal(response) || publicData) return response;
+				if (!hookRefusal(response) || publicData) {
+					if (await recoveryRequired(response)) client.dropDrafts();
+					return response;
+				}
 				// A route's own 401 is final; only the hook's invalid_token is resent, once.
 				if (!(response.headers.get("www-authenticate") ?? "").includes("invalid_token"))
 					return response;
 				if (attempt > 0) throw new TypeError("The studio refused this session.");
-				client.hidden();
-				bearer = null;
+				// Another request may have renewed already; resend with its bearer instead.
+				client.refused(bearer);
+				const live = client.liveBearer();
+				bearer = live && (pinned === null || client.bound()?.sessionId === pinned) ? live : null;
 			}
 		}
 

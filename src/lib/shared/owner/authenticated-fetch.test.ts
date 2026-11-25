@@ -49,8 +49,10 @@ const session = (sessionId: string, bearer = `bearer-${sessionId}`) => ({
 });
 const access = { message: "Retry.", retry: true, recoveryRequired: false };
 
+type Resume = Answer | ((body: { previous?: string }) => Answer);
 function harness({ stored = key as BrowserKey | null } = {}) {
-	const resumes: Answer[] = [];
+	const resumes: Resume[] = [];
+	const inits: (RequestInit | undefined)[] = [];
 	const routes: ((request: Request) => Answer | Promise<Answer>)[] = [];
 	const sent: Request[] = [];
 	const credentials: (RequestCredentials | undefined)[] = [];
@@ -62,8 +64,12 @@ function harness({ stored = key as BrowserKey | null } = {}) {
 		);
 		const path = new URL(request.url).pathname;
 		if (path === "/owner/challenge") return json({ status: 200, body: { nonce: "n" } });
-		if (path === "/owner/resume") return json(resumes.shift() ?? { status: 500 });
+		if (path === "/owner/resume") {
+			const next = resumes.shift() ?? { status: 500 };
+			return json(typeof next === "function" ? next(await request.json()) : next);
+		}
 		sent.push(request);
+		inits.push(init);
 		credentials.push(init?.credentials);
 		return json(await (routes.shift() ?? (() => ({ status: 200, body: { ok: true } })))(request));
 	}) as typeof fetch;
@@ -83,6 +89,7 @@ function harness({ stored = key as BrowserKey | null } = {}) {
 		resumes,
 		routes,
 		sent,
+		inits,
 		credentials,
 		navigations,
 	};
@@ -253,6 +260,99 @@ describe("a keyed tab", () => {
 		expect(h.client.settleSecurity({ sessionId: "s2", codes: ["c"] }, true, page.href)).toBe(true);
 		expect(h.client.bound()?.sessionId).toBe("s2");
 		expect(h.client.liveBearer()).toBe("successor");
+	});
+});
+
+describe("concurrent requests and studio errors", () => {
+	test("requests refused together renew once and each resends with the renewed bearer", async () => {
+		const h = harness();
+		// A fake studio that checks bearers: `resume` issues one and retires the same session's `previous`.
+		const valid = new Set<string>();
+		let issued = 0;
+		const firstRenewal = Promise.withResolvers<void>();
+		const secondRenewal = Promise.withResolvers<void>();
+		const bResent = Promise.withResolvers<void>();
+		const resume = (body: { previous?: string }) => {
+			if (body.previous) valid.delete(body.previous);
+			const bearer = `bearer-${++issued}`;
+			valid.add(bearer);
+			(issued === 2 ? firstRenewal : secondRenewal).resolve();
+			return session("s1", bearer);
+		};
+		h.resumes.push(resume, resume, resume, resume);
+		await h.fetch("/jobs/__data.json");
+		const checked = (request: Request) =>
+			valid.has((request.headers.get("authorization") ?? "").slice(7))
+				? { status: 200, body: { ok: true } }
+				: refused();
+		// The studio restarted: every bearer it issued is gone.
+		valid.clear();
+		h.routes.push(
+			// A is refused at once and renews.
+			checked,
+			// B's refusal arrives after A's renewal and before A's resend is answered.
+			async (request) => {
+				await firstRenewal.promise;
+				await Bun.sleep(5);
+				return checked(request);
+			},
+			// A's resend is answered once B has either renewed again or resent.
+			async (request) => {
+				await Promise.race([secondRenewal.promise, bResent.promise]);
+				return checked(request);
+			},
+			(request) => {
+				bResent.resolve();
+				return checked(request);
+			},
+		);
+		const [a, b] = await Promise.all([
+			h.fetch("/jobs/__data.json"),
+			h.fetch("/gallery/__data.json"),
+		]);
+		expect([a.status, b.status]).toEqual([200, 200]);
+		expect(issued).toBe(2);
+	});
+
+	test("an access error that requires recovery drops the drafts, from data or an action", async () => {
+		for (const action of [false, true]) {
+			const h = harness();
+			h.resumes.push(session("s1"));
+			await h.fetch("/jobs/__data.json");
+			const recovery = { ...access, retry: false, recoveryRequired: true };
+			h.routes.push(() => ({
+				status: 503,
+				body: action ? { type: "error", error: recovery } : recovery,
+			}));
+			const response = await h.fetch(
+				"/jobs",
+				action ? { method: "POST", headers: { "x-sveltekit-action": "true" } } : {},
+			);
+			expect(response.status).toBe(503);
+			expect(h.client.remountKey).toBe(1);
+			expect(h.client.bound()?.sessionId).toBe("s1");
+			// An access error that needs no recovery keeps them.
+			h.routes.push(() => ({ status: 503, body: access }));
+			await h.fetch("/jobs/__data.json");
+			expect(h.client.remountKey).toBe(1);
+		}
+	});
+
+	test("SvelteKit's load flag reaches its own fetch, still hidden from enumeration", async () => {
+		const h = harness();
+		h.resumes.push(session("s1"));
+		const init: RequestInit = {};
+		Object.defineProperty(init, "__sveltekit_fetch__", {
+			value: true,
+			writable: true,
+			configurable: true,
+		});
+		await h.fetch("/jobs/__data.json", init);
+		const sent = h.inits[0] ?? {};
+		expect(Object.getOwnPropertyDescriptor(sent, "__sveltekit_fetch__")).toMatchObject({
+			value: true,
+			enumerable: false,
+		});
 	});
 });
 

@@ -15,12 +15,17 @@ export type Row =
 	| ({ kind: "other" } & Ids)
 	| { kind: "gone"; location: string }
 	| { kind: "failure" }
+	/** Answered for a session the tab has since left; nothing applies. */
+	| { kind: "stale" }
 	| { kind: "access"; status: number; body: AccessBody };
-type Renewal =
+/** The bound session and remount generation when a check or renewal started. */
+type Start = { sessionId: string | undefined; generation: number };
+type Renewal = (
 	| ({ kind: "session"; bearer: string } & Ids)
 	| { kind: "gone"; location: string }
 	| { kind: "failure" }
-	| { kind: "access"; status: number; body: AccessBody };
+	| { kind: "access"; status: number; body: AccessBody }
+) & { start?: Start };
 
 export type CodesNotice = "replaced" | "changed" | "signed-out" | null;
 export type CodesView = { codes: string[]; notice: CodesNotice };
@@ -44,6 +49,8 @@ export function createSessionClient(
 ) {
 	/** Set once this client starts a document load; requests then wait for the unload. */
 	let leaving = false;
+	/** Hidden while leaving: a back/forward-cache restore of this page is one the tab had left. */
+	let abandoned = false;
 	const navigate = {
 		assign(url: string) {
 			leaving = true;
@@ -59,6 +66,7 @@ export function createSessionClient(
 		},
 	};
 	let record: BrowserKey | null | undefined;
+	/** `held` keeps codes on screen until Done; a document load is `leaving` instead. */
 	let mode: "cold" | "bound" | "keyless" | "signed-out" | "held" = "cold";
 	let bound: Ids | null = null;
 	let bearer: { value: string; sessionId: string; expires: number } | null = null;
@@ -137,32 +145,9 @@ export function createSessionClient(
 	/** Single-flight `resume`, re-reading the key each time. */
 	function renew(): Promise<Renewal> {
 		renewal ??= (async (): Promise<Renewal> => {
+			const start = started();
 			try {
-				record = installation ? await keys.read(installation).catch(() => null) : null;
-				if (!record) return { kind: "gone", location: "/sign-in" };
-				const key = record;
-				for (let attempt = 0; attempt < 2; attempt++) {
-					const signedFields = await sign("resume", key, key.spki);
-					const response = signedFields.fields
-						? await post("/owner/resume", {
-								...signedFields.fields,
-								previous: previous ?? undefined,
-							})
-						: signedFields.challenge;
-					const body = await readBody(response);
-					if (response.ok && signedFields.fields) {
-						previous = null;
-						return { kind: "session", ...(body as Ids & { bearer: string }) };
-					}
-					if (isAccessBody(body)) return { kind: "access", status: response.status, body };
-					if (response.status === 401 && signedFields.fields)
-						return {
-							kind: "gone",
-							location: typeof body?.location === "string" ? body.location : "/sign-in",
-						};
-					if (response.status !== 403) return { kind: "failure" };
-				}
-				return { kind: "failure" };
+				return { ...(await resume()), start };
 			} catch {
 				return { kind: "failure" };
 			} finally {
@@ -170,6 +155,46 @@ export function createSessionClient(
 			}
 		})();
 		return renewal;
+	}
+	/** One signed `resume`; a 403 retries once with a fresh challenge. */
+	async function resume(): Promise<Renewal> {
+		record = installation ? await keys.read(installation).catch(() => null) : null;
+		if (!record) return { kind: "gone", location: "/sign-in" };
+		const key = record;
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const signedFields = await sign("resume", key, key.spki);
+			const response = signedFields.fields
+				? await post("/owner/resume", {
+						...signedFields.fields,
+						previous: previous ?? undefined,
+					})
+				: signedFields.challenge;
+			const body = await readBody(response);
+			if (response.ok && signedFields.fields) {
+				previous = null;
+				return { kind: "session", ...(body as Ids & { bearer: string }) };
+			}
+			if (isAccessBody(body)) return { kind: "access", status: response.status, body };
+			if (response.status === 401 && signedFields.fields)
+				return {
+					kind: "gone",
+					location: typeof body?.location === "string" ? body.location : "/sign-in",
+				};
+			if (response.status !== 403) return { kind: "failure" };
+		}
+		return { kind: "failure" };
+	}
+	const started = (): Start => ({ sessionId: bound?.sessionId, generation: state.remountKey });
+	/**
+	 * A result is stale when the tab has moved since its check or renewal started and the result
+	 * does not name where it is now: say a Security change adopted its successor meanwhile.
+	 */
+	function isStale(result: Renewal) {
+		const start = result.start;
+		if (!start || (start.sessionId === bound?.sessionId && start.generation === state.remountKey))
+			return false;
+		if (result.kind === "session") return result.sessionId !== bound?.sessionId;
+		return result.kind === "gone" && bound !== null;
 	}
 
 	function holdCodes(row: Row & { kind: "other" | "gone" }) {
@@ -196,6 +221,7 @@ export function createSessionClient(
 	 * "Other ID" or "Session gone" result waits for its response.
 	 */
 	async function classify(result: Renewal, wait = true): Promise<Row> {
+		if (isStale(result)) return { kind: "stale" };
 		if (result.kind === "access") {
 			if (result.body.recoveryRequired) {
 				state.remountKey++;
@@ -244,9 +270,8 @@ export function createSessionClient(
 		navigateSelf = true,
 	) {
 		if (state.codes) return holdCodes(row);
-		if (mode === "held" || (mode === "signed-out" && row.kind === "gone")) return;
+		if (leaving || mode === "held" || (mode === "signed-out" && row.kind === "gone")) return;
 		if (row.kind === "other") {
-			mode = "held";
 			bearer = null;
 			if (target && target !== location.href) navigate.assign(target);
 			else navigate.reload();
@@ -265,7 +290,8 @@ export function createSessionClient(
 	}
 
 	async function check() {
-		if (destination || mode === "held" || mode === "keyless" || mode === "signed-out") return;
+		if (leaving || destination || mode === "held" || mode === "keyless" || mode === "signed-out")
+			return;
 		if (checking) {
 			recheck = true;
 			return checking;
@@ -275,6 +301,7 @@ export function createSessionClient(
 				recheck = false;
 				let row: Row | null = null;
 				const live = liveBearer();
+				const start = started();
 				if (live && mode === "bound") {
 					const response = await nativeFetch("/owner/session", {
 						credentials: "omit",
@@ -285,12 +312,14 @@ export function createSessionClient(
 						row =
 							body.sessionId === bound?.sessionId
 								? { kind: "bound" }
-								: await classify({ kind: "session", bearer: live, ...body });
+								: await classify({ kind: "session", bearer: live, ...body, start });
 					else if (response && isAccessBody(body))
 						row = await classify({ kind: "access", status: response.status, body });
 				}
 				row ??= await classify(await renew());
 				if (row.kind === "other" || row.kind === "gone") leave(row, null);
+				// A stale answer applies nothing; ask again where the tab is now.
+				if (row.kind === "stale") recheck = true;
 				checkWhenVisible = row.kind === "failure";
 			} while (recheck);
 		})().finally(() => {
@@ -367,9 +396,13 @@ export function createSessionClient(
 		visible() {
 			if (checkWhenVisible) void check();
 		},
-		/** For a hidden tab: drop its bearer, keeping it as `previous` for the next resume. */
-		hidden() {
-			if (bearer) previous = bearer.value;
+		/**
+		 * The hook refused `value`. Drop it if it is still the tab's bearer, keeping it as `previous`
+		 * for the next resume; a bearer renewed meanwhile stays.
+		 */
+		refused(value: string) {
+			if (bearer?.value !== value) return;
+			previous = value;
 			bearer = null;
 		},
 
@@ -527,6 +560,7 @@ export function createSessionClient(
 		},
 		/** `pagehide` clears codes and the hold; a pending destination waits for `pageshow`. */
 		pagehide() {
+			abandoned = leaving;
 			state.codes = null;
 			codesFrom = null;
 			changed();
@@ -534,6 +568,8 @@ export function createSessionClient(
 		/** The sole `pageshow` path: load a pending destination atomically and check nothing. */
 		pageshow(persisted: boolean) {
 			// A page restored from the back/forward cache was not replaced after all.
+			const left = persisted && abandoned;
+			abandoned = false;
 			if (persisted) leaving = false;
 			if (destination) {
 				const url = new URL(destination.url, location.href).href;
@@ -542,7 +578,9 @@ export function createSessionClient(
 				else navigate.replace(url);
 				return;
 			}
-			if (persisted) void check();
+			// This tab had already left it for another session or sign-in: load it afresh.
+			if (left) navigate.reload();
+			else if (persisted) void check();
 		},
 	};
 }

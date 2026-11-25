@@ -583,3 +583,70 @@ test("a back/forward-cache restore with a pending destination starts one documen
 	// One document load and no check; the new document then binds with one resume.
 	expect(seen).toEqual(["document /settings/security", "/owner/resume"]);
 });
+
+test("a tab restored from the cache after leaving for another session loads afresh", async ({
+	page,
+	context,
+	studio,
+}) => {
+	const { origin, password } = studio;
+	await page.goto(`${origin}/jobs`);
+	await expect(page.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
+	// Another tab signs this browser in again; this tab's next check finds another session ID.
+	await signInOwner(await context.newPage(), origin, password, "owner");
+	// The reload that check starts is held, so the old document is still there to restore.
+	const reloads: string[] = [];
+	const held = Promise.withResolvers<void>();
+	await page.route(
+		(url) => url.pathname === "/jobs",
+		async (route) => {
+			if (!route.request().isNavigationRequest()) return route.fallback();
+			reloads.push(route.request().url());
+			if (reloads.length === 1) await held.promise;
+			await route.fallback().catch(() => {});
+		},
+	);
+	// Chromium answers no evaluation while that load is pending, so the page arms the restore:
+	// once the load starts, it leaves into the cache and comes back.
+	await page.evaluate(() => {
+		addEventListener(
+			"beforeunload",
+			() =>
+				setTimeout(() => {
+					dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+					dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+				}, 200),
+			{ once: true },
+		);
+		dispatchEvent(new Event("focus"));
+	});
+	// The tab is on a session it left, so it loads again.
+	await expect.poll(() => reloads.length).toBe(2);
+	held.resolve();
+	await expect(page.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
+	expect(await sessionOf(page, origin)).toBeTruthy();
+});
+
+test("a hidden tab keeps its bearer, so a request from it goes out without renewing", async ({
+	page,
+	studio,
+}) => {
+	const { origin } = studio;
+	await page.goto(`${origin}/jobs`);
+	await expect(page.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
+	await page.waitForLoadState("networkidle");
+	const renewals: string[] = [];
+	page.on("request", (request) => {
+		if (new URL(request.url()).pathname === "/owner/resume") renewals.push(request.url());
+	});
+	const status = await page.evaluate(async () => {
+		Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+		document.dispatchEvent(new Event("visibilitychange"));
+		// As a pagehide keepalive would, right after the tab was hidden.
+		const response = await fetch("/settings/files/state", { keepalive: true });
+		Reflect.deleteProperty(document, "visibilityState");
+		return response.status;
+	});
+	expect(status).toBe(200);
+	expect(renewals).toEqual([]);
+});

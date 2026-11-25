@@ -28,19 +28,23 @@ const key: BrowserKey = {
 	spki: toBase64Url(new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey))),
 };
 
+type Answer = { status: number; body?: unknown };
 function harness() {
-	const resumes: { status: number; body?: unknown }[] = [];
+	const resumes: (Answer | Promise<Answer>)[] = [];
+	/** Answers to `GET /owner/session`; without one it finds no session ID. */
+	const checks: Promise<Answer>[] = [];
 	const navigations: string[] = [];
 	const requests: string[] = [];
 	const native = (async (input: RequestInfo | URL) => {
 		const path = new URL(String(input), origin).pathname;
 		requests.push(path);
-		const answer =
-			path === "/owner/challenge"
-				? { status: 200, body: { nonce: "n" } }
-				: path === "/owner/resume"
-					? (resumes.shift() ?? { status: 500 })
-					: { status: 200, body: {} };
+		const answer = await (path === "/owner/challenge"
+			? { status: 200, body: { nonce: "n" } }
+			: path === "/owner/resume"
+				? (resumes.shift() ?? { status: 500 })
+				: path === "/owner/session"
+					? (checks.shift() ?? { status: 200, body: {} })
+					: { status: 200, body: {} });
 		return new Response(JSON.stringify(answer.body ?? null), { status: answer.status });
 	}) as typeof fetch;
 	const client = createSessionClient(
@@ -59,7 +63,7 @@ function harness() {
 		status: 200,
 		body: { bearer: `bearer-${sessionId}`, sessionId, loginId },
 	});
-	return { client, resumes, navigations, requests, states, session };
+	return { client, resumes, checks, navigations, requests, states, session };
 }
 async function bound(h: ReturnType<typeof harness>, sessionId = "s1") {
 	h.resumes.push(h.session(sessionId));
@@ -163,4 +167,61 @@ test("a back/forward-cache restore with a destination loads it and checks nothin
 	await Bun.sleep(5);
 	expect(plain.navigations).toEqual([]);
 	expect(plain.requests).toContain("/owner/session");
+});
+
+test("a tab restored after leaving for another session reloads, and no check runs while it loads", async () => {
+	const h = harness();
+	await bound(h);
+	h.resumes.push(h.session("s2"));
+	await h.client.check();
+	expect(h.navigations).toEqual(["reload"]);
+	h.requests.length = 0;
+	await h.client.check();
+	expect(h.requests).toEqual([]);
+	// Back restores this document from the cache: it is still on a session it left.
+	h.client.pagehide();
+	h.client.pageshow(true);
+	expect(h.navigations).toEqual(["reload", "reload"]);
+	// Done's own load also stops checks while the next document loads.
+	const done = harness();
+	await bound(done);
+	done.client.beginSecurity();
+	done.client.stashSecurityBearer("successor");
+	done.client.settleSecurity({ sessionId: "s2", codes: ["a"] }, true, page.href);
+	done.client.registerDestination("/settings/security");
+	done.client.done();
+	done.requests.length = 0;
+	await done.client.check();
+	expect(done.requests).toEqual([]);
+});
+
+test("a check answered for the session the tab just left by its own Security change is dropped", async () => {
+	for (const via of ["session", "resume"] as const) {
+		const h = harness();
+		await bound(h);
+		const answer = Promise.withResolvers<Answer>();
+		if (via === "session") h.checks.push(answer.promise);
+		else {
+			// Without a live bearer the check renews instead.
+			h.client.refused("bearer-s1");
+			h.resumes.push(answer.promise);
+		}
+		const check = h.client.check();
+		await Bun.sleep(5);
+		h.client.beginSecurity();
+		h.client.stashSecurityBearer("successor");
+		h.client.settleSecurity({ sessionId: "s2", codes: ["a"] }, true, page.href);
+		// The server answered before the change committed.
+		answer.resolve(
+			via === "session"
+				? { status: 200, body: { sessionId: "s1", loginId: "login-1" } }
+				: h.session("s1"),
+		);
+		h.checks.push(Promise.resolve({ status: 200, body: { sessionId: "s2", loginId: "login-1" } }));
+		await check;
+		expect(h.states.at(-1)).toMatchObject({ codes: { codes: ["a"], notice: null } });
+		expect(h.client.mode).toBe("bound");
+		expect(h.client.bound()?.sessionId).toBe("s2");
+		expect(h.navigations).toEqual([]);
+	}
 });
