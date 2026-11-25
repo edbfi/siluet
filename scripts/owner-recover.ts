@@ -125,6 +125,7 @@ if (import.meta.main)
 			"Use at least 15 characters",
 			"An absolute data directory",
 			"The data directory must be private.",
+			"Another user could replace the data directory.",
 		];
 		console.error(
 			e instanceof UnsupportedPlatformError

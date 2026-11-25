@@ -23,6 +23,27 @@ async function prospectivePath(directory: string): Promise<string> {
 	}
 }
 
+/**
+ * Refuse a directory that another user could swap out: every folder above it must
+ * belong to root or this user, and be writable only by its owner unless it is sticky.
+ */
+async function requireStableAncestors(directory: string) {
+	const uid = process.getuid?.();
+	for (let folder = dirname(directory); ; folder = dirname(folder)) {
+		// Folders that do not exist yet are created private.
+		const info = await lstat(folder).catch((error: unknown) => {
+			if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+			throw error;
+		});
+		const sharedWrite = info && (info.mode & 0o022) !== 0 && (info.mode & 0o1000) === 0;
+		if (info && (!info.isDirectory() || (info.uid !== 0 && info.uid !== uid) || sharedWrite))
+			throw new DirectoryPolicyError(
+				"Another user could replace the data directory. Make its parent folders writable only by you, or choose another data directory.",
+			);
+		if (dirname(folder) === folder) return;
+	}
+}
+
 export async function preparePrivateDirectory(directory: string, existing = false) {
 	requireSupportedPlatform();
 	if (!isAbsolute(directory))
@@ -30,11 +51,16 @@ export async function preparePrivateDirectory(directory: string, existing = fals
 	const checkout = dirname(createRequire(import.meta.url).resolve("#studio-manifest"));
 	requireOutsideCheckout(checkout, directory);
 	const realCheckout = await realpath(checkout);
-	requireOutsideCheckout(realCheckout, await prospectivePath(directory));
+	const prospective = await prospectivePath(directory);
+	requireOutsideCheckout(realCheckout, prospective);
+	await requireStableAncestors(prospective);
 	if (!existing) await mkdir(directory, { recursive: true, mode: 0o700 });
 	const info = await lstat(directory);
 	if (!info.isDirectory()) throw new DirectoryPolicyError("Expected a private directory.");
-	requireOutsideCheckout(realCheckout, await realpath(directory));
+	const resolved = await realpath(directory);
+	requireOutsideCheckout(realCheckout, resolved);
+	// The resolved path has no links, so its folders are the ones the studio relies on.
+	await requireStableAncestors(resolved);
 	if (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
 		throw new DirectoryPolicyError("The data directory must be private.");
 }
