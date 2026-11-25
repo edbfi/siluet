@@ -181,6 +181,30 @@ test("edits stay within the composition timeline and select samples", () => {
 	refused(twoEdits, /leading empty edit/);
 });
 
+test("a version-1 empty edit and presented edit that sum past the safe range are refused", () => {
+	const wide = rewrite(h264Aac(), `${video}/edts/elst`, (data) => {
+		const entry = (segment: number, time: number) => {
+			const out = Buffer.alloc(20);
+			out.writeBigUInt64BE(BigInt(segment));
+			out.writeBigInt64BE(BigInt(time), 8);
+			out.writeUInt32BE(0x10000, 16);
+			return out;
+		};
+		const segment = data.readUInt32BE(8);
+		// Each fits in a safe integer; their sum does not.
+		const empty = Number.MAX_SAFE_INTEGER - segment + 1;
+		const out = Buffer.concat([
+			data.subarray(0, 8),
+			entry(empty, -1),
+			entry(segment, data.readInt32BE(12)),
+		]);
+		out[0] = 1;
+		out.writeUInt32BE(2, 4);
+		return out;
+	});
+	expect(refusal(wide, null)).toMatch(/presented duration/);
+});
+
 test("the presented edit cannot be the empty-edit sentinel", () => {
 	// Signed offsets 2,049 ticks earlier start composition at -1, the sentinel's media_time.
 	let sentinel = rewrite(h264Aac(), `${stbl(video)}/ctts`, (data) => {
