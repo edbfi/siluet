@@ -158,7 +158,8 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 					// reaches its caller.
 					if (remounted && !securityPost && !recovery)
 						throw new DOMException("The studio changed session.", "AbortError");
-					if (recovery && !remounted) client.dropDrafts();
+					if (recovery && !remounted) client.recoveryRequired();
+					else if (response.ok) client.recovered();
 					return response;
 				}
 				// A route's own 401 is final; only the hook's invalid_token is resent, once.

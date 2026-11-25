@@ -85,6 +85,14 @@ export function createSessionClient(
 	let destination: { url: string; priority: number } | null = null;
 	let codesFrom: { url: string; offer: boolean } | null = null;
 	const state: ClientState = { remountKey: 0, codes: null };
+	/** Set once a recovery-required answer dropped the drafts; a later answer drops nothing more. */
+	let recovering = false;
+	function dropForRecovery() {
+		if (recovering) return;
+		recovering = true;
+		state.remountKey++;
+		changed();
+	}
 	const listeners = new Set<(state: ClientState) => void>();
 	const changed = () => {
 		for (const listener of listeners) listener({ ...state });
@@ -227,10 +235,7 @@ export function createSessionClient(
 	async function classify(result: Renewal, wait = true): Promise<Row> {
 		if (isStale(result)) return { kind: "stale" };
 		if (result.kind === "access") {
-			if (result.body.recoveryRequired) {
-				state.remountKey++;
-				changed();
-			}
+			if (result.body.recoveryRequired) dropForRecovery();
 			return result;
 		}
 		if (result.kind === "failure") return result;
@@ -241,6 +246,7 @@ export function createSessionClient(
 					? { kind: "bound" }
 					: { kind: "other", sessionId: result.sessionId, loginId: result.loginId };
 		if (result.kind === "session" && row.kind === "bound" && mode !== "held") {
+			recovering = false;
 			mode = "bound";
 			bound = { sessionId: result.sessionId, loginId: result.loginId };
 			bearer = {
@@ -409,6 +415,15 @@ export function createSessionClient(
 			changed();
 		},
 		/**
+		 * A recovery-required answer drops the drafts once per transition into recovery, so a
+		 * page that refetches on mount cannot remount the studio again and again.
+		 */
+		recoveryRequired: dropForRecovery,
+		/** A private answer that is not an access error: the host is out of recovery. */
+		recovered() {
+			recovering = false;
+		},
+		/**
 		 * The hook refused `value`. Drop it if it is still the tab's bearer, keeping it as `previous`
 		 * for the next resume; a bearer renewed meanwhile stays.
 		 */
@@ -485,6 +500,8 @@ export function createSessionClient(
 			securityBearer = value;
 		},
 		beginSecurity() {
+			// An earlier change still pending releases its waiters before it is replaced.
+			security?.settle();
 			const settle = Promise.withResolvers<void>();
 			security = {
 				start: bound?.sessionId ?? "",

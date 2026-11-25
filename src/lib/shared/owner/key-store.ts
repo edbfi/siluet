@@ -52,11 +52,20 @@ export async function signWith(record: BrowserKey, message: KeyMessage) {
 	return toBase64Url(new Uint8Array(signature));
 }
 
+/** The most specific product token in a user agent, such as `Chrome/159.0` or `Firefox/159.0`. */
+export function browserName(userAgent: string) {
+	for (const product of ["Edg", "OPR", "Firefox", "Chrome", "Version"]) {
+		const token = userAgent.match(new RegExp(`\\b${product}/[\\d.]+`))?.[0];
+		if (token) return product === "Version" ? `Safari/${token.slice(8)}` : token;
+	}
+	return userAgent.split(" ").at(-1) ?? "unknown browser";
+}
+
 /** Why this browser cannot keep a key here, naming the address and browser. */
 export class KeyUnavailable extends Error {
 	constructor() {
 		super(
-			`This browser cannot keep a sign-in key for ${location.origin}. Open Siluet at this address in a current browser with site data allowed (${navigator.userAgent.split(" ").at(-1)}).`,
+			`This browser cannot keep a sign-in key for ${location.origin}. Open Siluet at this address in a current browser with site data allowed (${browserName(navigator.userAgent)}).`,
 		);
 	}
 }

@@ -339,6 +339,24 @@ describe("concurrent requests and studio errors", () => {
 		}
 	});
 
+	test("recovery drops the drafts once, however many answers arrive, until the host is back", async () => {
+		const h = harness();
+		h.resumes.push(session("s1"));
+		await h.fetch("/jobs/__data.json");
+		const recovery = { ...access, retry: false, recoveryRequired: true };
+		// A remounted page refetches on mount and meets recovery again.
+		for (let i = 0; i < 3; i++) {
+			h.routes.push(() => ({ status: 503, body: recovery }));
+			expect((await h.fetch("/gallery/media")).status).toBe(503);
+		}
+		expect(h.client.remountKey).toBe(1);
+		// The host is back; a later recovery is a new transition.
+		await h.fetch("/gallery/media");
+		h.routes.push(() => ({ status: 503, body: recovery }));
+		await h.fetch("/gallery/media");
+		expect(h.client.remountKey).toBe(2);
+	});
+
 	test("a recovery answer read while another request remounts still reaches its caller", async () => {
 		const h = harness();
 		h.resumes.push(session("s1"));

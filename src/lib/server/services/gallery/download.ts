@@ -2,7 +2,8 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { parseReferenceUrl } from "../../../shared/image-studio/references";
 
-const encodedLimit = 32 * 1024 * 1024;
+/** The largest image Gallery accepts, also the browser's limit for reading one back. */
+export const encodedLimit = 32 * 1024 * 1024;
 const invalid = () => new Error("Could not retrieve the image.");
 
 export type Transport = {

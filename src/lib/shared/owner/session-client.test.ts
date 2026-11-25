@@ -314,3 +314,18 @@ test("a notice reaching a hidden tab mid-check waits for the tab to come back", 
 		channel.close();
 	}
 });
+
+test("a second Security change releases what waited on the first", async () => {
+	const h = harness();
+	await bound(h);
+	h.client.beginSecurity();
+	h.resumes.push(h.session("other", "login-2"));
+	const check = h.client.check();
+	await Bun.sleep(5);
+	h.client.beginSecurity();
+	const outcome = await Promise.race([
+		check.then(() => "settled"),
+		Bun.sleep(50).then(() => "pending"),
+	]);
+	expect(outcome).toBe("settled");
+});
