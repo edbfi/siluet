@@ -20,16 +20,20 @@ function videoOperation(key: unknown) {
 	return releasedVideoOperations.find((entry) => entry === operation);
 }
 
+// One entry per Seedance mode, so a new mode cannot fall back to another's disclosures.
+const seedanceDisclosures: Record<SeedanceOperation["mode"], readonly string[]> = {
+	generate: videoDisclosures,
+	animate: keyframeDisclosures,
+	interpolate: keyframeDisclosures,
+	edit: editDisclosures,
+};
+
 /** Review's disclosures for one operation: its own, then its Save limit, if it has one. */
 export function videoReviewDisclosures(operation: SeedanceOperation | PoyoVideoOperation) {
 	const own =
 		"descriptor" in operation
 			? operation.descriptor.disclosures
-			: operation.mode === "edit"
-				? editDisclosures
-				: operation.mode === "generate"
-					? videoDisclosures
-					: keyframeDisclosures;
+			: seedanceDisclosures[operation.mode];
 	const save = saveDisclosure(operation);
 	return save ? [...own, save] : [...own];
 }

@@ -128,7 +128,7 @@ export const seedanceKeyframeOperations = [
 		"last_frame",
 	]),
 ] as const;
-// An edit follows its source, and ToAPIs caps neither. Upstream caps it at 30 s, unverified on
+// An edit's length follows its source; ToAPIs caps neither the source nor the output. Upstream caps it at 30 s, unverified on
 // this route (2026-11-24). https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation:
 // "Editing accepts only -1, and the output length matches the input video."
 // https://toapis.com/model-guide/seedance-2-5: "Generate, edit, and extend up to 30-second videos."

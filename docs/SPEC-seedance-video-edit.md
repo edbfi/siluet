@@ -37,7 +37,7 @@ The quote uses ToAPIs' video-input rate, $6 per million total tokens (observed 2
 
 The acceptance reads: "I accept the unknown charge, sending the complete source-clip URL to ToAPIs and its processors under their access and retention terms, and Gallery Save limitations, including that a source longer than 30 seconds can be charged for an edit Gallery may not save; Gallery allows the returned clip up to 1 second over its limit for container rounding."
 
-The video Review signature binds the owner, the exact operation key and the ordered body with `video_with_roles`. The terms digest binds the credential revision, access state, quote and disclosures. A change of model, operation or URL, a new Review or feed expiry clears acceptance. Queue requires a successful video access check for the current key revision. An identical replay returns the same job, also after a restart, and a mismatched replay is refused. Review responses carry no raw URL; diagnostics, job rows and browser storage carry no raw URL or source host; durable data holds no prompt or key.
+The video Review signature binds the owner, the exact operation key and the ordered body with `video_with_roles`. The terms digest binds the credential revision, access state, quote, disclosures, blockers and the operation's Save limit. A change of model, operation or URL, a new Review or feed expiry clears acceptance. Queue requires a successful video access check for the current key revision. An identical replay returns the same job, also after a restart, and a mismatched replay is refused. Review responses carry no raw URL; diagnostics, job rows and browser storage carry no raw URL or source host; durable data holds no prompt or key.
 
 ## Jobs and Save
 
