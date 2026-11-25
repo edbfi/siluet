@@ -1,7 +1,7 @@
-import { lstat, mkdir, realpath } from "node:fs/promises";
+import { lstat, mkdir, readlink, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { userInfo } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { requireSupportedPlatform } from "../platform";
 import { isUserPrivateGroup, type ReadLocalAccounts, readLocalAccounts } from "./private-group";
 
@@ -21,18 +21,6 @@ function lstatIfPresent(path: string) {
 		if (missing(error)) return null;
 		throw error;
 	});
-}
-
-// Resolve even a not-yet-created path before making directories through an alias.
-async function prospectivePath(directory: string): Promise<string> {
-	try {
-		return await realpath(directory);
-	} catch (error) {
-		if (!missing(error)) throw error;
-		const parent = dirname(directory);
-		if (parent === directory) throw error;
-		return join(await prospectivePath(parent), basename(directory));
-	}
 }
 
 const shellQuote = (path: string) =>
@@ -80,20 +68,46 @@ export async function requireStableFolder(
 		throw replaceable(folder, true);
 }
 
+// Linux's own limit on links followed in one lookup.
+const maxLinks = 40;
+
 /**
- * Refuse a path that another user could redirect through a folder or link it
- * passes. A link only needs a trusted owner (macOS /var and /tmp are root's);
- * the folder holding it and its target's folders are checked in turn.
+ * Walk the path from the root as the kernel would and return where it leads.
+ * Each folder looked up in must be stable, and each link needs a trusted owner
+ * (macOS /var and /tmp are root's) before its target is walked the same way,
+ * so another user cannot redirect any step. The caller creates missing folders private.
  */
-async function requireStablePath(path: string, readAccounts: ReadLocalAccounts) {
-	for (let entry = path; ; entry = dirname(entry)) {
-		// Folders that do not exist yet are created private.
+export async function resolveStablePath(path: string, readAccounts: ReadLocalAccounts) {
+	const pending = path.split("/");
+	const stable = new Set<string>();
+	let resolved = "/";
+	let links = 0;
+	while (pending.length > 0) {
+		const name = pending.shift();
+		if (!name || name === ".") continue;
+		if (name === "..") {
+			resolved = dirname(resolved);
+			continue;
+		}
+		if (!stable.has(resolved)) {
+			const folder = await lstatIfPresent(resolved);
+			if (folder) await requireStableFolder(resolved, folder, readAccounts);
+			stable.add(resolved);
+		}
+		const entry = join(resolved, name);
 		const info = await lstatIfPresent(entry);
 		if (info?.isSymbolicLink()) {
+			if (++links > maxLinks)
+				throw new DirectoryPolicyError(
+					`The data directory cannot pass through ${entry}, which leads through too many links. Choose another data directory.`,
+				);
 			if (info.uid !== 0 && info.uid !== process.getuid?.()) throw replaceable(entry, false);
-		} else if (info && entry !== path) await requireStableFolder(entry, info, readAccounts);
-		if (dirname(entry) === entry) return;
+			const target = await readlink(entry);
+			pending.unshift(...target.split("/"));
+			if (isAbsolute(target)) resolved = "/";
+		} else resolved = entry;
 	}
+	return resolved;
 }
 
 // Create each missing folder alone and check it before creating the next one in it.
@@ -123,10 +137,8 @@ export async function preparePrivateDirectory(
 		throw new DirectoryPolicyError("An absolute data directory is required.");
 	const checkout = dirname(createRequire(import.meta.url).resolve("#studio-manifest"));
 	requireOutsideCheckout(checkout, directory);
-	const canonical = await prospectivePath(directory);
+	const canonical = await resolveStablePath(directory, readAccounts);
 	requireOutsideCheckout(await realpath(checkout), canonical);
-	await requireStablePath(directory, readAccounts);
-	await requireStablePath(canonical, readAccounts);
 	if (!existing) await createPrivatePath(canonical, readAccounts);
 	const info = await lstat(canonical);
 	if (!info.isDirectory()) throw new DirectoryPolicyError("Expected a private directory.");

@@ -1,11 +1,16 @@
 import { expect, test } from "bun:test";
 import { chmod, exists, mkdir, realpath, rm, symlink } from "node:fs/promises";
-import { userInfo } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
 import { UnsupportedPlatformError } from "../platform";
 import { openInstallation } from "./installation";
-import { preparePrivateDirectory, requireStableFolder } from "./private-directory";
+import {
+	preparePrivateDirectory,
+	requireStableFolder,
+	resolveStablePath,
+} from "./private-directory";
+import { readLocalAccounts } from "./private-group";
 
 test("preparation refuses a foreign platform without mkdir", async () => {
 	const parent = await createOwnerDirectory();
@@ -166,6 +171,84 @@ test("a link in the configured path is checked where it sits, then the canonical
 			);
 	} finally {
 		await chmod(open, 0o700).catch(() => {});
+		await rm(parent, { recursive: true, force: true });
+	}
+});
+
+test("every link on the way is checked, including a link a link leads to", async () => {
+	const parent = await createOwnerDirectory();
+	const home = join(parent, "home");
+	const open = join(parent, "open");
+	const target = join(parent, "private");
+	const directory = join(home, "link", "siluet");
+	try {
+		for (const folder of [home, open, target]) await mkdir(folder, { mode: 0o700 });
+		await symlink(join(open, "link2"), join(home, "link"));
+		await symlink(target, join(open, "link2"));
+		expect(await preparePrivateDirectory(directory)).toBe(join(await realpath(target), "siluet"));
+		// Another user could repoint link2, which the configured path never names.
+		await chmod(open, 0o777);
+		for (const existing of [false, true])
+			await expect(preparePrivateDirectory(directory, existing)).rejects.toThrow(replaceable);
+	} finally {
+		await chmod(open, 0o700).catch(() => {});
+		await rm(parent, { recursive: true, force: true });
+	}
+});
+
+test("a configured link with a trailing slash is checked as a link", async () => {
+	const parent = await createOwnerDirectory();
+	const open = join(parent, "open");
+	const target = join(parent, "private", "siluet");
+	try {
+		await mkdir(open, { mode: 0o700 });
+		await mkdir(target, { recursive: true, mode: 0o700 });
+		await symlink(target, join(open, "link"));
+		expect(await preparePrivateDirectory(`${join(open, "link")}//`, true)).toBe(
+			await realpath(target),
+		);
+		await chmod(open, 0o777);
+		await expect(preparePrivateDirectory(`${join(open, "link")}/`, true)).rejects.toThrow(
+			replaceable,
+		);
+	} finally {
+		await chmod(open, 0o700).catch(() => {});
+		await rm(parent, { recursive: true, force: true });
+	}
+});
+
+test("relative and system links resolve to the path the kernel opens", async () => {
+	const parent = await createOwnerDirectory();
+	try {
+		// Like macOS /var -> private/var, resolved against the link's own folder.
+		await mkdir(join(parent, "private", "var"), { recursive: true, mode: 0o700 });
+		await symlink("private/var", join(parent, "var"));
+		await symlink("../var/.", join(parent, "private", "up"));
+		const real = await realpath(join(parent, "private", "var"));
+		expect(await preparePrivateDirectory(join(parent, "var", "siluet"))).toBe(join(real, "siluet"));
+		expect(await preparePrivateDirectory(join(parent, "private", "up", "siluet"), true)).toBe(
+			join(real, "siluet"),
+		);
+		// Root's own links, such as /tmp on macOS or /bin/sh on Debian, are trusted.
+		for (const path of ["/", "/tmp", "/bin/sh", tmpdir()])
+			expect(await resolveStablePath(path, readLocalAccounts)).toBe(await realpath(path));
+	} finally {
+		await rm(parent, { recursive: true, force: true });
+	}
+});
+
+test("a link loop is refused", async () => {
+	const parent = await createOwnerDirectory();
+	try {
+		await symlink(join(parent, "b"), join(parent, "a"));
+		await symlink("a", join(parent, "b"));
+		await symlink("self", join(parent, "self"));
+		for (const directory of [join(parent, "a", "siluet"), join(parent, "self")])
+			for (const existing of [false, true])
+				await expect(preparePrivateDirectory(directory, existing)).rejects.toThrow(
+					"too many links",
+				);
+	} finally {
 		await rm(parent, { recursive: true, force: true });
 	}
 });
