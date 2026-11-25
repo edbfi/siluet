@@ -17,7 +17,7 @@ Gallery saved no video over 12 s, whatever the mode. Each Queue-enabled video op
 
 **Review-only.** A mode whose maximum is undocumented, unbounded, conflicting or over 60 s has `save: null`. Review shows only the blocker "Queue is unavailable because Gallery cannot bound this mode's output length." with no "up to N" sentence, and Queue makes zero POSTs.
 
-**Ceiling.** Gallery stores durations up to 61 s (60 s + the allowance). That covers every bounded mode either provider documents except two long-form tools (300 s and 360 s), which stay Review-only. The 64 MiB, 4 MiB `moov`, 1,920 px and 2,073,600 px bounds are unchanged. The real 480p clips run at about 3–4 Mbit/s, so 30 s is about 15 MB.
+**Ceiling.** Gallery stores durations up to 61 s (60 s + the allowance). That covers every bounded mode either provider documents except two long-form tools whose length follows their input (300 s of driving audio; a 360 s source for the translator, whose total output is inferred and whose segment lengths are unknown), which stay Review-only. The 64 MiB, 4 MiB `moov`, 1,920 px and 2,073,600 px bounds are unchanged. The real 480p clips run at about 3–4 Mbit/s, so 30 s is about 15 MB.
 
 **Review** shows: "Gallery saves complete H.264/AAC MP4 files up to N seconds, the provider's documented maximum for this mode, plus 1 second for container rounding, within its size and dimension limits. A completed billable clip outside them stays with the provider." For basis `upstream`, the clause reads "the upstream model's documented maximum for this mode, unverified on this route".
 
