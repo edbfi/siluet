@@ -839,6 +839,8 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(page).toHaveURL(origin.href);
 			await page.getByRole("button", { name: "Sign out" }).press("Enter");
 			await expect(page).toHaveURL(signInUrl);
+			// Let the sign-in document finish starting; Firefox reports an import cut short by the next load.
+			await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 
 			// The signed-out page holds no bearer; a private data request is refused.
 			const signedOut = await page.request.get(`${imageUrl}/__data.json`, { maxRedirects: 0 });
