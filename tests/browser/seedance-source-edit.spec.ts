@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { sql } from "drizzle-orm";
 import { openInstallation } from "../../src/lib/server/db/installation";
+import { seedanceEditOperation } from "../../src/lib/shared/media-catalog/registry";
+import { videoReviewDisclosures } from "../../src/lib/shared/video-studio/request";
 import { editAcceptance, sourceClipHint } from "../../src/lib/shared/video-studio/source-edit";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
@@ -104,6 +106,14 @@ test("a source-video edit reviews by keyboard, queues once, saves automatically 
 			await expect(page.getByText("1 potentially billable submission")).toBeVisible();
 			await expect(sourceList.getByText(label)).toBeVisible();
 			await expect(page.getByText(/\$6 per million total tokens/)).toBeVisible();
+			// The edit's own disclosures, then its upstream Save limit.
+			for (const disclosure of videoReviewDisclosures(seedanceEditOperation))
+				await expect(page.getByText(disclosure, { exact: true })).toBeVisible();
+			await expect(
+				page.getByText(
+					/up to 30 seconds, the upstream model's documented maximum for this mode, unverified on this route/,
+				),
+			).toBeVisible();
 			await acceptance.press("Space");
 			await expect(queue).toBeEnabled();
 
