@@ -100,7 +100,7 @@ jobs:
       - run: bun run --bun build
       - run: bunx --bun --no-install playwright install chromium firefox webkit
       # Browser-key sessions in all three engines, WebKit's key persistence included.
-      - run: bun run --bun smoke tests/browser/studio.spec.ts tests/browser/authenticator.spec.ts tests/browser/first-saved-image.spec.ts tests/browser/first-saved-video.spec.ts tests/browser/poyo-first-video.spec.ts tests/browser/key-persistence.spec.ts tests/browser/tab-sessions.spec.ts tests/browser/cross-port.spec.ts tests/browser/gallery-download.spec.ts --workers=1
+      - run: bun run --bun smoke tests/browser/studio.spec.ts tests/browser/authenticator.spec.ts tests/browser/first-saved-image.spec.ts tests/browser/first-saved-video.spec.ts tests/browser/poyo-first-video.spec.ts tests/browser/key-persistence.spec.ts tests/browser/tab-sessions.spec.ts tests/browser/owner-restarts.spec.ts tests/browser/cross-port.spec.ts tests/browser/gallery-download.spec.ts --workers=1
   media-cleanup:
     name: Media cleanup (${{ matrix.runner }})
     strategy:
