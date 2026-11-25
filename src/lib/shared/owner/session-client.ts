@@ -40,6 +40,7 @@ export function createSessionClient(
 	installation: string | null,
 	nativeFetch: typeof fetch,
 	navigate: { assign(url: string): void; reload(): void; replace(url: string): void } = location,
+	keys: { read: typeof readKey; ensure: typeof ensureKey } = { read: readKey, ensure: ensureKey },
 ) {
 	let record: BrowserKey | null | undefined;
 	let mode: "cold" | "bound" | "keyless" | "signed-out" | "held" = "cold";
@@ -121,7 +122,7 @@ export function createSessionClient(
 	function renew(): Promise<Renewal> {
 		renewal ??= (async (): Promise<Renewal> => {
 			try {
-				record = installation ? await readKey(installation).catch(() => null) : null;
+				record = installation ? await keys.read(installation).catch(() => null) : null;
 				if (!record) return { kind: "gone", location: "/sign-in" };
 				const key = record;
 				for (let attempt = 0; attempt < 2; attempt++) {
@@ -302,7 +303,7 @@ export function createSessionClient(
 
 	async function ownerKey() {
 		if (!installation) throw new TypeError("Siluet could not identify this installation.");
-		record = await ensureKey(installation);
+		record = await keys.ensure(installation);
 		return record;
 	}
 
@@ -319,11 +320,15 @@ export function createSessionClient(
 			return state.remountKey;
 		},
 		bound: () => bound,
+		/** A document load of `url`, as the wrapper follows a hook's `location`. */
+		open(url: string) {
+			navigate.assign(url);
+		},
 		liveBearer,
 		/** Make sure the tab knows whether it has a key, then bind a cold tab. */
 		async prepare(): Promise<Row | null> {
 			if (mode === "cold") {
-				record = installation ? await readKey(installation).catch(() => null) : null;
+				record = installation ? await keys.read(installation).catch(() => null) : null;
 				if (!record) {
 					mode = "keyless";
 					return null;
@@ -383,7 +388,7 @@ export function createSessionClient(
 		 * holds that key and login ID.
 		 */
 		async signOut(): Promise<"signed-out" | "other" | "retry"> {
-			const key = installation ? await readKey(installation).catch(() => null) : null;
+			const key = installation ? await keys.read(installation).catch(() => null) : null;
 			const login = bound?.loginId;
 			if (!key || !login) {
 				leave({ kind: "gone", location: "/sign-in" }, null);

@@ -150,7 +150,7 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 				.json()
 				.catch(() => null);
 			if (typeof body?.location === "string" && location.pathname !== body.location) {
-				location.assign(body.location);
+				client.open(body.location);
 				return pending();
 			}
 			return response;
