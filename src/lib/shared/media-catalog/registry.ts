@@ -128,9 +128,17 @@ export const seedanceKeyframeOperations = [
 		"last_frame",
 	]),
 ] as const;
-export const seedanceEditOperation = seedanceMediaEntry("video-edit", "edit", "Edit video", [
-	"reference_video",
-]);
+// An edit follows its source, and ToAPIs caps neither. Upstream caps it at 30 s, unverified on
+// this route (2026-11-24). https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation:
+// "Editing accepts only -1, and the output length matches the input video."
+// https://toapis.com/model-guide/seedance-2-5: "Generate, edit, and extend up to 30-second videos."
+// https://ai.byteplus.com/ark/region:ap-southeast-1/docs/seedance-2-5 (video duration): "The input
+// video to be edited must be [4, 30] seconds long."
+const seedanceEditSave = { seconds: 30, basis: "upstream" } as SaveLimit | null;
+export const seedanceEditOperation = {
+	...seedanceMediaEntry("video-edit", "edit", "Edit video", ["reference_video"]),
+	save: seedanceEditSave,
+} as const;
 export const seedanceOperations = [
 	seedanceOperation,
 	...seedanceKeyframeOperations,

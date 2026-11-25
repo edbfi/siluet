@@ -7,9 +7,9 @@ import {
 } from "../media-catalog/registry";
 import { h3Max } from "./h3-max";
 import { keyframeDisclosures } from "./keyframes";
-import { parseVideo, previewVideo } from "./request";
+import { parseVideo, previewVideo, videoReviewDisclosures } from "./request";
 import { saveDisclosure } from "./save-profile";
-import { videoDefaults } from "./seedance";
+import { videoDefaults, videoDisclosures } from "./seedance";
 import { editDisclosures } from "./source-edit";
 
 const draft = {
@@ -47,6 +47,8 @@ test("H3 golden default body", () => {
 
 const savesUpTo = (seconds: number) =>
 	`Gallery saves complete H.264/AAC MP4 files up to ${seconds} seconds, the provider's documented maximum for this mode, plus 1 second for container rounding, within its size and dimension limits. A completed billable clip outside them stays with the provider.`;
+const editSavesUpTo30 =
+	"Gallery saves complete H.264/AAC MP4 files up to 30 seconds, the upstream model's documented maximum for this mode, unverified on this route, plus 1 second for container rounding, within its size and dimension limits. A completed billable clip outside them stays with the provider.";
 
 test("each released mode states its own limit", () => {
 	const seedance = { ...videoDefaults, prompt: "Drift" };
@@ -60,13 +62,33 @@ test("each released mode states its own limit", () => {
 		[seedanceOperation, seedance],
 		[animate, { ...keyframe, frames: frames.slice(0, 1) }],
 		[interpolate, { ...keyframe, frames }],
+		[
+			seedanceEditOperation,
+			{
+				prompt: "Drift",
+				resolution: "720p",
+				generate_audio: true,
+				frames: [{ role: "reference_video", url: "https://cdn.example.com/take.mp4" }],
+			},
+		],
 		[h3MaxOperation, { ...h3Max.defaults, prompt: "Drift" }],
 	] as const;
 	expect(
 		modes.map(([operation, draft]) =>
 			parseVideo({ ...raw, operationKey: operation.key, draft })?.disclosures.at(-1),
 		),
-	).toEqual([savesUpTo(30), savesUpTo(30), savesUpTo(30), savesUpTo(15)]);
+	).toEqual([savesUpTo(30), savesUpTo(30), savesUpTo(30), editSavesUpTo30, savesUpTo(15)]);
+});
+
+test("Review picks an operation's disclosures by its mode, not its role count", () => {
+	const [animate] = seedanceKeyframeOperations;
+	expect(animate.roles).toHaveLength(seedanceEditOperation.roles.length);
+	expect(videoReviewDisclosures(seedanceEditOperation)).toEqual([
+		...editDisclosures,
+		editSavesUpTo30,
+	]);
+	expect(videoReviewDisclosures(animate)).toEqual([...keyframeDisclosures, savesUpTo(30)]);
+	expect(videoReviewDisclosures(seedanceOperation).slice(0, -1)).toEqual([...videoDisclosures]);
 });
 
 test("an upstream basis says unverified on this route, and no limit states none", () => {
@@ -282,7 +304,7 @@ describe("Seedance source-video edit", () => {
 			}),
 		);
 		expect(input?.options).toEqual(options);
-		expect(input?.disclosures).toEqual([...editDisclosures, savesUpTo(30)]);
+		expect(input?.disclosures).toEqual([...editDisclosures, editSavesUpTo30]);
 		expect(input?.body).not.toHaveProperty("image_with_roles");
 		const low = parseVideo({
 			...edit,

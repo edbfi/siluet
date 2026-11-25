@@ -17,6 +17,7 @@ import {
 } from "../../../shared/video-studio/request";
 import { type SaveLimit, saveLimitBlocker } from "../../../shared/video-studio/save-profile";
 import { videoDefaults } from "../../../shared/video-studio/seedance";
+import { editDisclosures } from "../../../shared/video-studio/source-edit";
 import { imageJobStore } from "../../db/image-job-store";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
@@ -912,7 +913,10 @@ describe("Seedance source-video edit", () => {
 			advertisedUnitRate: { unit: "million-total-tokens", usd: "6" },
 		});
 		expect(review.frames).toEqual(["Source clip · clips.example.com"]);
-		expect(review.disclosures).toEqual(videoReviewDisclosures(seedanceEditOperation));
+		expect(review.disclosures).toEqual([
+			...editDisclosures,
+			"Gallery saves complete H.264/AAC MP4 files up to 30 seconds, the upstream model's documented maximum for this mode, unverified on this route, plus 1 second for container rounding, within its size and dimension limits. A completed billable clip outside them stays with the provider.",
+		]);
 		expect(review.blockers).toEqual([]);
 		const serialized = JSON.stringify(review);
 		for (const part of [source, path, "take-3", query, "X-Amz-Signature", fragment])
