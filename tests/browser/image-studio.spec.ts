@@ -988,7 +988,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			const hold = Promise.withResolvers<void>();
 			const held: Promise<void>[] = [];
 			await context.route("**/image/files/*", (route) => {
-				if (route.request().method() !== "POST") return route.continue();
+				if (route.request().method() !== "POST") return route.fallback();
 				const continued = hold.promise.then(() => route.continue());
 				held.push(continued);
 				return continued;
@@ -1118,7 +1118,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			// replacement waits for it.
 			let refused = false;
 			await context.route("**/image/files/*", (route) => {
-				if (route.request().method() !== "POST" || refused) return route.continue();
+				if (route.request().method() !== "POST" || refused) return route.fallback();
 				refused = true;
 				return route.fulfill({
 					status: 422,
@@ -1150,7 +1150,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 		await test.step("a failed preparation offers Try again, which cleans the file once more", async () => {
 			const previous = (await cleaned.getAttribute("data-source")) ?? "";
 			await context.route("**/image/files/*", (route) =>
-				route.request().method() === "POST" ? route.abort() : route.continue(),
+				route.request().method() === "POST" ? route.abort() : route.fallback(),
 			);
 			await firstFile.focus();
 			await firstFile.setInputFiles({
@@ -1177,7 +1177,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 
 		await test.step("a copy that becomes unavailable is cleaned again once, then offers Try again", async () => {
 			await context.route("**/image/files/*/*", (route) =>
-				route.request().method() === "GET" ? route.fulfill({ status: 404 }) : route.continue(),
+				route.request().method() === "GET" ? route.fulfill({ status: 404 }) : route.fallback(),
 			);
 			const posts = sentWith("POST").length;
 			await firstFile.setInputFiles({
@@ -1318,7 +1318,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			expect(sentWith("POST")).toHaveLength(posts + 1);
 
 			await context.route("**/image/files/*", (route) =>
-				route.request().method() === "POST" ? route.abort() : route.continue(),
+				route.request().method() === "POST" ? route.abort() : route.fallback(),
 			);
 			await firstFile.setInputFiles({
 				name: "upright.png",
