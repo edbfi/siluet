@@ -498,6 +498,9 @@ export function createSessionClient(
 		get leaving() {
 			return leaving;
 		},
+		get lastSpki() {
+			return lastSpki;
+		},
 	});
 
 	function bindLogin(issued: Ids & { bearer: string }, kind: NoticeKind) {

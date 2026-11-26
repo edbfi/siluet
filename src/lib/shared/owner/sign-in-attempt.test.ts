@@ -333,6 +333,16 @@ test("a submit, factor step or Retry after another tab's commit drops both and l
 	}
 });
 
+test("a primary submit after another tab stored a key loads / instead of signing in", async () => {
+	const h = await harness({ stored: await newKey() });
+	await h.client.prepare();
+	h.store.record = await newKey();
+	expect(await h.client.attempts.submit("sign-in", signIn)).toBeNull();
+	expect(h.navigations).toEqual(["assign /"]);
+	expect(h.to("/owner/sign-in")).toHaveLength(0);
+	expect(h.client.attempts.held).toBeNull();
+});
+
 test("a commit notice during the tab's own request waits; the commit is then refused and signed out", async () => {
 	const base = await newKey();
 	const h = await harness({ stored: base });

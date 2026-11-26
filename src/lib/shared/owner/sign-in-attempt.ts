@@ -127,6 +127,8 @@ export function createSignInAttempts(owner: {
 	/** Look for a stored-key change that waited for this tab's own request. */
 	reconcile(): void;
 	readonly leaving: boolean;
+	/** The stored SPKI this tab last resumed or checked; undefined before its first read. */
+	readonly lastSpki: string | null | undefined;
 }) {
 	let attempt: Attempt | null = null;
 	/** Bumped on `pagehide`: steps of an earlier generation do nothing more. */
@@ -408,6 +410,11 @@ export function createSignInAttempts(owner: {
 					.base(installation())
 					.catch(() => Promise.reject(new KeyUnavailable()));
 				if (!alive()) return null;
+				// Another tab stored a key since this tab last read one: join it instead.
+				if (owner.lastSpki !== undefined && expected !== owner.lastSpki) {
+					owner.open("/");
+					return null;
+				}
 				const candidate = await owner.keys.candidate(installation());
 				if (!alive()) return null;
 				const current: Attempt = {
