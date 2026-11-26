@@ -194,19 +194,35 @@ test("a Security change after another tab's sign-in shows no codes and joins the
 });
 
 test("restored tabs stay within the challenge limits", async ({ browserName, context, studio }) => {
-	// Forty Firefox pages opened at once starve a loaded runner: with several workers locally, or
-	// on the macOS runner, some never finish starting while the studio stays healthy. With one
-	// worker they pass. The limits under test are the server's, so Chromium and WebKit cover them.
-	test.skip(browserName === "firefox", "Forty Firefox pages at once starve a loaded runner.");
-	test.setTimeout(90000);
+	// The studio answers the forty resumes within seconds. Opening forty Firefox windows and
+	// loading the studio in each takes the browser far longer: 96–173 s measured with three
+	// workers on a loaded eight-core host, against about ten seconds in Chromium.
+	const firefox = browserName === "firefox";
+	test.setTimeout(firefox ? 300000 : 90000);
 	const { origin } = studio;
+	const refused: string[] = [];
+	let resumed = 0;
+	context.on("response", (response) => {
+		const { pathname } = new URL(response.url());
+		if (!/^\/owner\/(?:challenge|resume)$/.test(pathname)) return;
+		if (response.status() !== 200) refused.push(`${pathname} ${response.status()}`);
+		else if (pathname === "/owner/resume") resumed++;
+	});
 	const tabs = await Promise.all(Array.from({ length: 40 }, () => context.newPage()));
 	await Promise.all(tabs.map((tab) => tab.goto(`${origin}/jobs`)));
-	// A tab refused by a limit would show an error page, not this heading, however long it waits.
-	for (const tab of tabs)
-		await expect(tab.getByRole("heading", { name: "No jobs yet" })).toBeVisible({
-			timeout: 20000,
-		});
+	// A limit refusal settles a tab on the error page instead, so each tab fails at once.
+	for (const tab of tabs) {
+		await expect(
+			tab
+				.getByRole("heading", { name: "No jobs yet" })
+				.or(tab.getByRole("heading", { name: "Studio access" })),
+		).toBeVisible({ timeout: firefox ? 120000 : 20000 });
+		expect(refused).toEqual([]);
+		await expect(tab.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
+	}
+	// Forty resumes ran, so the limits were exercised, and none was refused late.
+	expect(resumed).toBeGreaterThanOrEqual(40);
+	expect(refused).toEqual([]);
 	await Promise.all(tabs.map((tab) => tab.close()));
 });
 

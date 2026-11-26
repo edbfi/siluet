@@ -39,7 +39,9 @@ async function saveKey(page: Page, key: string, button: "Connect" | "Replace key
 test("built Image Studio uses eligible connections and keeps drafts in the signed-in page session", async ({
 	page,
 }) => {
-	test.setTimeout(60_000);
+	// Each action and expectation keeps its own short limit. The journey as a whole takes about
+	// 25 seconds alone and up to 70 in Firefox with three workers on a loaded eight-core host.
+	test.setTimeout(120_000);
 	page.setDefaultTimeout(10_000);
 	const directory = await createOwnerDirectory();
 	const cacheHome = await mkdtemp(join(tmpdir(), "siluet-image-pricing-"));
@@ -927,6 +929,9 @@ test("built Image Studio cleans an attached local copy automatically before its 
 		const outbound: string[] = [];
 		const pageErrors: Error[] = [];
 		page.on("pageerror", (error) => pageErrors.push(error));
+		// Each step's routes go on the context too. Unrouting a page's last route while a request
+		// is on its way to it sends that request through this route twice ("Route is already
+		// handled!").
 		await context.route("**/*", (route) => {
 			const url = new URL(route.request().url());
 			if (url.origin === origin.origin) return route.continue();
@@ -982,16 +987,16 @@ test("built Image Studio cleans an attached local copy automatically before its 
 		const holdPosts = async () => {
 			const hold = Promise.withResolvers<void>();
 			const held: Promise<void>[] = [];
-			await page.route("**/image/files/*", (route) => {
-				if (route.request().method() !== "POST") return route.continue();
-				const continued = hold.promise.then(() => route.continue());
+			await context.route("**/image/files/*", (route) => {
+				if (route.request().method() !== "POST") return route.fallback();
+				const continued = hold.promise.then(() => route.fallback());
 				held.push(continued);
 				return continued;
 			});
 			return async () => {
 				hold.resolve();
 				await Promise.all(held);
-				await page.unroute("**/image/files/*");
+				await context.unroute("**/image/files/*");
 			};
 		};
 
@@ -1112,8 +1117,8 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			// A preparation the server is still settling holds its one slot. The
 			// replacement waits for it.
 			let refused = false;
-			await page.route("**/image/files/*", (route) => {
-				if (route.request().method() !== "POST" || refused) return route.continue();
+			await context.route("**/image/files/*", (route) => {
+				if (route.request().method() !== "POST" || refused) return route.fallback();
 				refused = true;
 				return route.fulfill({
 					status: 422,
@@ -1139,13 +1144,13 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			expect(draftOf(replacement)).not.toBe(draftOf(first));
 			expect(refused).toBe(true);
 			expect(sentWith("POST")).toHaveLength(3);
-			await page.unroute("**/image/files/*");
+			await context.unroute("**/image/files/*");
 		});
 
 		await test.step("a failed preparation offers Try again, which cleans the file once more", async () => {
 			const previous = (await cleaned.getAttribute("data-source")) ?? "";
-			await page.route("**/image/files/*", (route) =>
-				route.request().method() === "POST" ? route.abort() : route.continue(),
+			await context.route("**/image/files/*", (route) =>
+				route.request().method() === "POST" ? route.abort() : route.fallback(),
 			);
 			await firstFile.focus();
 			await firstFile.setInputFiles({
@@ -1160,7 +1165,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			// The failure leaves focus on the attach control.
 			await expect(tryAgain).toBeVisible();
 			await expect(firstFile).toBeFocused();
-			await page.unroute("**/image/files/*");
+			await context.unroute("**/image/files/*");
 			const posts = sentWith("POST").length;
 			await tryAgain.press("Enter");
 			await fileStatus("Cleaned copy ready.");
@@ -1171,8 +1176,8 @@ test("built Image Studio cleans an attached local copy automatically before its 
 		});
 
 		await test.step("a copy that becomes unavailable is cleaned again once, then offers Try again", async () => {
-			await page.route("**/image/files/*/*", (route) =>
-				route.request().method() === "GET" ? route.fulfill({ status: 404 }) : route.continue(),
+			await context.route("**/image/files/*/*", (route) =>
+				route.request().method() === "GET" ? route.fulfill({ status: 404 }) : route.fallback(),
 			);
 			const posts = sentWith("POST").length;
 			await firstFile.setInputFiles({
@@ -1186,7 +1191,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			await expect(tryAgain).toBeVisible();
 			await expect(cleaned).toHaveCount(0);
 			expect(sentWith("POST")).toHaveLength(posts + 2);
-			await page.unroute("**/image/files/*/*");
+			await context.unroute("**/image/files/*/*");
 			await tryAgain.press("Enter");
 			await fileStatus("Cleaned copy ready.");
 			await expect(cleaned).toBeVisible();
@@ -1312,8 +1317,8 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			await expect(cleaned).not.toHaveAttribute("data-source", src);
 			expect(sentWith("POST")).toHaveLength(posts + 1);
 
-			await page.route("**/image/files/*", (route) =>
-				route.request().method() === "POST" ? route.abort() : route.continue(),
+			await context.route("**/image/files/*", (route) =>
+				route.request().method() === "POST" ? route.abort() : route.fallback(),
 			);
 			await firstFile.setInputFiles({
 				name: "upright.png",
@@ -1326,7 +1331,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			await transition("pageshow");
 			await expect(tryAgain).toBeVisible();
 			expect(sentWith("POST")).toHaveLength(posts);
-			await page.unroute("**/image/files/*");
+			await context.unroute("**/image/files/*");
 			await tryAgain.press("Enter");
 			await fileStatus("Cleaned copy ready.");
 		});
