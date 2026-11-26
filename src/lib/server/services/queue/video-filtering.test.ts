@@ -5,6 +5,7 @@ import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-direct
 import {
 	d4Wording,
 	type FilteringEvidence,
+	filteringFields,
 	queueEvidenceProblem,
 } from "../../../shared/media-catalog/filtering";
 import {
@@ -20,7 +21,7 @@ import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
 import { checkVideoInventory } from "../../providers/toapis/connection";
 import { createVideoAccess } from "../providers/video-access";
-import { createVideoQueue } from "./video";
+import { closedAbsentSendsField, createVideoQueue } from "./video";
 
 let directory: string;
 let db: Installation;
@@ -104,6 +105,7 @@ async function eligibleQueue(posts: string[]) {
 
 const states: FilteringEvidence[] = [
 	{ d4: "closed-absent", closedBy: "api" },
+	{ d4: "closed-absent", closedBy: "catalog" },
 	{ d4: "closed-absent", closedBy: "both" },
 	{ d4: "open-absent" },
 	{ d4: "open-absent-fixed" },
@@ -120,6 +122,8 @@ test.each(shipped)(
 		const queue = await eligibleQueue(posts);
 		const live = parse(operation, draft);
 		expect(live.operation.evidence).toEqual({ d4: "declared" });
+		const sent = "input" in live.body ? live.body.input : live.body;
+		expect(sent).toHaveProperty(filteringFields[operation.key.provider], false);
 		const provider = operation.key.provider;
 		for (const evidence of states) {
 			const changed = { ...live, operation: { ...live.operation, evidence } } as VideoRequest;
@@ -138,6 +142,9 @@ test.each(shipped)(
 			expect(blockers.some((blocker) => blocker === queueEvidenceProblem(evidence, provider))).toBe(
 				!queueing,
 			);
+			// Every shipped video body still sends the filtering field (G7 omits it), so a
+			// closed-absent row stays blocked even with its acknowledgement bound.
+			expect(blockers.includes(closedAbsentSendsField)).toBe(evidence.d4 === "closed-absent");
 		}
 		expect(posts).toEqual([]);
 		expect(await imageJobStore(db).list()).toHaveLength(0);

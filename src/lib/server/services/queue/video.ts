@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
-import { queueEvidenceProblem } from "../../../shared/media-catalog/filtering";
+import { filteringFields, queueEvidenceProblem } from "../../../shared/media-catalog/filtering";
 import { frameReviewLabels, roleMedia } from "../../../shared/video-studio/keyframes";
 import type { PoyoVideoBody } from "../../../shared/video-studio/poyo-video";
 import { previewVideo, type VideoRequest } from "../../../shared/video-studio/request";
@@ -29,6 +29,21 @@ function target(input: VideoRequest, business: string | null): VideoTarget | nul
 	if ("input" in input.body)
 		return business === null ? { provider: "poyo", body: input.body } : null;
 	return business === null ? null : { provider: "toapis", body: input.body, business };
+}
+
+export const closedAbsentSendsField =
+	"Queue is unavailable because this request still sends the filtering flag, which the provider's schema does not accept.";
+
+/**
+ * A closed-absent row must omit the filtering field, but every shipped video body still sends
+ * it until G7 builds the body from the row. Until then such a row stays blocked.
+ */
+function closedAbsentProblem(input: VideoRequest) {
+	if (input.operation.evidence.d4 !== "closed-absent") return null;
+	const sent: object = "input" in input.body ? input.body.input : input.body;
+	return Object.hasOwn(sent, filteringFields[input.operation.key.provider])
+		? closedAbsentSendsField
+		: null;
 }
 
 export async function createVideoQueue(
@@ -73,6 +88,7 @@ export async function createVideoQueue(
 				input.operation.key.provider,
 				input.disclosures,
 			),
+			closedAbsentProblem(input),
 			saveLimitProblem(input.operation),
 			state === "eligible" ? null : provider === "poyo" ? poyoAccessMessage : accessMessage[state],
 		].filter((s): s is string => !!s);

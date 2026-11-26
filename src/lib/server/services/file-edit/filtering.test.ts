@@ -16,6 +16,8 @@ import { openTestStages } from "./stages.fixture";
 // before any stage is read or transferred.
 const undeclared: FilteringEvidence[] = [
 	{ d4: "closed-absent", closedBy: "api" },
+	{ d4: "closed-absent", closedBy: "catalog" },
+	{ d4: "closed-absent", closedBy: "both" },
 	{ d4: "open-absent" },
 	{ d4: "open-absent-fixed" },
 	{ d4: "declared", catalogOnly: true },

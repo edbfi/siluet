@@ -10,6 +10,7 @@ import {
 } from "#lib/shared/image-studio/file-edit.ts";
 import { maxSeedreamReferences } from "#lib/shared/image-studio/references.ts";
 import type { ImageReviewData, ReviewOperation } from "#lib/shared/image-studio/review.ts";
+import { imageReviewFiltering } from "#lib/shared/image-studio/review-filtering.ts";
 import {
 	estimateReviewPrice,
 	maximumReviewAttempts,
@@ -22,10 +23,6 @@ import {
 } from "#lib/shared/image-studio/review-price.ts";
 import type { SeedreamDraft } from "#lib/shared/image-studio/seedream.ts";
 import { type ZImageDraft, zImageDisclosure } from "#lib/shared/image-studio/z-image.ts";
-import {
-	contractDeclaresField,
-	queueEvidenceProblem,
-} from "#lib/shared/media-catalog/filtering.ts";
 import { type ReleasedImageOperation, zImageModel } from "#lib/shared/media-catalog/registry.ts";
 import { sumAmounts } from "#lib/shared/pricing/decimal.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
@@ -114,10 +111,10 @@ type ReviewTerms = {
 	editDisclosure?: readonly string[];
 	disclosure?: readonly string[];
 };
+const filtering = $derived(entry && imageReviewFiltering(entry.evidence, entry.key.provider));
 const unavailable = $derived.by(() => {
 	if (!connected && modelId === zImageModel.id) return "Connect Poyo.ai in Settings to queue.";
-	const evidenceProblem = entry && queueEvidenceProblem(entry.evidence, entry.key.provider);
-	if (evidenceProblem) return evidenceProblem;
+	if (filtering?.unavailable) return filtering.unavailable;
 	if (isEdit && duplicateWarning) return duplicateWarning;
 	if (localFiles) {
 		if (!connected) return "Connect Poyo.ai or ToAPIs in Settings to queue.";
@@ -608,12 +605,8 @@ $effect(() => {
 							{entry.key.provider === "poyo"
 								? "The balance check accepted this key. Access to this model is unconfirmed."
 								: "The global image model list included this model for this key."}
-							{#if contractDeclaresField(entry.evidence)}
-								The model contract declares
-								<code
-									>{entry.key.provider === "poyo" ? "input.enable_safety_checker" : "disable_nsfw"}:
-									false</code
-								>.
+							{#if filtering?.declaredField}
+								The model contract declares <code>{filtering.declaredField}: false</code>.
 							{/if}
 						</dd>
 					</div>
