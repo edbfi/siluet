@@ -9,6 +9,13 @@ export const actions = css({
 	alignItems: "center",
 	flexWrap: "wrap",
 });
+/** The viewer's actions top-align, so a Download note below its link moves nothing beside it. */
+export const viewerActions = css({
+	display: "flex",
+	gap: "0.7rem 1.25rem",
+	alignItems: "start",
+	flexWrap: "wrap",
+});
 export const grid = css({
 	display: "grid",
 	gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 15rem), 1fr))",

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { actions, link, meta, page, viewer } from "#lib/components/gallery/gallery-styles.ts";
+import { link, meta, page, viewer, viewerActions } from "#lib/components/gallery/gallery-styles.ts";
 import PrivateDownload from "#lib/components/gallery/PrivateDownload.svelte";
 import SavedImageDetails from "#lib/components/gallery/SavedImageDetails.svelte";
 import { privateSource } from "#lib/components/media/private-media.ts";
@@ -62,7 +62,7 @@ $effect(() => {
 		<p>The saved {kind} file is unavailable.</p>
 	{/if}
 	<SavedImageDetails {...data.image} />
-	<div class={actions}>
+	<div class={viewerActions}>
 		{#if data.image.available}
 			{#key data.image.jobId}
 				<PrivateDownload
