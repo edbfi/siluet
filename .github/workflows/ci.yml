@@ -105,9 +105,10 @@ jobs:
       # Keyboard Access; they run in Chromium and Firefox here, as before in Chromium.
       - if: ${{ !cancelled() }}
         run: bun run --bun smoke tests/browser/studio.spec.ts tests/browser/first-saved-image.spec.ts tests/browser/first-saved-video.spec.ts tests/browser/poyo-first-video.spec.ts --project=chromium --project=firefox --workers=1 --output=test-results/journeys
-      # Gallery's note for a clip WebKit plays as sound only; that journey uses no keyboard.
+      # Gallery's note for a clip WebKit plays as sound only, and its control with a clip WebKit
+      # decodes. Neither journey uses the keyboard.
       - if: ${{ !cancelled() }}
-        run: bun run --bun smoke tests/browser/first-saved-video.spec.ts --project=webkit --grep "cannot play a saved clip" --workers=1 --output=test-results/webkit-unplayable
+        run: bun run --bun smoke tests/browser/first-saved-video.spec.ts --project=webkit --grep "Gallery (says when this browser cannot play|plays) a saved clip" --workers=1 --output=test-results/webkit-playability
       # Playwright keeps a trace and error context for each failed test. They hold fixture data only.
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

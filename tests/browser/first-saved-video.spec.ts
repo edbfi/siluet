@@ -2,18 +2,26 @@ import { existsSync } from "node:fs";
 import { copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { expect } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { pictureWaitMs } from "../../src/lib/components/gallery/playability";
 import { seedanceOperation } from "../../src/lib/shared/media-catalog/registry";
 import { videoDefaults } from "../../src/lib/shared/video-studio/seedance";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
 import { seedanceProvider } from "../fixtures/seedance-provider";
-import { undecodableH264Aac } from "../fixtures/video/mp4-boxes";
+import { h264Aac, undecodableH264Aac } from "../fixtures/video/mp4-boxes";
 import { seedanceShape } from "../fixtures/video/real-clips";
 import { startStudio } from "./built-studio";
 import { claimOwner, ownerRequest } from "./owner-session";
-import { seekThenPlay } from "./saved-video-playback";
+import {
+	framesShown,
+	noteShown,
+	playerState,
+	playsH264,
+	seekThenPlay,
+	startPlayback,
+	watchNote,
+} from "./saved-video-playback";
 import { test } from "./studio-test";
 
 test("video-only key reviews once, saves one video and reopens its original bytes offline", async ({
@@ -236,16 +244,19 @@ test("video-only key reviews once, saves one video and reopens its original byte
 	}
 });
 
-test("Gallery says when this browser cannot play a saved clip and keeps Download", async ({
-	page,
-}) => {
-	test.setTimeout(60_000);
-	const directory = await createOwnerDirectory();
-	const bytes = undecodableH264Aac();
+/**
+ * Save `bytes` as a finished Seedance job and open its Gallery viewer, with the status beside
+ * the player watched from before playback.
+ */
+async function openSavedClip(page: Page, directory: string, bytes: Buffer) {
 	const fixture = startProviderFixtures(
 		seedanceProvider(bytes, async (request) => (await request.json()).client_business_id),
 	);
 	let server: Awaited<ReturnType<typeof startStudio>> | undefined;
+	const close = async () => {
+		await server?.stop();
+		fixture.stop();
+	};
 	try {
 		server = await startStudio(directory, "0", false, fixture.env);
 		const { origin } = server.origin;
@@ -274,41 +285,77 @@ test("Gallery says when this browser cannot play a saved clip and keeps Download
 		await page.goto(`${origin}/jobs#job-${jobId}`);
 		await expect(page.getByText("Completed", { exact: true })).toBeVisible({ timeout: 25000 });
 		await page.getByRole("link", { name: "Open saved video" }).click({ timeout: 20000 });
+		const video = page.getByLabel("Saved video playback");
+		// The clip arrives as a blob.
+		await expect(video).toHaveAttribute("src", /^blob:/);
+		await watchNote(video);
+		return { origin, video, close };
+	} catch (error) {
+		await close();
+		throw error;
+	}
+}
+
+test("Gallery says when this browser cannot play a saved clip and keeps Download", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	const directory = await createOwnerDirectory();
+	const bytes = undecodableH264Aac();
+	let opened: Awaited<ReturnType<typeof openSavedClip>> | undefined;
+	try {
+		opened = await openSavedClip(page, directory, bytes);
+		const { origin, video } = opened;
 		const note = page.getByRole("status").filter({
 			hasText: "This browser can't play this video. Download it to open it in another player.",
 		});
-		const video = page.getByLabel("Saved video playback");
-		// The clip arrives as a blob; ask it to play without waiting on a promise an engine may
-		// leave pending for undecodable media.
-		await expect(video).toHaveAttribute("src", /^blob:/);
-		await video.evaluate((v: HTMLVideoElement) => {
-			v.play().catch(() => {});
-		});
+		await startPlayback(video);
 		// WebKit on macOS plays the sound and raises no error: the note follows a frameless wait.
 		await expect(note)
 			.toBeVisible({ timeout: pictureWaitMs + 5000 })
 			.catch(async (error) => {
-				const state = await video.evaluate((v: HTMLVideoElement) => ({
-					error: v.error?.code ?? null,
-					networkState: v.networkState,
-					readyState: v.readyState,
-					paused: v.paused,
-					ended: v.ended,
-					currentTime: v.currentTime,
-					duration: v.duration,
-					size: [v.videoWidth, v.videoHeight],
-					frameCallbacks: typeof v.requestVideoFrameCallback === "function",
-					canPlay: v.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"'),
-				}));
-				throw new Error(`${error.message}\nVideo element: ${JSON.stringify(state)}`);
+				throw new Error(`${error.message}\nVideo element: ${await playerState(video)}`);
 			});
 		const download = page.getByRole("link", { name: "Download video" });
 		await expect(download).toBeVisible();
 		const media = await ownerRequest(page).get(origin + (await download.getAttribute("href")));
 		expect(await media.body()).toEqual(bytes);
 	} finally {
-		await server?.stop();
-		fixture.stop();
+		await opened?.close();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+// The control for the journey above: in the same engine, the same clip with its parameter sets
+// intact shows its picture to the end and Gallery never says it cannot play. No keyboard, so it
+// also runs in macOS WebKit.
+test("Gallery plays a saved clip this browser decodes to its end with no note", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	const directory = await createOwnerDirectory();
+	let opened: Awaited<ReturnType<typeof openSavedClip>> | undefined;
+	try {
+		opened = await openSavedClip(page, directory, h264Aac());
+		const { video } = opened;
+		// Playwright's Linux Firefox has no H.264 decoder; the journey above covers that note.
+		test.skip(!(await playsH264(video)), "This engine decodes no H.264.");
+		await startPlayback(video);
+		await expect
+			.poll(() => video.evaluate((v: HTMLVideoElement) => v.ended), { timeout: 20_000 })
+			.toBe(true)
+			.catch(async (error) => {
+				throw new Error(`${error.message}\nVideo element: ${await playerState(video)}`);
+			});
+		// Gallery defers its end-of-clip judgement across a rendering turn; let two pass.
+		await page.evaluate(
+			() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+		);
+		const state = await playerState(video);
+		expect(await framesShown(video), state).toBeGreaterThan(0);
+		expect(await noteShown(video), state).toBe(false);
+	} finally {
+		await opened?.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });

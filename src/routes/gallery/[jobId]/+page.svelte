@@ -14,6 +14,12 @@ const href = $derived(`/gallery/${encodeURIComponent(data.image.jobId)}`);
 // The job whose clip this browser cannot play; another item starts without the note.
 let failed = $state<string | null>(null);
 const unplayable = $derived(failed === data.image.jobId);
+/** Watch one job's player; its reports concern that job only. */
+const watch = (job: string) =>
+	playability((cannot) => {
+		if (cannot) failed = job;
+		else if (failed === job) failed = null;
+	});
 // The saved file could not be read through this session, or exceeds the page's limit.
 let missing = $state<string | null>(null);
 </script>
@@ -25,19 +31,22 @@ let missing = $state<string | null>(null);
 	{#if data.image.available && missing === data.image.jobId}
 		<p role="status">The saved {kind} could not be opened here. Download it, or reload to retry.</p>
 	{:else if data.image.available && video}
-		<!-- svelte-ignore a11y_media_has_caption (Creator-generated media has no caption source.) -->
-		<!-- biome-ignore lint/a11y/useMediaCaption: Creator-generated media has no caption source. -->
-		<video
-			controls
-			playsinline
-			preload="metadata"
-			aria-label="Saved video playback"
-			class={viewer}
-			{@attach privateSource(`${href}/media`, data.image.mime, "video", {
-				failed: () => (missing = data.image.jobId),
-			})}
-			{@attach playability((cannot) => (failed = cannot ? data.image.jobId : null))}
-		></video>
+		<!-- Each job gets its own player: its playback watch and timers end with the job. -->
+		{#key data.image.jobId}
+			<!-- svelte-ignore a11y_media_has_caption (Creator-generated media has no caption source.) -->
+			<!-- biome-ignore lint/a11y/useMediaCaption: Creator-generated media has no caption source. -->
+			<video
+				controls
+				playsinline
+				preload="metadata"
+				aria-label="Saved video playback"
+				class={viewer}
+				{@attach privateSource(`${href}/media`, data.image.mime, "video", {
+					failed: () => (missing = data.image.jobId),
+				})}
+				{@attach watch(data.image.jobId)}
+			></video>
+		{/key}
 		<p class={meta} role="status">
 			{#if unplayable}
 				This browser can't play this video. Download it to open it in another player.
