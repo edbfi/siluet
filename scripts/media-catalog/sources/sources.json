@@ -49,7 +49,7 @@
 				"/api-manual/music-series/voice/check.json",
 				"/integrations/capability-catalog.json"
 			],
-			"reason": "Listed English specs that document no generation model (the generic root spec, catalog, balance, chat, uploads, task status and music endpoints); digested in the manifest only."
+			"reason": "Listed English specs that list no in-scope model (non-model endpoints; out-of-scope music and voice `Request` specs); digested in the manifest only."
 		}
 	}
 }

@@ -3,9 +3,10 @@ import { readFileSync } from "node:fs";
 import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import { d4States } from "../../src/lib/shared/media-catalog/filtering";
-import type { Schema } from "../../src/lib/shared/media-catalog/schema";
+import type { ReviewedRule, Schema } from "../../src/lib/shared/media-catalog/schema";
 import {
 	type CatalogEntry,
+	countNotes,
 	crossCheck,
 	deriveRow,
 	deriveRows,
@@ -13,6 +14,7 @@ import {
 	renderRows,
 	rowsPath,
 } from "./derive";
+import { sha256 } from "./project";
 import { verifiedOptions } from "./verified";
 
 const committed = readFileSync(rowsPath, "utf8");
@@ -227,5 +229,119 @@ describe("fixture rows", () => {
 		expect(counted("Number of output images.")).toBe("count");
 		expect(counted("Number of images to generate (1-4).")).toBe("count");
 		expect(counted("Noise steps.")).toBe("integer");
+	});
+
+	const sized = {
+		...declared,
+		properties: {
+			...declared.properties,
+			size: {
+				type: "string",
+				description: "A ratio, or exact pixels.",
+				oneOf: [{ enum: ["1:1"] }, { pattern: "^\\d+x\\d+$" }],
+			},
+		},
+	};
+	const sizeRule = (source: "catalog" | "rest", quote = "exact pixels"): ReviewedRule => ({
+		id: `fixture-size-${source}`,
+		model: "fixture",
+		source,
+		schemaSha256: sha256(canonicalJson(sized)),
+		field: "size",
+		constructs: ["oneOf"],
+		quote,
+		check: () => null,
+	});
+	const ruled = (...rules: ReviewedRule[]) =>
+		deriveRow(ledgerRow, "fixture", entry(sized), { ...none, rules }).options.find(
+			(option) => option.field === "size",
+		);
+	test("a rule reviewed for the REST input never covers the catalog's construct", () => {
+		expect(ruled(sizeRule("catalog"))).toMatchObject({ kind: "rule" });
+		expect(ruled(sizeRule("catalog"))?.gap).toBeUndefined();
+		expect(ruled(sizeRule("rest"))).toMatchObject({
+			kind: "construct",
+			gap: { state: "pending", reason: "uses oneOf" },
+		});
+	});
+	test("a rule or an override whose quote its field's description lacks fails derivation", () => {
+		expect(() => ruled(sizeRule("catalog", "exact pixels only"))).toThrow(
+			"fixture-size-catalog quotes text its field's description lacks",
+		);
+		const override = (quote: string, field = "size"): RowSources => ({
+			...none,
+			rules: [sizeRule("catalog")],
+			overrides: [
+				{
+					model: "fixture",
+					operation: "text-to-image",
+					field,
+					schemaSha256: sha256(canonicalJson(sized)),
+					excludes: ["1:1"],
+					quote,
+				},
+			],
+		});
+		expect(() => deriveRow(ledgerRow, "fixture", entry(sized), override("A ratio"))).not.toThrow();
+		expect(() => deriveRow(ledgerRow, "fixture", entry(sized), override("A square"))).toThrow(
+			"The fixture size override quotes text its field's description lacks",
+		);
+		expect(() =>
+			deriveRow(ledgerRow, "fixture", entry(sized), override("A ratio", "aspect")),
+		).toThrow("The fixture aspect override quotes text its field's description lacks");
+	});
+	test("a reviewed count note whose description changed fails derivation", () => {
+		const counted = (description: string) =>
+			deriveRow(
+				ledgerRow,
+				"kling-4.0-image",
+				entry({
+					...declared,
+					properties: {
+						...declared.properties,
+						n: { type: "integer", minimum: 1, maximum: 10, description },
+					},
+				}),
+				none,
+			);
+		expect(counted(countNotes["kling-4.0-image n"]).options[0]).toMatchObject({
+			field: "n",
+			kind: "count",
+		});
+		expect(() => counted("Number of images, from 1 to 10.")).toThrow(
+			"The kling-4.0-image n count note no longer matches its description",
+		);
+	});
+	test("a field only one source owns is never found on the other's prototype", () => {
+		const closed = { ...declared, additionalProperties: false };
+		const own = (properties: string) =>
+			JSON.parse(
+				`{"type":"object","required":["prompt"],"properties":{"prompt":{"type":"string","maxLength":100},${properties}}}`,
+			) as Schema;
+		const apiOnly = deriveRow(
+			ledgerRow,
+			"fixture",
+			entry(closed),
+			withApi(own('"constructor":{"type":"string","enum":["a"]}')),
+		);
+		expect(apiOnly.options.find((option) => option.field === "constructor")).toMatchObject({
+			kind: "enum",
+			gap: { state: "unknown", question: 7 },
+		});
+		const catalogOnly = deriveRow(
+			ledgerRow,
+			"fixture",
+			entry(own('"valueOf":{"type":"string","enum":["a"]}')),
+			withApi({
+				type: "object",
+				required: ["prompt"],
+				properties: { prompt },
+				additionalProperties: false,
+			}),
+		);
+		expect(catalogOnly.options.find((option) => option.field === "valueOf")).toMatchObject({
+			kind: "enum",
+			gap: { state: "unknown", question: 7 },
+		});
 	});
 });

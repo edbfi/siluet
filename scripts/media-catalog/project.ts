@@ -104,7 +104,7 @@ const annotations = new Set(["description", "example", "examples", "title"]);
 export function resolveRefs(value: Json, document: JsonObject, seen: string[] = []): Json {
 	if (Array.isArray(value)) return value.map((item) => resolveRefs(item, document, seen));
 	if (!isObject(value)) return value;
-	if ("$ref" in value) {
+	if (Object.hasOwn(value, "$ref")) {
 		const ref = value.$ref;
 		if (typeof ref !== "string" || !ref.startsWith("#/"))
 			throw new Error(`Remote or invalid $ref ${JSON.stringify(ref)}.`);
@@ -135,15 +135,40 @@ const schemaAt = (document: JsonObject, name: string) => {
 	return isObject(found) ? found : undefined;
 };
 
-/** The model IDs a spec's `SubmitRequest.model.enum` lists, or null when it has no usable one. */
+/**
+ * The model IDs a spec's `SubmitRequest.model.enum` lists, or null when it has no usable one.
+ * An enum that repeats an ID fails.
+ */
 export function specModels(document: JsonObject) {
 	const ids = ownAt(
 		ownAt(ownAt(schemaAt(document, "SubmitRequest"), "properties"), "model"),
 		"enum",
 	);
-	return Array.isArray(ids) && ids.length && ids.every((id) => typeof id === "string")
-		? (ids as string[])
-		: null;
+	if (!Array.isArray(ids) || !ids.length || !ids.every((id) => typeof id === "string")) return null;
+	const repeated = ids.find((id, index) => ids.indexOf(id) !== index);
+	if (repeated !== undefined) throw new Error(`SubmitRequest.model.enum repeats ${repeated}.`);
+	return ids as string[];
+}
+
+/**
+ * The in-scope IDs any `model` property anywhere in a spec lists in its `enum` or `const`,
+ * through a local `$ref` too. A spec recorded as listing no in-scope model must list none.
+ */
+export function listedModels(document: JsonObject, inScopeIds: ReadonlySet<string>) {
+	const found = new Set<string>();
+	const visit = (value: Json) => {
+		if (Array.isArray(value)) return value.forEach(visit);
+		if (!isObject(value)) return;
+		const model = ownAt(value, "model");
+		if (isObject(model)) {
+			const resolved = resolveRefs(model, document);
+			const ids = [ownAt(resolved, "const"), ...[ownAt(resolved, "enum")].flat()];
+			for (const id of ids) if (typeof id === "string" && inScopeIds.has(id)) found.add(id);
+		}
+		for (const item of Object.values(value)) visit(item);
+	};
+	visit(document);
+	return [...found].sort();
 }
 
 /**
@@ -200,8 +225,9 @@ export function modelInputs(document: JsonObject, path = "The spec") {
 /**
  * The docs index digest, a manifest of every listed spec and, for in-scope IDs only, each
  * model's resolved `input` schema, stored once per distinct schema under its SHA-256. A spec
- * recorded as documenting no model (chat, uploads, status, the generic root spec) is only
- * digested; any other spec without a usable model enum fails the projection.
+ * recorded as listing no in-scope model (non-model endpoints; out-of-scope music and voice
+ * `Request` specs) is only digested, and fails once any `model` property in it lists an
+ * in-scope ID; any other spec without a usable model enum fails the projection.
  */
 export function projectOpenApi(
 	index: string,
@@ -219,8 +245,11 @@ export function projectOpenApi(
 		if (path.startsWith("/zh/")) continue;
 		const document = JSON.parse(read(path)) as JsonObject;
 		if (noModel.has(path)) {
-			if (specModels(document))
-				throw new Error(`${path} is recorded as documenting no model, but lists models.`);
+			const listed = listedModels(document, inScopeIds);
+			if (specModels(document) || listed.length)
+				throw new Error(
+					`${path} is recorded as listing no in-scope model, but lists ${listed.join(", ") || "models"}.`,
+				);
 			continue;
 		}
 		for (const [id, { input, shared }] of modelInputs(document, path)) {

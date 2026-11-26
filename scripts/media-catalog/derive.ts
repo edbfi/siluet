@@ -11,8 +11,13 @@ import {
 	type FilteringEvidence,
 	type RestSide,
 } from "../../src/lib/shared/media-catalog/filtering";
-import { reviewedRules } from "../../src/lib/shared/media-catalog/rules";
 import {
+	type ReviewedOverride,
+	reviewedOverrides,
+	reviewedRules,
+} from "../../src/lib/shared/media-catalog/rules";
+import {
+	boundRules,
 	type Construct,
 	effectiveDefault,
 	type ReviewedRule,
@@ -34,7 +39,7 @@ const freeText = new Set(["prompt", "negative_prompt", "text", "author", "domain
  * conventions"). Any other count needs a reviewed note that quotes the provider.
  */
 const countConvention = ["Number of output images", "Number of images to generate"];
-const countNotes: Record<string, string> = {
+export const countNotes: Record<string, string> = {
 	"ideogram-vector-1.0/text-to-vector n": "Output count, from 1 to 8. Defaults to 1.",
 	"kling-4.0-image n":
 		"Number of images. When enable_sequential is false: 1–9, default 1. When enable_sequential is true: 2–10, default 4.",
@@ -122,6 +127,19 @@ const isSchema = (value: unknown): value is Schema =>
 const propertiesOf = (schema: Schema | null) =>
 	(schema && isSchema(schema.properties) ? schema.properties : {}) as Record<string, Schema>;
 
+/** A top-level input's own declaration, never one found on a prototype. */
+const ownDeclaration = (schema: Schema | null, field: string) => {
+	const properties = propertiesOf(schema);
+	return Object.hasOwn(properties, field) ? properties[field] : undefined;
+};
+
+/** A reviewed quote must be the provider's words in the description it is bound to. */
+function quoted(quote: string, declaration: Schema | undefined, name: string) {
+	const description = declaration?.description;
+	if (!quote || typeof description !== "string" || !description.includes(quote))
+		throw new Error(`${name} quotes text its field's description lacks.`);
+}
+
 function side(schema: Schema | null): RestSide {
 	if (!schema) return "none";
 	if (Object.hasOwn(propertiesOf(schema), d4Field)) return "declared";
@@ -167,8 +185,11 @@ const isMedia = (field: string, declaration: Schema) =>
 /** An output count only under the description convention or a reviewed note. */
 function isCount(model: string, field: string, declaration: Schema) {
 	const description = typeof declaration.description === "string" ? declaration.description : "";
-	if (Object.hasOwn(countNotes, `${model} ${field}`))
-		return description === countNotes[`${model} ${field}`];
+	if (Object.hasOwn(countNotes, `${model} ${field}`)) {
+		if (description !== countNotes[`${model} ${field}`])
+			throw new Error(`The ${model} ${field} count note no longer matches its description.`);
+		return true;
+	}
 	return field === "n" && countConvention.some((opening) => description.startsWith(opening));
 }
 
@@ -225,11 +246,13 @@ export type RowSources = {
 	readonly models: Readonly<Record<string, { input: string; spec: string; shared?: true }>>;
 	readonly schemas: Readonly<Record<string, Schema>>;
 	readonly rules: readonly ReviewedRule[];
+	readonly overrides?: readonly ReviewedOverride[];
 };
 const pinned: RowSources = {
 	models: openapi.models as RowSources["models"],
 	schemas: openapi.schemas as RowSources["schemas"],
 	rules: reviewedRules,
+	overrides: reviewedOverrides,
 };
 
 /** A ledger row's fields a derived row keeps. */
@@ -245,20 +268,38 @@ export function deriveRow(
 	row: LedgerRow,
 	model: string,
 	entry: CatalogEntry | undefined,
-	{ models, schemas, rules: allRules }: RowSources = pinned,
+	{ models, schemas, rules: allRules, overrides = [] }: RowSources = pinned,
 ): DerivedRow {
 	const api = Object.hasOwn(models, model) ? models[model] : undefined;
 	const apiSchema = api && Object.hasOwn(schemas, api.input) ? schemas[api.input] : null;
 	const catalogSchema = entry ? entry.input_schema : null;
 	const sources = [catalogSchema, apiSchema].filter((schema): schema is Schema => !!schema);
 	const catalogSha = catalogSchema && sha256(canonicalJson(catalogSchema));
-	const rules = allRules.filter(
-		({ schemaSha256 }) => schemaSha256 === catalogSha || schemaSha256 === api?.input,
-	);
-	const unsupported = [
-		...(catalogSchema ? uncovered(catalogSchema, catalogSha, rules) : []),
-		...(apiSchema && api ? uncovered(apiSchema, api.input, rules) : []),
-	];
+	const bindings = [
+		...(catalogSchema
+			? [{ schema: catalogSchema, sha256: catalogSha, source: "catalog" as const }]
+			: []),
+		...(apiSchema && api
+			? [{ schema: apiSchema, sha256: api.input, source: "rest" as const }]
+			: []),
+	].map((binding) => ({ ...binding, rules: allRules }));
+	for (const { schema, sha256: digest, source } of bindings)
+		for (const rule of allRules)
+			if (rule.source === source && rule.schemaSha256 === digest)
+				quoted(
+					rule.quote,
+					rule.field === null ? schema : ownDeclaration(schema, rule.field),
+					rule.id,
+				);
+	for (const override of overrides)
+		if (override.model === model && catalogSchema && override.schemaSha256 === catalogSha)
+			quoted(
+				override.quote,
+				ownDeclaration(catalogSchema, override.field),
+				`The ${model} ${override.field} override`,
+			);
+	const rules = bindings.flatMap(({ schema, ...binding }) => boundRules(schema, binding));
+	const unsupported = bindings.flatMap(({ schema, ...binding }) => uncovered(schema, binding));
 	const required = [
 		...new Set(
 			sources.flatMap((schema) => (Array.isArray(schema.required) ? schema.required : [])),
@@ -289,9 +330,9 @@ export function deriveRow(
 	const options: DerivedOption[] = [];
 	for (const field of fields) {
 		if (field === d4Field) continue;
-		const inCatalog = catalogProps[field];
-		const inApi = apiProps[field];
-		const declaration = inCatalog ?? inApi;
+		const inCatalog = ownDeclaration(catalogSchema, field);
+		const inApi = ownDeclaration(apiSchema, field);
+		const declaration = (inCatalog ?? inApi) as Schema;
 		if (isMedia(field, declaration)) {
 			inputs.push(field);
 			continue;

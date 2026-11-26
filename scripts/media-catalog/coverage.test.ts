@@ -307,3 +307,53 @@ test("the operations table sorts labels by code unit", () => {
 		table.indexOf("| P3 · audio and avatar inputs |"),
 	);
 });
+
+test("a count passes through its option's gap and its row's pending reasons first", () => {
+	expect(itemsOf("ideogram-v4.6", "n", "text-to-image")).toEqual([["2–8", "pending", undefined]]);
+	const reasons = (model: string) =>
+		result.items
+			.filter((item) => item.model === model && item.option === "n")
+			.map(({ reason }) => reason);
+	expect(reasons("ideogram-v4.6")).toEqual(["not in the pinned catalog: G2c re-pins"]);
+	for (const model of ["ideogram-v4.5-edit", "ideogram-v4.6-edit"])
+		for (const reason of reasons(model))
+			expect(reason).toStartWith(
+				(rows.find((row) => row.model === model) as DerivedRow).pending.join("; "),
+			);
+	const key = {
+		provider: "poyo",
+		model: "fixture",
+		route: "POST /api/generate/submit",
+		operation: "text-to-image",
+		verified: false,
+	} as const;
+	const count = (domain: object, gap?: DerivedOption["gap"]) =>
+		({
+			field: "n",
+			kind: "count",
+			domain,
+			default: { state: "resolved", value: 1 },
+			...(gap && { gap }),
+		}) as DerivedOption;
+	const items = (row: object, option: DerivedOption) =>
+		optionObligations(
+			key,
+			{ model: "fixture", catalog: null, pending: [], ...row } as unknown as DerivedRow,
+			option,
+			undefined,
+			"G7",
+		).map(({ values, state, reason, question }) => [values, state, reason, question]);
+	const onlyCatalog = {
+		state: "unknown",
+		reason: "only the catalog lists it",
+		question: 7,
+	} as const;
+	expect(items({}, count({ maximum: 4 }, onlyCatalog))).toEqual([
+		["2–4", "unknown", "only the catalog lists it", 7],
+	]);
+	expect(items({ pending: ["schema uses const in allOf"] }, count({}))).toEqual([
+		["2–…", "pending", "schema uses const in allOf", undefined],
+	]);
+	// A pinned `n: 1` still adds nothing, whatever blocks the row.
+	expect(items({ pending: ["D4 unknown"] }, count({ values: [1] }, onlyCatalog))).toEqual([]);
+});

@@ -80,12 +80,18 @@ const orphans = (schema: Schema) =>
 function declarationConstructs(field: string, schema: unknown, item = false): Construct[] {
 	if (!isSchema(schema)) return [{ field, construct: "non-schema property" }];
 	if (!has(schema, "type")) {
-		const unsupported = Object.keys(schema).filter(
-			(keyword) => !annotations.includes(keyword) && !valueKeywords.includes(keyword),
-		);
-		return unsupported.length
-			? unsupported.map((construct) => ({ field, construct }))
-			: [{ field, construct: "untyped property" }];
+		// A rule for an untyped field's combinator never hides a malformed or disallowed keyword.
+		const found: Construct[] = [];
+		for (const [keyword, value] of Object.entries(schema)) {
+			if (annotations.includes(keyword)) continue;
+			const construct = !valueKeywords.includes(keyword)
+				? keyword
+				: keyword === "items"
+					? "items without type"
+					: keywordConstruct(keyword, value);
+			if (construct) found.push({ field, construct });
+		}
+		return found.length ? found : [{ field, construct: "untyped property" }];
 	}
 	if (schema.type === "object") return [{ field, construct: "nested object" }];
 	if (typeof schema.type !== "string" || !declarationTypes.includes(schema.type))
@@ -217,22 +223,64 @@ export type ReviewedRule = {
 	readonly field: string | null;
 	/**
 	 * The constructs it replaces: construct names on `field`, or top-level combinator keywords
-	 * when `field` is null. Any other construct still counts.
+	 * when `field` is null. Any other construct still counts. On a field, the rule removes only
+	 * the keywords it names; every supported constraint beside them is still checked.
 	 */
 	readonly constructs: readonly string[];
+	/** The provider's words, a substring of the bound field's description. */
 	readonly quote: string;
 	/** Checks the field's value, or the whole body for a schema-level rule. */
 	readonly check: (value: unknown, body: Body) => string | null;
 };
 
-/** Whether a rule replaces one construct. */
-export const covers = (rule: ReviewedRule, { field, construct, within }: Construct) =>
-	rule.field === field && rule.constructs.includes(within ?? construct);
+/** The combinators a schema-level rule may replace; `then` and `else` go with their `if`. */
+const ruledCombinators = ["allOf", "not", "if", "anyOf"];
 
-/** The constructs no rule bound to this schema's SHA-256 replaces. */
-export function uncovered(schema: Schema, sha256: string | null, rules: readonly ReviewedRule[]) {
-	const bound = rules.filter((rule) => rule.schemaSha256 === sha256);
+/** Whether a rule replaces one construct. */
+const covers = (rule: ReviewedRule, { field, construct, within }: Construct) =>
+	rule.field === null
+		? field === null && within !== undefined && rule.constructs.includes(within)
+		: rule.field === field && within === undefined && rule.constructs.includes(construct);
+
+/** Which reviewed rules may apply to one schema: its source, its SHA-256 and its rules. */
+export type Binding = {
+	readonly sha256?: string | null;
+	readonly source?: "catalog" | "rest";
+	readonly rules?: readonly ReviewedRule[];
+};
+
+/**
+ * The rules bound to this schema: reviewed for its source, at its SHA-256, and naming only
+ * constructs present where they point. A schema-level rule names only top-level combinators.
+ * Any other rule is refused and covers nothing.
+ */
+export function boundRules(schema: Schema, { sha256, source, rules = [] }: Binding) {
+	const found = constructs(schema);
+	return rules.filter(
+		(rule) =>
+			rule.source === source &&
+			rule.schemaSha256 === sha256 &&
+			rule.constructs.length > 0 &&
+			rule.constructs.every(
+				(name) =>
+					(rule.field !== null || ruledCombinators.includes(name)) &&
+					found.some((construct) => covers({ ...rule, constructs: [name] }, construct)),
+			),
+	);
+}
+
+/** The constructs no rule bound to this schema replaces. */
+export function uncovered(schema: Schema, binding: Binding) {
+	const bound = boundRules(schema, binding);
 	return constructs(schema).filter((found) => !bound.some((rule) => covers(rule, found)));
+}
+
+/** A declaration without the keywords its bound rules replace. */
+function stripped(declaration: unknown, replaced: readonly string[]) {
+	if (!isSchema(declaration)) return {};
+	return Object.fromEntries(
+		Object.entries(declaration).filter(([keyword]) => !replaced.includes(keyword)),
+	);
 }
 
 const codePoints = (value: string) => [...value].length;
@@ -332,17 +380,13 @@ const passes = (schema: Schema, value: unknown) => {
 /**
  * Errors of a serialized `input` body against one schema. A construct on the whole schema
  * refuses every body. A field whose declaration holds a construct is refused when sent, unless
- * a reviewed rule bound to this schema's SHA-256 replaces every construct on it; the rule then
- * checks that field. A schema-level rule replaces its combinators and checks the whole body.
- * No default is added before validating.
+ * a bound rule replaces every construct on it; the field is then checked without the keywords
+ * the rule names, and by the rule. A schema-level rule replaces its combinators and checks the
+ * whole body. No default is added before validating.
  */
-export function validateInput(
-	schema: Schema,
-	body: Body,
-	{ sha256, rules = [] }: { sha256?: string; rules?: readonly ReviewedRule[] } = {},
-): string[] {
-	const bound = rules.filter((rule) => rule.schemaSha256 === sha256);
-	const unsupported = uncovered(schema, sha256 ?? null, rules);
+export function validateInput(schema: Schema, body: Body, binding: Binding = {}): string[] {
+	const bound = boundRules(schema, binding);
+	const unsupported = uncovered(schema, binding);
 	const whole = unsupported.filter(({ field }) => field === null);
 	if (whole.length)
 		return whole.map(
@@ -351,21 +395,17 @@ export function validateInput(
 	const errors: string[] = [];
 	for (const { field, construct } of unsupported)
 		if (field !== null && has(body, field)) errors.push(`${field} is not offered: ${construct}`);
-	const replaced = new Set(bound.map((rule) => rule.field));
+	const replaced = (field: string | null) =>
+		bound.filter((rule) => rule.field === field).flatMap((rule) => rule.constructs);
 	const properties = isSchema(schema.properties) ? schema.properties : {};
 	const checked: Schema = {
 		...Object.fromEntries(
-			Object.entries(schema).filter(
-				([keyword]) =>
-					!bound.some(
-						(rule) => rule.field === null && rule.constructs.includes(combinatorOf(keyword)),
-					),
-			),
+			Object.entries(schema).filter(([keyword]) => !replaced(null).includes(combinatorOf(keyword))),
 		),
 		properties: Object.fromEntries(
 			Object.entries(properties).map(([field, declaration]) => [
 				field,
-				replaced.has(field) || unsupported.some((c) => c.field === field) ? {} : declaration,
+				unsupported.some((c) => c.field === field) ? {} : stripped(declaration, replaced(field)),
 			]),
 		),
 	};
@@ -394,16 +434,17 @@ export function validateBody(
 	body: Body,
 	rules: readonly ReviewedRule[] = [],
 ): string[] {
-	const forSource = (source: "catalog" | "rest") => rules.filter((rule) => rule.source === source);
 	return [
 		...validateInput(schemas.catalog.schema, body, {
 			sha256: schemas.catalog.sha256,
-			rules: forSource("catalog"),
+			source: "catalog",
+			rules,
 		}).map((error) => `catalog: ${error}`),
 		...(schemas.rest
 			? validateInput(schemas.rest.schema, body, {
 					sha256: schemas.rest.sha256,
-					rules: forSource("rest"),
+					source: "rest",
+					rules,
 				}).map((error) => `API: ${error}`)
 			: []),
 	];

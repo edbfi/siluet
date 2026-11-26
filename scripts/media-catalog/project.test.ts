@@ -11,6 +11,7 @@ import {
 	repin,
 	resolveRefs,
 	sha256,
+	specModels,
 } from "./project";
 import record from "./sources/sources.json";
 
@@ -225,7 +226,7 @@ test("a malformed catalog entry fails the projection", () => {
 		);
 });
 
-test("a spec without a usable model enum fails unless it is recorded as documenting no model", () => {
+test("a spec without a usable model enum fails unless it is recorded as listing no in-scope model", () => {
 	const index = "## OpenAPI Specs\n\n- [one](/one.json)\n";
 	const project = (file: string, noModel: string[] = []) =>
 		projectOpenApi(index, () => file, new Set(["fixture-image"]), "2026-01-01", new Set(noModel));
@@ -240,9 +241,9 @@ test("a spec without a usable model enum fails unless it is recorded as document
 	};
 	for (const models of [undefined, [], ["fixture-image", 1], "fixture-image"])
 		expect(() => project(withEnum(models))).toThrow("has no usable SubmitRequest.model.enum");
-	// A spec recorded as documenting no model fails once it documents one.
+	// A spec recorded as listing no in-scope model fails once it lists one.
 	expect(() => project(spec(["fixture-image"], input), ["/one.json"])).toThrow(
-		"/one.json is recorded as documenting no model",
+		"/one.json is recorded as listing no in-scope model",
 	);
 	expect(record.openapi.noModelSpecs.paths).toHaveLength(26);
 	const manifest = JSON.parse(openapiFile).manifest.map(({ path }: { path: string }) => path);
@@ -301,4 +302,75 @@ test("a discriminator or an allOf branch selects each model's own input", () => 
 	const selected = modelInputs(conditional);
 	expect(selected.get("a")).toEqual({ input: branch(3).properties.input, shared: false });
 	expect(selected.get("b")?.shared).toBe(true);
+});
+
+test("an inherited $ref is not a reference", () => {
+	const inherited = Object.create({ $ref: "https://example.com/schema.json" }) as never;
+	expect(resolveRefs(inherited, {})).toEqual({});
+});
+
+test("a spec that repeats a model ID fails the projection", () => {
+	const document = JSON.parse(spec(["fixture-image", "fixture-image"], { type: "object" }));
+	expect(() => specModels(document)).toThrow("SubmitRequest.model.enum repeats fixture-image");
+	expect(() =>
+		projectOpenApi(
+			"## OpenAPI Specs\n\n- [one](/one.json)\n",
+			() => JSON.stringify(document),
+			new Set(["fixture-image"]),
+			"2026-01-01",
+		),
+	).toThrow("repeats fixture-image");
+});
+
+test("a spec recorded as listing no in-scope model fails once any model property lists one", () => {
+	const index = "## OpenAPI Specs\n\n- [one](/one.json)\n";
+	const project = (document: object) =>
+		projectOpenApi(
+			index,
+			() => JSON.stringify(document),
+			new Set(["fixture-image"]),
+			"2026-01-01",
+			new Set(["/one.json"]),
+		);
+	const request = (model: object, extra: object = {}) => ({
+		components: {
+			schemas: { Request: { type: "object", properties: { model } }, ...extra },
+		},
+	});
+	// Out-of-scope music and voice `Request` specs stay recorded.
+	expect(
+		JSON.parse(project(request({ type: "string", enum: ["generate-mashup"] }))).models,
+	).toEqual({});
+	const listed = "/one.json is recorded as listing no in-scope model";
+	expect(() =>
+		project(request({ type: "string", enum: ["generate-mashup", "fixture-image"] })),
+	).toThrow(listed);
+	expect(() =>
+		project({
+			paths: {
+				"/x": {
+					post: {
+						requestBody: {
+							content: {
+								"application/json": {
+									schema: { properties: { model: { const: "fixture-image" } } },
+								},
+							},
+						},
+					},
+				},
+			},
+		}),
+	).toThrow(listed);
+	expect(() =>
+		project(
+			request(
+				{ $ref: "#/components/schemas/Ids" },
+				{ Ids: { type: "string", enum: ["fixture-image"] } },
+			),
+		),
+	).toThrow(listed);
+	expect(record.openapi.noModelSpecs.reason).toBe(
+		"Listed English specs that list no in-scope model (non-model endpoints; out-of-scope music and voice `Request` specs); digested in the manifest only.",
+	);
 });

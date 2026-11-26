@@ -301,37 +301,40 @@ export function optionObligations(
 		reason: "the catalog and the API schema disagree",
 		question: 8,
 	}));
+	const blocked = (values: string): CoverageItem | null =>
+		option.gap
+			? { ...base, values, ...option.gap }
+			: row.pending.length
+				? { ...base, values, state: "pending", reason: row.pending.join("; ") }
+				: null;
 	if (option.kind === "count") {
 		// `n: 1` is pinned. Shared counts above one are Phase 3 multi-output; a count with no
-		// documented maximum is unknown, and values only one source documents are unknown.
+		// documented maximum is unknown, and values only one source documents are unknown. An
+		// option's gap or its row's pending reasons come first.
 		const numbers = domain.values?.filter((value): value is number => typeof value === "number");
 		const max = numbers ? Math.max(1, ...numbers) : domain.maximum;
-		const items: CoverageItem[] = [];
-		if (max === undefined)
-			items.push({
-				...base,
-				values: "2–…",
-				state: "unknown",
-				reason: `no documented maximum; counts above 1 are ${p3("multi-output and image sets")}`,
-				question: 11,
-			});
-		else if (max > 1)
-			items.push({
-				...base,
-				values: `2–${max}`,
-				state: "pending",
-				reason: p3("multi-output and image sets"),
-			});
-		return [...items, ...disputed];
+		if (max !== undefined && max <= 1) return disputed;
+		const values = `2–${max ?? "…"}`;
+		const first = blocked(values);
+		if (first) return [first, ...disputed];
+		return [
+			max === undefined
+				? {
+						...base,
+						values,
+						state: "unknown",
+						reason: `no documented maximum; counts above 1 are ${p3("multi-output and image sets")}`,
+						question: 11,
+					}
+				: { ...base, values, state: "pending", reason: p3("multi-output and image sets") },
+			...disputed,
+		];
 	}
 	const items = disputed;
 	const values = range(domain);
-	if (option.gap) {
-		items.push({ ...base, values, ...option.gap });
-		return items;
-	}
-	if (row.pending.length) {
-		items.push({ ...base, values, state: "pending", reason: row.pending.join("; ") });
+	const first = blocked(values);
+	if (first) {
+		items.push(first);
 		return items;
 	}
 	if (key.verified) {

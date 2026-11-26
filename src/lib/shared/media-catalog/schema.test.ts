@@ -6,11 +6,13 @@ import { canonicalJson } from "./canonical";
 import { reviewedRules } from "./rules";
 import {
 	allowedPatterns,
+	boundRules,
 	constructs,
 	effectiveDefault,
 	type ReviewedRule,
 	type RowSchemas,
 	type Schema,
+	uncovered,
 	validateBody,
 	validateInput,
 } from "./schema";
@@ -243,19 +245,31 @@ describe("combinators fail closed", () => {
 			quote: "b is required when a is x",
 			check: (body) => (isBody(body) && body.a === "x" && !("b" in body) ? "needs b" : null),
 		};
-		expect(validateInput(schema, { a: "x", b: "y" }, { sha256: digest, rules: [rule] })).toEqual(
-			[],
-		);
-		expect(validateInput(schema, { a: "x" }, { sha256: digest, rules: [rule] })).toEqual([
-			"input needs b",
-		]);
+		expect(
+			validateInput(
+				schema,
+				{ a: "x", b: "y" },
+				{ sha256: digest, source: "catalog", rules: [rule] },
+			),
+		).toEqual([]);
+		expect(
+			validateInput(schema, { a: "x" }, { sha256: digest, source: "catalog", rules: [rule] }),
+		).toEqual(["input needs b"]);
 		// A rule for another combinator, or a stale hash, leaves the schema refused.
 		const anyOf = { ...rule, constructs: ["anyOf"] };
-		expect(validateInput(schema, { a: "x", b: "y" }, { sha256: digest, rules: [anyOf] })).toEqual([
-			"input uses const in allOf",
-		]);
 		expect(
-			validateInput(schema, { a: "x", b: "y" }, { sha256: "0".repeat(64), rules: [rule] }),
+			validateInput(
+				schema,
+				{ a: "x", b: "y" },
+				{ sha256: digest, source: "catalog", rules: [anyOf] },
+			),
+		).toEqual(["input uses const in allOf"]);
+		expect(
+			validateInput(
+				schema,
+				{ a: "x", b: "y" },
+				{ sha256: "0".repeat(64), source: "catalog", rules: [rule] },
+			),
 		).toEqual(["input uses const in allOf"]);
 	});
 });
@@ -332,12 +346,113 @@ describe("rules cover exact constructs", () => {
 		};
 		const digest = sha(extra);
 		const rule = { ...catalogRule, schemaSha256: digest };
+		const bound = { sha256: digest, source: "catalog" as const, rules: [rule] };
+		expect(validateInput(extra, { prompt: "A fox", size: "3:2" }, bound)).toEqual([
+			"size is not offered: x-server-validation",
+		]);
+		expect(validateInput(extra, { prompt: "A fox" }, bound)).toEqual([]);
+	});
+
+	const oneOf = [{ enum: ["a"] }, { pattern: "^\\d+x\\d+$" }];
+	const fieldRule = (schema: Schema, extra: Partial<ReviewedRule> = {}): ReviewedRule => ({
+		id: "fixture-size",
+		model: "fixture",
+		source: "catalog",
+		schemaSha256: sha(schema),
+		field: "size",
+		constructs: ["oneOf"],
+		quote: "",
+		check: () => null,
+		...extra,
+	});
+	const bind = (schema: Schema, rule: ReviewedRule, source: "catalog" | "rest" = "catalog") => ({
+		sha256: sha(schema),
+		source,
+		rules: [rule],
+	});
+
+	test("a rule strips only the keywords it names and keeps type and maxLength", () => {
+		const schema = object({ size: { type: "string", maxLength: 3, oneOf } });
+		const rule = fieldRule(schema);
+		expect(uncovered(schema, bind(schema, rule))).toEqual([]);
+		expect(validateInput(schema, { size: "a" }, bind(schema, rule))).toEqual([]);
+		expect(validateInput(schema, { size: "abcd" }, bind(schema, rule))).toEqual([
+			"size is longer than 3 characters",
+		]);
+		expect(validateInput(schema, { size: 7 }, bind(schema, rule))).toEqual(["size must be string"]);
+	});
+
+	test("a rule that covers nothing on its field is refused", () => {
+		const schema = object({ size: { type: "string", enum: ["a"] } });
+		const rule = fieldRule(schema, { check: () => "always refused" });
+		expect(boundRules(schema, bind(schema, rule))).toEqual([]);
+		expect(validateInput(schema, { size: "a" }, bind(schema, rule))).toEqual([]);
+		expect(validateInput(schema, { size: "b" }, bind(schema, rule))).toEqual([
+			"size is not an allowed value",
+		]);
+		// A rule naming a construct its field lacks is refused even beside one it has.
+		const both = object({ size: { type: "string", oneOf } });
+		const extra = fieldRule(both, { constructs: ["oneOf", "const"] });
+		expect(boundRules(both, bind(both, extra))).toEqual([]);
+		expect(validateInput(both, { size: "a" }, bind(both, extra))).toEqual([
+			"size is not offered: oneOf",
+		]);
+	});
+
+	test("a rule reviewed for one source never covers the other, even with the same digest", () => {
+		const schema = object({ size: { type: "string", oneOf } });
+		const rest = fieldRule(schema, { source: "rest" });
+		expect(uncovered(schema, bind(schema, rest, "catalog"))).toEqual([
+			{ field: "size", construct: "oneOf" },
+		]);
+		expect(uncovered(schema, bind(schema, rest, "rest"))).toEqual([]);
 		expect(
-			validateInput(extra, { prompt: "A fox", size: "3:2" }, { sha256: digest, rules: [rule] }),
-		).toEqual(["size is not offered: x-server-validation"]);
-		expect(validateInput(extra, { prompt: "A fox" }, { sha256: digest, rules: [rule] })).toEqual(
-			[],
-		);
+			validateBody(
+				{
+					catalog: { schema, sha256: sha(schema) },
+					rest: { schema, sha256: sha(schema) },
+				},
+				{ size: "a" },
+				[rest],
+			),
+		).toEqual(["catalog: size is not offered: oneOf"]);
+	});
+
+	test("an untyped declaration reports every malformed or disallowed value keyword", () => {
+		const declaration = { oneOf, pattern: "(a+)+$", maxLength: -1, enum: "x" };
+		const schema = object({ size: declaration });
+		expect(constructs(schema)).toEqual([
+			{ field: "size", construct: "oneOf" },
+			{ field: "size", construct: 'pattern "(a+)+$"' },
+			{ field: "size", construct: "malformed maxLength" },
+			{ field: "size", construct: "malformed enum" },
+		]);
+		const rule = fieldRule(schema);
+		expect(boundRules(schema, bind(schema, rule))).toEqual([rule]);
+		expect(validateInput(schema, { size: "a" }, bind(schema, rule))).toEqual([
+			'size is not offered: pattern "(a+)+$"',
+			"size is not offered: malformed maxLength",
+			"size is not offered: malformed enum",
+		]);
+		expect(constructs(object({ size: { items: { type: "string" } } }))).toEqual([
+			{ field: "size", construct: "items without type" },
+		]);
+	});
+
+	test("a schema-level rule covers only top-level combinators", () => {
+		const schema = object({ a: { type: "string" } }, { "x-server-validation": {} });
+		const rule = fieldRule(schema, { field: null, constructs: ["x-server-validation"] });
+		expect(boundRules(schema, bind(schema, rule))).toEqual([]);
+		expect(validateInput(schema, { a: "x" }, bind(schema, rule))).toEqual([
+			"input uses x-server-validation",
+		]);
+		// Naming a supported keyword never strips it from the check.
+		const typed = object({ a: { type: "string" } }, { allOf: [{ const: {} }] });
+		const wide = fieldRule(typed, { field: null, constructs: ["allOf", "type"] });
+		expect(boundRules(typed, bind(typed, wide))).toEqual([]);
+		expect(validateInput(typed, { a: "x" }, bind(typed, wide))).toEqual([
+			"input uses const in allOf",
+		]);
 	});
 });
 
@@ -353,6 +468,13 @@ describe("reviewed rules", () => {
 		expect(constructs(klein.rest?.schema as Schema)).toEqual([
 			{ field: "size", construct: "oneOf" },
 		]);
+		const [catalogRule, restRule] = rule;
+		expect(
+			boundRules(klein.catalog.schema, { ...klein.catalog, source: "catalog", rules: rule }),
+		).toEqual([catalogRule]);
+		expect(
+			boundRules(klein.rest?.schema as Schema, { ...klein.rest, source: "rest", rules: rule }),
+		).toEqual([restRule]);
 	});
 	test("a listed ratio passes, an unlisted ratio and the wrong tier are refused", () => {
 		const body = (size: string, resolution?: string) => ({
