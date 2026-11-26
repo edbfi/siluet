@@ -9,12 +9,14 @@ import {
 	requestLabel,
 	requestLegend,
 } from "#lib/components/image-studio/request-styles.ts";
+import ReviewOnlyPanel from "#lib/components/media-catalog/ReviewOnlyPanel.svelte";
 import KeyframeFields from "#lib/components/video-studio/KeyframeFields.svelte";
 import {
 	reviewPriceExpiry,
 	reviewPriceReason,
 	watchReviewExpiry,
 } from "#lib/shared/image-studio/review-price.ts";
+import { reviewOnlyFamily, reviewOnlyVideoRows } from "#lib/shared/media-catalog/picker.ts";
 import { releasedModels, releasedVideoOperations } from "#lib/shared/media-catalog/registry.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
 import {
@@ -134,8 +136,12 @@ function switchMode(key: string) {
 	frames = noFrames();
 	edit();
 }
+// A derived row is Review-only. Choosing it sets the shipped draft aside, so nothing can queue.
+let reviewOnly = $state.raw<(typeof reviewOnlyVideoRows)[number] | null>(null);
 // Keep the prompt and any compatible setting. Apply the target's defaults to the rest.
 function switchModel(id: string) {
+	reviewOnly = reviewOnlyVideoRows.find((row) => row.model === id) ?? null;
+	if (reviewOnly) return edit();
 	const target = find(id);
 	if (!target || target === operation) return;
 	operation = target;
@@ -189,7 +195,7 @@ $effect(() => {
 	};
 });
 async function act(queue: boolean, replay?: string) {
-	if (pending) return;
+	if (pending || reviewOnly) return;
 	if (replay === undefined && (promptError || frameError || (queue && (!reviewed || !acceptTerms))))
 		return;
 	pending = true;
@@ -295,7 +301,7 @@ const frame = css({
 				><span class={requestLabel}>Video model and provider</span>
 				<select
 					class={requestControl}
-					value={operation.key.model}
+					value={reviewOnly?.model ?? operation.key.model}
 					disabled={pending}
 					onchange={(event) => switchModel(event.currentTarget.value)}
 				>
@@ -308,11 +314,18 @@ const frame = css({
 							{/each}
 						</optgroup>
 					{/each}
+					<optgroup label={reviewOnlyFamily("video")}>
+						{#each reviewOnlyVideoRows as row (row.model)}
+							<option value={row.model}>{row.model} (Review only: {row.reason})</option>
+						{/each}
+					</optgroup>
 				</select></label
 			>
-			<p class={style.note}>{model?.family}</p>
-			<h2 class={style.heading}>{title}</h2>
-			{#if modes.length > 1}
+			<p class={style.note}>{reviewOnly ? reviewOnlyFamily(reviewOnly.media) : model?.family}</p>
+			<h2 class={style.heading}>{reviewOnly ? `${reviewOnly.model} · Poyo.ai` : title}</h2>
+			{#if reviewOnly}
+				<!-- The Review panel names why this row cannot queue. -->
+			{:else if modes.length > 1}
 				<fieldset class={requestFieldset} disabled={pending}>
 					<legend class={requestLegend}>Operation</legend>
 					<div class={style.actions}>
@@ -334,174 +347,185 @@ const frame = css({
 				<p>{operation.label}</p>
 			{/if}
 		</header>
-		<fieldset disabled={pending} class={cx(requestFieldset, css({ display: "grid", gap: "1rem" }))}>
-			<label class={requestField}
-				><span class={requestLabel}>Prompt</span
-				><textarea
-					autocomplete="off"
-					rows="4"
-					class={requestControl}
-					required
-					bind:value={draft.prompt}
-					aria-describedby="prompt-help"
-					aria-invalid={!!promptError && !!draft.prompt}
-				></textarea></label
+		{#if !reviewOnly}
+			<fieldset
+				disabled={pending}
+				class={cx(requestFieldset, css({ display: "grid", gap: "1rem" }))}
 			>
-			<p class={style.note} id="prompt-help">{promptError || `${size} of 4,000 UTF-8 bytes`}</p>
-			{#if roles.length}
-				<KeyframeFields {roles} bind:values={frames} errors={frameErrors} />
-			{:else}
-				<fieldset class={requestFieldset}>
-					<legend class={requestLegend}>Aspect ratio</legend>
-					<div class={style.actions}>
-						{#each current.ratios as ratio (ratio)}
-							<label
-								><input type="radio" name="ratio" value={ratio} bind:group={draft.aspect_ratio}>
-								{ratio}</label
-							>
-						{/each}
-					</div>
-				</fieldset>
-				<div
-					class={frame}
-					style:--frame-width={`${14 * Math.min(1, edges[0] / edges[1])}rem`}
-					style:aspect-ratio={draft.aspect_ratio.replace(":", "/")}
+				<label class={requestField}
+					><span class={requestLabel}>Prompt</span
+					><textarea
+						autocomplete="off"
+						rows="4"
+						class={requestControl}
+						required
+						bind:value={draft.prompt}
+						aria-describedby="prompt-help"
+						aria-invalid={!!promptError && !!draft.prompt}
+					></textarea></label
 				>
-					Framing · {draft.aspect_ratio}
-				</div>
-			{/if}
-			<div class={requestFields}>
-				{#if !editing}
+				<p class={style.note} id="prompt-help">{promptError || `${size} of 4,000 UTF-8 bytes`}</p>
+				{#if roles.length}
+					<KeyframeFields {roles} bind:values={frames} errors={frameErrors} />
+				{:else}
+					<fieldset class={requestFieldset}>
+						<legend class={requestLegend}>Aspect ratio</legend>
+						<div class={style.actions}>
+							{#each current.ratios as ratio (ratio)}
+								<label
+									><input type="radio" name="ratio" value={ratio} bind:group={draft.aspect_ratio}>
+									{ratio}</label
+								>
+							{/each}
+						</div>
+					</fieldset>
+					<div
+						class={frame}
+						style:--frame-width={`${14 * Math.min(1, edges[0] / edges[1])}rem`}
+						style:aspect-ratio={draft.aspect_ratio.replace(":", "/")}
+					>
+						Framing · {draft.aspect_ratio}
+					</div>
+				{/if}
+				<div class={requestFields}>
+					{#if !editing}
+						<label class={requestField}
+							>Duration (seconds)<select class={requestControl} bind:value={draft.duration}>
+								{#each current.durations as s (s)}
+									<option value={s}>{s}</option>
+								{/each}
+							</select></label
+						>
+					{/if}
 					<label class={requestField}
-						>Duration (seconds)<select class={requestControl} bind:value={draft.duration}>
-							{#each current.durations as s (s)}
-								<option value={s}>{s}</option>
+						>Resolution<select class={requestControl} bind:value={draft.resolution}>
+							{#each current.resolutions as resolution (resolution)}
+								<option>{resolution}</option>
 							{/each}
 						</select></label
 					>
+				</div>
+				{#if current.audio}
+					<details>
+						<summary>Advanced options</summary>
+						<label
+							><input type="checkbox" bind:checked={draft.generate_audio}> Generate audio</label
+						>
+					</details>
 				{/if}
-				<label class={requestField}
-					>Resolution<select class={requestControl} bind:value={draft.resolution}>
-						{#each current.resolutions as resolution (resolution)}
-							<option>{resolution}</option>
-						{/each}
-					</select></label
+				<button
+					type="submit"
+					class={studioButton()}
+					disabled={!!promptError || !!frameError}
+					aria-describedby={["prompt-help", ...roles.map((role) => `${role}-help`)].join(" ")}
 				>
-			</div>
-			{#if current.audio}
-				<details>
-					<summary>Advanced options</summary>
-					<label><input type="checkbox" bind:checked={draft.generate_audio}> Generate audio</label>
-				</details>
-			{/if}
-			<button
-				type="submit"
-				class={studioButton()}
-				disabled={!!promptError || !!frameError}
-				aria-describedby={["prompt-help", ...roles.map((role) => `${role}-help`)].join(" ")}
-			>
-				Review request
-			</button>
-		</fieldset>
-	</form>
-	<section class={style.panel} aria-labelledby="video-review">
-		<h2 class={style.heading} id="video-review">Review</h2>
-		<p role="status">{notice}</p>
-		{#if attempt}
-			<p id="queue-retry">The retry sends the interrupted request unchanged.</p>
-			<button
-				type="button"
-				class={studioButton()}
-				disabled={pending}
-				aria-describedby="queue-retry"
-				onclick={() => act(true, attempt ?? undefined)}
-			>
-				Retry the interrupted request
-			</button>
+					Review request
+				</button>
+			</fieldset>
 		{/if}
-		{#if reviewed}
-			<p>{operation.label} · {title}{poyo ? "" : " · MP4"}</p>
-			<p>1 potentially billable submission</p>
-			{#if reviewed.frames.length}
-				<p>One clip, zero retries, zero uploads</p>
-				<ul
-					class={cx(style.mediaList, style.detail)}
-					aria-label={editing ? "Source clip" : "Frames"}
+	</form>
+	{#if reviewOnly}
+		<ReviewOnlyPanel row={reviewOnly} headingId="video-review" title="Review" />
+	{:else}
+		<section class={style.panel} aria-labelledby="video-review">
+			<h2 class={style.heading} id="video-review">Review</h2>
+			<p role="status">{notice}</p>
+			{#if attempt}
+				<p id="queue-retry">The retry sends the interrupted request unchanged.</p>
+				<button
+					type="button"
+					class={studioButton()}
+					disabled={pending}
+					aria-describedby="queue-retry"
+					onclick={() => act(true, attempt ?? undefined)}
 				>
-					{#each reviewed.frames as frame (frame)}
-						<li>{frame}</li>
+					Retry the interrupted request
+				</button>
+			{/if}
+			{#if reviewed}
+				<p>{operation.label} · {title}{poyo ? "" : " · MP4"}</p>
+				<p>1 potentially billable submission</p>
+				{#if reviewed.frames.length}
+					<p>One clip, zero retries, zero uploads</p>
+					<ul
+						class={cx(style.mediaList, style.detail)}
+						aria-label={editing ? "Source clip" : "Frames"}
+					>
+						{#each reviewed.frames as frame (frame)}
+							<li>{frame}</li>
+						{/each}
+					</ul>
+				{/if}
+				{#if reviewed.quote.status === "known" && reviewed.quote.unit === "poyo_credit"}
+					<p>
+						Estimated {reviewed.quote.perRequest} Poyo.ai credits ·
+						<a
+							href={`https://github.com/PoyoAPI/poyo-devtools/blob/${reviewed.quote.revision}/artifacts/capability-catalog.json`}
+							rel="noreferrer"
+							>Public catalog, {reviewed.quote.sourceDate.slice(0, 10)}</a
+						>
+					</p>
+					<p class={style.note}>
+						Public list rates can differ from the charge on your account. Task credits and wallet
+						changes appear in Jobs.
+					</p>
+				{:else if reviewed.quote.status === "unknown"}
+					<p>Total unknown. {reviewPriceReason(reviewed.quote)}</p>
+					{#if reviewed.quote.advertisedUnitRate}
+						{@const rate = reviewed.quote.advertisedUnitRate}
+						<p>
+							Public rate · ${rate.usd} per million total tokens ·
+							<a href={rate.source.url} rel="noreferrer">ToAPIs, {rate.sourceDate.slice(0, 10)}</a>
+						</p>
+					{/if}
+				{/if}
+				<details>
+					<summary>Outgoing request</summary>
+					<p>{operation.key.route}</p>
+					<pre class={cx(style.json, style.wire)}>{JSON.stringify(reviewed.preview, null, 2)}</pre>
+				</details>
+				<ul class={style.disclosure}>
+					{#each reviewed.disclosures as disclosure (disclosure)}
+						<li>{disclosure}</li>
 					{/each}
 				</ul>
-			{/if}
-			{#if reviewed.quote.status === "known" && reviewed.quote.unit === "poyo_credit"}
-				<p>
-					Estimated {reviewed.quote.perRequest} Poyo.ai credits ·
-					<a
-						href={`https://github.com/PoyoAPI/poyo-devtools/blob/${reviewed.quote.revision}/artifacts/capability-catalog.json`}
-						rel="noreferrer"
-						>Public catalog, {reviewed.quote.sourceDate.slice(0, 10)}</a
+				<div id="queue-terms">
+					{#each reviewed.blockers as blocker (blocker)}
+						<p>{blocker}</p>
+					{/each}
+					<label
+						><input type="checkbox" disabled={pending} bind:checked={acceptTerms}>
+						{poyo
+							? reviewed.quote.status === "known"
+								? "I accept the estimate and Gallery Save limitations."
+								: "I accept the unknown price and Gallery Save limitations."
+							: editing
+								? editAcceptance
+								: roles.length
+									? keyframeAcceptance
+									: "I accept the unknown charge, routing terms and Gallery Save limitations."}</label
 					>
-				</p>
-				<p class={style.note}>
-					Public list rates can differ from the charge on your account. Task credits and wallet
-					changes appear in Jobs.
-				</p>
-			{:else if reviewed.quote.status === "unknown"}
-				<p>Total unknown. {reviewPriceReason(reviewed.quote)}</p>
-				{#if reviewed.quote.advertisedUnitRate}
-					{@const rate = reviewed.quote.advertisedUnitRate}
-					<p>
-						Public rate · ${rate.usd} per million total tokens ·
-						<a href={rate.source.url} rel="noreferrer">ToAPIs, {rate.sourceDate.slice(0, 10)}</a>
-					</p>
-				{/if}
-			{/if}
-			<details>
-				<summary>Outgoing request</summary>
-				<p>{operation.key.route}</p>
-				<pre class={cx(style.json, style.wire)}>{JSON.stringify(reviewed.preview, null, 2)}</pre>
-			</details>
-			<ul class={style.disclosure}>
-				{#each reviewed.disclosures as disclosure (disclosure)}
-					<li>{disclosure}</li>
-				{/each}
-			</ul>
-			<div id="queue-terms">
-				{#each reviewed.blockers as blocker (blocker)}
-					<p>{blocker}</p>
-				{/each}
-				<label
-					><input type="checkbox" disabled={pending} bind:checked={acceptTerms}>
-					{poyo
-						? reviewed.quote.status === "known"
-							? "I accept the estimate and Gallery Save limitations."
-							: "I accept the unknown price and Gallery Save limitations."
-						: editing
-							? editAcceptance
-							: roles.length
-								? keyframeAcceptance
-								: "I accept the unknown charge, routing terms and Gallery Save limitations."}</label
+				</div>
+				<button
+					type="button"
+					class={cx(studioButton(), style.queue)}
+					disabled={pending || !acceptTerms || !!reviewed.blockers.length}
+					aria-describedby="queue-terms"
+					onclick={() => act(true)}
 				>
-			</div>
-			<button
-				type="button"
-				class={cx(studioButton(), style.queue)}
-				disabled={pending || !acceptTerms || !!reviewed.blockers.length}
-				aria-describedby="queue-terms"
-				onclick={() => act(true)}
-			>
-				Queue 1 request
-			</button>
-		{:else}
-			<p>Review the prompt and settings before queuing one request.</p>
-		{/if}
-		<p class={style.note}>
-			{poyo
-				? "Poyo.ai confirms account access through your balance check. H3 Max access for this key is unverified until Poyo.ai accepts a request."
-				: "Poyo.ai Seedance 2.5 cannot accept the studio’s fixed filtering setting."}
-			<a href={`/settings/providers?provider=${operation.key.provider}`}
-				>{poyo ? "Poyo.ai" : "ToAPIs"} settings</a
-			>
-		</p>
-	</section>
+					Queue 1 request
+				</button>
+			{:else}
+				<p>Review the prompt and settings before queuing one request.</p>
+			{/if}
+			<p class={style.note}>
+				{poyo
+					? "Poyo.ai confirms account access through your balance check. H3 Max access for this key is unverified until Poyo.ai accepts a request."
+					: "Poyo.ai Seedance 2.5 cannot accept the studio’s fixed filtering setting."}
+				<a href={`/settings/providers?provider=${operation.key.provider}`}
+					>{poyo ? "Poyo.ai" : "ToAPIs"} settings</a
+				>
+			</p>
+		</section>
+	{/if}
 </div>

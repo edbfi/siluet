@@ -11,6 +11,7 @@ import ImageReview from "#lib/components/image-studio/ImageReview.svelte";
 import { LocalCopies } from "#lib/components/image-studio/local-copy.svelte.ts";
 import SeedreamFields from "#lib/components/image-studio/SeedreamFields.svelte";
 import ZImageFields from "#lib/components/image-studio/ZImageFields.svelte";
+import ReviewOnlyPanel from "#lib/components/media-catalog/ReviewOnlyPanel.svelte";
 import {
 	duplicateReferenceSlots,
 	stageableReferences,
@@ -26,6 +27,7 @@ import {
 	createZImageDraft,
 	validateZImageDraft,
 } from "#lib/shared/image-studio/z-image.ts";
+import { reviewOnlyFamily, reviewOnlyImageRows } from "#lib/shared/media-catalog/picker.ts";
 import {
 	releasedImageOperations,
 	seedreamModel,
@@ -61,7 +63,11 @@ const localCopies = new LocalCopies(
 );
 let shell: ReturnType<typeof ImageComposer>;
 let previewIndex = $state(0);
+// A derived row is Review-only. Choosing it sets the shipped draft aside, so nothing can queue.
+let reviewOnly = $state.raw<(typeof reviewOnlyImageRows)[number] | null>(null);
 function switchModel(id: string) {
+	reviewOnly = reviewOnlyImageRows.find((row) => row.model === id) ?? null;
+	if (reviewOnly) return;
 	const { prompt, operation } = composer.request;
 	if (id === composer.model) return;
 	composer =
@@ -126,7 +132,11 @@ $effect(() => {
 <svelte:head><title>Image Studio · Siluet</title></svelte:head>
 <ImageComposer
 	bind:this={shell}
-	model={composer.model === "z-image" ? zImageModel : seedreamModel}
+	modelId={reviewOnly?.model ?? composer.model}
+	family={reviewOnly
+		? reviewOnlyFamily(reviewOnly.media)
+		: (composer.model === "z-image" ? zImageModel : seedreamModel).family}
+	reviewOnly={!!reviewOnly}
 	onModel={switchModel}
 	reviewHref={`#${headingId}`}
 	operation={composer.request.operation}
@@ -134,7 +144,9 @@ $effect(() => {
 	reference={composer.request.references[previewIndex]}
 >
 	{#snippet fields()}
-		{#if composer.model === "seedream-5.5" && seedream}
+		{#if reviewOnly}
+			<!-- The Review panel names why this row cannot queue. -->
+		{:else if composer.model === "seedream-5.5" && seedream}
 			<SeedreamFields
 				eligibleProviders={data.eligibleProviders}
 				unavailableProviders={data.unavailableProviders}
@@ -156,22 +168,28 @@ $effect(() => {
 		{/if}
 	{/snippet}
 	{#snippet reviewPanel()}
-		<ImageReview
-			modelId={composer.model}
-			connected={composer.model === "z-image" ? data.zImageConnected : !!composer.request.provider}
-			entry={active?.entry ?? null}
-			review={active?.review ?? null}
-			draft={composer.request}
-			referenceLabels={composer.model === "seedream-5.5"
-				? composer.references.slots.map((slot) => referenceLabel(slot.identity))
-				: []}
-			{duplicateWarning}
-			{headingId}
-			feeds={data.pricingFeeds}
-			nowMs={data.pricingNowMs}
-			provider={composer.request.provider ?? undefined}
-			operation={composer.request.operation}
-			{localCopies}
-		/>
+		{#if reviewOnly}
+			<ReviewOnlyPanel row={reviewOnly} {headingId} />
+		{:else}
+			<ImageReview
+				modelId={composer.model}
+				connected={composer.model === "z-image"
+					? data.zImageConnected
+					: !!composer.request.provider}
+				entry={active?.entry ?? null}
+				review={active?.review ?? null}
+				draft={composer.request}
+				referenceLabels={composer.model === "seedream-5.5"
+					? composer.references.slots.map((slot) => referenceLabel(slot.identity))
+					: []}
+				{duplicateWarning}
+				{headingId}
+				feeds={data.pricingFeeds}
+				nowMs={data.pricingNowMs}
+				provider={composer.request.provider ?? undefined}
+				operation={composer.request.operation}
+				{localCopies}
+			/>
+		{/if}
 	{/snippet}
 </ImageComposer>

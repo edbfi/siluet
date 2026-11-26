@@ -491,4 +491,9 @@ if (import.meta.main) {
 	const rows = renderRows();
 	writeFileSync(rowsPath, rows);
 	console.log(`poyo-rows.json ${sha256(rows)} (${rows.length} bytes)`);
+	// The picker projection reads the coverage assignments, which import this module.
+	const { pickerPath, renderPicker } = await import("./picker");
+	const picker = renderPicker();
+	writeFileSync(pickerPath, picker);
+	console.log(`poyo-picker.json ${sha256(picker)} (${picker.length} bytes)`);
 }

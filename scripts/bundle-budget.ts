@@ -3,7 +3,8 @@ import type { Plugin } from "vite";
 /**
  * The client's JavaScript and CSS budget. Recorded on 2026-11-26 at 442,350 bytes, before any
  * page imports the derived catalog rows (`poyo-rows.json`, about 179 KB). A slice that ships
- * them to the browser raises this number on purpose, with its measured size.
+ * them to the browser raises this number on purpose, with its measured size. The picker ships
+ * only their projection (`poyo-picker.json`, about 26 KB): 472,438 bytes on 2026-11-27.
  */
 export const clientBudgetBytes = 512 * 1024;
 
