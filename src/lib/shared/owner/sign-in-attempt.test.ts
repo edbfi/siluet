@@ -516,6 +516,27 @@ test("/sign-in and /setup load / for a new stored key's session, else stay", asy
 	}
 });
 
+test("a new stored key whose resume fails stays pending: the next check resumes it", async () => {
+	const failures: Answer[] = [
+		"network",
+		{ status: 500 },
+		{ status: 429 },
+		{ status: 503, body: { message: "Storage is busy.", retry: true, recoveryRequired: false } },
+	];
+	for (const failure of failures) {
+		const h = await harness();
+		await h.client.prepare();
+		h.store.record = await newKey();
+		h.queue("/owner/resume", failure);
+		await h.client.check(true);
+		expect(h.navigations).toEqual([]);
+		h.queue("/owner/resume", session("s1"));
+		await h.client.check(true);
+		expect(h.to("/owner/resume")).toHaveLength(2);
+		expect(h.navigations).toEqual(["assign /"]);
+	}
+});
+
 test("a load that joins a session clears the pending sign-in marker", async () => {
 	const h = await harness({ stored: await newKey(), path: "/" });
 	storage.set("siluet-sign-in-pending", "1");

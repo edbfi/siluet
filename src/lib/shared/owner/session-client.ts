@@ -446,9 +446,13 @@ export function createSessionClient(
 				}
 				const stored = await storedKey();
 				if ((stored?.spki ?? null) === lastSpki) continue;
-				noteKey(stored);
-				if (!stored) continue;
+				if (!stored) {
+					noteKey(null);
+					continue;
+				}
 				const result = await resumeKey(stored, null).catch((): Renewal => ({ kind: "failure" }));
+				// Only a conclusive answer settles the key; a failed check stays pending.
+				if (result.kind === "session" || result.kind === "gone") noteKey(stored);
 				if (result.kind !== "session" || leaving) continue;
 				if (mode === "held") joinedInHold();
 				else if (isPublicPath(location.pathname)) {
