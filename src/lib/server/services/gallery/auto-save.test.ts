@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { referenceGif, referencePng } from "../../../../../tests/fixtures/reference-image";
 import { h264Aac, retimeClip } from "../../../../../tests/fixtures/video/mp4-boxes";
+import { webpFixtures } from "../../../../../tests/fixtures/webp";
 import { providerKeyFilename } from "../../db/provider-key";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runtime-installation";
@@ -773,6 +774,45 @@ test("a failed write that settles an attempt gives the claim back without counti
 	await settle();
 	expect((await summary("image-2"))?.library).toBe("saved");
 	expect(reads).toEqual(["image", "image", "image-2"]);
+	expect(posts).toBe(0);
+});
+
+test("still WebP saves its delivered bytes, animated or imageless WebP is held and a truncated one retries", async () => {
+	const { saves, held, truncated } = await webpFixtures();
+	const files: Record<string, Buffer<ArrayBuffer>> = {
+		"image-lossy": saves.lossy,
+		"image-lossless": saves.losslessAlpha,
+		"image-animated": held.animated,
+		"image-truncated": truncated["cut short"],
+		"image-imageless": held["no image chunk"],
+	};
+	media = (id) => new Response(files[id] ?? referencePng);
+	runtime = open();
+	await runtime.start();
+	// The read gate admits two status reads at a time.
+	await complete("image-lossy", "image-lossless");
+	now += 10_000;
+	await complete("image-animated", "image-imageless");
+	now += 10_000;
+	await complete("image-truncated");
+	for (const id of ["image-lossy", "image-lossless"]) {
+		expect(await summary(id)).toMatchObject({ library: "saved", retryable: false });
+		expect(await runtime.gallery.read(id)).toEqual({ mime: "image/webp", bytes: files[id] });
+	}
+	for (const id of ["image-animated", "image-imageless"]) {
+		expect(await summary(id)).toMatchObject({ library: "unsupported", retryable: false });
+		expect(await job(id)).toMatchObject({ save_hold: "unsupported", save_tries: 0 });
+	}
+	expect(await job("image-truncated")).toMatchObject({ save_hold: null, save_tries: 1 });
+	for (const wait of [30_000, 120_000]) {
+		now += wait;
+		runtime.autoSave.start();
+		await settle();
+	}
+	expect(transfers.filter((id) => id === "image-truncated")).toHaveLength(3);
+	expect(await summary("image-truncated")).toMatchObject({ library: "failed", retryable: true });
+	for (const id of ["image-animated", "image-imageless"])
+		expect(transfers.filter((transfer) => transfer === id)).toHaveLength(1);
 	expect(posts).toBe(0);
 });
 

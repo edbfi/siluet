@@ -47,9 +47,7 @@ test("a new migration that sorts before a released one fails", () => {
 			head,
 			releasedMigrations,
 		),
-	).toEqual([
-		"20261121100000_backdated sorts before the released 20261127120000_browser_key_sessions.",
-	]);
+	).toEqual(["20261121100000_backdated sorts before the released 20261128120000_gallery_webp."]);
 	const later = { ...installationMigrations, "20991231000000_later": "SELECT 1;" };
 	expect(
 		appendOnlyProblems(

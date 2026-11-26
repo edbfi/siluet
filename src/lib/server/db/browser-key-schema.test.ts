@@ -11,7 +11,9 @@ test("the upgrade revokes every cookie session and proof and keeps other data", 
 	const client = await connect(":memory:");
 	try {
 		const db = drizzle({ client });
-		const { [name]: _, ...released } = installationMigrations;
+		const released = Object.fromEntries(
+			Object.entries(installationMigrations).filter(([key]) => key < name),
+		);
 		await migrateInstallation(db, true, released);
 		await db.run(sql`INSERT INTO installation VALUES (1, 'fixture', 1)`);
 		await db.run(sql`INSERT INTO owner VALUES (1, 'owner', 'hash', 1)`);

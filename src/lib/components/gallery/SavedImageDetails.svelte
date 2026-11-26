@@ -25,7 +25,9 @@ const format = new Intl.DateTimeFormat("en", {
 		? `MP4 · ${duration?.toFixed(2)} seconds`
 		: mime === "image/png"
 			? "PNG"
-			: "JPEG"}
+			: mime === "image/webp"
+				? "WebP"
+				: "JPEG"}
 	· {width} × {height}<br>
 	<time datetime={new Date(savedAt).toISOString()}>Saved {format.format(savedAt)} UTC</time>
 </p>

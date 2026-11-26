@@ -4,6 +4,7 @@ import { authenticatorSchema } from "./authenticator-schema";
 import { browserKeyMigration } from "./browser-key-schema";
 import { fileEditMigration } from "./file-edit-schema";
 import { gallerySchema } from "./gallery-schema";
+import { galleryWebpMigration } from "./gallery-webp-schema";
 import { imageBatchSchema } from "./image-batch-schema";
 import { imageJobOperationMigration } from "./image-job-operation-migration";
 import { imageJobSchema } from "./image-job-schema";
@@ -64,6 +65,7 @@ export const installationMigrations = {
 	"20261125120000_video_profile_rearm": videoProfileRearmMigration,
 	"20261126120000_video_save_limits": videoSaveLimitMigration,
 	"20261127120000_browser_key_sessions": browserKeyMigration,
+	"20261128120000_gallery_webp": galleryWebpMigration,
 };
 
 export async function migrateInstallation(
