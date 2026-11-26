@@ -60,7 +60,8 @@ function walkChunks(bytes: Buffer) {
 	let vp8x: Chunk | undefined;
 	let padded = true;
 	for (let offset = 12; offset < end; ) {
-		if (offset + 8 > end) return incomplete;
+		// The whole RIFF body is present, so a tail too short for a chunk header is malformed.
+		if (offset + 8 > end) return refused;
 		const type = bytes.toString("latin1", offset, offset + 4);
 		const size = bytes.readUInt32LE(offset + 4);
 		if (type === "ANIM" || type === "ANMF" || types.length === stillChunks) return refused;

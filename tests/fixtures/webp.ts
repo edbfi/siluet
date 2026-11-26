@@ -57,6 +57,13 @@ function overrun(file: Buffer, type = "ABCD") {
 	return riffSize(Buffer.concat([file, header]), file.length);
 }
 
+/** `file` with three stray bytes appended inside its RIFF size. */
+function strayInside(file: Buffer) {
+	const grown = Buffer.concat([file, Buffer.alloc(3)]);
+	grown.writeUInt32LE(grown.length - 8, 4);
+	return grown;
+}
+
 /** `header` with a non-zero byte in the reserved bits after its flags. */
 function reserved(header: WebpChunk): WebpChunk {
 	const data = Buffer.from(header.data);
@@ -162,6 +169,8 @@ async function authorWebpFixtures() {
 			"no image chunk": riffWebp([vp8x(0, width, height)]),
 			"no chunks": riffWebp([]),
 			"RIFF size below 4": riffSize(riffWebp([vp8]), 3),
+			// Fewer than eight stray bytes inside a complete RIFF body are no chunk at all.
+			"stray bytes inside the RIFF body": strayInside(riffWebp([vp8])),
 			"VP8X size other than 10": riffWebp([
 				{ type: "VP8X", data: Buffer.concat([vp8x(0, width, height).data, Buffer.alloc(2)]) },
 				vp8,

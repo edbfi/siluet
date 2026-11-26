@@ -102,7 +102,7 @@ Revised by the owner on 2026-11-26: Siluet sends the field on all models, docume
 
 ## D5 · Verify Gallery images before saving
 
-A damaged image can have valid dimensions and headers. Gallery needs a complete pixel decode and access to decoder warnings. Bun 1.4.5 exposes metadata and encoded output. Use sharp with libvips to verify every pixel within the size limits and reject warnings before publishing the original PNG or JPEG bytes.
+A damaged image can have valid dimensions and headers. Gallery needs a complete pixel decode and access to decoder warnings. Bun 1.4.5 exposes metadata and encoded output. Use sharp with libvips to verify every pixel within the size limits and reject warnings before publishing the original PNG, JPEG or still WebP bytes.
 
 On 2026-11-26 the owner asked Gallery to support every output size the providers offer. The catalog engine raises the image dimension limits here, the 32 MiB encoded-image limit, the transfer deadline and the browser's private-media read limits ([browser key](SPEC-browser-key.md)) to fit the documented maximums, with budgets measured across provider transfer, verification and authenticated Gallery reads. D6's video limits rise the same way. An undocumented maximum stays unknown and keeps the current cap. Maximum-size fixtures must save, reopen and download in Gallery.
 
