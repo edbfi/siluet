@@ -220,8 +220,9 @@ test("restored tabs stay within the challenge limits", async ({ browserName, con
 		expect(refused).toEqual([]);
 		await expect(tab.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
 	}
-	// Every tab ran its own resume, so the limits were exercised.
+	// Forty resumes ran, so the limits were exercised, and none was refused late.
 	expect(resumed).toBeGreaterThanOrEqual(40);
+	expect(refused).toEqual([]);
 	await Promise.all(tabs.map((tab) => tab.close()));
 });
 

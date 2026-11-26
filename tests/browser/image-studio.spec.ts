@@ -989,7 +989,7 @@ test("built Image Studio cleans an attached local copy automatically before its 
 			const held: Promise<void>[] = [];
 			await context.route("**/image/files/*", (route) => {
 				if (route.request().method() !== "POST") return route.fallback();
-				const continued = hold.promise.then(() => route.continue());
+				const continued = hold.promise.then(() => route.fallback());
 				held.push(continued);
 				return continued;
 			});
