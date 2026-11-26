@@ -94,7 +94,7 @@ export function walkWebp(bytes: Buffer): WebpContainer {
 
 	// Extended format: VP8X, optional ICCP, optional ALPH before VP8, the image, then at most
 	// one EXIF and one XMP in either order.
-	if (!vp8x || vp8x.size !== 10) return refused;
+	if (vp8x?.size !== 10) return refused;
 	const flags = bytes[vp8x.start];
 	if (flags & ~knownFlags || bytes.readUIntLE(vp8x.start + 1, 3) !== 0) return refused;
 	const imageAt = types.indexOf(imageChunk.type);
