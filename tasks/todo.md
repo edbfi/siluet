@@ -17,7 +17,7 @@ Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-waits-for
 - [ ] The council confirms the catalog engine spec, and its slices merge with green checks.
 - [ ] Each Phase 3 module has a council-confirmed spec and merges with verified Save in the built app.
 - [ ] Every ledger pair is verified, contract-covered, provider unsupported, or unknown with its open question, and none stays documented and pending. Each in-scope operation and option has a verified or contract-covered path, unless the owner approves a scope change; a D4 exception does not stop a row from counting.
-- [ ] Gallery Save is verified at each family's documented maximum image and video output.
+- [ ] At each family's documented maximum image and video output, Gallery saves, reopens and downloads.
 - [ ] Each new video family's Save is verified from fixtures when its output fits the D6 profile; a structure outside it was qualified by a suitable real sample, and any new sample came from an owner-approved live call.
 - [ ] The Impeccable and workflow-skill artifact cleanup merges before the tag, with its scope confirmed by the owner.
 - [ ] Short release notes list the blocked, provider-unsupported and unknown pairs and the families with real-clip evidence, and say Safari is untested beyond Playwright WebKit.
