@@ -50,3 +50,10 @@ export const viewer = css({
 	borderRadius: "8px",
 	background: "surface",
 });
+/** A Download link with its pending and failure notes. */
+export const download = {
+	group: css({ display: "grid", gap: "0.25rem", justifyItems: "start", position: "relative" }),
+	pending: css({ _loading: { color: "muted", cursor: "progress", textDecorationStyle: "dotted" } }),
+	status: css({ margin: 0, color: "muted", fontSize: "0.9rem", _empty: { position: "absolute" } }),
+	failed: css({ margin: 0, color: "danger", fontSize: "0.9rem" }),
+};

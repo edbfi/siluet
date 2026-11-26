@@ -12,6 +12,12 @@ export type MediaKind = keyof typeof mediaLimits;
 /** Per tab: reads in flight and bytes held. */
 const maxReads = 4;
 const maxBytes = 192 * MiB;
+/**
+ * Shown files keep priority: downloads take at most three reads, wait behind any shown file
+ * that wants one, and pin at most 128 MiB, so the largest shown file still fits.
+ */
+const maxDownloadReads = maxReads - 1;
+const maxPinned = maxBytes - mediaLimits.video;
 /** A download link outlives its click long enough for the browser to start saving. */
 const downloadMs = 60000;
 
@@ -21,41 +27,57 @@ type Holder = { src: string; blob: Blob | null; visibleAt: number; evict: () => 
 const holders = new Set<Holder>();
 /** Download blobs whose link is not yet revoked, once per link. */
 const downloads: Blob[] = [];
-/** Bytes that reads in flight declared and are still streaming. */
+/** Bytes that reads in flight declared and are still streaming, and the downloads' share. */
 let reserved = 0;
-let reads = 0;
-const waiting: (() => void)[] = [];
-const held = () => {
-	const blobs = new Set(downloads);
-	for (const holder of holders) if (holder.blob) blobs.add(holder.blob);
-	return [...blobs].reduce((sum, blob) => sum + blob.size, reserved);
-};
+let downloadReserved = 0;
+const sum = (blobs: Iterable<Blob>, from: number) =>
+	[...new Set(blobs)].reduce((total, blob) => total + blob.size, from);
+const held = () =>
+	sum([...downloads, ...[...holders].flatMap((h) => (h.blob ? [h.blob] : []))], reserved);
+/** Bytes download links hold or download reads have reserved. */
+const pinned = () => sum(downloads, downloadReserved);
 
-/** Take one of the tab's reads. An abort while waiting leaves the queue and rejects at once. */
-function slot(signal: AbortSignal) {
-	signal.throwIfAborted();
-	if (reads < maxReads) {
+let reads = 0;
+let downloadReads = 0;
+type Waiter = { download: boolean; start: () => void };
+const waiting: Waiter[] = [];
+/** Start waiting reads while the tab has room: shown files first, then downloads in order. */
+function dispatch() {
+	while (reads < maxReads) {
+		const next =
+			waiting.find((w) => !w.download) ??
+			(downloadReads < maxDownloadReads ? waiting.find((w) => w.download) : undefined);
+		if (!next) return;
+		waiting.splice(waiting.indexOf(next), 1);
 		reads++;
-		return Promise.resolve();
+		if (next.download) downloadReads++;
+		next.start();
 	}
+}
+/** Take one of the tab's reads. An abort while waiting leaves the queue and rejects at once. */
+function slot(signal: AbortSignal, download: boolean) {
+	signal.throwIfAborted();
 	return new Promise<void>((resolve, reject) => {
 		const abort = () => {
-			waiting.splice(waiting.indexOf(next), 1);
+			waiting.splice(waiting.indexOf(waiter), 1);
 			reject(signal.reason);
 		};
-		// `free` hands its read straight to the next waiter.
-		const next = () => {
-			signal.removeEventListener("abort", abort);
-			resolve();
+		const waiter: Waiter = {
+			download,
+			start() {
+				signal.removeEventListener("abort", abort);
+				resolve();
+			},
 		};
-		waiting.push(next);
+		waiting.push(waiter);
 		signal.addEventListener("abort", abort, { once: true });
+		dispatch();
 	});
 }
-function free() {
-	const next = waiting.shift();
-	if (next) next();
-	else reads--;
+function free(download: boolean) {
+	reads--;
+	if (download) downloadReads--;
+	dispatch();
 }
 /**
  * Make room for `size` bytes, evicting the least recently visible holders first. Nothing is
@@ -63,9 +85,9 @@ function free() {
  */
 function makeRoom(size: number, keep: Holder | null) {
 	// A blob a download link still holds frees nothing when its tile is evicted.
-	const pinned = new Set(downloads);
+	const linked = new Set(downloads);
 	const others = [...holders]
-		.filter((h) => h !== keep && h.blob && !pinned.has(h.blob))
+		.filter((h) => h !== keep && h.blob && !linked.has(h.blob))
 		.sort((a, b) => a.visibleAt - b.visibleAt);
 	const evictable = new Set(others.flatMap((h) => (h.blob ? [h.blob] : [])));
 	const freeable = [...evictable].reduce((sum, blob) => sum + blob.size, 0);
@@ -77,31 +99,38 @@ const roomWaiters = new Set<() => void>();
 function released() {
 	for (const wake of [...roomWaiters]) wake();
 }
+/** Wait until something releases bytes. */
+function roomFreed(signal: AbortSignal) {
+	return new Promise<void>((resolve, reject) => {
+		const abort = () => {
+			roomWaiters.delete(wake);
+			reject(signal.reason);
+		};
+		const wake = () => {
+			roomWaiters.delete(wake);
+			signal.removeEventListener("abort", abort);
+			resolve();
+		};
+		roomWaiters.add(wake);
+		signal.addEventListener("abort", abort, { once: true });
+	});
+}
 /**
  * Reserve `size` bytes of the tab's limit: evict what is shown, then wait for reads in flight
- * and download links, which cannot be evicted, to release theirs.
+ * and download links, which cannot be evicted, to release theirs. A download first waits for
+ * its share, evicting nothing until it fits.
  */
-async function reserve(size: number, keep: Holder | null, signal: AbortSignal) {
+async function reserve(size: number, keep: Holder | null, signal: AbortSignal, download: boolean) {
 	for (;;) {
 		signal.throwIfAborted();
-		makeRoom(size, keep);
-		if (held() + size <= maxBytes) {
+		const share = !download || pinned() + size <= maxPinned;
+		if (share) makeRoom(size, keep);
+		if (share && held() + size <= maxBytes) {
 			reserved += size;
+			if (download) downloadReserved += size;
 			return;
 		}
-		await new Promise<void>((resolve, reject) => {
-			const abort = () => {
-				roomWaiters.delete(wake);
-				reject(signal.reason);
-			};
-			const wake = () => {
-				roomWaiters.delete(wake);
-				signal.removeEventListener("abort", abort);
-				resolve();
-			};
-			roomWaiters.add(wake);
-			signal.addEventListener("abort", abort, { once: true });
-		});
+		await roomFreed(signal);
 	}
 }
 /** The session a read belongs to, captured before it waits for a read. */
@@ -121,8 +150,9 @@ export async function readPrivate(
 	owner: Holder | Blob[] | null = null,
 	session = currentSession(),
 ) {
-	const holder = Array.isArray(owner) ? null : owner;
-	await slot(signal);
+	const download = Array.isArray(owner);
+	const holder = download ? null : owner;
+	await slot(signal, download);
 	let reservation = 0;
 	try {
 		const init: SessionInit = { signal, cache: "no-store", siluetSession: session };
@@ -135,7 +165,7 @@ export async function readPrivate(
 		if (declared > limit) throw new MediaUnavailable();
 		// A file of unknown or malformed length may use the kind's whole limit.
 		const expected = Number.isFinite(declared) ? declared : limit;
-		await reserve(expected, holder, signal);
+		await reserve(expected, holder, signal, download);
 		reservation = expected;
 		const chunks: Uint8Array<ArrayBuffer>[] = [];
 		let size = 0;
@@ -158,7 +188,8 @@ export async function readPrivate(
 		return blob;
 	} finally {
 		reserved -= reservation;
-		free();
+		if (download) downloadReserved -= reservation;
+		free(download);
 		released();
 	}
 }
@@ -233,25 +264,42 @@ export function privateSource(
 	};
 }
 
+/**
+ * Pin the blob already shown for `src` to a download link once the downloads' share has room
+ * for it, or return null when no shown blob remains to reuse.
+ */
+async function linkShown(src: string, signal: AbortSignal) {
+	for (;;) {
+		const shown = [...holders].find((h) => h.src === src && h.blob)?.blob;
+		if (!shown) return null;
+		if (downloads.includes(shown) || pinned() + shown.size <= maxPinned) {
+			downloads.push(shown);
+			return shown;
+		}
+		await roomFreed(signal);
+	}
+}
+
 /** Downloads still reading, by session generation and source: a second click joins the first. */
 const downloading = new Map<string, Promise<void>>();
 
 /**
  * Download a private file under its Gallery name, reusing a blob already shown on the page.
- * The temporary link is revoked a minute after the click; until then its bytes count, so a
- * download over the tab's limit waits for an earlier link to go. A download whose session
- * ended while it waited saves nothing.
+ * The temporary link is revoked a minute after the click; until then its bytes count against
+ * the downloads' share, so a download past it waits for an earlier link to go. A download
+ * whose session ended while it waited saves nothing.
  */
 export function downloadPrivate(src: string, mime: string, kind: MediaKind, name: string) {
 	const started = sessionClient().remountKey;
 	const key = `${started}:${src}`;
 	const pending = downloading.get(key);
 	if (pending) return pending;
+	const session = currentSession();
 	const download = (async () => {
-		const shown = [...holders].find((h) => h.src === src && h.blob)?.blob;
-		if (shown) downloads.push(shown);
+		const signal = new AbortController().signal;
 		const blob =
-			shown ?? (await readPrivate(src, mime, kind, new AbortController().signal, downloads));
+			(await linkShown(src, signal)) ??
+			(await readPrivate(src, mime, kind, signal, downloads, session));
 		let url: string | null = null;
 		try {
 			if (sessionClient().remountKey !== started || sessionClient().leaving) return;

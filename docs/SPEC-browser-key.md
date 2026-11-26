@@ -41,7 +41,7 @@ Responses apply effects only if `remountKey` is unchanged since sent. Otherwise 
 
 **Pages and forms.** Home loads the username. POST forms `use:enhance` and apply `error`; the ToAPIs check sets or clears its feedback; setup and sign-in post JSON. Shells send COOP `same-origin`.
 
-**Media.** Bearer-fetched blobs: 64 MiB per video, 32 MiB per image, 32,000,000 bytes per staged copy; type from the job's MIME. Per tab: four reads, 192 MiB, least recently visible evicted. URLs revoke after 60 s or on unmount. CSP `media-src 'self' blob:`.
+**Media.** Bearer-fetched blobs: 64 MiB per video, 32 MiB per image, 32,000,000 bytes per staged copy; type from the job's MIME. Per tab: four reads, 192 MiB, least recently visible evicted. Shown files read first; downloads hold at most three reads and 128 MiB, waiting as pending. URLs revoke after 60 s or on unmount. CSP `media-src 'self' blob:`.
 
 **Upgrade.** Documents expire this installation's legacy cookies at their paths (`siluet_<id>`, `siluet_signout_<port>`, `siluet_security_<port>` at `/`; `siluet_<id>_pending[_<hex64>]` at `/sign-in`; `siluet_<id>_setup_<hex64>_<hex64>` at `/settings/security`) without reading them. One append-only migration deletes all owner proofs, recreates `session` with key and ID columns, adds `owner_proof.public_key` and keeps other data.
 

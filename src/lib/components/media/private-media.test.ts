@@ -194,36 +194,41 @@ test("a download's blob counts until its link is revoked", async () => {
 	expect(after.map((element) => element.src !== "")).toEqual([true, true, true]);
 });
 
-test("downloads past the tab's 192 MiB wait for an earlier link to be revoked", async () => {
+test("downloads past their 128 MiB share wait for an earlier link to be revoked", async () => {
 	const revoke: (() => void)[] = [];
 	const realTimeout = globalThis.setTimeout;
 	globalThis.setTimeout = ((callback: () => void) => revoke.push(callback)) as never;
 	try {
-		for (const src of ["/d1", "/d2", "/d3", "/d4"]) sizes.set(src, 64 * MiB);
-		for (const src of ["/d1", "/d2", "/d3"]) {
+		for (const src of ["/d1", "/d2", "/d3"]) sizes.set(src, 64 * MiB);
+		for (const src of ["/d1", "/d2"]) {
 			const download = downloadPrivate(src, "video/mp4", "video", "clip.mp4");
 			await tick();
 			await deliver(src);
 			await download;
 		}
-		const fourth = downloadPrivate("/d4", "video/mp4", "video", "clip.mp4");
+		// Two links hold 128 MiB, leaving 64 MiB for a shown video: the third read is answered
+		// but does not buffer its body, and evicts nothing while it waits.
+		const shown = show("/kept");
 		await tick();
-		calls.find((call) => call.src === "/d4")?.answer();
+		await deliver("/kept");
+		const third = downloadPrivate("/d3", "video/mp4", "video", "clip.mp4");
 		await tick();
-		// Three links hold 192 MiB: the fourth read is answered but does not buffer its body.
-		expect(revoke).toHaveLength(3);
+		calls.find((call) => call.src === "/d3")?.answer();
+		await tick();
+		expect(revoke).toHaveLength(2);
 		let finished = false;
-		void fourth.then(() => {
+		void third.then(() => {
 			finished = true;
 		});
-		bodies.get("/d4")?.();
+		bodies.get("/d3")?.();
 		await tick();
 		expect(finished).toBe(false);
+		expect(shown.src).not.toBe("");
 		revoke[0]();
 		await tick();
-		bodies.get("/d4")?.();
-		await fourth;
-		expect(revoke).toHaveLength(4);
+		bodies.get("/d3")?.();
+		await third;
+		expect(revoke).toHaveLength(3);
 		for (const link of revoke.slice(1)) link();
 	} finally {
 		globalThis.setTimeout = realTimeout;
@@ -360,5 +365,105 @@ test("a download that finishes while the tab is leaving saves nothing", async ()
 		await deliver("/late");
 		await download;
 		expect(clicks).toBe(0);
+	});
+});
+
+// Shown files keep priority over downloads, which wait for a read without shutting tiles out.
+test("a shown file waiting for a read goes ahead of a download that asked first", async () => {
+	await withLinks(async () => {
+		const first = Array.from({ length: 4 }, (_, i) =>
+			readPrivate(`/q${i}`, "image/png", "image", new AbortController().signal),
+		);
+		await tick();
+		const download = downloadPrivate("/later", "image/png", "image", "a.png");
+		await tick();
+		show("/tile");
+		await tick();
+		calls[0].answer();
+		await first[0];
+		await tick();
+		expect(calls.map((call) => call.src).slice(4)).toEqual(["/tile"]);
+		calls[1].answer();
+		await first[1];
+		await tick();
+		expect(calls.map((call) => call.src).slice(4)).toEqual(["/tile", "/later"]);
+		for (const call of calls) call.answer();
+		await Promise.all([...first, download]);
+	});
+});
+
+test("downloads hold at most three of the tab's four reads, so a shown file always gets one", async () => {
+	await withLinks(async () => {
+		const downloads = ["/g1", "/g2", "/g3", "/g4"].map((src) =>
+			downloadPrivate(src, "image/png", "image", "a.png"),
+		);
+		await tick();
+		expect(calls.map((call) => call.src)).toEqual(["/g1", "/g2", "/g3"]);
+		const seen = show("/seen");
+		await tick();
+		expect(calls.map((call) => call.src)).toEqual(["/g1", "/g2", "/g3", "/seen"]);
+		await deliver("/seen");
+		expect(seen.src).not.toBe("");
+		// The free read stays with shown files while three downloads are still reading.
+		expect(calls).toHaveLength(4);
+		calls[0].answer();
+		await downloads[0];
+		await tick();
+		expect(calls.at(-1)?.src).toBe("/g4");
+		for (const call of calls) call.answer();
+		await Promise.all(downloads);
+	});
+});
+
+test("a shown file is linked for download only within the downloads' share", async () => {
+	await withLinks(async (revoke) => {
+		for (const src of ["/s1", "/s2", "/big"]) sizes.set(src, 64 * MiB);
+		for (const src of ["/s1", "/s2"]) {
+			const download = downloadPrivate(src, "video/mp4", "video", "clip.mp4");
+			await tick();
+			await deliver(src);
+			await download;
+		}
+		show("/big");
+		await tick();
+		await deliver("/big");
+		const reads = calls.length;
+		const download = downloadPrivate("/big", "video/mp4", "video", "clip.mp4");
+		await tick();
+		expect([clicks, revoke.length]).toEqual([2, 2]);
+		revoke.shift()?.();
+		await download;
+		// The shown blob was reused, not read again.
+		expect([clicks, calls.length]).toEqual([3, reads]);
+	});
+});
+
+test("a download keeps the session it was clicked under while it waits for its share", async () => {
+	await withLinks(async (revoke) => {
+		for (const src of ["/t1", "/t2", "/gone"]) sizes.set(src, 64 * MiB);
+		for (const src of ["/t1", "/t2"]) {
+			const download = downloadPrivate(src, "video/mp4", "video", "clip.mp4");
+			await tick();
+			await deliver(src);
+			await download;
+		}
+		show("/gone");
+		await tick();
+		await deliver("/gone");
+		const download = downloadPrivate("/gone", "video/mp4", "video", "clip.mp4");
+		await tick();
+		session = "s2";
+		// The shown file goes before the share frees, so the download reads it.
+		for (const cleanup of cleanups.splice(0)) cleanup();
+		await tick();
+		const read = calls.filter((call) => call.src === "/gone").at(-1);
+		expect(calls.filter((call) => call.src === "/gone")).toHaveLength(2);
+		expect(read?.init.siluetSession).toBe("s1");
+		revoke.shift()?.();
+		read?.answer();
+		await tick();
+		bodies.get("/gone")?.();
+		await download;
+		expect(clicks).toBe(3);
 	});
 });

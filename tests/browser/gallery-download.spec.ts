@@ -70,10 +70,45 @@ test("Gallery tiles and the viewer download the original image, and Jobs downloa
 		expect(media()).toBe(1);
 
 		// Every available tile and the viewer download the authenticated copy under the short job id.
+		// Held reads show the link pending; a second press joins the first download.
+		const held: (() => void)[] = [];
+		const mediaRoute = (url: URL) => url.pathname === `/gallery/${jobId}/media`;
+		await page.route(mediaRoute, async (route) => {
+			const response = await route.fetch();
+			await new Promise<void>((release) => held.push(release));
+			await route.fulfill({ response });
+		});
 		await page.goto(`${origin}/gallery`);
 		const tileDownload = page.getByRole("link", { name: `Download image ${short}` });
 		await expect(tileDownload).toHaveAttribute("download", name);
+		const status = page.getByRole("listitem").getByRole("status");
+		await expect(status).toBeEmpty();
+		// The tile's own read is held, so the download cannot reuse its blob.
+		await expect.poll(() => held.length).toBe(1);
+		const saved = download(page, tileDownload);
+		await expect(tileDownload).toHaveAttribute("aria-busy", "true");
+		await expect(status).toHaveText("Preparing download…");
+		await expect.poll(() => held.length).toBe(2);
+		await tileDownload.press("Enter");
+		await page.waitForTimeout(500);
+		expect(held).toHaveLength(2);
+		for (const release of held) release();
+		expect(await saved).toEqual({ name, bytes: referencePng });
+		await expect(tileDownload).not.toHaveAttribute("aria-busy");
+		await expect(status).toBeEmpty();
+		await page.unroute(mediaRoute);
+		expect(held).toHaveLength(2);
+		// A read that fails says so, and Retry starts afresh.
+		await page.route(mediaRoute, (route) => route.abort());
+		await page.goto(`${origin}/gallery`);
+		await expect(page.getByText("File unavailable")).toBeVisible();
+		await tileDownload.press("Enter");
+		const failed = page.getByRole("alert");
+		await expect(failed).toHaveText("The download could not start. Retry.");
+		await expect(tileDownload).not.toHaveAttribute("aria-busy");
+		await page.unroute(mediaRoute);
 		expect(await download(page, tileDownload)).toEqual({ name, bytes: referencePng });
+		await expect(failed).toHaveCount(0);
 		const attachment = await ownerRequest(page).get(`${origin}/gallery/${jobId}/media?download=1`);
 		expect(attachment.headers()["content-disposition"]).toBe(`attachment; filename="${name}"`);
 		// The saved image is a sandboxed document that no page can frame.

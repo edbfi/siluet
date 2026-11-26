@@ -8,29 +8,14 @@ import {
 	preview,
 	tile,
 } from "#lib/components/gallery/gallery-styles.ts";
+import PrivateDownload from "#lib/components/gallery/PrivateDownload.svelte";
 import SavedImageDetails from "#lib/components/gallery/SavedImageDetails.svelte";
-import { downloadPrivate, privateSource } from "#lib/components/media/private-media.ts";
+import { privateSource } from "#lib/components/media/private-media.ts";
 import { mediaFileName } from "#lib/shared/gallery/file-name.ts";
 import type { PageProps } from "./$types";
 
 let { data }: PageProps = $props();
 const unavailable = $state<Record<string, boolean>>({});
-const failedDownload = $state<Record<string, boolean>>({});
-async function download(event: MouseEvent, jobId: string, mime: string) {
-	event.preventDefault();
-	failedDownload[jobId] = false;
-	const kind = mime === "video/mp4" ? "video" : "image";
-	try {
-		await downloadPrivate(
-			`/gallery/${encodeURIComponent(jobId)}/media`,
-			mime,
-			kind,
-			mediaFileName(jobId, mime),
-		);
-	} catch {
-		failedDownload[jobId] = true;
-	}
-}
 </script>
 
 <svelte:head><title>Gallery · Siluet</title></svelte:head>
@@ -68,16 +53,13 @@ async function download(event: MouseEvent, jobId: string, mime: string) {
 					</a>
 					{#if image.available}
 						<!-- A sibling of the card link: a download of the authenticated original file. -->
-						<a
-							class={link}
-							href={`${href}/media?download=1`}
-							download={mediaFileName(image.jobId, image.mime)}
-							onclick={(event) => download(event, image.jobId, image.mime)}
-							>Download {kind} {image.jobId.slice(0, 8)}</a
-						>
-						{#if failedDownload[image.jobId]}
-							<p role="alert">The download could not start. Retry.</p>
-						{/if}
+						<PrivateDownload
+							src={`${href}/media`}
+							mime={image.mime}
+							{kind}
+							name={mediaFileName(image.jobId, image.mime)}
+							label={`Download ${kind} ${image.jobId.slice(0, 8)}`}
+						/>
 					{/if}
 				</li>
 			{/each}
