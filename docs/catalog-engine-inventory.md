@@ -2,7 +2,7 @@
 
 Generated on 2026-11-26 from the [ledger](media-catalog.v1.json) (observed 2026-11-22) by expanding each documented row into its `(provider, ID, route, operation)` keys. It is a snapshot for [the catalog engine spec](SPEC-catalog-engine.md): from G2a, `bun run catalog:coverage` regenerates this inventory, with option gaps per derived row, and CI fails on any difference. **G*n*** is an engine slice, **P3** is bespoke Phase 3 work, and **Q** is an evidence question. Every item lands before the v0.1.0 tag ([D11](decisions.md#d11--v010-waits-for-full-d2-coverage)).
 
-Expanded keys: Poyo.ai 317 (5 verified), ToAPIs 331 (6 verified). A slice listed here may still leave a key pending when its schema, input class, Save bound or D4 table blocks it; `catalog:coverage` names that reason per key.
+Expanded keys: 647, of which Poyo.ai 317 (5 verified) and ToAPIs 330 (6 verified). Engine slices hold 496, Phase 3 147 and evidence questions 4. A route alias adds no key: Midjourney `imagine` counts once, on its primary route. A slice listed here may still leave a key pending when its schema, input class, Save bound or D4 table blocks it; `catalog:coverage` names that reason per key.
 
 ## Documented operations
 
@@ -16,7 +16,6 @@ Expanded keys: Poyo.ai 317 (5 verified), ToAPIs 331 (6 verified). A slice listed
 | G7 | Poyo.ai | `text-to-video` | 50 | 1 |
 | G8 | Poyo.ai | `first-frame-to-video` | 52 |  |
 | G8 | Poyo.ai | `first-and-last-frame-to-video` | 34 |  |
-| G8 | Poyo.ai | `last-frame-to-video` | 1 |  |
 | G8b | Poyo.ai | `reference-to-video` | 23 |  |
 | G8b | Poyo.ai | `image-reference-to-video` | 2 |  |
 | G10a | ToAPIs | `text-to-image` | 41 | 1 |
@@ -31,8 +30,6 @@ Expanded keys: Poyo.ai 317 (5 verified), ToAPIs 331 (6 verified). A slice listed
 | G11c | ToAPIs | `image-reference-to-video` | 21 |  |
 | G11c | ToAPIs | `video-reference-to-video` | 6 |  |
 | G11c | ToAPIs | `frame-and-image-reference-to-video` | 2 |  |
-| G11c | ToAPIs | `character-reference-to-video` | 1 |  |
-| G11c | ToAPIs | `subjects-to-video` | 1 |  |
 | G11d | ToAPIs | `video-edit` | 9 | 1 |
 | Q · file and webpage references (accepted types, who fetches) | ToAPIs | `file-reference-to-video` | 2 |  |
 | Q · file and webpage references (accepted types, who fetches) | ToAPIs | `webpage-reference-to-video` | 2 |  |
@@ -55,7 +52,7 @@ Expanded keys: Poyo.ai 317 (5 verified), ToAPIs 331 (6 verified). A slice listed
 | P3 · mask, markup and localized edits | Poyo.ai | `localized-mask-image-edit` | 1 |  |
 | P3 · mask, markup and localized edits | ToAPIs | `mask-image-edit` | 4 |  |
 | P3 · mask, markup and localized edits | ToAPIs | `markup-guided-image-edit` | 2 |  |
-| P3 · Midjourney actions | ToAPIs | `imagine` | 2 |  |
+| P3 · Midjourney actions | ToAPIs | `imagine` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `blend` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `edits` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `upscale` | 1 |  |
@@ -75,8 +72,9 @@ Expanded keys: Poyo.ai 317 (5 verified), ToAPIs 331 (6 verified). A slice listed
 | P3 · multi-shot | Poyo.ai | `multi-shot-video-generation` | 9 |  |
 | P3 · music and parent-task prerequisites | Poyo.ai | `music-task-to-cover-image` | 1 |  |
 | P3 · music and parent-task prerequisites | Poyo.ai | `music-track-to-video` | 1 |  |
-| P3 · positioned and multi keyframes | Poyo.ai | `positioned-keyframes-to-video` | 2 |  |
-| P3 · positioned and multi keyframes | ToAPIs | `keyframes-to-video` | 1 |  |
+| P3 · positioned, last-frame and multi keyframes | Poyo.ai | `positioned-keyframes-to-video` | 2 |  |
+| P3 · positioned, last-frame and multi keyframes | Poyo.ai | `last-frame-to-video` | 1 |  |
+| P3 · positioned, last-frame and multi keyframes | ToAPIs | `keyframes-to-video` | 1 |  |
 | P3 · source-video operations on Poyo.ai | Poyo.ai | `video-edit` | 6 |  |
 | P3 · source-video operations on Poyo.ai | Poyo.ai | `image-and-motion-video-to-video` | 3 |  |
 | P3 · source-video operations on Poyo.ai | Poyo.ai | `video-to-video` | 1 |  |
@@ -84,6 +82,8 @@ Expanded keys: Poyo.ai 317 (5 verified), ToAPIs 331 (6 verified). A slice listed
 | P3 · source-video operations on Poyo.ai | Poyo.ai | `video-dubbing-and-subtitle-translation` | 1 |  |
 | P3 · source-video operations on Poyo.ai | Poyo.ai | `video-upscaling` | 1 |  |
 | P3 · source-video operations on Poyo.ai | Poyo.ai | `video-character-replacement` | 1 |  |
+| P3 · subjects and non-URL characters | ToAPIs | `character-reference-to-video` | 1 |  |
+| P3 · subjects and non-URL characters | ToAPIs | `subjects-to-video` | 1 |  |
 | P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `text-to-video` | 3 |  |
 | P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `first-frame-to-video` | 3 |  |
 | P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `image-reference-to-video` | 3 |  |
@@ -145,7 +145,7 @@ Each in-scope `747e5d7` property, by the input class it needs. "Entries" counts 
 | --- | ---: | --- |
 | prompt | 153 | qualified (G4, G7) |
 | enum, integer and number options | 151 | qualified (G4, G7) within the validator |
-| `image_urls` on images | 72 | qualified 1–10 (G5); more than 10 is its own class in G5 |
+| `image_urls` on images | 72 | qualified 1–10 (G5); more than 10 in G5, with at most 10 local files |
 | `image_urls` on video | 72 | G8 frames; G8b where the schema makes them references |
 | boolean options | 59 | G4 and G7 qualify booleans |
 | source or reference video URLs | 41 | P3 (Poyo.ai source-video and video references) |
@@ -172,6 +172,51 @@ Constructs outside the validator, each until a reviewed rule covers it (G2a):
 - `oneOf` (14): `flux-3-klein`, `flux-3-klein-edit`, `flux-dev`, `flux-schnell`, `seedream-4.5`, `seedream-4.5-edit`, `seedream-5.0-lite`, `seedream-5.0-lite-edit`, `wan-2.7-image`, `wan-2.7-image-pro`, `heygen-avatar-6`, `heygen-avatar-6-turbo`, `kling-4.0`, `kling-4.0-flash`
 - `x-server-validation` (5): `gemini-omni-1.2-flash`, `heygen-avatar-6`, `heygen-avatar-6-turbo`, `kling-4.0`, `kling-4.0-flash`
 - `x-video-duration-seconds` (4): `gemini-omni-1.1-flash`, `gemini-omni-1.2-flash`, `kling-4.0`, `kling-4.0-flash`
+
+## D4 states after the ledger migration
+
+G2a replaces `conflict` with the [D4 table](SPEC-catalog-engine.md#d4-by-catalog-and-rest-evidence)'s state. Poyo.ai documented rows by state: closed-absent 38, declared 30, open-absent 78. No reviewed row is a contradiction or a refusal. These 38 rows carry `conflict` today and all become `closed-absent`; `catalogD4` is then dropped from them and kept only for a contradiction. Rows the REST page has not reviewed take the catalog's state alone (*silent or not reviewed*), and Review says so. ToAPIs rows keep `declared`; each descriptor review sets `open-absent` or `refused` in place of the default `unknown`.
+
+| IDs | Ledger `d4` / `catalogD4` | Pinned catalog | REST input schema | New state |
+| --- | --- | --- | --- | --- |
+| `gpt-image-2.5-fixed` | conflict / – | closed | closed without it | closed-absent |
+| `gpt-image-2.5-flare` | conflict / – | closed | closed without it | closed-absent |
+| `gpt-image-2.5-sunburst` | conflict / – | closed | closed without it | closed-absent |
+| `gpt-image-2.6-fixed` | conflict / – | closed | closed without it | closed-absent |
+| `gpt-image-2.6-flare` | conflict / – | closed | closed without it | closed-absent |
+| `gpt-image-2.6-sunburst` | conflict / – | closed | closed without it | closed-absent |
+| `ideogram-v4.5` | conflict / – | closed | closed without it | closed-absent |
+| `ideogram-v4.5-edit` | conflict / – | closed | closed without it | closed-absent |
+| `ideogram-v4.6` | conflict / – | not pinned | closed without it | closed-absent |
+| `ideogram-v4.6-edit` | conflict / – | not pinned | closed without it | closed-absent |
+| `ideogram-vector-1.0/image-to-vector` | conflict / – | closed | closed without it | closed-absent |
+| `ideogram-vector-1.0/text-to-vector` | conflict / – | closed | closed without it | closed-absent |
+| `kling-4.0-image` | conflict / – | closed | closed without it | closed-absent |
+| `kling-4.0-long-image` | conflict / – | closed | closed without it | closed-absent |
+| `mai-image-2.6` | conflict / – | closed | closed without it | closed-absent |
+| `mai-image-2.6-flash` | conflict / – | closed | closed without it | closed-absent |
+| `mai-image-2.7` | conflict / – | closed | closed without it | closed-absent |
+| `mai-image-2.7-flash` | conflict / – | closed | closed without it | closed-absent |
+| `minimax-h3-image` | conflict / – | closed | closed without it | closed-absent |
+| `nano-banana-2.1` | conflict / – | closed | closed without it | closed-absent |
+| `poyo-ai/image-translator` | conflict / unknown | open | closed without it | closed-absent |
+| `flux-3-max/image-to-video` | conflict / – | closed | closed without it | closed-absent |
+| `flux-3-max/keyframes-to-video` | conflict / – | closed | closed without it | closed-absent |
+| `flux-3-max/text-to-video` | conflict / – | closed | closed without it | closed-absent |
+| `gemini-omni-1.1-flash` | unknown / conflict | closed | silent, no field | closed-absent |
+| `gemini-omni-1.2-flash` | unknown / conflict | closed | silent, no field | closed-absent |
+| `heygen-avatar-6`, `heygen-avatar-6-turbo` | conflict / – | closed | closed without it | closed-absent |
+| `kling-1.6/pro` | conflict / – | closed | closed without it | closed-absent |
+| `kling-1.6/standard` | conflict / – | closed | closed without it | closed-absent |
+| `kling-4.0` | conflict / – | closed | closed without it | closed-absent |
+| `kling-4.0-flash` | conflict / – | closed | closed without it | closed-absent |
+| `omnihuman-2.0` | conflict / – | closed | closed without it | closed-absent |
+| `pixverse-v6-max` | conflict / – | closed | closed without it | closed-absent |
+| `poyo-ai/video-background-removal` | conflict / unknown | open | closed without it | closed-absent |
+| `poyo-ai/video-translator` | conflict / unknown | open | closed without it | closed-absent |
+| `poyo-ai/video-upscaler` | conflict / unknown | open | closed without it | closed-absent |
+| `seedance-2.5` | conflict / – | closed | closed without it | closed-absent |
+| `seedance-2.5-flash` | conflict / – | closed | closed without it | closed-absent |
 
 ## Recorded gaps
 
