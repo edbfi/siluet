@@ -3,8 +3,8 @@
  * "Images and still WebP"). Container layout and bitstream headers:
  * https://developers.google.com/speed/webp/docs/riff_container (RFC 9649).
  *
- * - `incomplete`: the RIFF size or a chunk runs past the file, or the image chunk's header is
- *   damaged. Save treats it as a failed download.
+ * - `incomplete`: the RIFF size runs past the file, a chunk runs past the RIFF size before any
+ *   refusal applies, or the image chunk's header is damaged. Save treats it as a failed download.
  * - `refused`: a complete container outside the still profile, including one with no image
  *   chunk. Save holds it.
  * - `still`: one still image, with the image chunk's dimensions.
@@ -45,8 +45,9 @@ function imageHeader(bytes: Buffer, { type, start, size }: Chunk) {
 
 /**
  * One pass over the chunks that keeps only their types in order: at most six, since a still
- * WebP holds no more. Animation chunks and the animation flag refuse at once; neither can
- * belong to a still, even in a truncated transfer.
+ * WebP holds no more. Once the declared RIFF body is present, animation chunks, the animation
+ * flag and a seventh chunk refuse at once, before any later chunk that overruns; a transfer cut
+ * short of its declared size is incomplete before the walk starts.
  */
 function walkChunks(bytes: Buffer) {
 	if (bytes.length < 12) return incomplete;

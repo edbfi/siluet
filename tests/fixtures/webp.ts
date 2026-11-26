@@ -49,10 +49,10 @@ function riffSize(file: Buffer, size: number) {
 	return copy;
 }
 
-/** `file` followed by a chunk header whose size runs past the end, inside the RIFF size. */
-function overrun(file: Buffer) {
+/** `file` followed by a `type` chunk header whose size runs past the end, inside the RIFF size. */
+function overrun(file: Buffer, type = "ABCD") {
 	const header = Buffer.alloc(8);
-	header.write("ABCD", 0, "latin1");
+	header.write(type, 0, "latin1");
 	header.writeUInt32LE(1024, 4);
 	return riffSize(Buffer.concat([file, header]), file.length);
 }
@@ -155,7 +155,10 @@ async function authorWebpFixtures() {
 			animated,
 			"animation flag on a still image": riffWebp([vp8x(animation, width, height), vp8]),
 			"ANIM chunk": riffWebp([vp8x(0, width, height), chunk("ANIM", Buffer.alloc(6)), vp8]),
-			"ANMF without ANIM": riffWebp([vp8x(animation, width, height), chunk("ANMF", vp8.data)]),
+			"ANMF without ANIM": riffWebp([vp8x(0, width, height), chunk("ANMF", vp8.data), vp8]),
+			// The declared RIFF size fits the file, so the walk refuses before the overrun.
+			"overrunning ANMF without the flag": overrun(riffWebp([vp8x(0, width, height)]), "ANMF"),
+			"overrunning ANMF with the flag": overrun(riffWebp([vp8x(animation, width, height)]), "ANMF"),
 			"no image chunk": riffWebp([vp8x(0, width, height)]),
 			"no chunks": riffWebp([]),
 			"RIFF size below 4": riffSize(riffWebp([vp8]), 3),
@@ -202,6 +205,8 @@ async function authorWebpFixtures() {
 			"cut short": owned(lossless.subarray(0, -6)),
 			"cut short with a rewritten size": shortened(lossy, 6),
 			"header only": owned(lossy.subarray(0, 12)),
+			// A real cut-off still declares the whole file, so it retries before any walk.
+			"animated cut short": owned(animated.subarray(0, -6)),
 		},
 	};
 }
