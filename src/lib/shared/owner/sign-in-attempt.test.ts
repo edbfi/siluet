@@ -612,3 +612,25 @@ test("a bound tab whose key was rotated while it resumed tries the stored key on
 	).toEqual([h.to("/owner/resume")[1].body.key, h.store.record.spki]);
 	expect(h.navigations).toEqual(["reload"]);
 });
+
+test("a write that fails after pagehide does nothing more; the return restarts the factor step", async () => {
+	const h = await harness();
+	h.queue("/owner/sign-in", proof());
+	await h.client.attempts.submit("sign-in", signIn);
+	const write = Promise.withResolvers<void>();
+	h.store.hold = write.promise;
+	h.store.failCommit = true;
+	h.queue("/owner/factor", session("s1"));
+	const factor = h.client.attempts.factor("123456");
+	await Bun.sleep(5);
+	h.client.pagehide();
+	write.resolve();
+	await factor;
+	expect(h.to("/owner/sign-out")).toHaveLength(0);
+	expect(h.view()).toMatchObject({ message: null });
+	h.client.pageshow(true);
+	await Bun.sleep(5);
+	expect(h.view()).toMatchObject({
+		message: "Sign-in restarted. Enter your username and password again.",
+	});
+});

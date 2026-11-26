@@ -226,10 +226,15 @@ export function createSignInAttempts(owner: {
 
 	async function commit(current: Attempt, issued: Issued, alive: () => boolean) {
 		if (!alive()) return null;
-		let stored: boolean;
+		let stored: boolean | null;
 		try {
 			stored = await owner.keys.commit(installation(), current.candidate, current.expected);
 		} catch {
+			stored = null;
+		}
+		// A `pagehide` during the write: the return re-reads the stored key instead.
+		if (!alive()) return null;
+		if (stored === null) {
 			await abandon(current.candidate, issued.loginId);
 			drop();
 			changed({ factor: false, retry: false, message: new KeyUnavailable().message });
@@ -241,8 +246,6 @@ export function createSignInAttempts(owner: {
 			owner.open("/");
 			return null;
 		}
-		// A `pagehide` during the write: the return re-reads the stored key instead.
-		if (!alive()) return null;
 		drop();
 		owner.bind(
 			issued,
