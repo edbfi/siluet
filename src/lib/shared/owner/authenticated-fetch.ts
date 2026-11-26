@@ -69,15 +69,27 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 		};
 		// Captured now, before any renewal or wait.
 		const pinned = siluetSession ?? client.bound()?.sessionId ?? null;
+		// A body is applied once, to a request each send clones, so a resend never reuses a
+		// consumed body. `init.body` replaces the caller's `Request` body, even a consumed one.
+		const { body, ...bodiless } = forwarded;
+		let base: Request | null;
+		try {
+			base = request || body != null ? new Request(input, forwarded) : null;
+		} catch (error) {
+			return Promise.reject(error);
+		}
 
 		function send(bearer: string | null) {
 			const sent = client.remountKey;
 			const outgoing = new Headers(headers);
 			if (bearer) outgoing.set("authorization", `Bearer ${bearer}`);
 			else outgoing.delete("authorization");
-			const options = flagged({ ...forwarded, headers: outgoing, credentials: "omit" as const });
-			// A clone keeps the caller's body for a resend; building a Request from one consumes it.
-			const outgoingInput = request ? new Request(request.clone(), options) : input;
+			const options = flagged({
+				...(base ? bodiless : forwarded),
+				headers: outgoing,
+				credentials: "omit" as const,
+			});
+			const outgoingInput = base ? new Request(base.clone(), options) : input;
 			return native(outgoingInput, options).then(async (response) => {
 				// A response from before a remount applies nothing. A recovery answer covers the whole
 				// host, so it still reaches its caller. A Security response always reaches its

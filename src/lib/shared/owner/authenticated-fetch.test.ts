@@ -396,6 +396,7 @@ describe("concurrent requests and studio errors", () => {
 		const recovery = { ...access, retry: false, recoveryRequired: true };
 		for (const answer of [
 			{ status: 503, body: recovery },
+			{ status: 503, body: access },
 			{ status: 200, body: { ok: true } },
 		]) {
 			const headers = Promise.withResolvers<void>();
@@ -408,21 +409,20 @@ describe("concurrent requests and studio errors", () => {
 			// A sibling request's answer remounts the studio before this one's headers arrive.
 			h.client.dropDrafts();
 			headers.resolve();
-			if (answer.status === 503) {
+			if (answer.body === recovery) {
 				const response = await load;
 				expect([response.status, await response.json()]).toEqual([503, recovery]);
 				// The remount already dropped the drafts; this answer drops nothing more.
 				expect(h.client.remountKey).toBe(1);
 			} else {
-				// Any other answer from before the remount applies nothing.
+				// Any other answer from before the remount, an access error included, applies nothing.
 				await expect(load).rejects.toMatchObject({ name: "AbortError" });
 			}
 		}
 	});
 
-	test("a Request with a body is resent whole after a hook refusal", async () => {
-		// Browsers move a source Request's body into the Request built from it, leaving the source
-		// unusable; Bun copies it.
+	/** Browsers move a source Request's body into the Request built from it; Bun copies it. */
+	function withBrowserRequests(run: () => Promise<void>) {
 		const BunRequest = Request;
 		const moved = new WeakSet<Request>();
 		const usable = (request: Request) => {
@@ -430,7 +430,8 @@ describe("concurrent requests and studio errors", () => {
 		};
 		class BrowserRequest extends BunRequest {
 			constructor(input: RequestInfo | URL, init?: RequestInit) {
-				if (input instanceof BunRequest) usable(input);
+				// A replacement body makes even a used source acceptable.
+				if (input instanceof BunRequest && init?.body == null) usable(input);
 				super(input, init);
 				if (input instanceof BunRequest && input.body && init?.body == null) moved.add(input);
 			}
@@ -440,21 +441,59 @@ describe("concurrent requests and studio errors", () => {
 			}
 		}
 		globalThis.Request = BrowserRequest;
-		try {
-			const h = harness();
-			h.resumes.push(session("s1"), session("s1", "bearer-2"));
-			h.routes.push(
-				() => refused(),
-				() => ({ status: 200, body: {} }),
-			);
+		return run().finally(() => {
+			globalThis.Request = BunRequest;
+		});
+	}
+
+	function refusedThenOk() {
+		const h = harness();
+		h.resumes.push(session("s1"), session("s1", "bearer-2"));
+		h.routes.push(
+			() => refused(),
+			() => ({ status: 200, body: {} }),
+		);
+		return h;
+	}
+
+	test("a Request with a body is resent whole after a hook refusal", () =>
+		withBrowserRequests(async () => {
+			const h = refusedThenOk();
 			const request = new Request(`${origin}/image/queue`, { method: "POST", body: "prompt" });
 			expect((await h.fetch(request)).status).toBe(200);
 			expect(await Promise.all(h.sent.map((sent) => sent.text()))).toEqual(["prompt", "prompt"]);
 			expect(h.sent[1].headers.get("authorization")).toBe("Bearer bearer-2");
-		} finally {
-			globalThis.Request = BunRequest;
-		}
-	});
+		}));
+
+	test("a replacement body is sent and resent, even for a used Request", () =>
+		withBrowserRequests(async () => {
+			const h = refusedThenOk();
+			const request = new Request(`${origin}/image/queue`, { method: "POST", body: "old" });
+			new Request(request);
+			const response = await h.fetch(request, { body: "replacement" });
+			expect(response.status).toBe(200);
+			expect(await Promise.all(h.sent.map((sent) => sent.text()))).toEqual([
+				"replacement",
+				"replacement",
+			]);
+		}));
+
+	test("a stream body is resent whole after a hook refusal", () =>
+		withBrowserRequests(async () => {
+			const h = refusedThenOk();
+			const body = new ReadableStream({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode("streamed"));
+					controller.close();
+				},
+			});
+			const init = { method: "POST", body, duplex: "half" } as RequestInit;
+			expect((await h.fetch(`${origin}/image/queue`, init)).status).toBe(200);
+			expect(await Promise.all(h.sent.map((sent) => sent.text()))).toEqual([
+				"streamed",
+				"streamed",
+			]);
+		}));
 
 	test("SvelteKit's load flag reaches its own fetch, still hidden from enumeration", async () => {
 		const h = harness();
