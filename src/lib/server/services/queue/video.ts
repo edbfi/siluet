@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
-import { queueEvidenceProblem } from "../../../shared/media-catalog/registry";
+import { queueEvidenceProblem } from "../../../shared/media-catalog/filtering";
 import { frameReviewLabels, roleMedia } from "../../../shared/video-studio/keyframes";
 import type { PoyoVideoBody } from "../../../shared/video-studio/poyo-video";
 import { previewVideo, type VideoRequest } from "../../../shared/video-studio/request";
@@ -68,7 +68,11 @@ export async function createVideoQueue(
 		);
 		const state = current?.state ?? "disconnected";
 		const blockers = [
-			queueEvidenceProblem(input.operation.evidence),
+			queueEvidenceProblem(
+				input.operation.evidence,
+				input.operation.key.provider,
+				input.disclosures,
+			),
 			saveLimitProblem(input.operation),
 			state === "eligible" ? null : provider === "poyo" ? poyoAccessMessage : accessMessage[state],
 		].filter((s): s is string => !!s);

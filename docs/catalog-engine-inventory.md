@@ -2,10 +2,17 @@
 
 Generated on 2026-11-26 from the [ledger](media-catalog.v1.json) (observed 2026-11-22) by expanding each documented row into its `(provider, ID, route, operation)` keys. It is a snapshot for [the catalog engine spec](SPEC-catalog-engine.md): from G2a, `bun run catalog:coverage` regenerates this inventory, with option gaps per derived row, and CI fails on any difference. **G*n*** is an engine slice, **P3** is bespoke Phase 3 work, and **Q** is an evidence question. Every item lands before the v0.1.0 tag ([D11](decisions.md#d11--v010-waits-for-full-d2-coverage)).
 
-Expanded keys: 647, of which Poyo.ai 317 (5 verified) and ToAPIs 330 (6 verified). Engine slices hold 496, Phase 3 147 and evidence questions 4. A route alias adds no key: Midjourney `imagine` counts once, on its primary route. A slice listed here may still leave a key pending when its schema, input class, Save bound or D4 table blocks it; `catalog:coverage` names that reason per key.
+<!-- catalog:coverage summary -->
+Expanded keys: 647, of which Poyo.ai 317 (5 verified) and ToAPIs 330 (6 verified). Engine slices hold 496, Phase 3 147 and evidence questions 4. A route alias adds no key: Midjourney `imagine` counts once, on its primary route. `catalog:coverage` names each pending key's reason.
+
+Keys: verified 11, contract-covered 0, pending 632, unsupported 0, unknown 4. Option obligations of the derived Poyo.ai rows: 1491; verified 13, contract-covered 0, pending 1375, unsupported 0, unknown 103. Fixed values (the D4 `false`, a pinned `n: 1`, a fixed sentinel) add none.
+
+**Tag-blocking count: 2114.** Pending pairs and options 2006; documented values a Siluet envelope excludes 1; options or pairs without a covered path, each with its question, 107; provider-unsupported pairs without evidence 0; unknown pairs or options without a question 0.
+<!-- /catalog:coverage -->
 
 ## Documented operations
 
+<!-- catalog:coverage operations -->
 | Assigned to | Provider | Operation | Keys | Verified |
 | --- | --- | --- | ---: | ---: |
 | G4 | Poyo.ai | `text-to-image` | 47 | 2 |
@@ -21,8 +28,8 @@ Expanded keys: 647, of which Poyo.ai 317 (5 verified) and ToAPIs 330 (6 verified
 | G10a | ToAPIs | `text-to-image` | 41 | 1 |
 | G10a after G13 · Q: documented output bound | ToAPIs | `text-to-webpage-image` | 1 |  |
 | G10b | ToAPIs | `reference-image-edit` | 41 | 1 |
-| G10b after G13 · Q: documented output bound | ToAPIs | `reference-guided-webpage-image` | 1 |  |
 | G10b after G13 · Q: documented output bound | ToAPIs | `reference-guided-ecommerce-image` | 1 |  |
+| G10b after G13 · Q: documented output bound | ToAPIs | `reference-guided-webpage-image` | 1 |  |
 | G11a | ToAPIs | `text-to-video` | 43 | 1 |
 | G11b | ToAPIs | `first-frame-to-video` | 43 | 1 |
 | G11b | ToAPIs | `first-and-last-frame-to-video` | 26 | 1 |
@@ -37,14 +44,14 @@ Expanded keys: 647, of which Poyo.ai 317 (5 verified) and ToAPIs 330 (6 verified
 | P3 · audio and avatar inputs | Poyo.ai | `character-video-and-driving-audio-to-avatar-video` | 2 |  |
 | P3 · audio and avatar inputs | Poyo.ai | `public-avatar-and-driving-audio-to-video` | 2 |  |
 | P3 · audio and avatar inputs | Poyo.ai | `public-avatar-and-text-to-video` | 2 |  |
-| P3 · draft and draft-to-final chain | ToAPIs | `draft-video-generation` | 1 |  |
 | P3 · draft and draft-to-final chain | ToAPIs | `draft-to-final-video` | 1 |  |
+| P3 · draft and draft-to-final chain | ToAPIs | `draft-video-generation` | 1 |  |
 | P3 · GIF and SVG output | Poyo.ai | `text-to-gif` | 2 |  |
 | P3 · GIF and SVG output | Poyo.ai | `image-to-svg` | 1 |  |
-| P3 · GIF and SVG output | Poyo.ai | `text-to-svg` | 1 |  |
 | P3 · GIF and SVG output | Poyo.ai | `reference-guided-text-to-svg` | 1 |  |
-| P3 · GIF and SVG output | ToAPIs | `text-to-gif` | 4 |  |
+| P3 · GIF and SVG output | Poyo.ai | `text-to-svg` | 1 |  |
 | P3 · GIF and SVG output | ToAPIs | `image-to-gif` | 4 |  |
+| P3 · GIF and SVG output | ToAPIs | `text-to-gif` | 4 |  |
 | P3 · GIF and SVG output | ToAPIs | `text-to-svg` | 4 |  |
 | P3 · layer decomposition | Poyo.ai | `image-layer-decomposition` | 1 |  |
 | P3 · layer decomposition | ToAPIs | `image-layer-decomposition` | 2 |  |
@@ -52,21 +59,21 @@ Expanded keys: 647, of which Poyo.ai 317 (5 verified) and ToAPIs 330 (6 verified
 | P3 · mask, markup and localized edits | Poyo.ai | `localized-mask-image-edit` | 1 |  |
 | P3 · mask, markup and localized edits | ToAPIs | `mask-image-edit` | 4 |  |
 | P3 · mask, markup and localized edits | ToAPIs | `markup-guided-image-edit` | 2 |  |
-| P3 · Midjourney actions | ToAPIs | `imagine` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `blend` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `edits` | 1 |  |
-| P3 · Midjourney actions | ToAPIs | `upscale` | 1 |  |
-| P3 · Midjourney actions | ToAPIs | `variation` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `high-variation` | 1 |  |
+| P3 · Midjourney actions | ToAPIs | `image-to-video` | 1 |  |
+| P3 · Midjourney actions | ToAPIs | `imagine` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `low-variation` | 1 |  |
-| P3 · Midjourney actions | ToAPIs | `reroll` | 1 |  |
-| P3 · Midjourney actions | ToAPIs | `zoom` | 1 |  |
-| P3 · Midjourney actions | ToAPIs | `pan` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `mask-inpainting` | 1 |  |
+| P3 · Midjourney actions | ToAPIs | `pan` | 1 |  |
+| P3 · Midjourney actions | ToAPIs | `parent-task-image-to-video` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `remix-strong` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `remix-subtle` | 1 |  |
-| P3 · Midjourney actions | ToAPIs | `image-to-video` | 1 |  |
-| P3 · Midjourney actions | ToAPIs | `parent-task-image-to-video` | 1 |  |
+| P3 · Midjourney actions | ToAPIs | `reroll` | 1 |  |
+| P3 · Midjourney actions | ToAPIs | `upscale` | 1 |  |
+| P3 · Midjourney actions | ToAPIs | `variation` | 1 |  |
+| P3 · Midjourney actions | ToAPIs | `zoom` | 1 |  |
 | P3 · multi-output and image sets | Poyo.ai | `sequential-image-set` | 1 |  |
 | P3 · multi-output and image sets | ToAPIs | `sequential-image-set` | 4 |  |
 | P3 · multi-shot | Poyo.ai | `multi-shot-video-generation` | 9 |  |
@@ -77,16 +84,16 @@ Expanded keys: 647, of which Poyo.ai 317 (5 verified) and ToAPIs 330 (6 verified
 | P3 · positioned, last-frame and multi keyframes | ToAPIs | `keyframes-to-video` | 1 |  |
 | P3 · source-video operations on Poyo.ai | Poyo.ai | `video-edit` | 6 |  |
 | P3 · source-video operations on Poyo.ai | Poyo.ai | `image-and-motion-video-to-video` | 3 |  |
-| P3 · source-video operations on Poyo.ai | Poyo.ai | `video-to-video` | 1 |  |
 | P3 · source-video operations on Poyo.ai | Poyo.ai | `video-background-removal` | 1 |  |
-| P3 · source-video operations on Poyo.ai | Poyo.ai | `video-dubbing-and-subtitle-translation` | 1 |  |
-| P3 · source-video operations on Poyo.ai | Poyo.ai | `video-upscaling` | 1 |  |
 | P3 · source-video operations on Poyo.ai | Poyo.ai | `video-character-replacement` | 1 |  |
+| P3 · source-video operations on Poyo.ai | Poyo.ai | `video-dubbing-and-subtitle-translation` | 1 |  |
+| P3 · source-video operations on Poyo.ai | Poyo.ai | `video-to-video` | 1 |  |
+| P3 · source-video operations on Poyo.ai | Poyo.ai | `video-upscaling` | 1 |  |
 | P3 · subjects and non-URL characters | ToAPIs | `character-reference-to-video` | 1 |  |
 | P3 · subjects and non-URL characters | ToAPIs | `subjects-to-video` | 1 |  |
-| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `text-to-video` | 3 |  |
 | P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `first-frame-to-video` | 3 |  |
 | P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `image-reference-to-video` | 3 |  |
+| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `text-to-video` | 3 |  |
 | P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `video-extension` | 3 |  |
 | P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `video-remix` | 3 |  |
 | P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `first-and-last-frame-to-video` | 2 |  |
@@ -98,6 +105,7 @@ Expanded keys: 647, of which Poyo.ai 317 (5 verified) and ToAPIs 330 (6 verified
 | P3 · video or audio references | ToAPIs | `image-and-video-reference-to-video` | 2 |  |
 | P3 · video or audio references | ToAPIs | `subject-and-motion-reference-to-video` | 2 |  |
 | P3 · video or audio references | ToAPIs | `image-and-audio-reference-to-video` | 1 |  |
+<!-- /catalog:coverage -->
 
 ## Discovery-only IDs
 
@@ -139,33 +147,92 @@ Between `747e5d7` and the current head `ec73207` (checked 2026-11-26). G2c re-pi
 
 ## Option classes in the pinned schemas
 
-Each in-scope `747e5d7` property, by the input class it needs. "Entries" counts entries carrying at least one property of the class. G2a replaces this table with per-row option gaps.
+Generated by `catalog:coverage` from the derived rows (`poyo-rows.json`). Each Poyo.ai ID lists the creator options whose path is blocked by more than its row's slice: a construct, an unresolved domain, a composer gap or an open question. Options waiting only for their slice are counted in the summary above. Fixed values (the D4 `false`, a pinned `n: 1`) are not options.
 
-| Class | Entries | Path |
-| --- | ---: | --- |
-| prompt | 153 | qualified (G4, G7) |
-| enum and integer options | 150 | qualified (G4, G7) within the validator |
-| `image_urls` on images | 72 | qualified 1–10 (G5); 11–16 on `minimax-h3-image` (G6b) |
-| `image_urls` on video | 72 | G8 frames; G8b where the schema makes them references |
-| boolean options | 59 | G4 and G7 qualify booleans |
-| source or reference video URLs | 41 | P3 (Poyo.ai source-video and video references) |
-| output format and compression | 35 | G3 |
-| output count (`n`, `max_images`, `enable_sequential`) | 34 | pinned to one output; P3 multi-output |
-| free-text options (`negative_prompt`, `text` …) | 34 | G7 qualifies free text on video; Q6 on Poyo.ai images |
-| prose-only string domains | 16 | reviewed typing rule per row; otherwise omitted ([below](#prose-only-domains)) |
-| `enable_safety_checker` | 31 | D4 table (G4, G6, G7) |
-| image references on video | 28 | G8b |
-| audio, voice and avatar inputs | 27 | P3 audio and avatars |
-| arrays of objects (elements, shots, keyframes) | 21 | P3 subjects, multi-shot, keyframes |
-| mask (`mask_url`) | 14 | P3 masks |
-| frame URL fields (`start_image_url`, `end_image_url`) | 9 | G8 with a reviewed role note |
-| untyped properties | 6 | validator gap; Q per row |
-| file and webpage references | 6 | Q accepted types and fetching |
-| number options | 3 | Q3 (`kling-1.6/pro` once a frame size is documented) |
-| image references on images | 2 | G5 with a reviewed role note |
-| parent task (`task_id`) | 2 | P3 prerequisites |
+<!-- catalog:coverage option-gaps -->
+| ID | Options beyond the row's slice |
+| --- | --- |
+| `create-music-video` | `audio_id`, `task_id`: domain only in prose: Phase 3 prerequisites |
+| `flux-3-klein` | `n`: P3 · multi-output and image sets; `prompt`: question 10: prompt limit not documented |
+| `flux-3-klein-edit` | `n`: P3 · multi-output and image sets; `prompt`: question 10: prompt limit not documented |
+| `flux-3-max/image-to-video` | `prompt`: question 10: prompt limit not documented |
+| `flux-3-max/keyframes-to-video` | `aspect_ratio`, `duration`, `resolution`, `sound`: required input uses keyframes nested object; `prompt`: question 10: prompt limit not documented |
+| `flux-3-max/text-to-video` | `prompt`: question 10: prompt limit not documented |
+| `flux-3/extend-video` | `prompt`: question 10: prompt limit not documented |
+| `flux-3/first-last-frame-to-video` | `prompt`: question 10: prompt limit not documented |
+| `flux-3/image-to-video` | `prompt`: question 10: prompt limit not documented |
+| `flux-3/keyframes-to-video` | `prompt`: question 10: prompt limit not documented |
+| `flux-3/text-to-video` | `prompt`: question 10: prompt limit not documented |
+| `flux-dev` | `prompt`: question 10: prompt limit not documented; `size`: uses oneOf |
+| `flux-schnell` | `prompt`: question 10: prompt limit not documented; `size`: uses oneOf |
+| `gemini-omni-1.2-flash` | `aspect_ratio`, `duration`, `prompt`, `resolution`: schema uses x-server-validation |
+| `generate-music-cover` | `task_id`: domain only in prose: Phase 3 prerequisites |
+| `gpt-image-2` | `size`: domain only in prose: typing rule with G4 |
+| `gpt-image-2-edit` | `size`: domain only in prose: typing rule with G5 |
+| `gpt-image-2.5-flare` | `size`: uses pattern "^(?:auto\|1:1\|2:3\|3:2\|4:3\|3:4\|4:5\|5:4\|16:9\|9:16\|21:9\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
+| `gpt-image-2.5-sunburst` | `size`: uses pattern "^(?:auto\|1:1\|2:3\|3:2\|4:3\|3:4\|4:5\|5:4\|16:9\|9:16\|21:9\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
+| `gpt-image-2.6-fixed` | `resolution`: question 7: only the catalog lists it, and the other is closed |
+| `gpt-image-2.6-flare` | `output_format`: question 8: the catalog and the API schema disagree; `size`: uses pattern "^(?:auto\|1:1\|2:3\|3:2\|4:3\|3:4\|4:5\|5:4\|16:9\|9:16\|21:9\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
+| `gpt-image-2.6-sunburst` | `output_format`: question 8: the catalog and the API schema disagree; `size`: uses pattern "^(?:auto\|1:1\|2:3\|3:2\|4:3\|3:4\|4:5\|5:4\|16:9\|9:16\|21:9\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
+| `grok-imagine-image-2.0` | `n`: P3 · multi-output and image sets |
+| `grok-imagine-image-quality` | `prompt`: question 10: prompt limit not documented |
+| `h3-max` | `aspect_ratio`: composer omits "adaptive"; `duration`: composer offers 5–10 of 5–15; `prompt`: Siluet's 4000-byte envelope excludes the documented 50000 characters; `resolution`: composer omits "1080p" |
+| `heygen-avatar-6` | `aspect_ratio`, `prompt`, `resolution`, `text`: schema uses oneOf, x-server-validation; `avatar`, `voice`: domain only in prose: Phase 3 audio and avatars |
+| `heygen-avatar-6-turbo` | `aspect_ratio`, `prompt`, `resolution`, `text`: schema uses oneOf, x-server-validation; `avatar`, `voice`: domain only in prose: Phase 3 audio and avatars |
+| `ideogram-v4.5` | `n`: P3 · multi-output and image sets |
+| `ideogram-v4.5-edit` | `edit_precision`: uses const; `n`: P3 · multi-output and image sets; `prompt`, `quality`: required input uses image_urls pattern "^(https?://\\S+\|data:image/\\S+)$"; `size`: uses const, pattern "^(auto\|1:1\|1:1 HD\|4:3\|3:4\|16:9\|9:16\|[0-9]+x[0-9]+)$" |
+| `ideogram-v4.6` | `background`, `prompt`, `quality`, `seed`: not in the pinned catalog: G2c re-pins; `n`: P3 · multi-output and image sets; `size`: uses pattern "^(auto\|1:1\|1:1 HD\|4:3\|3:4\|16:9\|9:16\|[0-9]+x[0-9]+)$" |
+| `ideogram-v4.6-edit` | `background`, `prompt`, `quality`, `seed`: not in the pinned catalog: G2c re-pins; required input uses image_urls pattern "^(https?://\\S+\|data:image/[A-Za-z0-9.+-]+;base64,\\S+)$"; `context_window`, `edit_precision`: uses const; `n`: P3 · multi-output and image sets; `size`: uses const, pattern "^(auto\|1:1\|1:1 HD\|4:3\|3:4\|16:9\|9:16\|[0-9]+x[0-9]+)$" |
+| `ideogram-vector-1.0/image-to-vector` | `mode`: required input uses image_urls oneOf |
+| `ideogram-vector-1.0/text-to-vector` | `n`: P3 · multi-output and image sets |
+| `kling-2.1/pro` | `negative_prompt`: question 10: prompt limit not documented |
+| `kling-2.1/standard` | `negative_prompt`: question 10: prompt limit not documented |
+| `kling-2.5-turbo-pro` | `aspect_ratio`: question 11: domain not documented; `negative_prompt`: question 10: prompt limit not documented |
+| `kling-4.0` | `aspect_ratio`, `duration`, `prompt`, `resolution`: schema uses oneOf, x-server-validation; `dynamic_range`: question 7: only the API schema lists it, and the other is closed; `resolution`: question 8: the catalog and the API schema disagree |
+| `kling-4.0-flash` | `aspect_ratio`, `duration`, `prompt`, `resolution`: schema uses x-server-validation |
+| `kling-4.0-image` | `n`: P3 · multi-output and image sets |
+| `kling-o1-image-edit` | `n`: P3 · multi-output and image sets |
+| `kling-o3-image` | `n`: P3 · multi-output and image sets |
+| `kling-o3-image-edit` | `n`: P3 · multi-output and image sets |
+| `mai-image-2.6` | `size`: uses pattern "^(?:1:1\|4:3\|3:4\|3:2\|2:3\|16:9\|9:16\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
+| `mai-image-2.6-flash` | `size`: uses pattern "^(?:1:1\|4:3\|3:4\|3:2\|2:3\|16:9\|9:16\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
+| `mai-image-2.7` | `size`: uses pattern "^(?:1:1\|4:3\|3:4\|3:2\|2:3\|16:9\|9:16\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
+| `mai-image-2.7-flash` | `size`: uses pattern "^(?:1:1\|4:3\|3:4\|3:2\|2:3\|16:9\|9:16\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
+| `minimax-h3-image` | `size`: domain only in prose: typing rule with G6 |
+| `nano-banana-2-lite` | `prompt`: question 10: prompt limit not documented |
+| `nano-banana-2-lite-edit` | `prompt`: question 10: prompt limit not documented |
+| `omnihuman-2.0` | `prompt`: question 10: prompt limit not documented |
+| `poyo-ai/image-translator` | `protect_text`, `synthesis_on_image`, `translate_on_image`: question 7: only the catalog lists it, and the other is closed; `source_language`, `target_language`: question 6: domain only in prose |
+| `poyo-ai/video-translator` | `remove_bg_audio`, `voice_role_id`, `wy_need_text`: question 7: only the catalog lists it, and the other is closed; `source_language`, `target_language`: domain only in prose: Phase 3 source-video work |
+| `seedance-2.5` | `prompt`: question 10: prompt limit not documented; `resolution`: question 8: the catalog and the API schema disagree |
+| `seedance-2.5-flash` | `prompt`: question 10: prompt limit not documented |
+| `seedream-4` | `n`: P3 · multi-output and image sets |
+| `seedream-4-edit` | `n`: P3 · multi-output and image sets |
+| `seedream-4.5` | `n`: P3 · multi-output and image sets; `n`: question 8: the catalog and the API schema disagree; `size`: uses oneOf |
+| `seedream-4.5-edit` | `n`: P3 · multi-output and image sets; `n`: question 8: the catalog and the API schema disagree; `size`: uses oneOf |
+| `seedream-5.0-lite` | `n`: P3 · multi-output and image sets; `size`: uses oneOf |
+| `seedream-5.0-lite-edit` | `n`: P3 · multi-output and image sets; `size`: uses oneOf |
+| `seedream-5.0-pro` | `prompt`: question 10: prompt limit not documented |
+| `seedream-5.0-pro-edit` | `prompt`: question 10: prompt limit not documented |
+| `seedream-5.5-layerize` | `max_images`: P3 · multi-output and image sets |
+| `veo3.1-fast` | `prompt`: question 10: prompt limit not documented |
+| `veo3.1-fast-official` | `prompt`: question 10: prompt limit not documented |
+| `veo3.1-lite` | `prompt`: question 10: prompt limit not documented |
+| `veo3.1-lite-official` | `prompt`: question 10: prompt limit not documented |
+| `veo3.1-quality` | `prompt`: question 10: prompt limit not documented |
+| `veo3.1-quality-official` | `prompt`: question 10: prompt limit not documented |
+| `wan-2.7-image` | `n`: P3 · multi-output and image sets; `size`: uses oneOf |
+| `wan-2.7-image-pro` | `n`: P3 · multi-output and image sets; `size`: uses oneOf |
+| `wan2.5-image-to-video` | `audio`: question 11: domain not documented; `negative_prompt`: question 10: prompt limit not documented |
+| `wan2.5-text-to-video` | `audio`: question 11: domain not documented; `negative_prompt`: question 10: prompt limit not documented |
+| `wan2.7-edit-video` | `audio_setting`: domain only in prose: Phase 3 source-video work |
+| `wan2.7-image-to-video` | `audio_setting`: question 11: domain not documented |
+| `wan2.7-reference-to-video` | `audio_setting`: question 11: domain not documented |
+| `wan2.7-text-to-video` | `audio_setting`: question 11: domain not documented |
+| `z-image` | `size`: not offered by the composer |
+<!-- /catalog:coverage -->
 
-Constructs outside the validator, each until a reviewed rule covers it (G2a):
+Constructs outside the validator, each until a reviewed rule covers it. G2a binds the `flux-3-klein` and `flux-3-klein-edit` `size` rule to both schemas:
 
 - `const` (1): `ideogram-v4.5-edit`
 - `contains` (2): `kling-4.0`, `kling-4.0-flash`
@@ -201,16 +268,16 @@ Catalog fields that a closed REST input does not list. Each is a contradiction f
 - `poyo-ai/image-translator`: `protect_text`, `synthesis_on_image`, `translate_on_image`
 - `poyo-ai/video-translator`: `wy_need_text`, `voice_role_id`, `remove_bg_audio`
 
+The dated OpenAPI projection also lists `dynamic_range` on `kling-4.0`, whose pinned catalog entry is closed without it. The stricter schema wins, so it is never offered, and it is unknown with question 7 until G2c re-pins.
+
 ## Disputed domains
 
-Fields that both the pinned catalog and the model's OpenAPI input list with different limits, found by comparing `enum`, `minimum`, `maximum`, `minItems`, `maxItems`, `minLength` and `maxLength`. The shared domain stays eligible, and the disputed values are unknown with [question 8](SPEC-catalog-engine.md#open-questions). Rows marked *multi* come from a spec that serves several models, where the throwaway comparison takes the union of branches; G2a confirms them per branch.
+Fields that both the pinned catalog and the model's OpenAPI input list with different limits, found by comparing `enum`, `minimum`, `maximum`, `minItems`, `maxItems`, `minLength` and `maxLength`. The shared domain stays eligible, and the disputed values are unknown with [question 8](SPEC-catalog-engine.md#open-questions). Rows marked *multi* come from a spec that serves several models. G2a resolved each model's own branch where the spec selects one: `ideogram-v4.5`'s generation input agrees with the catalog on `quality` and `size`, so those two rows are gone. The Seedream 4.5 and Ideogram Vector specs share one input across their models, which stays the documented input for each.
 
 | ID | Field | Catalog | OpenAPI input | Disputed |
 | --- | --- | --- | --- | --- |
 | `seedream-4.5`, `seedream-4.5-edit` (multi) | `n` | 1–15 | 1–6 | 7–15, unknown with question 8; 2–6 are Phase 3 multi-output obligations |
 | `gpt-image-2.6-flare`, `gpt-image-2.6-sunburst` | `output_format` | gif, jpeg, png, webp | jpeg, png, webp | gif (never offered) |
-| `ideogram-v4.5` (multi) | `quality` | high, low, medium | adds `very_low` | `very_low` |
-| `ideogram-v4.5` (multi) | `size` | 43-value enum | untyped string | values outside the enum |
 | `ideogram-vector-1.0/text-to-vector` (multi) | `image_urls` | 1–5 items | no item limits | more than 5 |
 | `ideogram-vector-1.0/image-to-vector` (multi) | `image_urls` | 1 item | no item limits | more than 1 |
 | `kling-4.0` | `resolution` | 1080p, 720p | adds `4k` | `4k` at `747e5d7`; agreed at `ec73207` |
@@ -237,19 +304,21 @@ String options that are not free text and whose domain appears only in a descrip
 
 ## Prompt limits
 
-Fields with free text (`prompt`, `negative_prompt`, `text` and similar) whose catalog schema and OpenAPI input at `747e5d7` both state no `maxLength`, found by a throwaway script on 2026-11-26 that also read each field's description. Each takes Siluet's envelope, enforced by Queue, and its free text is unknown with [question 10](SPEC-catalog-engine.md#open-questions), "prompt limit not documented". G2a re-derives the list per row and reads each model page before it assigns question 10.
+Free-text fields (`prompt`, `negative_prompt`, `text` and similar) whose catalog schema and OpenAPI input both state no `maxLength`, derived per row by `catalog:coverage`. G2a read each model's page on 2026-11-26 before assigning [question 10](SPEC-catalog-engine.md#open-questions), "prompt limit not documented": none of them states a limit for these fields. The pages and their SHA-256 are recorded in `scripts/media-catalog/sources/page-reviews.json`. Each takes Siluet's envelope, enforced by Queue.
 
+<!-- catalog:coverage prompt-limits -->
 | Envelope | IDs | Field |
 | --- | --- | --- |
 | 5,000 code points | `flux-3-klein`, `flux-3-klein-edit`, `flux-dev`, `flux-schnell`, `grok-imagine-image-quality`, `nano-banana-2-lite`, `nano-banana-2-lite-edit`, `seedream-5.0-pro`, `seedream-5.0-pro-edit` | `prompt` |
-| 4,000 UTF-8 bytes | `flux-3-max/image-to-video`, `flux-3-max/keyframes-to-video`, `flux-3-max/text-to-video`, `flux-3/extend-video`, `flux-3/first-last-frame-to-video`, `flux-3/image-to-video`, `flux-3/keyframes-to-video`, `flux-3/text-to-video`, `omnihuman-2.0`, `seedance-2.5`, `seedance-2.5-flash`, `veo3.1-extend`, `veo3.1-fast`, `veo3.1-fast-official`, `veo3.1-lite`, `veo3.1-lite-official`, `veo3.1-quality`, `veo3.1-quality-official` | `prompt` |
+| 4,000 UTF-8 bytes | `flux-3-max/image-to-video`, `flux-3-max/keyframes-to-video`, `flux-3-max/text-to-video`, `flux-3/extend-video`, `flux-3/first-last-frame-to-video`, `flux-3/image-to-video`, `flux-3/keyframes-to-video`, `flux-3/text-to-video`, `omnihuman-2.0`, `seedance-2.5`, `seedance-2.5-flash`, `veo3.1-fast`, `veo3.1-fast-official`, `veo3.1-lite`, `veo3.1-lite-official`, `veo3.1-quality`, `veo3.1-quality-official` | `prompt` |
 | 4,000 UTF-8 bytes | `kling-2.1/pro`, `kling-2.1/standard`, `kling-2.5-turbo-pro`, `wan2.5-image-to-video`, `wan2.5-text-to-video` | `negative_prompt` |
+<!-- /catalog:coverage -->
 
 Rows that stay byte-limited: the 4,000-byte video rows above, and every ToAPIs video row, including verified `seedance-2-5`, until its descriptor records its page's limit (G11a). Every other video row is checked at its documented limit L in code points and at 4L UTF-8 bytes, which never refuses text within L. `h3-max` and `h3-max-turbo` (50,000) rise with G7. At `ec73207` the added IDs all state a limit.
 
 ## D4 states after the ledger migration
 
-Counted by exact model ID, because D4 applies per model. The ledger's 146 documented Poyo.ai rows hold 159 IDs. This query gives today's fields as `d4/catalogD4`:
+Counted by exact model ID, because D4 applies per model. The ledger's 146 documented Poyo.ai rows hold 159 IDs. This query gives the fields as `d4/catalogD4`:
 
 ```sh
 jq '[.providers.poyo.rows[] | select(.contract == "documented") | . as $r | .ids[]
@@ -257,9 +326,9 @@ jq '[.providers.poyo.rows[] | select(.contract == "documented") | . as $r | .ids
   docs/media-catalog.v1.json
 ```
 
-It returns `-/-` 89, `-/conflict` 2, `conflict/-` 33, `conflict/unknown` 4, `declared/-` 30, `declared/declared` 1. So 39 IDs carry `conflict`, 31 are declared and 89 have neither.
+Before G2a it returned `-/-` 89, `-/conflict` 2, `conflict/-` 33, `conflict/unknown` 4, `declared/-` 30, `declared/declared` 1. So 39 IDs carried `conflict`, 31 were declared and 89 had neither.
 
-After G2a, with the REST column from the OpenAPI projection: closed-absent 39, declared 31, open-absent 89. Every `conflict` ID becomes closed-absent, and no ID is a contradiction or a refusal. Over the 162 in-scope catalog entries the split is 37, 31 and 94: the entries add the five open discovery-only IDs and lack the two closed `ideogram-v4.6` IDs, which are not pinned. ToAPIs rows keep `declared`; each descriptor review sets `open-absent` or `refused` in place of the default `unknown`.
+G2a migrated the ledger, and the same query now returns `closed-absent/-` 39, `declared/-` 31 and `open-absent/-` 89, which the deriver reproduces from the projections. Every `conflict` ID becomes closed-absent, and no ID is a contradiction or a refusal. Over the 162 in-scope catalog entries the split is 37, 31 and 94: the entries add the five open discovery-only IDs and lack the two closed `ideogram-v4.6` IDs, which are not pinned. ToAPIs rows keep `declared`; each descriptor review sets `open-absent` or `refused` in place of the default `unknown`.
 
 | IDs | Ledger `d4` / `catalogD4` | Pinned catalog | REST input (OpenAPI) | New state |
 | --- | --- | --- | --- | --- |

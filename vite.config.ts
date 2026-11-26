@@ -3,6 +3,7 @@ import adapter from "@sveltejs/adapter-bun";
 import { sveltekit } from "@sveltejs/kit/vite";
 import { defineConfig } from "vite";
 
+import { clientBudget } from "./scripts/bundle-budget.ts";
 import { checkPublicAssets, guardPublicAssets } from "./scripts/public-assets.ts";
 
 checkPublicAssets("static");
@@ -44,6 +45,7 @@ export default defineConfig({
 			},
 		}),
 		panda({ transform: true }),
+		clientBudget(),
 	],
 	server: {
 		host: "127.0.0.1",

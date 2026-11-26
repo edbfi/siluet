@@ -9,6 +9,7 @@ import {
 } from "../../../shared/image-studio/file-edit";
 import { createImageReview } from "../../../shared/image-studio/review";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
+import { queueEvidenceProblem } from "../../../shared/media-catalog/filtering";
 import type { CleaningSetting } from "../../../shared/media-staging/cleaning";
 import { idleMs, lifetimeMs } from "../../db/access-store";
 import { claimFileSlots } from "../../db/file-attempt";
@@ -62,6 +63,10 @@ export type FileQueueOptions = {
 /** A staged copy agrees with the setting: cleaned while cleaning is on, original while off. */
 const agrees = (setting: CleaningSetting, live: FileRequest) =>
 	live.files.every(({ stage }) => setting.enabled === (stage.transform !== "original"));
+
+/** D4 blocks the row. File Reviews bind no D4 wording yet, so only a declared row can queue. */
+const filteringBlocked = (live: FileRequest) =>
+	queueEvidenceProblem(live.entry.evidence, live.input.provider) !== null;
 
 /** The first file slot over the provider's byte limit, refused before anything is sent. */
 function limit(live: FileRequest) {
@@ -225,6 +230,8 @@ export async function createFileQueue(
 				? stale()
 				: invalid;
 		if (!verifies(signature(id, terms, scope, live))) return invalid;
+		// After a claimed job's replay, before any stage is read or transferred.
+		if (filteringBlocked(live)) return invalid;
 		const key = `${id}\n${binding}`;
 		const shared = admitting.get(key);
 		if (shared) return shared;
@@ -350,6 +357,7 @@ export async function createFileQueue(
 			// R1b's single-file Review is gone; open tabs reload to review files.
 			if (live.version !== 3) return invalid;
 			if (typeof live.token === "string" && live.token.startsWith("file2.")) return invalid;
+			if (filteringBlocked(live)) return invalid;
 			const tooLarge = limit(live);
 			if (tooLarge) return tooLarge;
 			const provider = live.input.provider;

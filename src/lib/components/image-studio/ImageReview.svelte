@@ -23,10 +23,10 @@ import {
 import type { SeedreamDraft } from "#lib/shared/image-studio/seedream.ts";
 import { type ZImageDraft, zImageDisclosure } from "#lib/shared/image-studio/z-image.ts";
 import {
+	contractDeclaresField,
 	queueEvidenceProblem,
-	type ReleasedImageOperation,
-	zImageModel,
-} from "#lib/shared/media-catalog/registry.ts";
+} from "#lib/shared/media-catalog/filtering.ts";
+import { type ReleasedImageOperation, zImageModel } from "#lib/shared/media-catalog/registry.ts";
 import { sumAmounts } from "#lib/shared/pricing/decimal.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
 import type { PricingFeeds, PricingProvider } from "#lib/shared/pricing/feeds.ts";
@@ -116,7 +116,7 @@ type ReviewTerms = {
 };
 const unavailable = $derived.by(() => {
 	if (!connected && modelId === zImageModel.id) return "Connect Poyo.ai in Settings to queue.";
-	const evidenceProblem = entry && queueEvidenceProblem(entry.evidence);
+	const evidenceProblem = entry && queueEvidenceProblem(entry.evidence, entry.key.provider);
 	if (evidenceProblem) return evidenceProblem;
 	if (isEdit && duplicateWarning) return duplicateWarning;
 	if (localFiles) {
@@ -608,7 +608,7 @@ $effect(() => {
 							{entry.key.provider === "poyo"
 								? "The balance check accepted this key. Access to this model is unconfirmed."
 								: "The global image model list included this model for this key."}
-							{#if !queueEvidenceProblem(entry.evidence)}
+							{#if contractDeclaresField(entry.evidence)}
 								The model contract declares
 								<code
 									>{entry.key.provider === "poyo" ? "input.enable_safety_checker" : "disable_nsfw"}:

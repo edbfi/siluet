@@ -156,7 +156,10 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(toapis).toHaveCount(0);
 			await expect(request).toContainText("ToAPIs did not list Seedream 5.5 for this key.");
 			await expect(facts).toContainText("Access to this model is unconfirmed.");
-			await expect(facts).toContainText("input.enable_safety_checker: false");
+			// Shipped rows are declared, so only they say the contract declares the field (D4).
+			await expect(facts).toContainText(
+				/The model contract declares\s+input\.enable_safety_checker:\s+false/,
+			);
 
 			await settingsLink.press("Enter");
 			await toapisLink.press("Enter");

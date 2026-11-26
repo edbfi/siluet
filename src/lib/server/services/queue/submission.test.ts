@@ -7,6 +7,7 @@ import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-direct
 import { toapisRates } from "../../../../../tests/fixtures/toapis-feed";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
 import { zImageDisclosure } from "../../../shared/image-studio/z-image";
+import type { FilteringEvidence } from "../../../shared/media-catalog/filtering";
 import { pricingMaxAgeMs } from "../../../shared/pricing/feed";
 import { pricingSourceDate } from "../../../shared/pricing/feeds";
 import { poyoConfirmationMs, poyoFeedExpiryMs } from "../../../shared/pricing/poyo-feed";
@@ -649,18 +650,34 @@ test("the ordered-edit release's encrypted keys, unused token and durable claim 
 	expect(posted).toEqual(["fixture-global-image-key"]);
 });
 
-test.each(["poyo", "toapis"] as const)(
-	"a readable %s credential cannot override missing or conflicting filtering evidence",
-	async (provider) => {
+// Every D4 state but declared. Image Reviews bind no D4 wording yet, so each blocks here,
+// including the queueing states, until a slice binds their acknowledgement or disclosure.
+const undeclared: FilteringEvidence[] = [
+	{ d4: "closed-absent", closedBy: "api" },
+	{ d4: "closed-absent", closedBy: "catalog" },
+	{ d4: "closed-absent", closedBy: "both" },
+	{ d4: "open-absent" },
+	{ d4: "open-absent-fixed" },
+	{ d4: "declared", catalogOnly: true },
+	{ d4: "contradiction" },
+	{ d4: "refused" },
+	{ d4: "unknown" },
+];
+
+test.each([
+	["poyo", []],
+	["poyo", [referenceUrl]],
+	["toapis", []],
+	["toapis", [referenceUrl]],
+] as const)(
+	"a readable %s credential cannot override filtering evidence other than declared (%p)",
+	async (provider, urls) => {
 		const api = await queue();
-		const input = makeInput(provider);
+		const input = makeInput(provider, ...urls);
+		expect(input.entry.evidence).toEqual({ d4: "declared" });
 		const approved = await api.review("owner", input);
 		if (!("token" in approved)) throw new Error("Expected a compatible contract");
-		for (const evidence of [
-			{ d4: "unknown", catalogD4: "unknown" },
-			{ d4: "conflict", catalogD4: "declared" },
-			{ d4: "declared", catalogD4: "conflict" },
-		] as const) {
+		for (const evidence of undeclared) {
 			const blocked = { ...input, entry: { ...input.entry, evidence } };
 			expect(await api.review("owner", blocked)).toEqual({ error: "invalid" });
 			expect(
@@ -668,6 +685,10 @@ test.each(["poyo", "toapis"] as const)(
 			).toEqual({ error: "invalid" });
 		}
 		expect(posted).toBeEmpty();
+		expect(
+			await api.submit("owner", { ...input, token: approved.token, acceptUnknown: true }),
+		).toHaveProperty("jobId");
+		expect(posted).toHaveLength(1);
 	},
 );
 
@@ -750,10 +771,7 @@ test.each(["generate", "edit"] as const)(
 		const original = await api.review("owner", live);
 		if ("error" in original) throw new Error("Expected known price");
 		expect(original.quote).toMatchObject({ status: "known", perRequest: "2" });
-		for (const evidence of [
-			{ d4: "unknown", catalogD4: "unknown" },
-			{ d4: "declared", catalogD4: "conflict" },
-		] as const) {
+		for (const evidence of undeclared) {
 			const blocked = { ...live, entry: { ...live.entry, evidence } };
 			expect(await api.review("owner", blocked)).toEqual({ error: "invalid" });
 			expect(await api.submit("owner", { ...blocked, token: original.token })).toEqual({

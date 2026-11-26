@@ -6,6 +6,7 @@ import {
 	reviewBatchCounts,
 	reviewRetryLimits,
 } from "../../src/lib/shared/image-studio/review-price";
+import { d4States } from "../../src/lib/shared/media-catalog/filtering";
 import {
 	h3MaxOperation,
 	releasedModels,
@@ -17,7 +18,7 @@ import {
 	seedanceOperation,
 	seedanceOperations,
 } from "../../src/lib/shared/media-catalog/registry";
-import { catalogCoverage, documentedRoutes } from "./coverage";
+import { catalogCoverage, expandKeys, primaryRoute } from "./coverage";
 
 const { poyo, toapis } = ledger.providers;
 const providers = ["poyo", "toapis"] as const;
@@ -175,9 +176,9 @@ test.each(providers)("%s documents each route, alias and operation once", (provi
 		expect(row.sources.length).toBeGreaterThan(0);
 		expect(row.ids.length).toBeGreaterThan(0);
 		for (const id of row.ids) expect(id).toMatch(/^\S+$/);
-		for (const field of [row.d4, "catalogD4" in row ? row.catalogD4 : undefined]) {
-			expect(["declared", "conflict", "unknown"]).toContain(field ?? ledger.defaults.d4);
-		}
+		expect(d4States).toContain((row.d4 ?? ledger.defaults.d4) as (typeof d4States)[number]);
+		// catalogD4 survives only as the contradicting source beside a contradiction.
+		if ("catalogD4" in row) expect([row.catalogD4, row.d4]).toEqual(["conflict", "contradiction"]);
 		if (row.contract !== "documented") {
 			expect(["advertised", "unresolved"]).toContain(row.contract);
 			expect(row.route).toBeNull();
@@ -193,17 +194,24 @@ test.each(providers)("%s documents each route, alias and operation once", (provi
 			expect(rule.kind).toBeTruthy();
 			expect(typeof rule.upstreamOperationInScope).toBe("boolean");
 		}
-		for (const route of documentedRoutes(row)) {
-			expect(route).toMatch(/^POST \/\S+$/);
-			for (const id of row.ids) {
-				for (const operation of row.operations) {
-					const key = JSON.stringify([provider, id, route, operation]);
-					expect(keys.has(key)).toBe(false);
-					keys.add(key);
-				}
+		const route = primaryRoute(row);
+		expect(route).toMatch(/^POST \/\S+$/);
+		// An alias is the same contract on another path: checked, never counted as a key.
+		for (const alias of ("aliases" in row && row.aliases) || []) {
+			expect(alias).toMatch(/^POST \/\S+$/);
+			expect(alias).not.toBe(route);
+		}
+		for (const id of row.ids) {
+			for (const operation of row.operations) {
+				const key = JSON.stringify([provider, id, route, operation]);
+				expect(keys.has(key)).toBe(false);
+				keys.add(key);
 			}
 		}
 	}
+	const expanded = expandKeys().filter((key) => key.provider === provider);
+	expect(expanded).toHaveLength(keys.size);
+	expect(keys.size).toBe(provider === "poyo" ? 317 : 330);
 });
 
 test.each(providers)(
@@ -214,8 +222,7 @@ test.each(providers)(
 			for (const [operation, profile] of Object.entries(row.support ?? {})) {
 				expect(row.operations).toContain(operation);
 				expect(row.d4).toBe("declared");
-				const catalogD4 = ("catalogD4" in row && row.catalogD4) || ledger.defaults.d4;
-				expect(catalogD4).not.toBe("conflict");
+				expect("catalogD4" in row).toBe(false);
 				const support = ledger.supportProfiles[profile as keyof typeof ledger.supportProfiles];
 				expect(support.review).toBeTruthy();
 				expect(support.queue).toBeTruthy();
@@ -224,7 +231,7 @@ test.each(providers)(
 					shipped.push({
 						key: { provider, model, route: row.route, operation },
 						profile,
-						evidence: { d4: row.d4, catalogD4 },
+						evidence: { d4: row.d4 },
 					});
 				}
 			}
@@ -237,7 +244,7 @@ test.each(providers)(
 		expect(catalogCoverage(provider)).toEqual({
 			discoveredIds: provider === "poyo" ? 164 : 119,
 			unresolvedIds: provider === "poyo" ? 5 : 21,
-			documentedOperations: provider === "poyo" ? 317 : 331,
+			documentedOperations: provider === "poyo" ? 317 : 330,
 			prerequisiteBound: provider === "poyo" ? 2 : 17,
 			review: provider === "poyo" ? 5 : 6,
 			queue: provider === "poyo" ? 5 : 6,

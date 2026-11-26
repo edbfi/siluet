@@ -314,7 +314,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["flux-2"],
-					"catalogCategory": "text2img"
+					"catalogCategory": "text2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["flux-2-flex-edit", "flux-2-pro-edit"],
@@ -323,7 +324,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["flux-2"],
-					"catalogCategory": "img2img"
+					"catalogCategory": "img2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["flux-3-klein"],
@@ -352,7 +354,8 @@
 					"operations": ["text-to-image", "reference-image-edit"],
 					"contract": "documented",
 					"sources": ["flux-dev"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["flux-kontext-max", "flux-kontext-pro"],
@@ -361,7 +364,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["flux-kontext"],
-					"catalogCategory": "text2img"
+					"catalogCategory": "text2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["flux-kontext-max-edit", "flux-kontext-pro-edit"],
@@ -370,7 +374,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["flux-kontext"],
-					"catalogCategory": "image_tools"
+					"catalogCategory": "image_tools",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["flux-schnell"],
@@ -379,7 +384,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["flux-schnell"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["generate-music-cover"],
@@ -398,7 +404,8 @@
 							"kind": "completed-music-task",
 							"upstreamOperationInScope": false
 						}
-					}
+					},
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["gpt-4o-image"],
@@ -407,7 +414,8 @@
 					"operations": ["text-to-image", "reference-image-edit"],
 					"contract": "documented",
 					"sources": ["gpt-4o-image"],
-					"catalogCategory": "text2img"
+					"catalogCategory": "text2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["gpt-4o-image-edit"],
@@ -416,7 +424,8 @@
 					"operations": ["reference-image-edit", "mask-image-edit"],
 					"contract": "documented",
 					"sources": ["gpt-4o-image"],
-					"catalogCategory": "image_tools"
+					"catalogCategory": "image_tools",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["gpt-image-1-edit-official"],
@@ -449,7 +458,8 @@
 					"operations": ["text-to-image", "reference-image-edit"],
 					"contract": "documented",
 					"sources": ["gpt-image-1.5"],
-					"catalogCategory": "text2img"
+					"catalogCategory": "text2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["gpt-image-1.5-edit"],
@@ -458,7 +468,8 @@
 					"operations": ["reference-image-edit", "mask-image-edit"],
 					"contract": "documented",
 					"sources": ["gpt-image-1.5"],
-					"catalogCategory": "img2img"
+					"catalogCategory": "img2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["gpt-image-1.5-edit-official"],
@@ -491,7 +502,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["gpt-image-2"],
-					"catalogCategory": "img2img"
+					"catalogCategory": "img2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["gpt-image-2-edit"],
@@ -500,7 +512,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["gpt-image-2"],
-					"catalogCategory": "img2img"
+					"catalogCategory": "img2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["gpt-image-2.5-fixed"],
@@ -510,7 +523,7 @@
 					"contract": "documented",
 					"sources": ["gpt-image-2-5-fixed"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["gpt-image-2.5-flare"],
@@ -520,7 +533,7 @@
 					"contract": "documented",
 					"sources": ["gpt-image-2-5-flare"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["gpt-image-2.5-sunburst"],
@@ -530,7 +543,7 @@
 					"contract": "documented",
 					"sources": ["gpt-image-2-5-sunburst"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["gpt-image-2.6-fixed"],
@@ -540,7 +553,7 @@
 					"contract": "documented",
 					"sources": ["gpt-image-2-6-fixed"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["gpt-image-2.6-flare"],
@@ -550,7 +563,7 @@
 					"contract": "documented",
 					"sources": ["gpt-image-2-6-flare"],
 					"catalogCategory": "image",
-					"d4": "conflict",
+					"d4": "closed-absent",
 					"variant": "The REST schema lists string moderation (auto or low), which does not supply the D4 boolean field. output_format: gif is prompt-only with fixed frame geometry."
 				},
 				{
@@ -561,7 +574,7 @@
 					"contract": "documented",
 					"sources": ["gpt-image-2-6-sunburst"],
 					"catalogCategory": "image",
-					"d4": "conflict",
+					"d4": "closed-absent",
 					"variant": "The REST schema lists string moderation (auto or low), which does not supply the D4 boolean field. output_format: gif is prompt-only with fixed frame geometry."
 				},
 				{
@@ -571,7 +584,8 @@
 					"operations": ["text-to-image", "reference-image-edit"],
 					"contract": "documented",
 					"sources": ["grok-imagine-image"],
-					"catalogCategory": "text2img"
+					"catalogCategory": "text2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["grok-imagine-image-2.0"],
@@ -580,7 +594,8 @@
 					"operations": ["text-to-image", "reference-image-edit"],
 					"contract": "documented",
 					"sources": ["grok-imagine-image-2-0"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["grok-imagine-image-quality"],
@@ -589,7 +604,8 @@
 					"operations": ["text-to-image", "reference-image-edit"],
 					"contract": "documented",
 					"sources": ["grok-imagine-image-quality"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["ideogram-v4.5"],
@@ -599,7 +615,7 @@
 					"contract": "documented",
 					"sources": ["ideogram-v4-5"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["ideogram-v4.5-edit"],
@@ -609,7 +625,7 @@
 					"contract": "documented",
 					"sources": ["ideogram-v4-5"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["ideogram-v4.6"],
@@ -618,7 +634,7 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["ideogram-v4-6"],
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["ideogram-v4.6-edit"],
@@ -627,7 +643,7 @@
 					"operations": ["reference-image-edit", "mask-image-edit", "localized-mask-image-edit"],
 					"contract": "documented",
 					"sources": ["ideogram-v4-6-edit"],
-					"d4": "conflict",
+					"d4": "closed-absent",
 					"variant": "Localized mode requires edit_precision: high, context_window: auto and mask_url."
 				},
 				{
@@ -638,7 +654,7 @@
 					"contract": "documented",
 					"sources": ["ideogram-vector-1-0"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["ideogram-vector-1.0/text-to-vector"],
@@ -648,7 +664,7 @@
 					"contract": "documented",
 					"sources": ["ideogram-vector-1-0"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["kling-4.0-image"],
@@ -658,7 +674,7 @@
 					"contract": "documented",
 					"sources": ["kling-4-0-image"],
 					"catalogCategory": "image",
-					"d4": "conflict",
+					"d4": "closed-absent",
 					"variant": "enable_sequential: true selects a coherent ordered image series."
 				},
 				{
@@ -669,7 +685,7 @@
 					"contract": "documented",
 					"sources": ["kling-4-0-long-image"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["kling-o1-image-edit"],
@@ -678,7 +694,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["kling-o1"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-o3-image"],
@@ -687,7 +704,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["kling-o3"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-o3-image-edit"],
@@ -696,7 +714,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["kling-o3"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["mai-image-2.6"],
@@ -706,7 +725,7 @@
 					"contract": "documented",
 					"sources": ["mai-image-2-6"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["mai-image-2.6-flash"],
@@ -716,7 +735,7 @@
 					"contract": "documented",
 					"sources": ["mai-image-2-6-flash"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["mai-image-2.7"],
@@ -726,7 +745,7 @@
 					"contract": "documented",
 					"sources": ["mai-image-2-7"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["mai-image-2.7-flash"],
@@ -736,7 +755,7 @@
 					"contract": "documented",
 					"sources": ["mai-image-2-7-flash"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["minimax-h3-image"],
@@ -746,7 +765,7 @@
 					"contract": "documented",
 					"sources": ["minimax-h3-image"],
 					"catalogCategory": "image",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["nano-banana"],
@@ -755,7 +774,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["nano-banana"],
-					"catalogCategory": "text2img"
+					"catalogCategory": "text2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["nano-banana-2"],
@@ -764,7 +784,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["nano-banana-2"],
-					"catalogCategory": "img2img"
+					"catalogCategory": "img2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["nano-banana-2-edit"],
@@ -773,7 +794,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["nano-banana-2"],
-					"catalogCategory": "img2img"
+					"catalogCategory": "img2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["nano-banana-2-lite"],
@@ -782,7 +804,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["nano-banana-2-lite"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["nano-banana-2-lite-edit"],
@@ -791,7 +814,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["nano-banana-2-lite"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["nano-banana-2-new"],
@@ -800,7 +824,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["nano-banana-2-new"],
-					"catalogCategory": "img2img"
+					"catalogCategory": "img2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["nano-banana-2-new-edit"],
@@ -809,7 +834,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["nano-banana-2-new"],
-					"catalogCategory": "img2img"
+					"catalogCategory": "img2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["nano-banana-2-official"],
@@ -818,7 +844,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["nano-banana-2-new"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["nano-banana-2-official-edit"],
@@ -827,7 +854,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["nano-banana-2-new"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["nano-banana-2.1"],
@@ -837,7 +865,7 @@
 					"contract": "documented",
 					"sources": ["nano-banana-2-1"],
 					"catalogCategory": "img2img",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["nano-banana-edit"],
@@ -846,7 +874,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["nano-banana"],
-					"catalogCategory": "img2img"
+					"catalogCategory": "img2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["nano-banana-pro"],
@@ -855,7 +884,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["nano-banana-2"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["nano-banana-pro-edit"],
@@ -864,7 +894,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["nano-banana-2"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["poyo-ai/image-translator"],
@@ -874,8 +905,7 @@
 					"contract": "documented",
 					"sources": ["image-translator"],
 					"catalogCategory": "translate",
-					"d4": "conflict",
-					"catalogD4": "unknown"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["qwen-image-2.1"],
@@ -904,7 +934,8 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["seedream-4"],
-					"catalogCategory": "text2img"
+					"catalogCategory": "text2img",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["seedream-4-edit"],
@@ -913,7 +944,8 @@
 					"operations": ["reference-image-edit"],
 					"contract": "documented",
 					"sources": ["seedream-4"],
-					"catalogCategory": "image_tools"
+					"catalogCategory": "image_tools",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["seedream-4.5"],
@@ -1026,7 +1058,8 @@
 					"operations": ["text-to-image", "reference-image-edit"],
 					"contract": "documented",
 					"sources": ["wan-2-7-image"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["wan-2.7-image-pro"],
@@ -1035,7 +1068,8 @@
 					"operations": ["text-to-image", "reference-image-edit"],
 					"contract": "documented",
 					"sources": ["wan-2-7-image-pro"],
-					"catalogCategory": "image"
+					"catalogCategory": "image",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["z-image"],
@@ -1065,7 +1099,8 @@
 							"kind": "completed-music-task-and-track",
 							"upstreamOperationInScope": false
 						}
-					}
+					},
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["flux-3-max/image-to-video"],
@@ -1075,7 +1110,7 @@
 					"contract": "documented",
 					"sources": ["flux-3-max"],
 					"catalogCategory": "video",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["flux-3-max/keyframes-to-video"],
@@ -1085,7 +1120,7 @@
 					"contract": "documented",
 					"sources": ["flux-3-max"],
 					"catalogCategory": "video",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["flux-3-max/text-to-video"],
@@ -1095,7 +1130,7 @@
 					"contract": "documented",
 					"sources": ["flux-3-max"],
 					"catalogCategory": "video",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["flux-3/extend-video"],
@@ -1104,7 +1139,8 @@
 					"operations": ["video-extension"],
 					"contract": "documented",
 					"sources": ["flux-3"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["flux-3/first-last-frame-to-video"],
@@ -1113,7 +1149,8 @@
 					"operations": ["first-and-last-frame-to-video"],
 					"contract": "documented",
 					"sources": ["flux-3"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["flux-3/image-to-video"],
@@ -1122,7 +1159,8 @@
 					"operations": ["first-frame-to-video"],
 					"contract": "documented",
 					"sources": ["flux-3"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["flux-3/keyframes-to-video"],
@@ -1131,7 +1169,8 @@
 					"operations": ["positioned-keyframes-to-video"],
 					"contract": "documented",
 					"sources": ["flux-3"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["flux-3/text-to-video"],
@@ -1140,7 +1179,8 @@
 					"operations": ["text-to-video"],
 					"contract": "documented",
 					"sources": ["flux-3"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["gemini-omni-1.1-flash"],
@@ -1155,8 +1195,8 @@
 					"contract": "documented",
 					"sources": ["gemini-omni-1.1-flash"],
 					"catalogCategory": "video",
-					"catalogD4": "conflict",
-					"variant": "The pinned catalog closes the input schema without this field. Its REST OpenAPI lacks the field and leaves unknown properties unspecified."
+					"variant": "The pinned catalog closes the input schema without this field. Its REST OpenAPI lacks the field and leaves unknown properties unspecified.",
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["gemini-omni-1.2-flash"],
@@ -1172,8 +1212,8 @@
 					"contract": "documented",
 					"sources": ["gemini-omni-1.2-flash"],
 					"catalogCategory": "video",
-					"catalogD4": "conflict",
-					"variant": "The pinned catalog closes the input schema without this field. Its REST OpenAPI lacks the field and leaves unknown properties unspecified."
+					"variant": "The pinned catalog closes the input schema without this field. Its REST OpenAPI lacks the field and leaves unknown properties unspecified.",
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["grok-imagine"],
@@ -1182,7 +1222,8 @@
 					"operations": ["text-to-video", "first-frame-to-video"],
 					"contract": "documented",
 					"sources": ["grok-imagine"],
-					"catalogCategory": "img2vid"
+					"catalogCategory": "img2vid",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["grok-imagine-video-1.5"],
@@ -1191,7 +1232,8 @@
 					"operations": ["text-to-video", "first-frame-to-video", "reference-to-video"],
 					"contract": "documented",
 					"sources": ["grok-imagine-video-1-5"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["h3-max"],
@@ -1205,8 +1247,9 @@
 					],
 					"contract": "documented",
 					"sources": ["h3-max", "catalog"],
-					"support": { "text-to-video": "h3-max-generate" },
-					"catalogD4": "declared",
+					"support": {
+						"text-to-video": "h3-max-generate"
+					},
 					"catalogCategory": "video",
 					"d4": "declared"
 				},
@@ -1227,7 +1270,8 @@
 					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
 					"contract": "documented",
 					"sources": ["hailuo-02"],
-					"catalogCategory": "img2vid"
+					"catalogCategory": "img2vid",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["hailuo-03"],
@@ -1241,7 +1285,8 @@
 					],
 					"contract": "documented",
 					"sources": ["hailuo-03"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["hailuo-2.3"],
@@ -1250,7 +1295,8 @@
 					"operations": ["text-to-video", "first-frame-to-video"],
 					"contract": "documented",
 					"sources": ["hailuo-2-3"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["happy-horse"],
@@ -1290,7 +1336,7 @@
 					"contract": "documented",
 					"sources": ["heygen-avatar-6", "heygen-avatars"],
 					"catalogCategory": "video",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["kling-1.6/pro"],
@@ -1300,7 +1346,7 @@
 					"contract": "documented",
 					"sources": ["kling-1-6"],
 					"catalogCategory": "video",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["kling-1.6/standard"],
@@ -1310,7 +1356,7 @@
 					"contract": "documented",
 					"sources": ["kling-1-6"],
 					"catalogCategory": "video",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["kling-2.1/pro"],
@@ -1319,7 +1365,8 @@
 					"operations": ["first-frame-to-video", "first-and-last-frame-to-video"],
 					"contract": "documented",
 					"sources": ["kling-2-1"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-2.1/standard"],
@@ -1328,7 +1375,8 @@
 					"operations": ["first-frame-to-video"],
 					"contract": "documented",
 					"sources": ["kling-2-1"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-2.5-turbo-pro"],
@@ -1342,7 +1390,8 @@
 					],
 					"contract": "documented",
 					"sources": ["kling-2-5-turbo-pro"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-2.6"],
@@ -1351,7 +1400,8 @@
 					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
 					"contract": "documented",
 					"sources": ["kling-2-6"],
-					"catalogCategory": "img2vid"
+					"catalogCategory": "img2vid",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-2.6-motion-control"],
@@ -1360,7 +1410,8 @@
 					"operations": ["image-and-motion-video-to-video"],
 					"contract": "documented",
 					"sources": ["kling-2.6-motion-control"],
-					"catalogCategory": "video2video"
+					"catalogCategory": "video2video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-3.0-motion-control"],
@@ -1369,7 +1420,8 @@
 					"operations": ["image-and-motion-video-to-video"],
 					"contract": "documented",
 					"sources": ["kling-3-0-motion-control"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-3.0-turbo/pro", "kling-3.0-turbo/standard"],
@@ -1378,7 +1430,8 @@
 					"operations": ["text-to-video", "first-frame-to-video", "multi-shot-video-generation"],
 					"contract": "documented",
 					"sources": ["kling-3-0-turbo"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-3.0/4K"],
@@ -1392,7 +1445,8 @@
 					],
 					"contract": "documented",
 					"sources": ["kling-3-0-4k"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-3.0/pro", "kling-3.0/standard"],
@@ -1406,7 +1460,8 @@
 					],
 					"contract": "documented",
 					"sources": ["kling-3-0"],
-					"catalogCategory": "img2vid"
+					"catalogCategory": "img2vid",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-4.0"],
@@ -1423,7 +1478,7 @@
 					"contract": "documented",
 					"sources": ["kling-4-0"],
 					"catalogCategory": "video",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["kling-4.0-flash"],
@@ -1438,7 +1493,7 @@
 					"contract": "documented",
 					"sources": ["kling-4-0-flash"],
 					"catalogCategory": "video",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["kling-avatar-2.0/pro", "kling-avatar-2.0/standard"],
@@ -1447,7 +1502,8 @@
 					"operations": ["image-and-driving-audio-to-avatar-video"],
 					"contract": "documented",
 					"sources": ["kling-avatar-2-0"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-o3/4K"],
@@ -1462,7 +1518,8 @@
 					],
 					"contract": "documented",
 					"sources": ["kling-o3-4k"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["kling-o3/pro", "kling-o3/standard"],
@@ -1477,7 +1534,8 @@
 					],
 					"contract": "documented",
 					"sources": ["video-series-kling-o3"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["omni-flash"],
@@ -1491,7 +1549,8 @@
 					],
 					"contract": "documented",
 					"sources": ["omni-flash"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["omnihuman-2.0"],
@@ -1501,7 +1560,7 @@
 					"contract": "documented",
 					"sources": ["omnihuman-2-0"],
 					"catalogCategory": "video",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["pixverse-v6-max"],
@@ -1511,7 +1570,7 @@
 					"contract": "documented",
 					"sources": ["pixverse-v6-max"],
 					"catalogCategory": "video",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["poyo-ai/video-background-removal"],
@@ -1521,8 +1580,7 @@
 					"contract": "documented",
 					"sources": ["video-background-removal"],
 					"catalogCategory": "video",
-					"d4": "conflict",
-					"catalogD4": "unknown"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["poyo-ai/video-translator"],
@@ -1532,8 +1590,7 @@
 					"contract": "documented",
 					"sources": ["video-translator"],
 					"catalogCategory": "translate",
-					"d4": "conflict",
-					"catalogD4": "unknown"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["poyo-ai/video-upscaler"],
@@ -1543,8 +1600,7 @@
 					"contract": "documented",
 					"sources": ["video-upscaler"],
 					"catalogCategory": "video",
-					"d4": "conflict",
-					"catalogD4": "unknown"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["runway-gen-4.5"],
@@ -1553,7 +1609,8 @@
 					"operations": ["text-to-video", "first-frame-to-video"],
 					"contract": "documented",
 					"sources": ["runway-gen-4-5"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["seedance-1.0-pro"],
@@ -1562,7 +1619,8 @@
 					"operations": ["text-to-video", "first-frame-to-video"],
 					"contract": "documented",
 					"sources": ["seedance-1.0-pro"],
-					"catalogCategory": "img2vid"
+					"catalogCategory": "img2vid",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["seedance-1.5-pro"],
@@ -1571,7 +1629,8 @@
 					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
 					"contract": "documented",
 					"sources": ["seedance-1-5-pro"],
-					"catalogCategory": "img2vid"
+					"catalogCategory": "img2vid",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["seedance-2", "seedance-2-fast"],
@@ -1585,7 +1644,8 @@
 					],
 					"contract": "documented",
 					"sources": ["seedance-2"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["seedance-2-mini"],
@@ -1599,7 +1659,8 @@
 					],
 					"contract": "documented",
 					"sources": ["seedance-2-mini"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["seedance-2.5"],
@@ -1614,7 +1675,7 @@
 					"contract": "documented",
 					"sources": ["seedance-2.5"],
 					"catalogCategory": "video",
-					"d4": "conflict",
+					"d4": "closed-absent",
 					"variant": "image_urls selects frames. Separate reference_image_urls, reference_video_urls and reference_audio_urls select reference generation. Audio references require image or video input."
 				},
 				{
@@ -1630,7 +1691,7 @@
 					"contract": "documented",
 					"sources": ["seedance-2-5-flash"],
 					"catalogCategory": "video",
-					"d4": "conflict"
+					"d4": "closed-absent"
 				},
 				{
 					"ids": ["veo3.1-extend"],
@@ -1656,7 +1717,8 @@
 					],
 					"contract": "documented",
 					"sources": ["veo-3-1"],
-					"catalogCategory": "img2vid"
+					"catalogCategory": "img2vid",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["veo3.1-fast-official", "veo3.1-quality-official"],
@@ -1670,7 +1732,8 @@
 					],
 					"contract": "documented",
 					"sources": ["veo-3-1-official"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["veo3.1-lite"],
@@ -1679,7 +1742,8 @@
 					"operations": ["text-to-video"],
 					"contract": "documented",
 					"sources": ["veo-3-1"],
-					"catalogCategory": "img2vid"
+					"catalogCategory": "img2vid",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["veo3.1-lite-official"],
@@ -1688,7 +1752,8 @@
 					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
 					"contract": "documented",
 					"sources": ["veo-3-1-official"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["veo3.1-quality"],
@@ -1697,7 +1762,8 @@
 					"operations": ["text-to-video", "first-frame-to-video", "first-and-last-frame-to-video"],
 					"contract": "documented",
 					"sources": ["veo-3-1"],
-					"catalogCategory": "img2vid"
+					"catalogCategory": "img2vid",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["vidu-q4"],
@@ -1716,7 +1782,8 @@
 					"operations": ["image-and-motion-video-to-video"],
 					"contract": "documented",
 					"sources": ["wan-animate"],
-					"catalogCategory": "video2video"
+					"catalogCategory": "video2video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["wan-animate-replace"],
@@ -1725,7 +1792,8 @@
 					"operations": ["video-character-replacement"],
 					"contract": "documented",
 					"sources": ["wan-animate"],
-					"catalogCategory": "video2video"
+					"catalogCategory": "video2video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["wan2.2-image-to-video-fast"],
@@ -1734,7 +1802,8 @@
 					"operations": ["first-frame-to-video"],
 					"contract": "documented",
 					"sources": ["wan2.2-image-to-video-fast"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["wan2.2-text-to-video-fast"],
@@ -1743,7 +1812,8 @@
 					"operations": ["text-to-video"],
 					"contract": "documented",
 					"sources": ["wan2.2-text-to-video-fast"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["wan2.5-image-to-video"],
@@ -1752,7 +1822,8 @@
 					"operations": ["first-frame-to-video"],
 					"contract": "documented",
 					"sources": ["wan2.5-image-to-video"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["wan2.5-text-to-video"],
@@ -1761,7 +1832,8 @@
 					"operations": ["text-to-video"],
 					"contract": "documented",
 					"sources": ["wan2.5-text-to-video"],
-					"catalogCategory": "video"
+					"catalogCategory": "video",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["wan2.6-image-to-video"],
@@ -1771,7 +1843,8 @@
 					"contract": "documented",
 					"sources": ["wan-2-6"],
 					"catalogCategory": "img2vid",
-					"variant": "The multi_shots boolean controls shot composition within this operation."
+					"variant": "The multi_shots boolean controls shot composition within this operation.",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["wan2.6-text-to-video"],
@@ -1781,7 +1854,8 @@
 					"contract": "documented",
 					"sources": ["wan-2-6"],
 					"catalogCategory": "text2vid",
-					"variant": "The multi_shots boolean controls shot composition within this operation."
+					"variant": "The multi_shots boolean controls shot composition within this operation.",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["wan2.6-video-to-video"],
@@ -1791,7 +1865,8 @@
 					"contract": "documented",
 					"sources": ["wan-2-6"],
 					"catalogCategory": "video2video",
-					"variant": "The multi_shots boolean controls shot composition within this operation."
+					"variant": "The multi_shots boolean controls shot composition within this operation.",
+					"d4": "open-absent"
 				},
 				{
 					"ids": ["wan2.7-edit-video"],

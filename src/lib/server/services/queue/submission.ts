@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { editDisclosure } from "../../../shared/image-studio/edit-disclosure";
 import { zImageDisclosure } from "../../../shared/image-studio/z-image";
-import { queueEvidenceProblem } from "../../../shared/media-catalog/registry";
+import { queueEvidenceProblem } from "../../../shared/media-catalog/filtering";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
 import type { ProviderId } from "../../../shared/providers/connections";
 import { credentialPermitsImage, imageCredentialAccess } from "../../db/image-credential-access";
@@ -46,8 +46,11 @@ export async function createSubmissionQueue(
 		discloseEdit,
 		discloseZImage,
 	);
+	// Image Reviews bind no D4 wording yet, so only a declared row can queue here.
+	const blocked = (live: LiveRequest) =>
+		live.replayOnly || queueEvidenceProblem(live.entry.evidence, live.entry.key.provider) !== null;
 	async function review(owner: string, live: LiveRequest) {
-		if (live.replayOnly || queueEvidenceProblem(live.entry.evidence)) return invalid;
+		if (blocked(live)) return invalid;
 		const provider = live.input.provider;
 		const [saved, feeds] = await Promise.all([
 			credential(provider, undefined, imageCredentialAccess(provider, live.input.model)),
@@ -81,7 +84,7 @@ export async function createSubmissionQueue(
 			// An accepted Review keeps its original binding when disclosures or credentials change.
 			const prior = await installation.use((db) => db.get<{ binding: string }>(existing));
 			if (prior) return replay(prior);
-			if (live.replayOnly || queueEvidenceProblem(live.entry.evidence)) return invalid;
+			if (blocked(live)) return invalid;
 
 			const provider = live.input.provider;
 			const [saved, feeds] = await Promise.all([

@@ -1,0 +1,139 @@
+{
+	"accessed": "2026-11-26",
+	"note": "Model pages read before assigning question 10. Each states no limit for the listed fields.",
+	"pages": [
+		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/flux-3-klein.md",
+			"sha256": "5bfab0667f87fdf5571ac7b17c4ac70174ea4a333146d32af9234cb8379a0b4a",
+			"silent": {
+				"flux-3-klein": ["prompt"],
+				"flux-3-klein-edit": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/flux-dev.md",
+			"sha256": "113218b643e24480447f09bbff3d1a5c159e11261e556c9fde93d27dc9161a93",
+			"silent": {
+				"flux-dev": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/flux-schnell.md",
+			"sha256": "f8924bf365a16d3bdacd1aeb8e1ba92e63dc8400d6be0fa4e51f42d2521385fa",
+			"silent": {
+				"flux-schnell": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/grok-imagine-image-quality.md",
+			"sha256": "93dde5a2879b232b5c656920c3bc0e21fbdd57e1d94fb38c718d02ff743ac474",
+			"silent": {
+				"grok-imagine-image-quality": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/nano-banana-2-lite.md",
+			"sha256": "e213cadb74d08478c81a16452328676fb269982ab3e947149ef4348c2c3a24e6",
+			"silent": {
+				"nano-banana-2-lite": ["prompt"],
+				"nano-banana-2-lite-edit": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/seedream-5-0-pro.md",
+			"sha256": "638a9e4dfea9982c3b153c582911b27a60f726dd36860de70fa548c912764394",
+			"silent": {
+				"seedream-5.0-pro": ["prompt"],
+				"seedream-5.0-pro-edit": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/video-series/flux-3-max.md",
+			"sha256": "2f1d963511e48d733031e62fc5fc63b9054408c3a51cfb58d6c3fbe6500fad84",
+			"silent": {
+				"flux-3-max/image-to-video": ["prompt"],
+				"flux-3-max/keyframes-to-video": ["prompt"],
+				"flux-3-max/text-to-video": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/video-series/flux-3.md",
+			"sha256": "31bbd2c36a77434666132b180f21ce55d25a772d1d1338c1ac706f6f69024445",
+			"silent": {
+				"flux-3/extend-video": ["prompt"],
+				"flux-3/first-last-frame-to-video": ["prompt"],
+				"flux-3/image-to-video": ["prompt"],
+				"flux-3/keyframes-to-video": ["prompt"],
+				"flux-3/text-to-video": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/video-series/kling-2-1.md",
+			"sha256": "f3b85ecb356b9e00c203721d56d94279045f9a9010a0dc2a6adbe7841bb8e54c",
+			"silent": {
+				"kling-2.1/pro": ["negative_prompt"],
+				"kling-2.1/standard": ["negative_prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/video-series/kling-2-5-turbo-pro.md",
+			"sha256": "2ff6cd6187a01fa1490a441e9161225d9999e64504dd59ae757481b64ef876e7",
+			"silent": {
+				"kling-2.5-turbo-pro": ["negative_prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/video-series/omnihuman-2-0.md",
+			"sha256": "74b4329a088f2dd816f04499d7d56b5dd2a027f8ff6de002963ca42f9a75459a",
+			"silent": {
+				"omnihuman-2.0": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/video-series/seedance-2-5-flash.md",
+			"sha256": "23fd4fffd263007a7332666faac5eda15bd7d190a4731c78adbc3ed4abe122eb",
+			"silent": {
+				"seedance-2.5-flash": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/video-series/seedance-2.5.md",
+			"sha256": "9e40988d886523078b8698a1f7a408e43153684e8cf9f2799d684a8135a370b7",
+			"silent": {
+				"seedance-2.5": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/video-series/veo-3-1-official.md",
+			"sha256": "e73e8c3d5e7d073b2be127dd706bd45dae8abd209d45bbf077e4422a897e4fc5",
+			"silent": {
+				"veo3.1-fast-official": ["prompt"],
+				"veo3.1-lite-official": ["prompt"],
+				"veo3.1-quality-official": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/video-series/veo-3-1.md",
+			"sha256": "0fd82c3862019a155220383468261c6775d8f6dc37246fc820e20d25a35313fb",
+			"silent": {
+				"veo3.1-fast": ["prompt"],
+				"veo3.1-lite": ["prompt"],
+				"veo3.1-quality": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/video-series/wan2.5-image-to-video.md",
+			"sha256": "92b40117914d5c257d0a2a466d4aa293c931287bae58ecca660d15593fbee442",
+			"silent": {
+				"wan2.5-image-to-video": ["negative_prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/video-series/wan2.5-text-to-video.md",
+			"sha256": "6ed2620278de47b6910c52119ca86c81c782c1b8380cb61a7e79a670fd07491f",
+			"silent": {
+				"wan2.5-text-to-video": ["negative_prompt"]
+			}
+		}
+	]
+}

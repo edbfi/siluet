@@ -1,0 +1,17 @@
+{
+	"catalog": {
+		"file": "poyo-747e5d7.json",
+		"revision": "747e5d75319585d66396a3c05bd1b97d9390ce74",
+		"publishedAt": "2026-11-19T13:42:30Z",
+		"upstream": "https://raw.githubusercontent.com/PoyoAPI/poyo-devtools/747e5d75319585d66396a3c05bd1b97d9390ce74/artifacts/capability-catalog.json",
+		"upstreamSha256": "eebbc67cb1f6cc25d75f93518b0b390c5fb6c0b9abfb12241d7219d9215cd945",
+		"projectionSha256": "6ae13aa086923197f2e2d2d94478fe5c28af3e3cdfa5c14667e3bd308cd134d7",
+		"license": "LICENSE.poyo"
+	},
+	"openapi": {
+		"file": "poyo-openapi-2026-11-26.json",
+		"date": "2026-11-26",
+		"index": "https://docs.poyo.ai/llms.txt",
+		"projectionSha256": "e08c7925cf22270b3a6f9fd30939416c058cb81a7de6059000a7a63627f338e1"
+	}
+}
