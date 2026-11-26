@@ -142,19 +142,10 @@ test("a Security change that commits before another tab's sign-in shows its code
 	await committed;
 	// The rotation has committed; tab C now signs this browser in again, with the new factor.
 	const other = await context.newPage();
-	const pending = await signInOwner(other, origin, password, "owner");
-	if (!("proof" in pending)) throw new Error("Expected a pending sign-in.");
+	// It rotates this browser's key, with the factor step.
 	const code = new TOTP({ secret: seed }).generate({ timestamp: Date.now() + 30000 });
-	const factor = await signedInPage(
-		other,
-		"factor",
-		"/owner/factor",
-		{ proof: pending.proof, code },
-		{
-			proof: pending.proof,
-		},
-	);
-	expect(factor.status).toBe(200);
+	const signed = await signInOwner(other, origin, password, "owner", code);
+	if (!("bearer" in signed)) throw new Error("Expected a session.");
 	release.resolve();
 	const dialog = page.getByRole("dialog");
 	await expect(dialog.locator("li")).toHaveCount(10);
@@ -325,16 +316,8 @@ test("another browser's Security change signs out a tab showing codes, with the 
 	const elsewhere = await browser.newContext();
 	try {
 		const tab = await elsewhere.newPage();
-		const pending = await signInOwner(tab, origin, password, "owner");
-		if (!("proof" in pending)) throw new Error("Expected a pending sign-in.");
-		const factor = await signedInPage(
-			tab,
-			"factor",
-			"/owner/factor",
-			{ proof: pending.proof, code: codes[0] },
-			{ proof: pending.proof },
-		);
-		expect(factor.status).toBe(200);
+		const signed = await signInOwner(tab, origin, password, "owner", codes[0]);
+		if (!("bearer" in signed)) throw new Error("Expected a session.");
 		await tab.goto(`${origin}/settings/security`);
 		await tab.getByLabel("Current password").fill(password);
 		await tab.getByLabel("Authenticator or recovery code").fill(codes[1]);
@@ -490,31 +473,77 @@ const liveSession = async (page: Page, origin: string, bearer: string) => {
 	return response.ok() ? ((await response.json()).sessionId as string) : response.status();
 };
 
-test("a held sign-out answered 200 before a fresh login changes nothing when it lands", async ({
+/**
+ * Hold this page's session checks until its sign-out answer arrives, so a focus or notice
+ * check cannot move the tab before the sign-out result applies.
+ */
+async function holdChecks(page: Page, until: Promise<unknown>) {
+	await page.route("**/owner/session", async (route) => {
+		await until;
+		await route.fallback().catch(() => {});
+	});
+}
+const offer = "This browser signed in again since. Sign out again to end that session.";
+
+test("a held sign-out 200 landing after another tab's rotation joins the fresh session and offers to sign it out", async ({
 	page,
 	context,
 	studio,
 }) => {
 	const { origin, password } = studio;
 	await page.goto(origin);
+	await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 	const documents: string[] = [];
 	page.on("request", (request) => {
 		if (request.isNavigationRequest()) documents.push(new URL(request.url()).pathname);
 	});
 	const release = Promise.withResolvers<void>();
 	const held = await holdSignOut(page, release.promise, false);
+	await holdChecks(page, held.status);
 	await page.getByRole("button", { name: "Sign out" }).click();
 	expect(await held.status).toBe(200);
-	// This browser signs in again before the 200 reaches the tab.
+	// Another tab signs this browser in again, rotating its key, before the 200 reaches the tab.
 	const fresh = await signInOwner(await context.newPage(), origin, password, "owner");
 	if (!("bearer" in fresh)) throw new Error("Expected a session.");
+	const loaded = page.waitForEvent("load");
 	release.resolve();
-	await expect.poll(() => documents).toContain("/sign-in");
-	// The fresh login survives, and the tab joins it.
+	await loaded;
 	await expect(page).toHaveURL(`${origin}/`);
-	await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+	await expect(page.getByRole("alert")).toHaveText(offer);
+	expect(documents).not.toContain("/sign-in");
 	expect(await liveSession(page, origin, fresh.bearer)).toBe(fresh.sessionId);
 	expect(await sessionOf(page, origin)).toBe(fresh.sessionId);
+});
+
+test("a sign-out by the old key sent after another tab's rotation gets 200 and joins the fresh session", async ({
+	page,
+	context,
+	studio,
+}) => {
+	const { origin, password } = studio;
+	await page.goto(origin);
+	await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+	const documents: string[] = [];
+	page.on("request", (request) => {
+		if (request.isNavigationRequest()) documents.push(new URL(request.url()).pathname);
+	});
+	const release = Promise.withResolvers<void>();
+	const held = await holdSignOut(page, release.promise, true);
+	await holdChecks(page, held.status);
+	// The sign-out is signed by the stored key, then held before the server sees it.
+	await page.getByRole("button", { name: "Sign out" }).click();
+	await held.sent;
+	const fresh = await signInOwner(await context.newPage(), origin, password, "owner");
+	if (!("bearer" in fresh)) throw new Error("Expected a session.");
+	const loaded = page.waitForEvent("load");
+	release.resolve();
+	// The old key has no session left: success, and the tab re-reads the key.
+	expect(await held.status).toBe(200);
+	await loaded;
+	await expect(page).toHaveURL(`${origin}/`);
+	await expect(page.getByRole("alert")).toHaveText(offer);
+	expect(documents).not.toContain("/sign-in");
+	expect(await liveSession(page, origin, fresh.bearer)).toBe(fresh.sessionId);
 });
 
 test("a held sign-out signs out the rotated successor of its login", async ({
@@ -548,26 +577,29 @@ test("a held sign-out signs out the rotated successor of its login", async ({
 	expect(resumed.status).toBe(401);
 });
 
-test("a late sign-out meets a fresh login: 409, the fresh login survives and the tab joins it", async ({
+test("a sign-out naming the old login, signed by the new key, gets 409 and offers to sign the fresh login out", async ({
 	page,
 	context,
 	studio,
 }) => {
 	const { origin, password } = studio;
 	await page.goto(origin);
-	const release = Promise.withResolvers<void>();
-	const held = await holdSignOut(page, release.promise, true);
-	await page.getByRole("button", { name: "Sign out" }).click();
-	await held.sent;
+	await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+	// The fresh login rotates the key first; this tab still names its old login.
 	const fresh = await signInOwner(await context.newPage(), origin, password, "owner");
 	if (!("bearer" in fresh)) throw new Error("Expected a session.");
+	const answered = Promise.withResolvers<number>();
+	page.on("response", (response) => {
+		if (response.url().endsWith("/owner/sign-out")) answered.resolve(response.status());
+	});
+	await holdChecks(page, answered.promise);
+	const loaded = page.waitForEvent("load");
+	await page.getByRole("button", { name: "Sign out" }).click();
 	// The 409 makes the tab check; it finds the fresh login's session and reloads into it.
-	const reloaded = page.waitForEvent("load");
-	release.resolve();
-	expect(await held.status).toBe(409);
-	await reloaded;
+	expect(await answered.promise).toBe(409);
+	await loaded;
 	await expect(page).toHaveURL(`${origin}/`);
-	await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+	await expect(page.getByRole("alert")).toHaveText(offer);
 	expect(await liveSession(page, origin, fresh.bearer)).toBe(fresh.sessionId);
 	expect(await sessionOf(page, origin)).toBe(fresh.sessionId);
 });
@@ -693,17 +725,10 @@ test("Done after Back moved the URL loads Security on the new session, and Back 
 	await expect(dialog.locator("li")).toHaveCount(10);
 	// Another tab in this browser signs in again: the codes are held for Done.
 	const other = await context.newPage();
-	const pending = await signInOwner(other, origin, password, "owner");
-	if (!("proof" in pending)) throw new Error("Expected a pending sign-in.");
+	// It rotates this browser's key, with the factor step.
 	const code = new TOTP({ secret: seed }).generate({ timestamp: Date.now() + 30000 });
-	const factor = await signedInPage(
-		other,
-		"factor",
-		"/owner/factor",
-		{ proof: pending.proof, code },
-		{ proof: pending.proof },
-	);
-	expect(factor.status).toBe(200);
+	const signed = await signInOwner(other, origin, password, "owner", code);
+	if (!("bearer" in signed)) throw new Error("Expected a session.");
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 	await expect(dialog).toContainText("Session changed.");
 	await page.goBack();
