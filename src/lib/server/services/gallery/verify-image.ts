@@ -1,6 +1,7 @@
 import { crc32 } from "node:zlib";
 import sharp from "sharp";
 import { hasCompleteGifStream } from "../../../shared/image-studio/gif";
+import { walkWebp } from "./webp";
 
 // libvips' operation cache would keep decoded results between downloads. The setting is
 // process-wide, as in media-cleanup/preparation.ts; this keeps it off even when Gallery loads first.
@@ -90,6 +91,8 @@ function completeHeifBoxes(bytes: Buffer) {
 	return true;
 }
 
+const galleryMime = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp" } as const;
+
 export class UnsupportedGalleryImage extends Error {
 	readonly reason = "unsupported-image" as const;
 
@@ -100,12 +103,16 @@ export class UnsupportedGalleryImage extends Error {
 
 // Restrict decoder selection to raster containers. A failed download can contain
 // arbitrary bytes (including an HTML error page) instead of the result image.
+// A complete WebP outside the still profile is held here, before any decode.
 function rasterFormat(bytes: Buffer) {
 	if (bytes.subarray(0, 8).equals(pngSignature)) return completePng(bytes) ? "png" : null;
 	if (completeJpeg(bytes)) return "jpeg";
 	const tag = (offset: number, length: number) => bytes.toString("latin1", offset, offset + length);
-	if (tag(0, 4) === "RIFF" && tag(8, 4) === "WEBP" && bytes.readUInt32LE(4) === bytes.length - 8)
-		return "webp";
+	if (tag(0, 4) === "RIFF" && tag(8, 4) === "WEBP") {
+		const container = walkWebp(bytes);
+		if (container.kind === "refused") throw new UnsupportedGalleryImage();
+		return container.kind === "still" ? "webp" : null;
+	}
 	if (["GIF87a", "GIF89a"].includes(tag(0, 6)) && hasCompleteGifStream(bytes)) return "gif";
 	if (tag(4, 4) === "ftyp" && ["avif", "avis", "heic", "mif1"].includes(tag(8, 4)))
 		return completeHeifBoxes(bytes) ? "heif" : null;
@@ -116,7 +123,7 @@ function rasterFormat(bytes: Buffer) {
 export async function verifyImage(bytes: Buffer) {
 	const expected = rasterFormat(bytes);
 	if (!expected) throw invalid();
-	const galleryFormat = expected === "png" || expected === "jpeg";
+	const galleryFormat = expected === "png" || expected === "jpeg" || expected === "webp";
 
 	// Some libjpeg warnings are emitted even when toBuffer() resolves.
 	// https://sharp.pixelplumbing.com/api-constructor/
@@ -132,9 +139,11 @@ export async function verifyImage(bytes: Buffer) {
 	decoder.on("warning", () => {
 		warned = true;
 	});
-	const { format, width, height } = await decoder.metadata();
+	const { format, width, height, pages = 1 } = await decoder.metadata();
 	if (warned || format !== expected || width > verificationEdge || height > verificationEdge)
 		throw invalid();
+	// Gallery saves one still canvas; the WebP walk already refused animation chunks.
+	if (galleryFormat && pages > 1) throw new UnsupportedGalleryImage();
 	if (!galleryFormat || width > maxEdge || height > maxEdge || width * height > maxPixels) {
 		// Read every pixel for decoder errors, keeping one byte a pixel of output.
 		await decoder.extractChannel(0).raw({ depth: "uchar" }).toBuffer();
@@ -143,9 +152,5 @@ export async function verifyImage(bytes: Buffer) {
 	}
 	await decoder.raw().toBuffer();
 	if (warned) throw invalid();
-	return {
-		mime: expected === "png" ? ("image/png" as const) : ("image/jpeg" as const),
-		width,
-		height,
-	};
+	return { mime: galleryMime[expected], width, height };
 }

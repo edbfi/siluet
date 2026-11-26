@@ -2,6 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { crc32 } from "node:zlib";
 import sharp from "sharp";
 import { referenceGif, referencePng } from "../../../../../tests/fixtures/reference-image";
+import { riffWebp, webpChunks, webpFixtures } from "../../../../../tests/fixtures/webp";
 import { verifyImage } from "./verify-image";
 
 const jpeg = await new Bun.Image(referencePng).jpeg().buffer();
@@ -9,6 +10,83 @@ const jpeg = await new Bun.Image(referencePng).jpeg().buffer();
 test("decodes original PNG and JPEG pixels", async () => {
 	expect(await verifyImage(referencePng)).toEqual({ mime: "image/png", width: 1, height: 1 });
 	expect(await verifyImage(jpeg)).toEqual({ mime: "image/jpeg", width: 1, height: 1 });
+});
+
+test.each(Object.keys((await webpFixtures()).saves))(
+	"still WebP (%s) decodes in full and keeps its type",
+	async (name) => {
+		const bytes = (await webpFixtures()).saves[
+			name as keyof Awaited<ReturnType<typeof webpFixtures>>["saves"]
+		];
+		expect(await verifyImage(bytes)).toEqual({ mime: "image/webp", width: 3, height: 2 });
+	},
+);
+
+test("Bun's own still WebP saves", async () => {
+	const webp = Buffer.from(await new Bun.Image(referencePng).webp().buffer());
+	expect(await verifyImage(webp)).toEqual({ mime: "image/webp", width: 1, height: 1 });
+});
+
+test.each(Object.keys((await webpFixtures()).held))(
+	"WebP the RIFF walk refuses (%s) is held before any decode",
+	async (name) => {
+		const bytes = (await webpFixtures()).held[
+			name as keyof Awaited<ReturnType<typeof webpFixtures>>["held"]
+		];
+		const metadata = spyOn(Object.getPrototypeOf(sharp()), "metadata");
+		try {
+			await expect(verifyImage(bytes)).rejects.toMatchObject({ reason: "unsupported-image" });
+			expect(metadata).not.toHaveBeenCalled();
+		} finally {
+			metadata.mockRestore();
+		}
+	},
+);
+
+test.each(Object.keys((await webpFixtures()).truncated))(
+	"a truncated WebP (%s) keeps the retrieval outcome",
+	async (name) => {
+		const bytes = (await webpFixtures()).truncated[
+			name as keyof Awaited<ReturnType<typeof webpFixtures>>["truncated"]
+		];
+		const error = await verifyImage(bytes).catch((reason: unknown) => reason);
+		expect(error).toBeInstanceOf(Error);
+		expect(error).not.toHaveProperty("reason");
+	},
+);
+
+test("a multi-page WebP is held even when its chunks look still", async () => {
+	const { lossy } = (await webpFixtures()).saves;
+	const metadata = spyOn(Object.getPrototypeOf(sharp()), "metadata").mockResolvedValue({
+		format: "webp",
+		width: 3,
+		height: 2,
+		pages: 2,
+	} as never);
+	try {
+		await expect(verifyImage(lossy)).rejects.toMatchObject({ reason: "unsupported-image" });
+	} finally {
+		metadata.mockRestore();
+	}
+});
+
+test("damaged still WebP pixels keep the retrieval outcome", async () => {
+	const pixels = Buffer.alloc(64 * 64 * 3);
+	for (let index = 0; index < pixels.length; index++) pixels[index] = (index * 31) & 255;
+	const raw = { raw: { width: 64, height: 64, channels: 3 as const } };
+	const lossless = Buffer.from(await sharp(pixels, raw).webp({ lossless: true }).toBuffer());
+	// Damage the entropy-coded data between the VP8L header and the chunk's pad byte.
+	const end = 20 + lossless.readUInt32LE(16);
+	for (let index = 25; index < end; index++) lossless[index] ^= 0x5a;
+	// libwebp decodes damaged lossy data without an error, but not a partition cut in half
+	// inside a container whose sizes still agree.
+	const [vp8] = webpChunks(await sharp(pixels, raw).webp().toBuffer());
+	const halved = riffWebp([{ type: "VP8 ", data: vp8.data.subarray(0, vp8.data.length >> 1) }]);
+	for (const bytes of [lossless, halved]) {
+		const error = await verifyImage(bytes).catch((reason: unknown) => reason);
+		expect(error).toBeInstanceOf(Error);
+		expect(error).not.toHaveProperty("reason");
+	}
 });
 
 test("requires complete images, including entropy-coded JPEG data and PNG chunk checksums", async () => {
@@ -21,7 +99,6 @@ test("requires complete images, including entropy-coded JPEG data and PNG chunk 
 		damagedJpeg,
 		jpeg.subarray(0, -3),
 		Buffer.from("not an image"),
-		await new Bun.Image(referencePng).webp().buffer(),
 	]) {
 		await expect(verifyImage(bytes)).rejects.toThrow();
 	}
@@ -60,7 +137,7 @@ test("Save identifies complete images outside the Gallery profile with a bounded
 		.jpeg()
 		.toBuffer();
 	for (const bytes of [
-		await image.webp().toBuffer(),
+		(await webpFixtures()).held.animated,
 		referenceGif,
 		await image.avif().toBuffer(),
 		await image.tiff().toBuffer(),
@@ -189,7 +266,8 @@ test("decodes under a 5 s libvips timeout with the operation cache off", async (
 	try {
 		await verifyImage(referencePng);
 		await verifyImage(jpeg);
-		expect(timeout.mock.calls).toEqual([[{ seconds: 5 }], [{ seconds: 5 }]]);
+		await verifyImage((await webpFixtures()).saves.lossless);
+		expect(timeout.mock.calls).toEqual([[{ seconds: 5 }], [{ seconds: 5 }], [{ seconds: 5 }]]);
 	} finally {
 		timeout.mockRestore();
 	}
