@@ -94,7 +94,6 @@ export function createSessionClient(
 			browser.replace(url);
 		},
 	};
-	let record: BrowserKey | null | undefined;
 	/** The stored SPKI this tab last resumed or checked; undefined before its first read. */
 	let lastSpki: string | null | undefined;
 	const noteKey = (key: BrowserKey | null) => {
@@ -215,13 +214,13 @@ export function createSessionClient(
 	 * tab rotated it meanwhile) resumes once more with the stored one.
 	 */
 	async function resume(): Promise<Renewal> {
-		record = noteKey(await storedKey());
-		if (!record) return { kind: "gone", location: "/sign-in" };
-		const result = await resumeKey(record, previous);
+		const key = noteKey(await storedKey());
+		if (!key) return { kind: "gone", location: "/sign-in" };
+		const result = await resumeKey(key, previous);
 		if (result.kind !== "gone") return result;
 		const stored = await storedKey();
-		if (!stored || stored.spki === record.spki) return result;
-		record = noteKey(stored);
+		if (!stored || stored.spki === key.spki) return result;
+		noteKey(stored);
 		return resumeKey(stored, previous);
 	}
 	/** A signed `resume` with `key`; a 403 retries once with a fresh challenge. */
@@ -491,7 +490,7 @@ export function createSessionClient(
 			return { kind: "lost" };
 		},
 		bind(issued: Issued, kind: NoticeKind, key: BrowserKey) {
-			record = noteKey(key);
+			noteKey(key);
 			bindLogin(issued, kind);
 		},
 		open: (url) => navigate.assign(url),
@@ -537,8 +536,7 @@ export function createSessionClient(
 		/** Make sure the tab knows whether it has a key, then bind a cold tab. */
 		async prepare(): Promise<Row | null> {
 			if (mode === "cold") {
-				record = noteKey(await storedKey());
-				if (!record) {
+				if (!noteKey(await storedKey())) {
 					mode = "keyless";
 					return null;
 				}
