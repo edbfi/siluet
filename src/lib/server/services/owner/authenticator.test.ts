@@ -11,6 +11,7 @@ import { sessionDigest } from "./credentials";
 
 const keyA = "browser-key-a";
 const keyB = "browser-key-b";
+const keyC = "browser-key-c";
 const username = async (access: ReturnType<typeof createOwnerAccess>, bearer: string) =>
 	(await access.session(bearer))?.username ?? null;
 const proofLive = async (install: Installation, value: string) =>
@@ -25,8 +26,9 @@ async function pendingSignIn(
 	access: ReturnType<typeof createOwnerAccess>,
 	password: string,
 	key: string,
+	base: string | null = null,
 ) {
-	const result = await access.signIn("owner", password, key);
+	const result = await access.signIn("owner", password, key, base);
 	if (result.kind !== "pending") throw new Error("Expected a pending sign-in.");
 	return result.token;
 }
@@ -57,8 +59,9 @@ test("enrollment rotates access, pending sign-in survives a failed session inser
 		const signed = await access.security.complete(pending, keyB, issued.codes[0]);
 		expect(await username(access, signed.bearer)).toBe("owner");
 		await expect(access.security.complete(pending, keyB, issued.codes[1])).rejects.toThrow();
-		const next = await pendingSignIn(access, password, keyB);
-		await expect(access.security.complete(next, keyB, issued.codes[0])).rejects.toThrow(
+		// The signed-in browser rotates to a new key for its next sign-in.
+		const next = await pendingSignIn(access, password, keyC, keyB);
+		await expect(access.security.complete(next, keyC, issued.codes[0], keyB)).rejects.toThrow(
 			"unused code",
 		);
 	} finally {
@@ -118,8 +121,13 @@ test("rollback preserves the last code for regeneration or disable and a failed 
 		}
 		await install.use((db) => db.run(sql`DROP TRIGGER abort_session`));
 		time += 30000;
-		const proof = await pendingSignIn(access, password, keyA);
-		const signed = await access.security.complete(proof, keyA, totp.generate({ timestamp: time }));
+		const proof = await pendingSignIn(access, password, keyB, keyA);
+		const signed = await access.security.complete(
+			proof,
+			keyB,
+			totp.generate({ timestamp: time }),
+			keyA,
+		);
 		expect(await username(access, signed.bearer)).toBe("owner");
 		const result = await access.security.authorize("disable", signed.digest, password, last);
 		expect(result.kind).toBe("changed");
@@ -227,23 +235,24 @@ test("monotonic expiry and restart discard proofs while the factor high-water ma
 			security.complete(second.token, keyB, code),
 		]);
 		expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-		const expired = await security.signIn("owner", password, keyB);
+		// keyB is signed in now; later sign-ins come from another key.
+		const expired = await security.signIn("owner", password, keyC);
 		if (expired.kind !== "pending") throw new Error();
 		elapsed += 300000;
-		await expect(security.complete(expired.token, keyB, code)).rejects.toThrow("expired");
-		const before = await security.signIn("owner", password, keyB);
+		await expect(security.complete(expired.token, keyC, code)).rejects.toThrow("expired");
+		const before = await security.signIn("owner", password, keyC);
 		if (before.kind !== "pending") throw new Error();
 		await install.close();
 		install = await openInstallation(directory);
 		const reopened = createOwnerAccess(install, () => wall, origin);
 		await reopened.security.initialize();
 		// The monotonic clock restarts with the runtime, so the earlier proof can never finish.
-		await expect(reopened.security.complete(before.token, keyB, code)).rejects.toThrow("expired");
-		const now = await pendingSignIn(reopened, password, keyB);
-		await expect(reopened.security.complete(now, keyB, code)).rejects.toThrow("unused code");
+		await expect(reopened.security.complete(before.token, keyC, code)).rejects.toThrow("expired");
+		const now = await pendingSignIn(reopened, password, keyC);
+		await expect(reopened.security.complete(now, keyC, code)).rejects.toThrow("unused code");
 		wall -= 30000;
 		await expect(
-			reopened.security.complete(now, keyB, totp.generate({ timestamp: wall })),
+			reopened.security.complete(now, keyC, totp.generate({ timestamp: wall })),
 		).rejects.toThrow("unused code");
 		const resumed = await reopened.resume(keyA, undefined);
 		expect(resumed?.sessionId).toBe(rotated.sessionId);
@@ -308,7 +317,8 @@ test("a pending sign-in acts only for its browser key", async () => {
 			grant.digest,
 			totp.generate(),
 		);
-		const proofA = await pendingSignIn(access, password, keyA);
+		// keyA is signed in, so its browser signs in again with keyC.
+		const proofA = await pendingSignIn(access, password, keyC, keyA);
 		const proofB = await pendingSignIn(access, password, keyB);
 		// Another key's sign-in replaces only its own pending proof.
 		expect(await proofLive(install, proofA)).toBe(true);
@@ -340,7 +350,7 @@ test("a pending sign-in acts only for its browser key", async () => {
 				new TOTP({ secret: replace.manual }).generate(),
 			),
 		).rejects.toThrow("Authorization expired");
-		await access.security.cancel(proofA, keyA);
+		await access.security.cancel(proofA, keyC);
 		expect(await proofLive(install, proofA)).toBe(false);
 		expect(await proofLive(install, proofB)).toBe(true);
 		const signed = await access.security.complete(proofB, keyB, enabled.codes[2]);
@@ -367,10 +377,10 @@ test("claim, sign-in and factor mint new session and login IDs; a Security chang
 			return issued;
 		};
 		const claimed = fresh(await access.claim(access.rotate(), "owner", password, keyA));
-		const signedIn = await access.signIn("owner", password, keyA);
+		const signedIn = await access.signIn("owner", password, keyC, keyA);
 		if (signedIn.kind !== "session") throw new Error();
 		fresh(signedIn);
-		// The key's earlier session is replaced, retiring its bearer.
+		// The rotated key's session is replaced, retiring its bearer.
 		expect(await access.session(claimed.bearer)).toBeNull();
 		const grant = await access.security.authorize("enable", signedIn.digest, password, "");
 		if (grant.kind !== "candidate") throw new Error();
@@ -387,7 +397,7 @@ test("claim, sign-in and factor mint new session and login IDs; a Security chang
 		// Every other session is replaced by the successor.
 		expect(await access.session(other.bearer)).toBeNull();
 		expect(await install.use((db) => db.all(sql`SELECT public_key FROM session`))).toEqual([
-			{ public_key: keyA },
+			{ public_key: keyC },
 		]);
 		const proof = await pendingSignIn(access, password, keyB);
 		fresh(await access.security.complete(proof, keyB, enabled.codes[0]));
@@ -417,8 +427,8 @@ test("replacing or signing out a session deletes its Security candidates with it
 		const kept = await access.security.authorize("enable", other.digest, password, "");
 		const replaced = await access.security.authorize("enable", claimed.digest, password, "");
 		if (kept.kind !== "candidate" || replaced.kind !== "candidate") throw new Error();
-		// The key signs in again: its old session's candidate goes, another key's stays.
-		const again = await access.signIn("owner", password, keyA);
+		// The browser signs in again with a new key: the old key's candidate goes, another key's stays.
+		const again = await access.signIn("owner", password, keyC, keyA);
 		if (again.kind !== "session") throw new Error();
 		expect(await candidates()).toEqual([{ digest: kept.digest }]);
 		await access.signOut(keyB, other.loginId);

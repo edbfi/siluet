@@ -139,7 +139,7 @@ test.each(["missing", "unsafe"])(
 				grant.digest,
 				new TOTP({ secret: grant.manual }).generate(),
 			);
-			const proof = await access.signIn("owner", original, "browser-key-a");
+			const proof = await access.signIn("owner", original, "browser-key-b", "browser-key-a");
 			const provider = providerStore(install);
 			await provider.save("poyo", "fixture-only", 10, true, await provider.revision("poyo"));
 			await install.use(async (db) => {
@@ -225,7 +225,7 @@ test.each(["missing", "unsafe"])(
 			expect(await recovered.resume("browser-key-a", undefined)).toBeNull();
 			if (proof.kind !== "pending") throw new Error("Expected a pending sign-in.");
 			await expect(
-				recovered.security.complete(proof.token, "browser-key-a", issued.codes[0]),
+				recovered.security.complete(proof.token, "browser-key-b", issued.codes[0], "browser-key-a"),
 			).rejects.toThrow();
 			await expect(recovered.signIn("owner", original, "browser-key-a")).rejects.toThrow();
 			expect((await recovered.signIn("owner", password, "browser-key-a")).kind).toBe("session");

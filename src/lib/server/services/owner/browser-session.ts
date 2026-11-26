@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import { isKeyPurpose, type KeyPurpose } from "../../../shared/owner/key-message";
 import type { Issued } from "../../db/access-store";
 import type { OwnerAccess } from "./access";
-import { AccessError } from "./access-error";
+import { AccessError, type RefusalReason, staleProof } from "./access-error";
 import { accessBody } from "./access-response";
 import { verifyKeySignature } from "./browser-key";
 import type { Challenges } from "./challenges";
@@ -11,8 +11,9 @@ import { sessionDigest } from "./credentials";
 const noStore = { "cache-control": "no-store" };
 const reply = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
 	json(body, { status, headers: { ...noStore, ...headers } });
-const message = (text: string, status: number) => reply({ message: text }, status);
-const forbidden = () => message("Sign in again from this page.", 403);
+const message = (text: string, status: number, reason?: RefusalReason) =>
+	reply(reason ? { message: text, reason } : { message: text }, status);
+const forbidden = () => message("Sign in again from this page.", 403, "invalid-signature");
 const string = (value: unknown, max = 2048) =>
 	typeof value === "string" && value.length <= max ? value : null;
 const issued = ({ bearer, sessionId, loginId }: Issued) => reply({ bearer, sessionId, loginId });
@@ -45,7 +46,40 @@ export function createBrowserSessions(studio: {
 			throw new Refused(message("Send a JSON object.", 400));
 		return value as Record<string, unknown>;
 	}
-	/** Spend the nonce, then verify; only then check access. */
+	const signs = (
+		key: string,
+		signature: unknown,
+		purpose: KeyPurpose,
+		binding: string,
+		nonce: string,
+	) =>
+		verifyKeySignature(key, signature, {
+			purpose,
+			origin: studio.origin.origin,
+			installation: studio.installation,
+			binding,
+			nonce,
+		});
+	/**
+	 * The base key a candidate replaces, signed with the same purpose and nonce and bound to
+	 * the candidate's SPKI. Absent is null; anything else that does not verify is refused.
+	 */
+	async function base(purpose: KeyPurpose, fields: Record<string, unknown>, key: string) {
+		const replaces = fields.replaces;
+		if (replaces === undefined || purpose === "resume" || purpose === "sign-out") return null;
+		if (purpose === "claim" || !replaces || typeof replaces !== "object" || Array.isArray(replaces))
+			return false;
+		const { key: old, signature } = replaces as Record<string, unknown>;
+		const spki = string(old, 256);
+		if (spki === null || spki === key) return false;
+		return (await signs(spki, signature, purpose, `replaces:${key}`, fields.nonce as string))
+			? spki
+			: false;
+	}
+	/**
+	 * Spend the nonce, then verify the key's signature and any `replaces`; only then check
+	 * access. Returns the key and the base it replaces, if any.
+	 */
 	async function verified(
 		purpose: KeyPurpose,
 		fields: Record<string, unknown>,
@@ -54,26 +88,21 @@ export function createBrowserSessions(studio: {
 		const key = string(fields.key, 256);
 		const spent = challenges.consume(purpose, fields.nonce);
 		const bound = key === null ? null : binding(key);
-		if (
-			!spent ||
-			key === null ||
-			bound === null ||
-			!(await verifyKeySignature(key, fields.signature, {
-				purpose,
-				origin: studio.origin.origin,
-				installation: studio.installation,
-				binding: bound,
-				nonce: fields.nonce as string,
-			}))
-		)
-			throw new Refused(forbidden());
+		const replaced =
+			spent &&
+			key !== null &&
+			bound !== null &&
+			(await signs(key, fields.signature, purpose, bound, fields.nonce as string))
+				? await base(purpose, fields, key)
+				: false;
+		if (key === null || replaced === false) throw new Refused(forbidden());
 		try {
 			await studio.checkAccess();
 		} catch (error) {
 			if (error instanceof AccessError) throw new Refused(reply(accessBody(error), error.status));
 			throw error;
 		}
-		return key;
+		return { key, base: replaced };
 	}
 	async function run(
 		request: Request,
@@ -83,7 +112,12 @@ export function createBrowserSessions(studio: {
 			return await work(await body(request));
 		} catch (error) {
 			if (error instanceof Refused) return error.response;
-			if (error instanceof AccessError) return message(error.message, error.status);
+			if (error instanceof AccessError)
+				return message(
+					error.message,
+					error.status,
+					error.status === 403 || error.status === 409 ? error.reason : undefined,
+				);
 			throw error;
 		}
 	}
@@ -96,7 +130,7 @@ export function createBrowserSessions(studio: {
 			}),
 		claim: (request: Request) =>
 			run(request, async (fields) => {
-				const key = await verified("claim", fields, () => "");
+				const { key } = await verified("claim", fields, () => "");
 				return issued(
 					await access.claim(
 						string(fields.token, 256) ?? "",
@@ -108,28 +142,36 @@ export function createBrowserSessions(studio: {
 			}),
 		signIn: (request: Request) =>
 			run(request, async (fields) => {
-				const key = await verified("sign-in", fields, () => "");
+				const { key, base } = await verified("sign-in", fields, () => "");
 				const result = await access.signIn(
 					string(fields.username) ?? "",
 					string(fields.password, 8192) ?? "",
 					key,
+					base,
 				);
 				return result.kind === "pending" ? reply({ proof: result.token }) : issued(result);
 			}),
 		factor: (request: Request) =>
 			run(request, async (fields) => {
 				const proof = string(fields.proof, 64);
-				const key = await verified("factor", fields, () => (proof ? sessionDigest(proof) : null));
-				if (!proof) return forbidden();
+				// Without a proof there is nothing to finish: spend the nonce and restart.
+				if (!proof) {
+					challenges.consume("factor", fields.nonce);
+					throw staleProof();
+				}
+				const { key, base } = await verified("factor", fields, () => sessionDigest(proof));
+				// Cancel sends no `replaces` and retires nothing.
 				if (fields.cancel === true) {
 					await access.security.cancel(proof, key);
 					return reply({ cancelled: true });
 				}
-				return issued(await access.security.complete(proof, key, string(fields.code, 64) ?? ""));
+				return issued(
+					await access.security.complete(proof, key, string(fields.code, 64) ?? "", base),
+				);
 			}),
 		resume: (request: Request) =>
 			run(request, async (fields) => {
-				const key = await verified("resume", fields, (spki) => spki);
+				const { key } = await verified("resume", fields, (spki) => spki);
 				const result = await access.resume(key, fields.previous);
 				if (result) return issued(result);
 				return reply(
@@ -143,7 +185,7 @@ export function createBrowserSessions(studio: {
 		signOut: (request: Request) =>
 			run(request, async (fields) => {
 				const loginId = string(fields.loginId, 64);
-				const key = await verified("sign-out", fields, () => loginId);
+				const { key } = await verified("sign-out", fields, () => loginId);
 				const outcome = await access.signOut(key, loginId ?? "");
 				return outcome === "other"
 					? message("This browser signed in again since.", 409)
