@@ -9,6 +9,13 @@ export const actions = css({
 	alignItems: "center",
 	flexWrap: "wrap",
 });
+/** The viewer's actions top-align, so a Download note below its link moves nothing beside it. */
+export const viewerActions = css({
+	display: "flex",
+	gap: "0.7rem 1.25rem",
+	alignItems: "start",
+	flexWrap: "wrap",
+});
 export const grid = css({
 	display: "grid",
 	gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 15rem), 1fr))",
@@ -50,3 +57,10 @@ export const viewer = css({
 	borderRadius: "8px",
 	background: "surface",
 });
+/** A Download link with its pending and failure notes. */
+export const download = {
+	group: css({ display: "grid", gap: "0.25rem", justifyItems: "start", position: "relative" }),
+	pending: css({ _loading: { color: "muted", cursor: "progress", textDecorationStyle: "dotted" } }),
+	status: css({ margin: 0, color: "muted", fontSize: "0.9rem", _empty: { position: "absolute" } }),
+	failed: css({ margin: 0, color: "danger", fontSize: "0.9rem" }),
+};

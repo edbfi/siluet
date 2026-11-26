@@ -1,7 +1,8 @@
 <script lang="ts">
-import { actions, link, meta, page, viewer } from "#lib/components/gallery/gallery-styles.ts";
+import { link, meta, page, viewer, viewerActions } from "#lib/components/gallery/gallery-styles.ts";
+import PrivateDownload from "#lib/components/gallery/PrivateDownload.svelte";
 import SavedImageDetails from "#lib/components/gallery/SavedImageDetails.svelte";
-import { downloadPrivate, privateSource } from "#lib/components/media/private-media.ts";
+import { privateSource } from "#lib/components/media/private-media.ts";
 import { mediaFileName } from "#lib/shared/gallery/file-name.ts";
 import type { PageProps } from "./$types";
 
@@ -15,17 +16,6 @@ let player = $state<HTMLVideoElement>();
 const unplayable = $derived(failed === data.image.jobId);
 // The saved file could not be read through this session, or exceeds the page's limit.
 let missing = $state<string | null>(null);
-let downloadFailed = $state(false);
-const name = $derived(mediaFileName(data.image.jobId, data.image.mime));
-async function download(event: MouseEvent) {
-	event.preventDefault();
-	downloadFailed = false;
-	try {
-		await downloadPrivate(`${href}/media`, data.image.mime, video ? "video" : "image", name);
-	} catch {
-		downloadFailed = true;
-	}
-}
 $effect(() => {
 	// An error raised before hydration leaves the element in its error state.
 	if (player?.error) failed = data.image.jobId;
@@ -72,15 +62,18 @@ $effect(() => {
 		<p>The saved {kind} file is unavailable.</p>
 	{/if}
 	<SavedImageDetails {...data.image} />
-	<div class={actions}>
+	<div class={viewerActions}>
 		{#if data.image.available}
-			<a class={link} href={`${href}/media?download=1`} download={name} onclick={download}
-				>Download {kind}</a
-			>
+			{#key data.image.jobId}
+				<PrivateDownload
+					src={`${href}/media`}
+					mime={data.image.mime}
+					{kind}
+					name={mediaFileName(data.image.jobId, data.image.mime)}
+					label={`Download ${kind}`}
+				/>
+			{/key}
 		{/if}
 		<a class={link} href={`${href}/remove`}>Remove from Gallery</a>
 	</div>
-	{#if downloadFailed}
-		<p role="alert">The download could not start. Retry.</p>
-	{/if}
 </section>

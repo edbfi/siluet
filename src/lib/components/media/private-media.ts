@@ -12,6 +12,12 @@ export type MediaKind = keyof typeof mediaLimits;
 /** Per tab: reads in flight and bytes held. */
 const maxReads = 4;
 const maxBytes = 192 * MiB;
+/**
+ * Shown files keep one read: downloads take at most three, and pin at most 128 MiB so the
+ * largest shown file still fits.
+ */
+const maxDownloadReads = maxReads - 1;
+const maxPinned = maxBytes - mediaLimits.video;
 /** A download link outlives its click long enough for the browser to start saving. */
 const downloadMs = 60000;
 
@@ -21,41 +27,122 @@ type Holder = { src: string; blob: Blob | null; visibleAt: number; evict: () => 
 const holders = new Set<Holder>();
 /** Download blobs whose link is not yet revoked, once per link. */
 const downloads: Blob[] = [];
-/** Bytes that reads in flight declared and are still streaming. */
+/**
+ * Bytes that reads in flight declared and are still streaming, and the share downloads have
+ * taken: a reading download holds its kind's limit until it declares its length.
+ */
 let reserved = 0;
-let reads = 0;
-const waiting: (() => void)[] = [];
-const held = () => {
-	const blobs = new Set(downloads);
-	for (const holder of holders) if (holder.blob) blobs.add(holder.blob);
-	return [...blobs].reduce((sum, blob) => sum + blob.size, reserved);
-};
+let downloadReserved = 0;
+const sum = (blobs: Iterable<Blob>, from: number) =>
+	[...new Set(blobs)].reduce((total, blob) => total + blob.size, from);
+const held = () =>
+	sum([...downloads, ...[...holders].flatMap((h) => (h.blob ? [h.blob] : []))], reserved);
+/** Bytes download links hold or downloads in flight have taken. */
+const pinned = () => sum(downloads, downloadReserved);
 
-/** Take one of the tab's reads. An abort while waiting leaves the queue and rejects at once. */
-function slot(signal: AbortSignal) {
-	signal.throwIfAborted();
-	if (reads < maxReads) {
-		reads++;
-		return Promise.resolve();
+let reads = 0;
+let downloadReads = 0;
+/** Shown reads waiting for a read, oldest first. */
+const shownWaiting: (() => void)[] = [];
+/** Downloads waiting for their share and, unless they reuse a shown blob, a read: in click order. */
+type Turn = {
+	src: string;
+	kind: MediaKind;
+	/** False once the download's session or page is gone; it then leaves the queue. */
+	live: () => boolean;
+	drop: () => void;
+	start: (from: { shown: Blob } | { share: number }) => void;
+};
+const turns: Turn[] = [];
+const shownBlob = (src: string) => [...holders].find((h) => h.src === src && h.blob)?.blob;
+let dispatching = false;
+/** Admit the oldest download if its share and a read are free, then shown reads. */
+function dispatch() {
+	// A download dropped here re-enters through its abort; this loop sees the change.
+	if (dispatching) return;
+	dispatching = true;
+	try {
+		admit();
+	} finally {
+		dispatching = false;
 	}
-	return new Promise<void>((resolve, reject) => {
+}
+function admit() {
+	for (;;) {
+		const turn = turns[0];
+		if (turn && !turn.live()) {
+			turns.shift();
+			turn.drop();
+			continue;
+		}
+		if (turn) {
+			const shown = shownBlob(turn.src);
+			const need = shown ? shown.size : mediaLimits[turn.kind];
+			const fits = (shown && downloads.includes(shown)) || pinned() + need <= maxPinned;
+			// A shown file goes first unless no download is reading, so neither can starve.
+			const read =
+				reads < maxReads &&
+				downloadReads < maxDownloadReads &&
+				(downloadReads === 0 || shownWaiting.length === 0);
+			if (fits && (shown || read)) {
+				turns.shift();
+				if (shown) {
+					downloads.push(shown);
+					turn.start({ shown });
+				} else {
+					reads++;
+					downloadReads++;
+					downloadReserved += need;
+					turn.start({ share: need });
+				}
+				continue;
+			}
+		}
+		if (reads >= maxReads || !shownWaiting.length) return;
+		reads++;
+		shownWaiting.shift()?.();
+	}
+}
+/** Wait in the queue `add` joins until `dispatch` starts this entry. An abort leaves at once. */
+function enqueue<T, E>(
+	signal: AbortSignal,
+	add: (start: (value: T) => void) => E,
+	remove: (entry: E) => void,
+) {
+	signal.throwIfAborted();
+	return new Promise<T>((resolve, reject) => {
 		const abort = () => {
-			waiting.splice(waiting.indexOf(next), 1);
+			remove(entry);
 			reject(signal.reason);
+			dispatch();
 		};
-		// `free` hands its read straight to the next waiter.
-		const next = () => {
+		const entry = add((value) => {
 			signal.removeEventListener("abort", abort);
-			resolve();
-		};
-		waiting.push(next);
+			resolve(value);
+		});
 		signal.addEventListener("abort", abort, { once: true });
+		dispatch();
 	});
 }
-function free() {
-	const next = waiting.shift();
-	if (next) next();
-	else reads--;
+const without = <T>(list: T[], entry: T) => {
+	const index = list.indexOf(entry);
+	if (index >= 0) list.splice(index, 1);
+};
+/** Take one of the tab's reads for a shown file. */
+const slot = (signal: AbortSignal) =>
+	enqueue<void, () => void>(
+		signal,
+		(start) => {
+			const entry = () => start();
+			shownWaiting.push(entry);
+			return entry;
+		},
+		(entry) => without(shownWaiting, entry),
+	);
+function free(download: boolean) {
+	reads--;
+	if (download) downloadReads--;
+	dispatch();
 }
 /**
  * Make room for `size` bytes, evicting the least recently visible holders first. Nothing is
@@ -63,9 +150,9 @@ function free() {
  */
 function makeRoom(size: number, keep: Holder | null) {
 	// A blob a download link still holds frees nothing when its tile is evicted.
-	const pinned = new Set(downloads);
+	const linked = new Set(downloads);
 	const others = [...holders]
-		.filter((h) => h !== keep && h.blob && !pinned.has(h.blob))
+		.filter((h) => h !== keep && h.blob && !linked.has(h.blob))
 		.sort((a, b) => a.visibleAt - b.visibleAt);
 	const evictable = new Set(others.flatMap((h) => (h.blob ? [h.blob] : [])));
 	const freeable = [...evictable].reduce((sum, blob) => sum + blob.size, 0);
@@ -76,6 +163,23 @@ function makeRoom(size: number, keep: Holder | null) {
 const roomWaiters = new Set<() => void>();
 function released() {
 	for (const wake of [...roomWaiters]) wake();
+	dispatch();
+}
+/** Wait until something releases bytes. */
+function roomFreed(signal: AbortSignal) {
+	return new Promise<void>((resolve, reject) => {
+		const abort = () => {
+			roomWaiters.delete(wake);
+			reject(signal.reason);
+		};
+		const wake = () => {
+			roomWaiters.delete(wake);
+			signal.removeEventListener("abort", abort);
+			resolve();
+		};
+		roomWaiters.add(wake);
+		signal.addEventListener("abort", abort, { once: true });
+	});
 }
 /**
  * Reserve `size` bytes of the tab's limit: evict what is shown, then wait for reads in flight
@@ -89,57 +193,61 @@ async function reserve(size: number, keep: Holder | null, signal: AbortSignal) {
 			reserved += size;
 			return;
 		}
-		await new Promise<void>((resolve, reject) => {
-			const abort = () => {
-				roomWaiters.delete(wake);
-				reject(signal.reason);
-			};
-			const wake = () => {
-				roomWaiters.delete(wake);
-				signal.removeEventListener("abort", abort);
-				resolve();
-			};
-			roomWaiters.add(wake);
-			signal.addEventListener("abort", abort, { once: true });
-		});
+		await roomFreed(signal);
 	}
 }
 /** The session a read belongs to, captured before it waits for a read. */
 const currentSession = () => sessionClient().bound()?.sessionId;
 
 /**
- * Read one private file through the page's authenticated fetch, refusing more than the
- * kind's limit. The blob's type is the saved type, never the response's. Its `owner`, a
- * holder or the download list, takes the blob before the read releases its reservation, so
- * the bytes never go uncounted.
+ * Read one private file through the page's authenticated fetch once it has a read, refusing
+ * more than the kind's limit. The blob's type is the saved type, never the response's. Its
+ * `owner`, a holder or the download list, takes the blob before the read releases its
+ * reservation, so the bytes never go uncounted. A download arrives with its share taken.
  */
-export async function readPrivate(
+async function read(
 	src: string,
 	mime: string,
 	kind: MediaKind,
 	signal: AbortSignal,
-	owner: Holder | Blob[] | null = null,
-	session = currentSession(),
+	owner: Holder | Blob[] | null,
+	session: string | undefined,
+	share = { bytes: 0 },
 ) {
-	const holder = Array.isArray(owner) ? null : owner;
-	await slot(signal);
+	const download = Array.isArray(owner);
+	const holder = download ? null : owner;
 	let reservation = 0;
 	try {
 		const init: SessionInit = { signal, cache: "no-store", siluetSession: session };
 		const response = await fetch(src, init);
 		if (response.status === 404 || response.status === 410) throw new MediaUnavailable();
 		if (!response.ok || !response.body) throw new TypeError("The file could not be read.");
+		const body = response.body;
 		const limit = mediaLimits[kind];
 		const length = response.headers.get("content-length")?.trim();
 		const declared = length && /^\d+$/.test(length) ? Number(length) : Number.NaN;
-		if (declared > limit) throw new MediaUnavailable();
+		if (declared > limit) {
+			await body.cancel().catch(() => {});
+			throw new MediaUnavailable();
+		}
 		// A file of unknown or malformed length may use the kind's whole limit.
 		const expected = Number.isFinite(declared) ? declared : limit;
-		await reserve(expected, holder, signal);
+		if (download) {
+			// The share was the kind's limit; keep only the declared size.
+			downloadReserved -= share.bytes - expected;
+			share.bytes = expected;
+			released();
+		}
+		try {
+			await reserve(expected, holder, signal);
+		} catch (error) {
+			await body.cancel().catch(() => {});
+			throw error;
+		}
 		reservation = expected;
 		const chunks: Uint8Array<ArrayBuffer>[] = [];
 		let size = 0;
-		const reader = response.body.getReader();
+		const reader = body.getReader();
 		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
@@ -158,9 +266,24 @@ export async function readPrivate(
 		return blob;
 	} finally {
 		reserved -= reservation;
-		free();
+		downloadReserved -= share.bytes;
+		share.bytes = 0;
+		free(download);
 		released();
 	}
+}
+
+/** Read one private file for a shown element or a caller, waiting for one of the tab's reads. */
+export async function readPrivate(
+	src: string,
+	mime: string,
+	kind: MediaKind,
+	signal: AbortSignal,
+	holder: Holder | null = null,
+	session = currentSession(),
+) {
+	await slot(signal);
+	return read(src, mime, kind, signal, holder, session);
 }
 
 /**
@@ -238,24 +361,47 @@ const downloading = new Map<string, Promise<void>>();
 
 /**
  * Download a private file under its Gallery name, reusing a blob already shown on the page.
- * The temporary link is revoked a minute after the click; until then its bytes count, so a
- * download over the tab's limit waits for an earlier link to go. A download whose session
- * ended while it waited saves nothing.
+ * Downloads take their share and read in click order. The temporary link is revoked a minute
+ * after the click; until then its bytes count against the downloads' share. A remount stops a
+ * download at once; one whose tab is leaving is dropped before it starts or saves nothing.
  */
 export function downloadPrivate(src: string, mime: string, kind: MediaKind, name: string) {
-	const started = sessionClient().remountKey;
+	const client = sessionClient();
+	const started = client.remountKey;
 	const key = `${started}:${src}`;
 	const pending = downloading.get(key);
 	if (pending) return pending;
+	const session = currentSession();
+	const controller = new AbortController();
+	const { signal } = controller;
+	const live = () => sessionClient().remountKey === started && !sessionClient().leaving;
+	const unsubscribe = client.subscribe(() => {
+		if (!live()) controller.abort();
+	});
 	const download = (async () => {
-		const shown = [...holders].find((h) => h.src === src && h.blob)?.blob;
-		if (shown) downloads.push(shown);
-		const blob =
-			shown ?? (await readPrivate(src, mime, kind, new AbortController().signal, downloads));
+		/** The blob this download added to the link list, once. */
+		let linked: Blob | null = null;
 		let url: string | null = null;
 		try {
-			if (sessionClient().remountKey !== started || sessionClient().leaving) return;
-			url = URL.createObjectURL(blob);
+			const from = await enqueue<{ shown: Blob } | { share: number }, Turn>(
+				signal,
+				(start) => {
+					const turn: Turn = { src, kind, live, drop: () => controller.abort(), start };
+					turns.push(turn);
+					return turn;
+				},
+				(entry) => without(turns, entry),
+			);
+			if ("shown" in from) linked = from.shown;
+			else {
+				// The blob joins the link list before the read releases its share, unless it stopped.
+				const blob = await read(src, mime, kind, signal, downloads, session, {
+					bytes: from.share,
+				});
+				if (downloads.includes(blob)) linked = blob;
+			}
+			if (!linked || !live()) return;
+			url = URL.createObjectURL(linked);
 			const link = document.createElement("a");
 			link.href = url;
 			link.download = name;
@@ -263,14 +409,19 @@ export function downloadPrivate(src: string, mime: string, kind: MediaKind, name
 			document.body.append(link);
 			link.click();
 			link.remove();
+		} catch (error) {
+			// A stale download stops quietly; only a live one reports a failure.
+			if (live()) throw error;
 		} finally {
-			const linked = url;
+			unsubscribe();
+			const href = url;
+			const kept = linked;
 			const forget = () => {
-				if (linked) URL.revokeObjectURL(linked);
-				downloads.splice(downloads.indexOf(blob), 1);
+				if (href) URL.revokeObjectURL(href);
+				if (kept) without(downloads, kept);
 				released();
 			};
-			if (linked) setTimeout(forget, downloadMs);
+			if (href) setTimeout(forget, downloadMs);
 			else forget();
 		}
 	})().finally(() => downloading.delete(key));
