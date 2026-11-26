@@ -122,10 +122,10 @@ class FakeVideo extends EventTarget {
 	turns(count = 2) {
 		for (let i = 0; i < count; i++) this.ownerDocument.defaultView.turn();
 	}
-	/** The viewer scrolls into or out of the viewport. */
-	scroll(onScreen: boolean) {
+	/** The viewer scrolls into or out of the viewport, in one batch of entries, oldest first. */
+	scroll(...onScreen: boolean[]) {
 		for (const observer of this.ownerDocument.defaultView.observers)
-			observer.callback([{ isIntersecting: onScreen }]);
+			observer.callback(onScreen.map((isIntersecting) => ({ isIntersecting })));
 	}
 }
 
@@ -413,4 +413,16 @@ test("a detached viewer reports nothing and cancels its frame request", () => {
 	video.turns();
 	expect(reports).toEqual([]);
 	expect(video.frames.size).toBe(0);
+});
+
+test("a batch of intersection entries is read by its newest entry", () => {
+	mount(new FakeVideo({ observe: true }));
+	video.play();
+	// A quick scroll on and then off arrives as one batch: the viewer is off screen.
+	video.scroll(true, false);
+	jest.advanceTimersByTime(pictureWaitMs * 3);
+	expect(reports).toEqual([]);
+	video.scroll(false, true);
+	jest.advanceTimersByTime(pictureWaitMs);
+	expect(reports).toEqual([true]);
 });
