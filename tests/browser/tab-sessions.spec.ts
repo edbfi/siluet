@@ -194,19 +194,29 @@ test("a Security change after another tab's sign-in shows no codes and joins the
 });
 
 test("restored tabs stay within the challenge limits", async ({ browserName, context, studio }) => {
-	// Forty Firefox pages opened at once starve a loaded runner: with several workers locally, or
-	// on the macOS runner, some never finish starting while the studio stays healthy. With one
-	// worker they pass. The limits under test are the server's, so Chromium and WebKit cover them.
-	test.skip(browserName === "firefox", "Forty Firefox pages at once starve a loaded runner.");
-	test.setTimeout(90000);
+	// The studio answers the forty resumes within seconds. Opening forty Firefox windows and
+	// loading the studio in each takes the browser far longer: up to three minutes with three
+	// workers on a loaded eight-core host, against ten seconds in Chromium.
+	test.setTimeout(browserName === "firefox" ? 300000 : 90000);
 	const { origin } = studio;
+	const refused: string[] = [];
+	context.on("response", (response) => {
+		const { pathname } = new URL(response.url());
+		if (/^\/owner\/(?:challenge|resume)$/.test(pathname) && response.status() !== 200)
+			refused.push(`${pathname} ${response.status()}`);
+	});
 	const tabs = await Promise.all(Array.from({ length: 40 }, () => context.newPage()));
 	await Promise.all(tabs.map((tab) => tab.goto(`${origin}/jobs`)));
-	// A tab refused by a limit would show an error page, not this heading, however long it waits.
+	// A refused tab settles on the error page instead, so a wait here cannot hide a refusal.
 	for (const tab of tabs)
-		await expect(tab.getByRole("heading", { name: "No jobs yet" })).toBeVisible({
-			timeout: 20000,
-		});
+		await expect(
+			tab
+				.getByRole("heading", { name: "No jobs yet" })
+				.or(tab.getByRole("heading", { name: "Studio access" })),
+		).toBeVisible({ timeout: 120000 });
+	expect(refused).toEqual([]);
+	for (const tab of tabs)
+		await expect(tab.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
 	await Promise.all(tabs.map((tab) => tab.close()));
 });
 
