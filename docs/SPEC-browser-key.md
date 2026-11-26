@@ -1,16 +1,26 @@
 # Browser key sessions
 
-Approved after council review ([D1](decisions.md#browser-credential)).
+Approved after council review ([D1](decisions.md#browser-credential)); Key rotation awaits council review.
 
 Replaces the cookies of [Owner access](SPEC-owner-access.md) and [Owner authenticator](SPEC-owner-authenticator.md), which browsers send to every port: a browser proves it holds a key only Siluet's exact origin can use.
 
 **Installation ID.** One `transformPageChunk` on every `resolve()` fills `<meta name="siluet-installation">` in page and 404 shells. Client `init` checks it (UUID v4) before storage or signing, failing closed.
 
-**Browser key.** IndexedDB `siluet-owner`, keyed by installation ID, holds only `{key, spki}`: a non-extractable ECDSA P-256 key, written once. Only `/setup` and `/sign-in` create it: check `isSecureContext`, `crypto.subtle` and IndexedDB, get-or-put in one readwrite transaction, sign a test message; failure names the address and browser. Call `navigator.storage.persist()`. Cleared site data, another port or address family: signed out.
+**Browser key.** IndexedDB `siluet-owner`, keyed by installation ID, holds only `{key, spki}`: a non-extractable ECDSA P-256 key, replaced only by a committed claim or sign-in. Before each candidate, `/setup` and `/sign-in` check `isSecureContext`, `crypto.subtle` and that IndexedDB opens, then sign a test message with the candidate; failure names the address and browser. A commit calls `navigator.storage.persist()`. Cleared site data, another port or address family: signed out.
 
-**Challenges.** `POST /owner/challenge {purpose}` returns a 256-bit nonce, single use, 60 s monotonic, lost on restart. `resume`: 64 outstanding (oldest dropped), 120 per minute; others 16 and 30; then 429. Browsers sign LF-joined `siluet-browser-key/1`, purpose, canonical origin, installation ID, binding, nonce (ECDSA SHA-256, 64-byte P1363). Binding: empty for claim and sign-in, the pending proof's digest for `factor`, the SPKI for `resume`, the login ID for `sign-out`. Signed requests send `key` (SPKI, re-encoding byte-identically). Endpoints consume the nonce and verify before access, database or password work; failure is 403.
+**Key rotation.** Every claim and sign-in signs with a new candidate key held only in that tab's memory, against the stored record it read first (its base; none, or one that cannot sign, counts as absent). Its retries and factor step reuse both; `pagehide` drops them. A submit that finds another stored record drops the candidate and checks, joining that session. Sign-in and factor add `replaces: {key, signature}` for a base: the base key signs the same purpose and nonce with the candidate's SPKI as binding. Claim sends none. Both signatures verify before access, database or password work; a bad `replaces`, or one equal to `key`, is 403. The transaction that creates the candidate's session also replaces the base key's session, retiring its bearers, staged work and proofs in that turn; issuing a pending proof retires nothing. On success the tab commits in one readwrite transaction, putting the candidate only while the stored record is still the base, then binds and broadcasts. Factor completion commits the sign-in's candidate. Security changes keep the key and login ID; `resume`, cancel and sign-out never rotate.
 
-**Sessions.** One per key: an internal random digest (never sent), the unique public key, unique random 128-bit session and login IDs (not secret), creation and last activity (7-day idle, 30-day limits). `/owner/claim` and `/owner/sign-in` verify `{key, nonce, signature}`, then token, throttle, password. Without MFA the transaction replaces the key's session (retiring bearers, staged work, proofs). With MFA, sign-in returns a five-minute pending proof replacing only that key's sign-in proof; `/owner/factor {proof, key, code | cancel, nonce, signature}` acts only on it; another key spends no factor budget. Reload shows "Sign-in restarted". Claim, sign-in and factor success return `{bearer, sessionId, loginId}`, both IDs new; only a Security change keeps a login ID.
+- Refused, 403, 429, access error or network failure: nothing is stored, and the base keeps its session, if any. A lost answer may have committed; the retry, on the same candidate and base, replaces that session.
+- Tab closed or crashed before the commit: the base stays stored. If the server committed, the lost candidate's session is unusable and ends at the idle limit, and the base has no session, so the browser is signed out.
+- Commit refused, because another tab committed first (two tabs signing in at once): the tab signs its login out with the candidate (best effort), drops it and loads `/`. Each `replaces` named the same base, so the stored key's session survives.
+- Commit write failure: the same sign-out, then the key message. The browser stays signed out.
+- After rotation the base key's `resume` is "Session gone" and its sign-out finds no session. Its retired bearers get `invalid_token`; other tabs renew, re-read the key and reach "Other ID" (with codes: "changed"). A tab renewing between the answer and the commit is signed out; its `/sign-in` load then resumes with the new key.
+
+Why: a sign-out followed by a sign-in cuts off a copy of the stored key, as in a copied profile or backup; the copy loses the old session and cannot sign for the new key. Rotation does not end a session the copy shares while it lives, stop code running in Siluet's origin, or protect a password or second factor.
+
+**Challenges.** `POST /owner/challenge {purpose}` returns a 256-bit nonce, single use, 60 s monotonic, lost on restart. `resume`: 64 outstanding (oldest dropped), 120 per minute; others 16 and 30; then 429. Browsers sign LF-joined `siluet-browser-key/1`, purpose, canonical origin, installation ID, binding, nonce (ECDSA SHA-256, 64-byte P1363). Binding: empty for claim and sign-in, the pending proof's digest for `factor`, the SPKI for `resume`, the login ID for `sign-out`, the candidate's SPKI for `replaces`. Signed requests send `key` (SPKI, re-encoding byte-identically). Endpoints consume the nonce and verify before access, database or password work; failure is 403.
+
+**Sessions.** One per key: an internal random digest (never sent), the unique public key, unique random 128-bit session and login IDs (not secret), creation and last activity (7-day idle, 30-day limits). `/owner/claim` and `/owner/sign-in` verify `{key, nonce, signature}`, then token, throttle, password. Without MFA the transaction replaces the key's session (retiring bearers, staged work, proofs) and its base's. With MFA, sign-in returns a five-minute pending proof replacing only that key's sign-in proof; `/owner/factor {proof, key, replaces?, code | cancel, nonce, signature}` acts only on it; another key spends no factor budget. Reload shows "Sign-in restarted". Claim, sign-in and factor success return `{bearer, sessionId, loginId}`, both IDs new; only a Security change keeps a login ID.
 
 **Bearers.** 256 random bits, ten minutes monotonic, in tab memory; the server maps digests to sessions, 64 per session (oldest evicted), registered in the `install.use` turn of the commit and retirement (claim: its `use` callback after commit) or the read, so revocation drops them in order. `POST /owner/resume {key, previous?, nonce, signature}`: no or expired session is "session gone", 401 `{message, location}` (`/setup` before claim, `/sign-in` after); recovery-required or unavailable storage gets the access JSON; success returns `{bearer, sessionId, loginId}` and retires the same session's `previous`. `GET /owner/session` (bearer, read-only, not `checkSession`) returns the live `{sessionId, loginId}` or the access JSON and issues nothing. Neither touches last activity.
 
@@ -21,7 +31,7 @@ Result | Tab | Pinned request
 Bound ID | Keep | Sent or resent once
 Other ID | Document load of the current or target URL; with codes, held for Done | `TypeError`
 Session gone, missing key | Unbind, drop drafts, open the response's `location` (`/sign-in` without one; not from `/sign-in`, `/setup`); with codes, held for Done | Action: `{type:"redirect",status:303,location}` unsent; `/sign-in`, `/setup` data without bearer; else `location.assign`
-Replaced key | Its `resume` result's row | As that row
+Replaced key | Its `resume` result's row; "Session gone" from a key no longer stored resumes once more with the stored one | As that row
 403 | Fresh challenge, `resume` once | Waits
 Second 403, 5xx, 429, network | Stays bound | `TypeError`; `/sign-in`, `/setup` data without bearer
 Access error | Stays bound; `recoveryRequired` drops drafts | Access JSON, or action `{type:"error"}`
@@ -43,8 +53,19 @@ Responses apply effects only if `remountKey` is unchanged since sent. Otherwise 
 
 **Media.** Bearer-fetched blobs: 64 MiB per video, 32 MiB per image, 32,000,000 bytes per staged copy; type from the job's MIME. Per tab: four reads, 192 MiB, least recently visible evicted. Shown files keep one read. Downloads take at most three reads and 128 MiB, in click order, each waiting as pending for its share before it sends; with no download reading, the oldest takes the next free read. A remount or leaving drops waiting downloads. URLs revoke after 60 s or on unmount. CSP `media-src 'self' blob:`.
 
-**Upgrade.** Documents expire this installation's legacy cookies at their paths (`siluet_<id>`, `siluet_signout_<port>`, `siluet_security_<port>` at `/`; `siluet_<id>_pending[_<hex64>]` at `/sign-in`; `siluet_<id>_setup_<hex64>_<hex64>` at `/settings/security`) without reading them. One append-only migration deletes all owner proofs, recreates `session` with key and ID columns, adds `owner_proof.public_key` and keeps other data.
+**Upgrade.** Documents expire this installation's legacy cookies at their paths (`siluet_<id>`, `siluet_signout_<port>`, `siluet_security_<port>` at `/`; `siluet_<id>_pending[_<hex64>]` at `/sign-in`; `siluet_<id>_setup_<hex64>_<hex64>` at `/settings/security`) without reading them. One append-only migration deletes all owner proofs, recreates `session` with key and ID columns, adds `owner_proof.public_key` and keeps other data. Rotation needs no migration: the record and tables keep their shape, and an earlier key rotates at its next sign-in.
 
 **Out of scope.** A process taking Siluet's origin while stopped; code running as the owner.
 
 **Acceptance.** Built-app journeys on Linux (Chromium, Firefox) and macOS (three engines); another loopback port gets and replays nothing; an agent-browser check in Chrome stands in for real Safari (owner, 2026-11-26; passed on `23efde9`, video playback not exercised).
+
+Rotation's unit tests cover the commit against the base, an absent base and another record, and a failing put; candidate and base reuse across retries and the factor step; a factor step after another tab's commit joining it; `replaces` absent, forged, equal to `key` or bound to another SPKI, refused before password work; and retirement of the base's session, bearers, staged work and proofs when a session is issued, never on a pending proof. Its built-app journeys run in Chromium, Firefox and macOS WebKit:
+
+- Sign-in stores a new SPKI and the old key's `resume` gets 401. Sign-out then sign-in leaves the old key nothing. A Security change keeps the SPKI.
+- A refused sign-in, and a reload mid-factor, keep the stored record.
+- A lost answer, retried, leaves one session. A tab closed with the answer held leaves the old record and a signed-out browser.
+- Two tabs submitting at once leave one stored key and one live session, which both tabs reach.
+- A failing IndexedDB put shows the key message and leaves no live session for the candidate.
+- A bound tab elsewhere reloads into the new session, or with codes shown marks them changed.
+- A late sign-out signed by the old key gets 200 and by the new key 409; the fresh login survives both.
+- The key-persistence, restart, back/forward-cache and cross-port journeys pass with rotation.
