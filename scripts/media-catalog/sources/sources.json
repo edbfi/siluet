@@ -1,0 +1,52 @@
+{
+	"catalog": {
+		"file": "poyo-747e5d7.json",
+		"revision": "747e5d75319585d66396a3c05bd1b97d9390ce74",
+		"publishedAt": "2026-11-19T13:42:30Z",
+		"upstream": "https://raw.githubusercontent.com/PoyoAPI/poyo-devtools/747e5d75319585d66396a3c05bd1b97d9390ce74/artifacts/capability-catalog.json",
+		"upstreamSha256": "eebbc67cb1f6cc25d75f93518b0b390c5fb6c0b9abfb12241d7219d9215cd945",
+		"projectionSha256": "6ae13aa086923197f2e2d2d94478fe5c28af3e3cdfa5c14667e3bd308cd134d7",
+		"license": "LICENSE.poyo"
+	},
+	"openapi": {
+		"file": "poyo-openapi-2026-11-26.json",
+		"date": "2026-11-26",
+		"index": "https://docs.poyo.ai/llms.txt",
+		"projectionSha256": "e08c7925cf22270b3a6f9fd30939416c058cb81a7de6059000a7a63627f338e1",
+		"extraIds": {
+			"ids": ["ideogram-v4.6", "ideogram-v4.6-edit"],
+			"reason": "Documented ledger IDs that the pinned catalog lacks; projected so they keep a REST state until G2c re-pins."
+		},
+		"noModelSpecs": {
+			"paths": [
+				"/openapi.json",
+				"/api-manual/task-management/image-status.json",
+				"/api-manual/task-management/video-status.json",
+				"/api-manual/task-management/3d-status.json",
+				"/api-manual/music-series/query-music-detail.json",
+				"/api-manual/file-series/upload-url.json",
+				"/api-manual/file-series/upload-base64.json",
+				"/api-manual/file-series/upload-stream.json",
+				"/api-manual/account-management/user-balance.json",
+				"/api-manual/chat-series/chat-completions.json",
+				"/api-manual/chat-series/responses.json",
+				"/api-manual/chat-series/claude-messages.json",
+				"/api-manual/chat-series/gemini-native-format.json",
+				"/api-manual/chat-series/openai.json",
+				"/api-manual/chat-series/anthropic.json",
+				"/api-manual/chat-series/google.json",
+				"/api-manual/chat-series/deepseek.json",
+				"/api-manual/chat-series/xai.json",
+				"/api-manual/chat-series/moonshot.json",
+				"/api-manual/music-series/generate-mashup.json",
+				"/api-manual/music-series/generate-sounds.json",
+				"/api-manual/music-series/voice/validate.json",
+				"/api-manual/music-series/voice/generate.json",
+				"/api-manual/music-series/voice/regenerate.json",
+				"/api-manual/music-series/voice/check.json",
+				"/integrations/capability-catalog.json"
+			],
+			"reason": "Listed English specs that list no in-scope model (non-model endpoints; out-of-scope music and voice `Request` specs); digested in the manifest only."
+		}
+	}
+}

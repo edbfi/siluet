@@ -38,6 +38,9 @@ export function videoReviewDisclosures(operation: SeedanceOperation | PoyoVideoO
 	return save ? [...own, save] : [...own];
 }
 
+/** Siluet's video prompt envelope, a release choice rather than a provider limit. */
+export const videoPromptBytes = 4000;
+
 /** One reviewed video request, dispatched by its exact registry operation's provider. */
 export function parseVideo(value: unknown) {
 	if (
@@ -59,7 +62,7 @@ export function parseVideo(value: unknown) {
 	if (!operation || !d || typeof d !== "object" || !("prompt" in d) || typeof d.prompt !== "string")
 		return null;
 	const prompt = d.prompt.trim();
-	if (!prompt || new TextEncoder().encode(prompt).length > 4000) return null;
+	if (!prompt || new TextEncoder().encode(prompt).length > videoPromptBytes) return null;
 	const terms = { acceptTerms: value.acceptTerms, token: "token" in value ? value.token : null };
 	if (operation.key.provider === "poyo") {
 		const poyo = poyoVideoOperations.find((entry) => entry === operation);

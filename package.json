@@ -16,7 +16,9 @@
 		"smoke": "bun --bun playwright test",
 		"pricing:estimate": "bun scripts/pricing/estimate.ts",
 		"pricing:refresh": "bun scripts/pricing/refresh.ts",
-		"owner:recover": "bun scripts/owner-recover.ts"
+		"owner:recover": "bun scripts/owner-recover.ts",
+		"catalog:derive": "bun scripts/media-catalog/derive.ts",
+		"catalog:coverage": "bun scripts/media-catalog/coverage.ts"
 	},
 	"imports": {
 		"#studio-manifest": "./package.json",

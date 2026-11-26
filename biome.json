@@ -9,7 +9,9 @@
 			"!!.claude",
 			"!!.codex",
 			"!!.impeccable",
-			"!!skills-lock.json"
+			"!!skills-lock.json",
+			"!!scripts/media-catalog/sources/poyo-*.json",
+			"!!src/lib/shared/media-catalog/poyo-rows.json"
 		]
 	},
 	"formatter": { "enabled": true, "lineWidth": 100 },

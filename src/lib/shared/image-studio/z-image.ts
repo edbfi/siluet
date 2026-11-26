@@ -2,8 +2,8 @@ import type { ProviderConnectionStatus } from "../providers/connections";
 import { editDisclosure } from "./edit-disclosure";
 import { parseReferenceUrl, publicReferenceUrlError, type RemoteReference } from "./references";
 
-const maxPromptCharacters = 1000;
-export const zImagePromptHint = `1–${maxPromptCharacters.toLocaleString("en-US")} characters`;
+export const zImagePromptCharacters = 1000;
+export const zImagePromptHint = `1–${zImagePromptCharacters.toLocaleString("en-US")} characters`;
 export const zImageSizes = ["1:1", "4:3", "3:4", "16:9", "9:16"] as const;
 type Size = (typeof zImageSizes)[number];
 type Operation = "generate" | "edit";
@@ -68,7 +68,7 @@ export function validateZImageDraft(value: unknown): Validation {
 	if (value.provider !== "poyo")
 		return { ok: false, errors: { provider: "Choose Poyo.ai for Z-Image." } };
 	const prompt = typeof value.prompt === "string" ? value.prompt.trim() : "";
-	if (!prompt || Array.from(prompt).length > maxPromptCharacters)
+	if (!prompt || Array.from(prompt).length > zImagePromptCharacters)
 		return { ok: false, errors: { prompt: `Use ${zImagePromptHint} for Z-Image.` } };
 	const options = value.options;
 	if (!fields(options, ["size"]))

@@ -2,6 +2,7 @@ import type { ProviderId } from "../providers/connections";
 import { h3Max } from "../video-studio/h3-max";
 import type { PoyoVideoDescriptor } from "../video-studio/poyo-video";
 import type { SaveLimit } from "../video-studio/save-profile";
+import type { FilteringEvidence } from "./filtering";
 
 // The browser needs only released operations. The ledger test reconciles these
 // exact keys against the dated inventory and its explicit family aliases.
@@ -43,20 +44,8 @@ const ordinaryOperations = {
 	"reference-image-edit": { mode: "edit", label: "Edit image" },
 } as const;
 
-type FieldEvidence = "declared" | "unknown" | "conflict";
-type FilteringEvidence = { d4: FieldEvidence; catalogD4: FieldEvidence };
-
-// Both ordinary Seedream contracts declare the fixed flag. An absent catalog
-// observation is unknown; a contradictory observation blocks a new claim.
-const seedreamEvidence: FilteringEvidence = { d4: "declared", catalogD4: "unknown" };
-
-export function queueEvidenceProblem({ d4, catalogD4 }: FilteringEvidence) {
-	if (d4 === "conflict" || catalogD4 === "conflict")
-		return "Queue is unavailable because the filtering flag conflicts with the provider contract.";
-	if (d4 !== "declared")
-		return "Queue requires confirmation that the provider accepts the filtering flag.";
-	return null;
-}
+// Every shipped operation's contract declares the fixed flag (D4).
+const declared: FilteringEvidence = { d4: "declared" };
 
 function seedreamEntry(provider: ProviderId, operation: keyof typeof ordinaryOperations) {
 	const { model, path } = seedreamRoutes[provider];
@@ -65,11 +54,9 @@ function seedreamEntry(provider: ProviderId, operation: keyof typeof ordinaryOpe
 		profile: `seedream-${ordinaryOperations[operation].mode}`,
 		key: { provider, model, route: `POST ${path}`, operation },
 		...ordinaryOperations[operation],
-		evidence: seedreamEvidence,
+		evidence: declared,
 	};
 }
-
-const zImageEvidence: FilteringEvidence = { d4: "declared", catalogD4: "unknown" };
 
 function zImageEntry(operation: keyof typeof ordinaryOperations) {
 	return {
@@ -77,7 +64,7 @@ function zImageEntry(operation: keyof typeof ordinaryOperations) {
 		profile: `z-image-${ordinaryOperations[operation].mode}`,
 		key: { provider: "poyo", model: zImageModel.id, route: "POST /api/generate/submit", operation },
 		...ordinaryOperations[operation],
-		evidence: zImageEvidence,
+		evidence: declared,
 	} as const;
 }
 
@@ -97,7 +84,7 @@ export const seedanceOperation = {
 	},
 	mode: "generate",
 	label: "Create video",
-	evidence: { d4: "declared", catalogD4: "unknown" },
+	evidence: declared,
 	roles: [],
 	save: seedanceSave,
 } as const;
@@ -161,7 +148,7 @@ function poyoVideoEntry<Model extends string, Descriptor extends PoyoVideoDescri
 		},
 		mode: "generate",
 		label: "Create video",
-		evidence: { d4: "declared", catalogD4: "declared" },
+		evidence: declared,
 		save: descriptor.save,
 		descriptor,
 	} as const;
