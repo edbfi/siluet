@@ -101,28 +101,36 @@ export class UnsupportedGalleryImage extends Error {
 	}
 }
 
+type RasterFormat = "png" | "jpeg" | "webp" | "gif" | "heif" | "tiff";
+
 // Restrict decoder selection to raster containers. A failed download can contain
 // arbitrary bytes (including an HTML error page) instead of the result image.
-// A complete WebP outside the still profile is held here, before any decode.
-function rasterFormat(bytes: Buffer) {
-	if (bytes.subarray(0, 8).equals(pngSignature)) return completePng(bytes) ? "png" : null;
-	if (completeJpeg(bytes)) return "jpeg";
+// A complete WebP outside the still profile is held here, before any decode; a still one
+// carries its image chunk's size for the decoder to match.
+function rasterFormat(
+	bytes: Buffer,
+): { format: RasterFormat; width?: number; height?: number } | null {
+	const format = (name: RasterFormat) => ({ format: name });
+	if (bytes.subarray(0, 8).equals(pngSignature)) return completePng(bytes) ? format("png") : null;
+	if (completeJpeg(bytes)) return format("jpeg");
 	const tag = (offset: number, length: number) => bytes.toString("latin1", offset, offset + length);
 	if (tag(0, 4) === "RIFF" && tag(8, 4) === "WEBP") {
 		const container = walkWebp(bytes);
 		if (container.kind === "refused") throw new UnsupportedGalleryImage();
-		return container.kind === "still" ? "webp" : null;
+		if (container.kind === "incomplete") return null;
+		return { format: "webp", width: container.width, height: container.height };
 	}
-	if (["GIF87a", "GIF89a"].includes(tag(0, 6)) && hasCompleteGifStream(bytes)) return "gif";
+	if (["GIF87a", "GIF89a"].includes(tag(0, 6)) && hasCompleteGifStream(bytes)) return format("gif");
 	if (tag(4, 4) === "ftyp" && ["avif", "avis", "heic", "mif1"].includes(tag(8, 4)))
-		return completeHeifBoxes(bytes) ? "heif" : null;
-	if (["49492a00", "4d4d002a"].includes(bytes.toString("hex", 0, 4))) return "tiff";
+		return completeHeifBoxes(bytes) ? format("heif") : null;
+	if (["49492a00", "4d4d002a"].includes(bytes.toString("hex", 0, 4))) return format("tiff");
 	return null;
 }
 
 export async function verifyImage(bytes: Buffer) {
-	const expected = rasterFormat(bytes);
-	if (!expected) throw invalid();
+	const raster = rasterFormat(bytes);
+	if (!raster) throw invalid();
+	const expected = raster.format;
 	const galleryFormat = expected === "png" || expected === "jpeg" || expected === "webp";
 
 	// Some libjpeg warnings are emitted even when toBuffer() resolves.
@@ -141,6 +149,9 @@ export async function verifyImage(bytes: Buffer) {
 	});
 	const { format, width, height, pages = 1 } = await decoder.metadata();
 	if (warned || format !== expected || width > verificationEdge || height > verificationEdge)
+		throw invalid();
+	// The decoder must agree with a still WebP's image chunk.
+	if (raster.width !== undefined && (width !== raster.width || height !== raster.height))
 		throw invalid();
 	// Gallery saves one still canvas; the WebP walk already refused animation chunks.
 	if (galleryFormat && pages > 1) throw new UnsupportedGalleryImage();

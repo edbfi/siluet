@@ -42,6 +42,28 @@ export function shortened(file: Buffer, count: number) {
 	return cut;
 }
 
+/** `file` with its RIFF size field set to `size`. */
+function riffSize(file: Buffer, size: number) {
+	const copy = Buffer.from(file);
+	copy.writeUInt32LE(size, 4);
+	return copy;
+}
+
+/** `file` followed by a chunk header whose size runs past the end, inside the RIFF size. */
+function overrun(file: Buffer) {
+	const header = Buffer.alloc(8);
+	header.write("ABCD", 0, "latin1");
+	header.writeUInt32LE(1024, 4);
+	return riffSize(Buffer.concat([file, header]), file.length);
+}
+
+/** `header` with a non-zero byte in the reserved bits after its flags. */
+function reserved(header: WebpChunk): WebpChunk {
+	const data = Buffer.from(header.data);
+	data[2] = 1;
+	return { type: header.type, data };
+}
+
 /** An extended-format header chunk with `flags` and a canvas of `width` × `height`. */
 export function vp8x(flags: number, width: number, height: number): WebpChunk {
 	const data = Buffer.alloc(10);
@@ -103,6 +125,7 @@ async function authorWebpFixtures() {
 	const vp8l = only(lossless, "VP8L");
 	const vp8lAlpha = only(losslessAlpha, "VP8L");
 	const alph = only(lossyAlpha, "ALPH");
+	const vp8Alpha = only(lossyAlpha, "VP8 ");
 	const iccp = only(metadata, "ICCP");
 	const exif = only(metadata, "EXIF");
 	const xmp = only(metadata, "XMP ");
@@ -126,11 +149,29 @@ async function authorWebpFixtures() {
 			]),
 			"odd XMP with a zero pad": riffWebp([vp8x(xmpFlag, width, height), vp8, oddXmp]),
 			"extended with no flags": riffWebp([vp8x(0, width, height), vp8]),
+			"ICCP, ALPH then VP8": riffWebp([vp8x(icc | alpha, width, height), iccp, alph, vp8Alpha]),
 		},
 		held: {
 			animated,
 			"animation flag on a still image": riffWebp([vp8x(animation, width, height), vp8]),
 			"ANIM chunk": riffWebp([vp8x(0, width, height), chunk("ANIM", Buffer.alloc(6)), vp8]),
+			"ANMF without ANIM": riffWebp([vp8x(animation, width, height), chunk("ANMF", vp8.data)]),
+			"no image chunk": riffWebp([vp8x(0, width, height)]),
+			"no chunks": riffWebp([]),
+			"RIFF size below 4": riffSize(riffWebp([vp8]), 3),
+			"VP8X size other than 10": riffWebp([
+				{ type: "VP8X", data: Buffer.concat([vp8x(0, width, height).data, Buffer.alloc(2)]) },
+				vp8,
+			]),
+			"non-zero VP8X reserved bytes": riffWebp([reserved(vp8x(0, width, height)), vp8]),
+			// A still WebP holds at most six chunks; the walk stops before the overrun that follows.
+			"more chunks than a still holds": overrun(
+				riffWebp([
+					vp8x(0, width, height),
+					vp8,
+					...Array.from({ length: 5 }, () => chunk("ABCD", Buffer.alloc(2))),
+				]),
+			),
 			"odd XMP with a non-zero pad": riffWebp([vp8x(xmpFlag, width, height), vp8, oddXmp], 1),
 			"odd XMP without its pad": shortened(
 				riffWebp([vp8x(xmpFlag, width, height), vp8, oddXmp]),

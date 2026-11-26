@@ -11,7 +11,10 @@ import { installationMigrations } from "./migrations";
 import { currentSchema, schemaFingerprint } from "./recovery-schema";
 
 const name = "20261128120000_gallery_webp";
-const { [name]: _, ...released } = installationMigrations;
+// Only the migrations released before this one, so a later migration cannot run early.
+const released = Object.fromEntries(
+	Object.entries(installationMigrations).filter(([key]) => key < name),
+);
 const gallery = sql`SELECT * FROM gallery_image ORDER BY job_id`;
 const tableSql = sql`SELECT sql FROM sqlite_schema WHERE type='table' AND name='gallery_image'`;
 

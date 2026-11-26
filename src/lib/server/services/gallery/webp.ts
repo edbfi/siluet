@@ -5,7 +5,8 @@
  *
  * - `incomplete`: the RIFF size or a chunk runs past the file, or the image chunk's header is
  *   damaged. Save treats it as a failed download.
- * - `refused`: a complete container outside the still profile. Save holds it.
+ * - `refused`: a complete container outside the still profile, including one with no image
+ *   chunk. Save holds it.
  * - `still`: one still image, with the image chunk's dimensions.
  */
 export type WebpContainer =
@@ -15,32 +16,12 @@ export type WebpContainer =
 
 type Chunk = { type: string; start: number; size: number };
 
-const flag = { icc: 0x20, alpha: 0x10, exif: 0x08, xmp: 0x04 };
+const flag = { icc: 0x20, alpha: 0x10, exif: 0x08, xmp: 0x04, animation: 0x02 };
 const knownFlags = flag.icc | flag.alpha | flag.exif | flag.xmp;
+// VP8X, ICCP, ALPH, the image chunk, EXIF and XMP.
+const stillChunks = 6;
 const incomplete = { kind: "incomplete" } as const;
 const refused = { kind: "refused" } as const;
-
-/** Every chunk, if each fits the declared RIFF size and the file; `padded` is false for a bad pad. */
-function chunksOf(bytes: Buffer) {
-	if (bytes.length < 12 || bytes.readUInt32LE(4) + 8 > bytes.length) return null;
-	const end = bytes.readUInt32LE(4) + 8;
-	const chunks: Chunk[] = [];
-	let padded = true;
-	let offset = 12;
-	while (offset < end) {
-		if (offset + 8 > end) return null;
-		const size = bytes.readUInt32LE(offset + 4);
-		const start = offset + 8;
-		if (start + size > end) return null;
-		chunks.push({ type: bytes.toString("latin1", offset, offset + 4), start, size });
-		offset = start + size;
-		if (size & 1) {
-			if (offset === end || bytes[offset] !== 0) padded = false;
-			offset++;
-		}
-	}
-	return { chunks, padded, trailing: end !== bytes.length };
-}
 
 /** The image chunk's dimensions and alpha bit, or null when its header is damaged. */
 function imageHeader(bytes: Buffer, { type, start, size }: Chunk) {
@@ -62,33 +43,64 @@ function imageHeader(bytes: Buffer, { type, start, size }: Chunk) {
 	};
 }
 
-export function walkWebp(bytes: Buffer): WebpContainer {
-	const walked = chunksOf(bytes);
-	if (!walked) return incomplete;
-	const { chunks } = walked;
-	const [first] = chunks;
-	if (!first) return incomplete;
-	const imageAt = chunks.findIndex((chunk) => chunk.type === "VP8 " || chunk.type === "VP8L");
-	if (imageAt < 0) {
-		// An animation has frames instead of an image chunk.
-		return chunks.some((chunk) => ["ANIM", "ANMF"].includes(chunk.type)) ? refused : incomplete;
+/**
+ * One pass over the chunks that keeps only their types in order: at most six, since a still
+ * WebP holds no more. Animation chunks and the animation flag refuse at once; neither can
+ * belong to a still, even in a truncated transfer.
+ */
+function walkChunks(bytes: Buffer) {
+	if (bytes.length < 12) return incomplete;
+	const riffSize = bytes.readUInt32LE(4);
+	if (riffSize < 4) return refused;
+	const end = riffSize + 8;
+	if (end > bytes.length) return incomplete;
+	const types: string[] = [];
+	let image: Chunk | undefined;
+	let vp8x: Chunk | undefined;
+	let padded = true;
+	for (let offset = 12; offset < end; ) {
+		if (offset + 8 > end) return incomplete;
+		const type = bytes.toString("latin1", offset, offset + 4);
+		const size = bytes.readUInt32LE(offset + 4);
+		if (type === "ANIM" || type === "ANMF" || types.length === stillChunks) return refused;
+		const start = offset + 8;
+		if (start + size > end) return incomplete;
+		types.push(type);
+		if (type === "VP8X" && !vp8x) {
+			vp8x = { type, start, size };
+			if (size > 0 && bytes[start] & flag.animation) return refused;
+		}
+		if ((type === "VP8 " || type === "VP8L") && !image) image = { type, start, size };
+		offset = start + size;
+		if (size & 1) {
+			if (offset === end || bytes[offset] !== 0) padded = false;
+			offset++;
+		}
 	}
-	const image = imageHeader(bytes, chunks[imageAt]);
-	if (!image) return incomplete;
-	if (!walked.padded || walked.trailing) return refused;
-	const still = { kind: "still", width: image.width, height: image.height } as const;
+	return { types, image, vp8x, padded, trailing: end !== bytes.length };
+}
+
+export function walkWebp(bytes: Buffer): WebpContainer {
+	const walked = walkChunks(bytes);
+	if ("kind" in walked) return walked;
+	const { types, image: imageChunk, vp8x } = walked;
+	const header = imageChunk && imageHeader(bytes, imageChunk);
+	if (imageChunk && !header) return incomplete;
+	if (!header || !walked.padded || walked.trailing) return refused;
+	const still = { kind: "still", width: header.width, height: header.height } as const;
 
 	// Simple format: the image chunk alone.
-	if (first.type !== "VP8X") return chunks.length === 1 ? still : refused;
+	if (types[0] !== "VP8X") return types.length === 1 ? still : refused;
 
 	// Extended format: VP8X, optional ICCP, optional ALPH before VP8, the image, then at most
 	// one EXIF and one XMP in either order.
-	if (first.size !== 10) return refused;
-	const flags = bytes[first.start];
-	if (flags & ~knownFlags || bytes.readUIntLE(first.start + 1, 3) !== 0) return refused;
-	const before = chunks.slice(1, imageAt).map((chunk) => chunk.type);
-	const after = chunks.slice(imageAt + 1).map((chunk) => chunk.type);
-	const lossy = chunks[imageAt].type === "VP8 ";
+	if (!vp8x || vp8x.size !== 10) return refused;
+	const flags = bytes[vp8x.start];
+	if (flags & ~knownFlags || bytes.readUIntLE(vp8x.start + 1, 3) !== 0) return refused;
+	const imageAt = types.indexOf(imageChunk.type);
+	const before = types.slice(1, imageAt);
+	const after = types.slice(imageAt + 1);
+	const lossy = imageChunk.type === "VP8 ";
 	const leading = [[], ["ICCP"], ...(lossy ? [["ALPH"], ["ICCP", "ALPH"]] : [])];
 	if (!leading.some((order) => order.join() === before.join())) return refused;
 	if (
@@ -97,13 +109,13 @@ export function walkWebp(bytes: Buffer): WebpContainer {
 		return refused;
 	const present = {
 		icc: before.includes("ICCP"),
-		alpha: before.includes("ALPH") || image.alpha,
+		alpha: before.includes("ALPH") || header.alpha,
 		exif: after.includes("EXIF"),
 		xmp: after.includes("XMP "),
 	};
 	for (const name of ["icc", "alpha", "exif", "xmp"] as const)
 		if (Boolean(flags & flag[name]) !== present[name]) return refused;
-	const canvasWidth = bytes.readUIntLE(first.start + 4, 3) + 1;
-	const canvasHeight = bytes.readUIntLE(first.start + 7, 3) + 1;
-	return canvasWidth === image.width && canvasHeight === image.height ? still : refused;
+	const canvasWidth = bytes.readUIntLE(vp8x.start + 4, 3) + 1;
+	const canvasHeight = bytes.readUIntLE(vp8x.start + 7, 3) + 1;
+	return canvasWidth === header.width && canvasHeight === header.height ? still : refused;
 }

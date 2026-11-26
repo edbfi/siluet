@@ -777,13 +777,14 @@ test("a failed write that settles an attempt gives the claim back without counti
 	expect(posts).toBe(0);
 });
 
-test("still WebP saves its delivered bytes, animated WebP is held and a truncated one retries", async () => {
+test("still WebP saves its delivered bytes, animated or imageless WebP is held and a truncated one retries", async () => {
 	const { saves, held, truncated } = await webpFixtures();
 	const files: Record<string, Buffer<ArrayBuffer>> = {
 		"image-lossy": saves.lossy,
 		"image-lossless": saves.losslessAlpha,
 		"image-animated": held.animated,
 		"image-truncated": truncated["cut short"],
+		"image-imageless": held["no image chunk"],
 	};
 	media = (id) => new Response(files[id] ?? referencePng);
 	runtime = open();
@@ -791,16 +792,17 @@ test("still WebP saves its delivered bytes, animated WebP is held and a truncate
 	// The read gate admits two status reads at a time.
 	await complete("image-lossy", "image-lossless");
 	now += 10_000;
-	await complete("image-animated", "image-truncated");
+	await complete("image-animated", "image-imageless");
+	now += 10_000;
+	await complete("image-truncated");
 	for (const id of ["image-lossy", "image-lossless"]) {
 		expect(await summary(id)).toMatchObject({ library: "saved", retryable: false });
 		expect(await runtime.gallery.read(id)).toEqual({ mime: "image/webp", bytes: files[id] });
 	}
-	expect(await summary("image-animated")).toMatchObject({
-		library: "unsupported",
-		retryable: false,
-	});
-	expect(await job("image-animated")).toMatchObject({ save_hold: "unsupported", save_tries: 0 });
+	for (const id of ["image-animated", "image-imageless"]) {
+		expect(await summary(id)).toMatchObject({ library: "unsupported", retryable: false });
+		expect(await job(id)).toMatchObject({ save_hold: "unsupported", save_tries: 0 });
+	}
 	expect(await job("image-truncated")).toMatchObject({ save_hold: null, save_tries: 1 });
 	for (const wait of [30_000, 120_000]) {
 		now += wait;
@@ -809,7 +811,8 @@ test("still WebP saves its delivered bytes, animated WebP is held and a truncate
 	}
 	expect(transfers.filter((id) => id === "image-truncated")).toHaveLength(3);
 	expect(await summary("image-truncated")).toMatchObject({ library: "failed", retryable: true });
-	expect(transfers.filter((id) => id === "image-animated")).toHaveLength(1);
+	for (const id of ["image-animated", "image-imageless"])
+		expect(transfers.filter((transfer) => transfer === id)).toHaveLength(1);
 	expect(posts).toBe(0);
 });
 

@@ -70,6 +70,27 @@ test("a multi-page WebP is held even when its chunks look still", async () => {
 	}
 });
 
+test("a WebP whose decoded size differs from its image chunk is not a supported image", async () => {
+	const { lossy } = (await webpFixtures()).saves;
+	for (const size of [
+		{ width: 4, height: 2 },
+		{ width: 3, height: 1 },
+	]) {
+		const metadata = spyOn(Object.getPrototypeOf(sharp()), "metadata").mockResolvedValue({
+			format: "webp",
+			pages: 1,
+			...size,
+		} as never);
+		try {
+			const error = await verifyImage(lossy).catch((reason: unknown) => reason);
+			expect(error).toBeInstanceOf(Error);
+			expect(error).not.toHaveProperty("reason");
+		} finally {
+			metadata.mockRestore();
+		}
+	}
+});
+
 test("damaged still WebP pixels keep the retrieval outcome", async () => {
 	const pixels = Buffer.alloc(64 * 64 * 3);
 	for (let index = 0; index < pixels.length; index++) pixels[index] = (index * 31) & 255;
