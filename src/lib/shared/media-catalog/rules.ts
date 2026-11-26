@@ -18,6 +18,8 @@ function fluxKleinSize(value: unknown, body: Body) {
 	if (ratios.includes(value)) return null;
 	const match = /^(\d+)x(\d+)$/.exec(value);
 	if (!match) return "is neither a listed ratio nor WIDTHxHEIGHT";
+	// Siluet sends canonical WxH only.
+	if (/^0|x0/.test(value)) return "has a side with a leading zero";
 	const [width, height] = [Number(match[1]), Number(match[2])];
 	if ([width, height].some((side) => side < 256 || side > 4096))
 		return "has a side outside 256-4096";
@@ -32,16 +34,20 @@ const fluxKleinQuote =
 
 // The OpenAPI input's `size` is a `oneOf` of the same ratios and a described WIDTHxHEIGHT
 // branch, with the same sentence, so the rule replaces both sources' constructs.
-const fluxKlein = (model: string, source: "catalog" | "rest", schemaSha256: string) =>
-	({
-		id: `${model}-size-${source}`,
-		model,
-		source,
-		schemaSha256,
-		field: "size",
-		quote: fluxKleinQuote,
-		check: fluxKleinSize,
-	}) as const;
+const fluxKlein = (
+	model: string,
+	source: "catalog" | "rest",
+	schemaSha256: string,
+): ReviewedRule => ({
+	id: `${model}-size-${source}`,
+	model,
+	source,
+	schemaSha256,
+	field: "size",
+	constructs: ["oneOf"],
+	quote: fluxKleinQuote,
+	check: fluxKleinSize,
+});
 
 export const reviewedRules: readonly ReviewedRule[] = [
 	fluxKlein(

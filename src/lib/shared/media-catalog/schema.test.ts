@@ -8,6 +8,7 @@ import {
 	allowedPatterns,
 	constructs,
 	effectiveDefault,
+	type ReviewedRule,
 	type RowSchemas,
 	type Schema,
 	validateBody,
@@ -25,6 +26,8 @@ function row(id: string): RowSchemas {
 		rest: apiSchema ? { schema: apiSchema, sha256: api.input } : null,
 	};
 }
+const isBody = (value: unknown): value is Record<string, unknown> =>
+	!!value && typeof value === "object";
 const object = (properties: Schema, extra: Schema = {}): Schema => ({
 	type: "object",
 	properties,
@@ -200,6 +203,144 @@ describe("constructs outside the subset", () => {
 	});
 });
 
+describe("combinators fail closed", () => {
+	const fields = { a: { type: "string" }, b: { type: "string" } };
+	test("a const inside a combinator fragment invalidates the whole schema", () => {
+		const schema = object(fields, {
+			// biome-ignore lint/suspicious/noThenProperty: `then` is the JSON Schema keyword under test.
+			allOf: [{ if: { properties: { a: { const: "x" } } }, then: { required: ["b"] } }],
+		});
+		expect(constructs(schema)).toEqual([{ field: null, construct: "const", within: "allOf" }]);
+		expect(validateInput(schema, { b: "y" })).toEqual(["input uses const in allOf"]);
+	});
+	test("a combinator-level const invalidates the whole schema", () => {
+		const schema = object(fields, { allOf: [{ const: { a: "x" } }] });
+		expect(constructs(schema)).toEqual([{ field: null, construct: "const", within: "allOf" }]);
+		expect(validateInput(schema, { a: "x" })).toEqual(["input uses const in allOf"]);
+	});
+	test("a fragment type outside the declaration types invalidates the whole schema", () => {
+		const schema = object(fields, { not: { properties: { a: { type: "object" } } } });
+		expect(constructs(schema)).toEqual([
+			{ field: null, construct: 'type "object"', within: "not" },
+		]);
+		expect(validateInput(schema, { a: "x" })).toEqual(['input uses type "object" in not']);
+		const typed = object(fields, { not: { properties: { a: { type: "string", enum: ["x"] } } } });
+		expect(constructs(typed)).toEqual([]);
+	});
+	test("only a schema-level rule for that exact combinator replaces it", () => {
+		const schema = object(fields, {
+			// biome-ignore lint/suspicious/noThenProperty: `then` is the JSON Schema keyword under test.
+			allOf: [{ if: { properties: { a: { const: "x" } } }, then: { required: ["b"] } }],
+		});
+		const digest = sha(schema);
+		const rule: ReviewedRule = {
+			id: "fixture-allOf",
+			model: "fixture",
+			source: "catalog",
+			schemaSha256: digest,
+			field: null,
+			constructs: ["allOf"],
+			quote: "b is required when a is x",
+			check: (body) => (isBody(body) && body.a === "x" && !("b" in body) ? "needs b" : null),
+		};
+		expect(validateInput(schema, { a: "x", b: "y" }, { sha256: digest, rules: [rule] })).toEqual(
+			[],
+		);
+		expect(validateInput(schema, { a: "x" }, { sha256: digest, rules: [rule] })).toEqual([
+			"input needs b",
+		]);
+		// A rule for another combinator, or a stale hash, leaves the schema refused.
+		const anyOf = { ...rule, constructs: ["anyOf"] };
+		expect(validateInput(schema, { a: "x", b: "y" }, { sha256: digest, rules: [anyOf] })).toEqual([
+			"input uses const in allOf",
+		]);
+		expect(
+			validateInput(schema, { a: "x", b: "y" }, { sha256: "0".repeat(64), rules: [rule] }),
+		).toEqual(["input uses const in allOf"]);
+	});
+});
+
+describe("malformed keywords are constructs", () => {
+	test.each([
+		["enum", { type: "string", enum: "x" }],
+		["minimum", { type: "integer", minimum: "1" }],
+		["maximum", { type: "integer", maximum: Number.POSITIVE_INFINITY }],
+		["minLength", { type: "string", minLength: 1.5 }],
+		["maxLength", { type: "string", maxLength: -1 }],
+		["minItems", { type: "array", items: { type: "string" }, minItems: -1 }],
+		["maxItems", { type: "array", items: { type: "string" }, maxItems: "2" }],
+	])("a malformed %s uncovers its option", (keyword, declaration) => {
+		const schema = object(
+			{ prompt: { type: "string" }, extra: declaration },
+			{ required: ["prompt"] },
+		);
+		expect(constructs(schema)).toEqual([{ field: "extra", construct: `malformed ${keyword}` }]);
+		expect(validateInput(schema, { prompt: "x", extra: "a" })).toEqual([
+			`extra is not offered: malformed ${keyword}`,
+		]);
+	});
+	test.each([
+		["required that is not an array", { required: "prompt" }, "malformed required"],
+		["required that names a non-string", { required: [1] }, "malformed required"],
+		// biome-ignore lint/suspicious/noThenProperty: `then` is the JSON Schema keyword under test.
+		["then without if", { then: { required: ["prompt"] } }, "then without if"],
+		["else without if", { else: { required: ["prompt"] } }, "else without if"],
+	])("%s invalidates the whole schema", (_name, extra, construct) => {
+		const schema = object({ prompt: { type: "string" } }, extra);
+		expect(constructs(schema)).toEqual([{ field: null, construct }]);
+		expect(validateInput(schema, { prompt: "x" })).toEqual([`input uses ${construct}`]);
+	});
+	test("a malformed keyword inside a fragment invalidates the whole schema", () => {
+		const schema = object(
+			{ a: { type: "string" } },
+			{ allOf: [{ properties: { a: { enum: "x" } } }, { not: { required: "a" } }] },
+		);
+		expect(constructs(schema)).toEqual([
+			{ field: null, construct: "malformed enum", within: "allOf" },
+			{ field: null, construct: "malformed required", within: "allOf" },
+		]);
+	});
+});
+
+describe("only own properties resolve", () => {
+	test("__proto__ in a body is an undeclared field", () => {
+		const schema = object({ a: { type: "string" } }, { additionalProperties: false });
+		expect(validateInput(schema, JSON.parse('{"__proto__": 1}'))).toEqual([
+			"input does not accept __proto__",
+		]);
+	});
+	test("an effective default needs a source that owns the field", () => {
+		expect(effectiveDefault([], "a")).toEqual({ state: "unresolved", reason: "missing" });
+		const source = JSON.parse('{"type":"object","properties":{}}') as Schema;
+		expect(effectiveDefault([source], "__proto__")).toEqual({
+			state: "unresolved",
+			reason: "one source",
+		});
+	});
+});
+
+describe("rules cover exact constructs", () => {
+	test("a rule for oneOf does not hide another construct on the same field", () => {
+		const klein = row("flux-3-klein");
+		const [catalogRule] = reviewedRules.filter(
+			(item) => item.model === "flux-3-klein" && item.source === "catalog",
+		);
+		const properties = klein.catalog.schema.properties as Record<string, Schema>;
+		const extra: Schema = {
+			...klein.catalog.schema,
+			properties: { ...properties, size: { ...properties.size, "x-server-validation": true } },
+		};
+		const digest = sha(extra);
+		const rule = { ...catalogRule, schemaSha256: digest };
+		expect(
+			validateInput(extra, { prompt: "A fox", size: "3:2" }, { sha256: digest, rules: [rule] }),
+		).toEqual(["size is not offered: x-server-validation"]);
+		expect(validateInput(extra, { prompt: "A fox" }, { sha256: digest, rules: [rule] })).toEqual(
+			[],
+		);
+	});
+});
+
 describe("reviewed rules", () => {
 	const klein = row("flux-3-klein");
 	const rule = reviewedRules.filter((item) => item.model === "flux-3-klein");
@@ -234,6 +375,14 @@ describe("reviewed rules", () => {
 			both("has a side outside 256-4096"),
 		);
 		expect(validateBody(klein, body("1536 x 1024", "2K"), rule)).not.toEqual([]);
+	});
+	test("explicit dimensions with a leading zero are refused", () => {
+		expect(
+			validateBody(klein, { prompt: "A fox", size: "01536x1024", resolution: "2K" }, rule),
+		).toEqual([
+			"catalog: size has a side with a leading zero",
+			"API: size has a side with a leading zero",
+		]);
 	});
 	test("a stale rule hash leaves the construct uncovered", () => {
 		const stale = rule.map((item) => ({ ...item, schemaSha256: "0".repeat(64) }));

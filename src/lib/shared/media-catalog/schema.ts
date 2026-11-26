@@ -32,26 +32,54 @@ const valueKeywords = [
 const combinators = ["allOf", "not", "if", "then", "else", "anyOf"];
 const declarationTypes = ["string", "integer", "number", "boolean", "array"];
 
-/** One construct outside the subset. `field` is the top-level input it touches, or null. */
-export type Construct = { field: string | null; construct: string };
+/**
+ * One construct outside the subset. `field` is the top-level input it touches, or null for the
+ * whole schema. `within` names the top-level combinator a construct sits in: anything
+ * unsupported inside a combinator invalidates the whole schema.
+ */
+export type Construct = { field: string | null; construct: string; within?: string };
 
 const isSchema = (value: unknown): value is Schema =>
 	!!value && typeof value === "object" && !Array.isArray(value);
+const has = (value: object, key: string) => Object.hasOwn(value, key);
+const own = (value: Schema, key: string) => (has(value, key) ? value[key] : undefined);
+
+const bounds = ["minimum", "maximum"];
+const counts = ["minLength", "maxLength", "minItems", "maxItems"];
+
+/** A supported keyword whose value has the wrong type, as a construct name, or null. */
+function malformed(keyword: string, value: unknown) {
+	const wrong =
+		keyword === "enum"
+			? !Array.isArray(value)
+			: keyword === "required"
+				? !Array.isArray(value) || value.some((name) => typeof name !== "string")
+				: bounds.includes(keyword)
+					? typeof value !== "number" || !Number.isFinite(value)
+					: counts.includes(keyword)
+						? !Number.isInteger(value) || (value as number) < 0
+						: false;
+	return wrong ? `malformed ${keyword}` : null;
+}
 
 function keywordConstruct(keyword: string, value: unknown) {
 	if (keyword.startsWith("x-")) return keyword;
 	if (keyword === "pattern")
-		return typeof value === "string" && Object.hasOwn(allowedPatterns, value)
+		return typeof value === "string" && has(allowedPatterns, value)
 			? null
 			: `pattern ${JSON.stringify(value)}`;
 	if (keyword === "format") return value === "uri" ? null : `format ${JSON.stringify(value)}`;
-	return null;
+	return malformed(keyword, value);
 }
+
+/** `then` or `else` beside no `if`. */
+const orphans = (schema: Schema) =>
+	has(schema, "if") ? [] : ["then", "else"].filter((key) => has(schema, key));
 
 /** Constructs in a property declaration of the input object. */
 function declarationConstructs(field: string, schema: unknown, item = false): Construct[] {
 	if (!isSchema(schema)) return [{ field, construct: "non-schema property" }];
-	if (!("type" in schema)) {
+	if (!has(schema, "type")) {
 		const unsupported = Object.keys(schema).filter(
 			(keyword) => !annotations.includes(keyword) && !valueKeywords.includes(keyword),
 		);
@@ -74,64 +102,87 @@ function declarationConstructs(field: string, schema: unknown, item = false): Co
 		if (construct) found.push({ field, construct });
 	}
 	if (schema.type === "array") {
-		if (!("items" in schema)) found.push({ field, construct: "array without items" });
+		if (!has(schema, "items")) found.push({ field, construct: "array without items" });
 		else found.push(...declarationConstructs(field, schema.items, true));
-	} else if ("items" in schema) found.push({ field, construct: "items on a non-array" });
+	} else if (has(schema, "items")) found.push({ field, construct: "items on a non-array" });
+	return found;
+}
+
+/** Constructs in one field's constraint inside a fragment. */
+function constraintConstructs(constraint: unknown): string[] {
+	if (!isSchema(constraint)) return ["non-schema constraint"];
+	const found: string[] = [];
+	for (const [keyword, value] of Object.entries(constraint)) {
+		if (annotations.includes(keyword)) continue;
+		if (keyword === "items") found.push("items");
+		else if (keyword === "type") {
+			if (typeof value !== "string" || !declarationTypes.includes(value))
+				found.push(`type ${JSON.stringify(value)}`);
+		} else if (!valueKeywords.includes(keyword)) found.push(keyword);
+		else {
+			const construct = keywordConstruct(keyword, value);
+			if (construct) found.push(construct);
+		}
+	}
 	return found;
 }
 
 /** Constructs in a constraint fragment inside `allOf`, `not`, `if`, `then`, `else` or `anyOf`. */
-function fragmentConstructs(schema: unknown, inAnyOf = false): Construct[] {
-	if (!isSchema(schema)) return [{ field: null, construct: "non-schema fragment" }];
-	const found: Construct[] = [];
+function fragmentConstructs(schema: unknown, inAnyOf = false): string[] {
+	if (!isSchema(schema)) return ["non-schema fragment"];
+	const found: string[] = orphans(schema).map((key) => `${key} without if`);
 	for (const [keyword, value] of Object.entries(schema)) {
-		if (annotations.includes(keyword) || keyword === "required") continue;
-		if (keyword === "properties" && isSchema(value)) {
-			for (const [field, constraint] of Object.entries(value)) {
-				if (!isSchema(constraint)) found.push({ field, construct: "non-schema constraint" });
-				else
-					for (const [inner, innerValue] of Object.entries(constraint)) {
-						if (annotations.includes(inner)) continue;
-						const construct = valueKeywords.includes(inner)
-							? keywordConstruct(inner, innerValue)
-							: inner;
-						if (construct || inner === "items")
-							found.push({ field, construct: construct ?? inner });
-					}
-			}
+		if (annotations.includes(keyword)) continue;
+		if (keyword === "required") {
+			const construct = malformed(keyword, value);
+			if (construct) found.push(construct);
+			continue;
+		}
+		if (keyword === "properties") {
+			if (!isSchema(value)) found.push("non-schema properties");
+			else
+				for (const constraint of Object.values(value))
+					found.push(...constraintConstructs(constraint));
 			continue;
 		}
 		if (inAnyOf) {
-			found.push({ field: null, construct: `anyOf branch with ${keyword}` });
+			found.push(`anyOf branch with ${keyword}`);
 			continue;
 		}
 		found.push(...combinatorConstructs(keyword, value));
 	}
-	if (inAnyOf && !Array.isArray(schema.required))
-		found.push({ field: null, construct: "anyOf branch without required" });
+	if (inAnyOf && !Array.isArray(schema.required)) found.push("anyOf branch without required");
 	return found;
 }
 
-function combinatorConstructs(keyword: string, value: unknown): Construct[] {
+function combinatorConstructs(keyword: string, value: unknown): string[] {
 	if (keyword === "allOf")
-		return Array.isArray(value)
-			? value.flatMap((branch) => fragmentConstructs(branch))
-			: [{ field: null, construct: "allOf" }];
+		return Array.isArray(value) ? value.flatMap((branch) => fragmentConstructs(branch)) : ["allOf"];
 	if (keyword === "anyOf")
 		return Array.isArray(value)
 			? value.flatMap((branch) => fragmentConstructs(branch, true))
-			: [{ field: null, construct: "anyOf" }];
+			: ["anyOf"];
 	if (keyword === "not" || keyword === "if" || keyword === "then" || keyword === "else")
 		return fragmentConstructs(value);
-	return [{ field: null, construct: keywordConstruct(keyword, value) ?? keyword }];
+	return [keywordConstruct(keyword, value) ?? keyword];
 }
+
+/** The top-level combinator a keyword belongs to: `then` and `else` belong to `if`. */
+const combinatorOf = (keyword: string) =>
+	keyword === "then" || keyword === "else" ? "if" : keyword;
 
 /** Every construct in an `input` schema that the validator does not support. */
 export function constructs(schema: Schema): Construct[] {
 	const found: Construct[] = [];
 	if (schema.type !== "object") found.push({ field: null, construct: "input is not an object" });
+	for (const key of orphans(schema)) found.push({ field: null, construct: `${key} without if` });
 	for (const [keyword, value] of Object.entries(schema)) {
-		if (annotations.includes(keyword) || keyword === "type" || keyword === "required") continue;
+		if (annotations.includes(keyword) || keyword === "type") continue;
+		if (keyword === "required") {
+			const construct = malformed(keyword, value);
+			if (construct) found.push({ field: null, construct });
+			continue;
+		}
 		if (keyword === "properties" && isSchema(value)) {
 			for (const [field, declaration] of Object.entries(value))
 				found.push(...declarationConstructs(field, declaration));
@@ -142,24 +193,47 @@ export function constructs(schema: Schema): Construct[] {
 				found.push({ field: null, construct: "additionalProperties schema" });
 			continue;
 		}
-		if (combinators.includes(keyword)) found.push(...combinatorConstructs(keyword, value));
-		else found.push({ field: null, construct: keywordConstruct(keyword, value) ?? keyword });
+		if (combinators.includes(keyword)) {
+			if ((keyword === "then" || keyword === "else") && !has(schema, "if")) continue;
+			const within = combinatorOf(keyword);
+			for (const construct of combinatorConstructs(keyword, value))
+				found.push({ field: null, construct, within });
+		} else found.push({ field: null, construct: keywordConstruct(keyword, value) ?? keyword });
 	}
 	return found;
 }
 
-/** A reviewed cross-field rule that replaces one construct on one exact schema. */
+/**
+ * A reviewed rule that replaces named constructs on one exact schema: on one top-level input,
+ * or, with `field: null`, a whole top-level combinator.
+ */
 export type ReviewedRule = {
 	readonly id: string;
 	readonly model: string;
 	readonly source: "catalog" | "rest";
 	/** SHA-256 of the canonical schema the rule was checked against. */
 	readonly schemaSha256: string;
-	/** The top-level input whose construct the rule replaces. */
-	readonly field: string;
+	/** The top-level input whose constructs the rule replaces, or null for the whole schema. */
+	readonly field: string | null;
+	/**
+	 * The constructs it replaces: construct names on `field`, or top-level combinator keywords
+	 * when `field` is null. Any other construct still counts.
+	 */
+	readonly constructs: readonly string[];
 	readonly quote: string;
+	/** Checks the field's value, or the whole body for a schema-level rule. */
 	readonly check: (value: unknown, body: Body) => string | null;
 };
+
+/** Whether a rule replaces one construct. */
+export const covers = (rule: ReviewedRule, { field, construct, within }: Construct) =>
+	rule.field === field && rule.constructs.includes(within ?? construct);
+
+/** The constructs no rule bound to this schema's SHA-256 replaces. */
+export function uncovered(schema: Schema, sha256: string | null, rules: readonly ReviewedRule[]) {
+	const bound = rules.filter((rule) => rule.schemaSha256 === sha256);
+	return constructs(schema).filter((found) => !bound.some((rule) => covers(rule, found)));
+}
 
 const codePoints = (value: string) => [...value].length;
 const sameValue = (a: unknown, b: unknown) =>
@@ -190,7 +264,7 @@ const isUri = (value: string) =>
 /** Errors of one value against one supported schema or fragment. */
 function check(schema: Schema, value: unknown, at: string, errors: string[]) {
 	const fail = (message: string) => errors.push(`${at || "input"} ${message}`);
-	if ("type" in schema) {
+	if (has(schema, "type")) {
 		const error = typeError(schema.type, value);
 		if (error) return fail(error);
 	}
@@ -209,7 +283,9 @@ function check(schema: Schema, value: unknown, at: string, errors: string[]) {
 			fail(`is longer than ${schema.maxLength} characters`);
 		if (schema.format === "uri" && !isUri(value)) fail("is not a URI");
 		if (typeof schema.pattern === "string") {
-			const pattern = allowedPatterns[schema.pattern];
+			const pattern = has(allowedPatterns, schema.pattern)
+				? allowedPatterns[schema.pattern]
+				: undefined;
 			if (!pattern) fail("has a pattern outside the validator");
 			else if (!pattern.test(value)) fail("does not match its pattern");
 		}
@@ -225,11 +301,10 @@ function check(schema: Schema, value: unknown, at: string, errors: string[]) {
 	}
 	if (isSchema(value)) {
 		if (Array.isArray(schema.required))
-			for (const field of schema.required)
-				if (!Object.hasOwn(value, field as string)) fail(`needs ${field}`);
+			for (const field of schema.required) if (!has(value, field as string)) fail(`needs ${field}`);
 		const properties = isSchema(schema.properties) ? schema.properties : {};
 		for (const [field, item] of Object.entries(value)) {
-			const declared = properties[field];
+			const declared = own(properties, field);
 			if (isSchema(declared)) check(declared, item, at ? `${at}.${field}` : field, errors);
 			else if (schema.additionalProperties === false) fail(`does not accept ${field}`);
 		}
@@ -257,7 +332,8 @@ const passes = (schema: Schema, value: unknown) => {
 /**
  * Errors of a serialized `input` body against one schema. A construct on the whole schema
  * refuses every body. A field whose declaration holds a construct is refused when sent, unless
- * a reviewed rule bound to this schema's SHA-256 replaces it; the rule then checks that field.
+ * a reviewed rule bound to this schema's SHA-256 replaces every construct on it; the rule then
+ * checks that field. A schema-level rule replaces its combinators and checks the whole body.
  * No default is added before validating.
  */
 export function validateInput(
@@ -266,21 +342,26 @@ export function validateInput(
 	{ sha256, rules = [] }: { sha256?: string; rules?: readonly ReviewedRule[] } = {},
 ): string[] {
 	const bound = rules.filter((rule) => rule.schemaSha256 === sha256);
-	const unsupported = constructs(schema).filter(
-		({ field }) => !bound.some((rule) => rule.field === field),
-	);
-	if (unsupported.some(({ field }) => field === null))
-		return unsupported
-			.filter(({ field }) => field === null)
-			.map(({ construct }) => `input uses ${construct}`);
+	const unsupported = uncovered(schema, sha256 ?? null, rules);
+	const whole = unsupported.filter(({ field }) => field === null);
+	if (whole.length)
+		return whole.map(
+			({ construct, within }) => `input uses ${construct}${within ? ` in ${within}` : ""}`,
+		);
 	const errors: string[] = [];
 	for (const { field, construct } of unsupported)
-		if (field !== null && Object.hasOwn(body, field))
-			errors.push(`${field} is not offered: ${construct}`);
+		if (field !== null && has(body, field)) errors.push(`${field} is not offered: ${construct}`);
 	const replaced = new Set(bound.map((rule) => rule.field));
 	const properties = isSchema(schema.properties) ? schema.properties : {};
 	const checked: Schema = {
-		...schema,
+		...Object.fromEntries(
+			Object.entries(schema).filter(
+				([keyword]) =>
+					!bound.some(
+						(rule) => rule.field === null && rule.constructs.includes(combinatorOf(keyword)),
+					),
+			),
+		),
 		properties: Object.fromEntries(
 			Object.entries(properties).map(([field, declaration]) => [
 				field,
@@ -289,11 +370,15 @@ export function validateInput(
 		),
 	};
 	check(checked, body, "", errors);
-	for (const rule of bound)
-		if (Object.hasOwn(body, rule.field)) {
+	for (const rule of bound) {
+		if (rule.field === null) {
+			const error = rule.check(body, body);
+			if (error) errors.push(`input ${error}`);
+		} else if (has(body, rule.field)) {
 			const error = rule.check(body[rule.field], body);
 			if (error) errors.push(`${rule.field} ${error}`);
 		}
+	}
 	return errors;
 }
 
@@ -333,13 +418,14 @@ export type EffectiveDefault =
  * all of them state the same default. Anything else is unresolved.
  */
 export function effectiveDefault(sources: readonly Schema[], field: string): EffectiveDefault {
+	if (!sources.length) return { state: "unresolved", reason: "missing" };
 	const declarations = sources.map((schema) =>
-		isSchema(schema.properties) ? schema.properties[field] : undefined,
+		isSchema(schema.properties) ? own(schema.properties, field) : undefined,
 	);
 	if (declarations.some((declaration) => !isSchema(declaration)))
 		return { state: "unresolved", reason: "one source" };
 	const defaults = (declarations as Schema[]).map((declaration) =>
-		"default" in declaration ? { value: declaration.default } : null,
+		has(declaration, "default") ? { value: declaration.default } : null,
 	);
 	if (defaults.some((entry) => entry === null)) return { state: "unresolved", reason: "missing" };
 	const [first, ...rest] = defaults as { value: unknown }[];

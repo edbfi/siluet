@@ -106,7 +106,7 @@ test("derived rows record constructs, contradictions and unknowns, and nothing q
 	expect(option("kling-2.5-turbo-pro", "aspect_ratio")?.gap?.question).toBe(11);
 	expect(option("seedance-2.5", "prompt")?.gap).toMatchObject({ question: 10 });
 	expect(rows.find((row) => row.model === "kling-4.0")?.pending).toEqual([
-		"schema uses oneOf, x-server-validation",
+		"schema uses oneOf in allOf, items in allOf, x-server-validation",
 	]);
 	expect(rows.find((row) => row.model === "vidu-q4")?.pending).toEqual([]);
 	expect(JSON.stringify(rows)).not.toMatch(/"queue"|"eligible"/);

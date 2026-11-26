@@ -14,9 +14,9 @@ import {
 import { reviewedRules } from "../../src/lib/shared/media-catalog/rules";
 import {
 	type Construct,
-	constructs,
 	effectiveDefault,
 	type Schema,
+	uncovered,
 	validateBody,
 } from "../../src/lib/shared/media-catalog/schema";
 import { sha256 } from "./project";
@@ -188,7 +188,9 @@ function minimalBody(required: string[], properties: Record<string, Schema>) {
 }
 
 const constructNames = (found: Construct[]) => [
-	...new Set(found.map(({ construct }) => construct)),
+	...new Set(
+		found.map(({ construct, within }) => (within ? `${construct} in ${within}` : construct)),
+	),
 ];
 
 function filtering(catalogSide: CatalogSide | null, restSide: RestSide): FilteringEvidence {
@@ -215,13 +217,9 @@ function deriveRow(
 	const rules = reviewedRules.filter(
 		({ schemaSha256 }) => schemaSha256 === catalogSha || schemaSha256 === api?.input,
 	);
-	const replaced = (found: Construct[], sha: string | null) =>
-		found.filter(
-			({ field }) => !rules.some((rule) => rule.schemaSha256 === sha && rule.field === field),
-		);
 	const unsupported = [
-		...(catalogSchema ? replaced(constructs(catalogSchema), catalogSha) : []),
-		...(apiSchema ? replaced(constructs(apiSchema), api.input) : []),
+		...(catalogSchema ? uncovered(catalogSchema, catalogSha, rules) : []),
+		...(apiSchema ? uncovered(apiSchema, api.input, rules) : []),
 	];
 	const required = [
 		...new Set(
