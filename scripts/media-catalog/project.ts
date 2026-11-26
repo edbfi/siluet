@@ -87,11 +87,21 @@ export function projectCatalog(upstream: string, revision: string) {
 	return `${canonicalJson({ entries, revision })}\n`;
 }
 
-/** The paths the docs index lists under "OpenAPI Specs", in index order. */
+/**
+ * The paths the docs index lists under "OpenAPI Specs", in index order. A bullet that is not a
+ * local `.json` spec link fails, so no spec drops out of the manifest unseen.
+ */
 export function indexedSpecs(index: string) {
 	const section = index.split(/^## OpenAPI Specs$/m)[1]?.split(/^## /m)[0];
 	if (!section) throw new Error("The docs index has no OpenAPI Specs section.");
-	return [...section.matchAll(/^- \[[^\]]*\]\((\/[^)\s]+\.json)\)$/gm)].map((match) => match[1]);
+	return section
+		.split("\n")
+		.filter((line) => line.startsWith("- "))
+		.map((line) => {
+			const path = /^- \[[^\]]*\]\((\/[^)\s]+\.json)\)$/.exec(line)?.[1];
+			if (!path) throw new Error(`The OpenAPI Specs section lists an unrecognised entry: ${line}`);
+			return path;
+		});
 }
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };

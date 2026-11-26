@@ -148,6 +148,15 @@ test("a re-pin fixture projects deterministically and keeps only in-scope entrie
 		projectOpenApi(fixtureIndex, (path) => files[path], new Set(["fixture-image"]), "2026-01-01"),
 	);
 	expect(indexedSpecs(fixtureIndex)).toEqual(["/one.json", "/zh/one.json"]);
+	// A bullet in the section that is not a recognised spec link fails, naming the line.
+	for (const line of [
+		"- [one](/one.json) ",
+		"- [two](/two.yaml)",
+		"- [three](https://x/three.json)",
+	])
+		expect(() => indexedSpecs(`## OpenAPI Specs\n\n- [one](/one.json)\n${line}\n`)).toThrow(
+			`The OpenAPI Specs section lists an unrecognised entry: ${line}`,
+		);
 	expect(openapi.manifest.map(({ path }: { path: string }) => path)).toEqual([
 		"/one.json",
 		"/zh/one.json",

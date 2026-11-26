@@ -345,3 +345,10 @@ describe("fixture rows", () => {
 		});
 	});
 });
+
+test("an ID documented in two ledger rows fails the derivation", () => {
+	const documented = ledger.providers.poyo.rows.filter((row) => row.contract === "documented");
+	expect(() => deriveRows([...documented, documented[0]])).toThrow(
+		`${documented[0].ids[0]} is documented in more than one ledger row.`,
+	);
+});

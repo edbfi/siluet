@@ -423,14 +423,18 @@ export function deriveRow(
 }
 
 /** Every documented Poyo.ai ledger ID, as one derived row per exact ID. */
-export function deriveRows() {
+export function deriveRows(
+	ledgerRows: typeof ledger.providers.poyo.rows = ledger.providers.poyo.rows,
+) {
 	const entries = new Map(
 		catalog.entries.map((entry) => [entry.model_id, entry as unknown as CatalogEntry]),
 	);
-	const rows = ledger.providers.poyo.rows
+	const rows = ledgerRows
 		.filter((row) => row.contract === "documented")
 		.flatMap((row) => row.ids.map((model) => deriveRow(row, model, entries.get(model))));
-	rows.sort((a, b) => (a.model < b.model ? -1 : 1));
+	rows.sort((a, b) => (a.model < b.model ? -1 : a.model > b.model ? 1 : 0));
+	const repeated = rows.find((row, index) => index > 0 && rows[index - 1].model === row.model);
+	if (repeated) throw new Error(`${repeated.model} is documented in more than one ledger row.`);
 	crossCheck(rows);
 	return rows;
 }
