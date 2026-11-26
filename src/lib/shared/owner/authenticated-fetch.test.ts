@@ -478,6 +478,20 @@ describe("concurrent requests and studio errors", () => {
 			]);
 		}));
 
+	test("a form body keeps its multipart Content-Type on the send and the resend", () =>
+		withBrowserRequests(async () => {
+			const h = refusedThenOk();
+			const form = new FormData();
+			form.set("prompt", "a pier");
+			expect((await h.fetch("/image/queue", { method: "POST", body: form })).status).toBe(200);
+			for (const init of h.inits)
+				expect(new Headers(init?.headers).get("content-type")).toStartWith(
+					"multipart/form-data; boundary=",
+				);
+			const parsed = await Promise.all(h.sent.map((sent) => sent.formData()));
+			expect(parsed.map((data) => data.get("prompt"))).toEqual(["a pier", "a pier"]);
+		}));
+
 	test("a stream body is resent whole after a hook refusal", () =>
 		withBrowserRequests(async () => {
 			const h = refusedThenOk();

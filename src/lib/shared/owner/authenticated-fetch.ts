@@ -74,14 +74,15 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 		const { body, ...bodiless } = forwarded;
 		let base: Request | null;
 		try {
-			base = request || body != null ? new Request(input, forwarded) : null;
+			base = request || body != null ? new Request(request ?? url, forwarded) : null;
 		} catch (error) {
 			return Promise.reject(error);
 		}
 
 		function send(bearer: string | null) {
 			const sent = client.remountKey;
-			const outgoing = new Headers(headers);
+			// The base's headers include the Content-Type its body implies, such as a form boundary.
+			const outgoing = new Headers(base ? base.headers : headers);
 			if (bearer) outgoing.set("authorization", `Bearer ${bearer}`);
 			else outgoing.delete("authorization");
 			const options = flagged({
