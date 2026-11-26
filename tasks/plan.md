@@ -1,61 +1,52 @@
 # Plan: road to v0.1.0
 
-Source: [capability map](../docs/SPEC.md#production-capability-map) and [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview). Tasks are tracked in [todo.md](todo.md#v010-scoped-preview). Merges follow the [delivery rules](../docs/decisions.md#delivery-and-migrations).
+Source: [capability map](../docs/SPEC.md#production-capability-map), [D2 coverage acceptance](../docs/SPEC.md#d2-coverage-acceptance) and [D11](../docs/decisions.md#d11--v010-waits-for-full-d2-coverage). Tasks are tracked in [todo.md](todo.md#v010-the-complete-feature-set). Merges follow the [delivery rules](../docs/decisions.md#delivery-and-migrations).
 
 ## Overview
 
-v0.1.0 is a scoped preview of what main verifies when it is tagged. The phases below close the D11 gates in dependency order, then later work follows. Retire this plan when v0.1.0 is tagged.
+On 2026-11-26 the owner moved v0.1.0 from a scoped preview to the complete feature set: full D2 coverage for a dated baseline. The scoped-preview phases are merged: pricing recovery, real-clip Save, per-mode limits, the Seedance URL edit, the security fixes and browser-key sessions ([#62](https://github.com/edbfi/siluet/pull/62)–[#71](https://github.com/edbfi/siluet/pull/71)). Each module below starts with its own spec and council review. Retire this plan when v0.1.0 is tagged.
 
-**Status, 2026-11-25.** Phases 1 and 2 are merged ([#63](https://github.com/edbfi/siluet/pull/63), [#65](https://github.com/edbfi/siluet/pull/65)–[#67](https://github.com/edbfi/siluet/pull/67), [#62](https://github.com/edbfi/siluet/pull/62)), and so are the security fixes ([#69](https://github.com/edbfi/siluet/pull/69)) and browser-key sessions ([#71](https://github.com/edbfi/siluet/pull/71)). Release preparation on `chore/release-0.1.0` sets `0.1.0`, re-checks the README and drafts the coverage table. Remaining: the owner's real-Safari check of browser-key sessions; on the commit to tag, the local checks, both archived clips through `verifyVideoFile`, the four-feed 14-day pricing check and hosted `ci-ok`; then the owner's tag `0.1.0` with the release titled `v0.1.0`.
+## Phase 1 · follow-ups from #71, alongside the catalog spec
 
-## Phase 1 · in parallel
+1. Gallery downloads: a pending state on the Download link, and downloads waiting for a read slot before they take one.
+2. Session client: `send()` keeps a recovery answer across a remount that lands before the headers, and resends a `Request` with a body.
+3. Key rotation on sign-in, spec first.
+4. WebKit: Gallery's "can't play this video" note.
+5. Firefox: the forty-tab restore journey, and the Image Studio mobile-menu journey under parallel load.
 
-1. **Pricing recovery.** Refresh the bundled Poyo.ai v2 feed with `h3-max` first. Then publish a ToAPIs v2 feed that prices Seedream 5.5 reference images ($0.0064 each, added 2026-11-24), with the collector still failing closed on any other change, and bundle it.
-2. **Real clips save.** The owner-approved clips from 2026-11-24 (Poyo.ai H3 Max, 50 credits; ToAPIs Seedance 2.5, 77.66 credits) both fail `verifyVideoFile` on `5321d7f`: a top-level C2PA `uuid` box on both, and on Seedance an AAC track whose `mdhd` excludes its one priming access unit. Accept exactly these structures under a council-confirmed D6 revision and re-arm the clips Save already held for them. The originals stay outside git in the orchestration audit directory (`audit/realclip/`), identified by SHA-256.
+## Phase 2 · catalog engine
 
-### Checkpoint: real clips
+6. Spec the catalog engine (slice G): contract-covered rows for the Poyo.ai image and video families from the pinned catalog and for ToAPIs from curated descriptors, still WebP Save and per-model output formats, the ToAPIs inventory snapshot, data-driven Save limits and the two D4 exceptions.
+7. Implement it in slices, each reaching verified Save in the built app.
 
-- [x] The D6 revision is council-confirmed.
-- [x] Both untouched originals pass `verifyVideoFile` from `src/`, with the output and SHA-256 recorded; the fixture refusals and the one-time re-arm hold ([todo](todo.md#v010-scoped-preview)).
-- [x] `ci-ok` is green on the merged commit ([run](https://github.com/edbfi/siluet/actions/runs/45525368090)).
+## Phase 3 · operations and inputs, after the engine where they depend on it
 
-## Phase 2 · after the real-clip fix
+8. Seedance WAV reference: public URL, then local WAV.
+9. Local keyframe files, and a source-video edit from one local MP4 with a TypeScript MP4 cleaner.
+10. More local image formats, each qualified under the cleanup spec.
+11. Layer decomposition, stored as private files with a database manifest (D3).
+12. Happy Horse, extension (after its spec is re-reviewed) and the remaining documented operations.
 
-Per-mode limits and Phase 1's real-clip fix both touch `mp4.ts`, so limits wait for the real-clip fix; #62 follows the limits in the owner-approved order.
+## Phase 4 · coverage closure
 
-3. **Per-mode video Save limits.** Spec, council, implementation.
-4. **Seedance URL edit.** Rebase [#62](https://github.com/edbfi/siluet/pull/62) onto the per-mode limits with its source-length disclosure at 30 s, then merge it.
+13. Give every ledger pair its evidence-backed state: verified, contract-covered, provider unsupported, or unknown with its open question.
+14. Verify each new video family's Save from fixtures when its output fits the D6 profile; a structure outside it needs a suitable real sample, and a new one takes a live call under D2 with express owner approval.
+15. Each priced module adds its rates to the published and bundled feeds when the provider publishes them, or uses D1's unknown-price acceptance when the price is unknown.
 
-### Checkpoint: video modes
+## Phase 5 · release
 
-- [x] Review states each mode's limits, and #62 is merged with green checks ([run](https://github.com/edbfi/siluet/actions/runs/45542430661)).
+16. Clean up the Impeccable and workflow-skill artifacts and files, with the scope confirmed by the owner.
+17. Run a cross-cutting security review of the release candidate, update the README and draft the notes.
+18. Run every D11 gate on the commit to tag, then hand the tag to the owner.
 
-## Phase 3 · last
-
-5. **Cross-cutting security review**, recorded as one short entry in [decisions](../docs/decisions.md).
-6. **README re-check** against shipped behaviour.
-7. **Release preparation.** Write the coverage table for the GitHub-generated notes, citing the real-clip results from Phase 1. Set `package.json` to `0.1.0` and hand the tag to the owner.
-
-### Checkpoint: release
-
-- [ ] Every [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview) gate holds on the commit to tag. Open: the remaining items in the status above.
-
-## After v0.1.0
-
-1. Catalog engine (slice G), spec first.
-2. WAV audio reference (R6a): public URL, then local WAV.
-3. Layer decomposition (R10).
-4. Source-video edit from one local MP4 (R5b).
-5. Happy Horse (R11).
-6. Extension (R12), after its spec is re-reviewed.
-
-Deferred: external sign-in (R7), passkeys, MKV, metadata export, Gallery paging, cancellation and ToAPIs balance.
+Deferred: the capability map's [not-committed list](../docs/SPEC.md#design-and-operations).
 
 ## Risks
 
 | Risk | Mitigation |
 | --- | --- |
-| A new mode or the Seedance URL edit (#62) produces a structure the verifier refuses | The tag waits ([D11](../docs/decisions.md#d11--v010-is-a-scoped-preview)). Fix the verifier or the mode's limits; never ship the family as verified. |
+| A provider changes a contract during the long run to the tag | Re-date the baseline and record the drift in the ledger. The catalog drift check fails on schema changes. |
+| Price feeds approach expiry between releases | The weekly backstop warns. Refresh the published and bundled feeds before the tag. |
+| A new mode produces a structure the verifier refuses | Fix the verifier or the mode's limits; never ship the family as verified. |
+| Live verification spends credits | Each billable check needs express owner approval. |
 | The real-clip originals are lost | Regenerating them needs express owner approval. Keep them by SHA-256 outside git. |
-| macOS runners stay unavailable, so `ci-ok` fails on main | Rerun the cancelled jobs; the tagged commit needs a green run. |
-| Feeds fall within 14 days of expiry before the tag | Refresh the published and bundled feeds in release preparation. |

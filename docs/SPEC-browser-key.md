@@ -47,4 +47,4 @@ Responses apply effects only if `remountKey` is unchanged since sent. Otherwise 
 
 **Out of scope.** A process taking Siluet's origin while stopped; code running as the owner.
 
-**Acceptance.** Built-app journeys on Linux (Chromium, Firefox) and macOS (three engines); another loopback port gets and replays nothing; the owner checks real Safari before tagging.
+**Acceptance.** Built-app journeys on Linux (Chromium, Firefox) and macOS (three engines); another loopback port gets and replays nothing; an agent-browser check in Chrome stands in for real Safari (owner, 2026-11-26; passed on `23efde9`, video playback not exercised).

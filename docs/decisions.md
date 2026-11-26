@@ -130,20 +130,21 @@ Siluet cleans every attached file automatically (owner decision 2026-11-22). The
 
 `@woss/exiftool` was considered for cleaning on 2026-11-22 and not adopted. It edits tags rather than sanitizing: its JPEG writer copies everything after the first scan verbatim, so hidden trailing bytes, fill runs and unused tables pass through. Siluet's cleaner keeps an allowlist and walks the entropy data. The package was also young and had no MP4 support. ExifTool remains the test-only oracle.
 
-## D11 · v0.1.0 is a scoped preview
+## D11 · v0.1.0 waits for full D2 coverage
 
-Approved by the owner on 2026-11-24. The first release, v0.1.0, is a preview for one local creator containing everything verified on main when it is tagged. GitHub generates the change list from the merged pull requests; there is no CHANGELOG file. Release preparation adds a hand-written coverage table that lists each operation as verified, Review-only or pending and cites each video family's real-clip result, so the preview is not mistaken for full D2 coverage. `package.json` takes the version at tag time. The GitHub release is titled `v0.1.0` and its tag is `0.1.0`, the owner's convention (2026-11-25). The orchestrator prepares the release and the owner tags it.
+Approved by the owner on 2026-11-24 as a scoped preview and revised by the owner on 2026-11-26: the first release, v0.1.0, ships the complete feature set, so it waits for D2 coverage of a dated baseline under the [coverage acceptance](SPEC.md#d2-coverage-acceptance). GitHub generates the change list from the merged pull requests; there is no CHANGELOG file. Release preparation adds short hand-written notes that also list the blocked, provider-unsupported and unknown pairs. `package.json` on `main` already reads `0.1.0`; it becomes the release only when tagged. The GitHub release is titled `v0.1.0` and its tag is `0.1.0`, the owner's convention (2026-11-25). The orchestrator prepares the release and the owner tags it. v1.0 still means D2 is complete for a dated baseline under the coverage acceptance, or the owner approves a scope change (owner delegated 2026-11-24; council recommendation). v0.1.0 now needs that coverage too.
 
-Tag only when the commit to tag meets every gate:
+Tag only when every gate holds:
 
-- The local checks and hosted `ci-ok` pass.
+- Every ledger pair is verified, contract-covered, provider unsupported, or unknown with its open question; none stays documented and pending. Each in-scope operation and option has a verified or contract-covered path, unless the owner approves a scope change. A row that ships under an approved D4 exception does not count while its D4 gap is open (owner, 2026-11-26).
+- The follow-ups recorded with browser-key sessions ([#71](https://github.com/edbfi/siluet/pull/71)) are done, as listed in the [tasks](../tasks/todo.md#v010-the-complete-feature-set), with the Image Studio Firefox flake.
+- After the main feature set, a thorough cleanup removes the Impeccable and workflow-skill artifacts and files the repository no longer needs; the owner made it a tag gate on 2026-11-26. The owner confirms its scope, which includes the skills `AGENTS.md` installs, `skills-lock.json`, and keeping or removing license notices with the files they cover.
+- A cross-cutting security review of the release candidate is recorded here as one short entry with the reviewed SHA, scope, date, findings and their dispositions. Every blocker is resolved or explicitly accepted by the owner, and later changes in its scope get a fresh review.
+- On the commit to tag, the local checks and hosted `ci-ok` pass, and the README covers what a creator must know.
 - On the commit to tag, `scripts/pricing/freshness.ts --fail-within-days 14` passes for the published and bundled Poyo.ai v2 and ToAPIs v2 feeds, so each has more than 14 days left (the weekly backstop's threshold; that job checks only the published feeds), and the feeds price every shipped priced operation.
-- The untouched 2026-11-24 real clips, one per shipped video family, pass `verifyVideoFile`, and CI fixtures built from their structure pass while the refusals hold. The built-app video journeys use a synthetic clip, so only real clips prove Save.
-- Per-mode video Save limits merge, then the Seedance URL edit ([#62](https://github.com/edbfi/siluet/pull/62)), in the order the owner approved.
-- A cross-cutting security review is recorded here as one short entry with its scope, date, findings and their dispositions. Every blocker is resolved or explicitly accepted by the owner.
-- The README covers what a creator must know.
+- On the commit to tag, the untouched 2026-11-24 real clips pass `verifyVideoFile`, and CI fixtures built from their structure pass while the refusals hold. A new video family's Save is verified from fixtures when its output fits the current D6 profile. A structure outside it stays refused until a suitable real sample qualifies it; a new sample takes a live call under D2, with express owner approval. The notes say which families have real-clip evidence.
 
-v1.0 means D2 is complete for a dated baseline under the [coverage acceptance](SPEC.md#d2-coverage-acceptance), or the owner approves a scope change (owner delegated 2026-11-24; council recommendation). The [plan](../tasks/plan.md) holds the release order.
+Safari: on 2026-11-26 the owner accepted an agent-browser check of the browser-key journey in place of real Safari. It passed on `23efde9` in Chrome (agent-browser's Firefox engine would not start on that host): claim, resume after reload and restart, nothing reaching another local port, sign-out and sign-in. Video playback was not exercised. Safari stays untested beyond Playwright WebKit, and the release notes say so. The [plan](../tasks/plan.md) holds the release order.
 
 ### Security review 2026-11-25
 
