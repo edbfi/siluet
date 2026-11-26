@@ -1,6 +1,19 @@
 import type { KeyPurpose } from "./key-message";
-import { type BrowserKey, ensureKey, readKey, signWith } from "./key-store";
+import {
+	type BrowserKey,
+	commitKey,
+	createCandidate,
+	readBase,
+	readKey,
+	signWith,
+} from "./key-store";
 import { createNotices, type NoticeKind } from "./notices";
+import {
+	createSignInAttempts,
+	type Issued,
+	markPendingSignIn,
+	type Resumed,
+} from "./sign-in-attempt";
 
 /**
  * One tab's view of the owner session ([browser key sessions](../../../../docs/SPEC-browser-key.md)).
@@ -40,12 +53,28 @@ const bearerMs = 9 * 60000;
 const isPublicPath = (path: string) => path === "/sign-in" || path === "/setup";
 const isAccessBody = (value: unknown): value is AccessBody =>
 	typeof value === "object" && value !== null && "recoveryRequired" in value;
+/** Set before a document load that should offer to sign out the session it joins. */
+const signOutOfferKey = "siluet-sign-out-offer";
+function takeSignOutOffer() {
+	try {
+		const value = sessionStorage.getItem(signOutOfferKey);
+		sessionStorage.removeItem(signOutOfferKey);
+		return value;
+	} catch {
+		return null;
+	}
+}
 
 export function createSessionClient(
 	installation: string | null,
 	nativeFetch: typeof fetch,
 	browser: { assign(url: string): void; reload(): void; replace(url: string): void } = location,
-	keys: { read: typeof readKey; ensure: typeof ensureKey } = { read: readKey, ensure: ensureKey },
+	keys: {
+		read: typeof readKey;
+		base: typeof readBase;
+		candidate: typeof createCandidate;
+		commit: typeof commitKey;
+	} = { read: readKey, base: readBase, candidate: createCandidate, commit: commitKey },
 ) {
 	/** Set once this client starts a document load; requests then wait for the unload. */
 	let leaving = false;
@@ -66,6 +95,16 @@ export function createSessionClient(
 		},
 	};
 	let record: BrowserKey | null | undefined;
+	/** The stored SPKI this tab last resumed or checked; undefined before its first read. */
+	let lastSpki: string | null | undefined;
+	const noteKey = (key: BrowserKey | null) => {
+		lastSpki = key?.spki ?? null;
+		return key;
+	};
+	/** The fresh session a sign-out offer names, from the document load that set it. */
+	let signOutOffer = takeSignOutOffer();
+	/** Set while a sign-out's 409 check runs: a document load it starts carries the offer. */
+	let offerOnLoad = false;
 	/** `held` keeps codes on screen until Done; a document load is `leaving` instead. */
 	let mode: "cold" | "bound" | "keyless" | "signed-out" | "held" = "cold";
 	let bound: Ids | null = null;
@@ -100,7 +139,11 @@ export function createSessionClient(
 	const notices = installation
 		? createNotices(installation, (notice) => {
 				if (notice.sessionId !== null && notice.sessionId === bound?.sessionId) return;
-				if (isPublicPath(location.pathname)) return;
+				// `/sign-in`, `/setup` and the codes hold never reload: they look for a new stored key.
+				if (isPublicPath(location.pathname) || mode === "held") {
+					if (document.visibilityState !== "hidden") void reconcile();
+					return;
+				}
 				if (document.visibilityState === "hidden") {
 					if (bearer) previous = bearer.value;
 					bearer = null;
@@ -165,22 +208,35 @@ export function createSessionClient(
 		})();
 		return renewal;
 	}
-	/** One signed `resume`; a 403 retries once with a fresh challenge. */
+	const storedKey = async () =>
+		installation ? await keys.read(installation).catch(() => null) : null;
+	/**
+	 * One signed `resume` with the stored key. "Session gone" from a key no longer stored (another
+	 * tab rotated it meanwhile) resumes once more with the stored one.
+	 */
 	async function resume(): Promise<Renewal> {
-		record = installation ? await keys.read(installation).catch(() => null) : null;
+		record = noteKey(await storedKey());
 		if (!record) return { kind: "gone", location: "/sign-in" };
-		const key = record;
+		const result = await resumeKey(record, previous);
+		if (result.kind !== "gone") return result;
+		const stored = await storedKey();
+		if (!stored || stored.spki === record.spki) return result;
+		record = noteKey(stored);
+		return resumeKey(stored, previous);
+	}
+	/** A signed `resume` with `key`; a 403 retries once with a fresh challenge. */
+	async function resumeKey(key: BrowserKey, retired: string | null): Promise<Renewal> {
 		for (let attempt = 0; attempt < 2; attempt++) {
 			const signedFields = await sign("resume", key, key.spki);
 			const response = signedFields.fields
 				? await post("/owner/resume", {
 						...signedFields.fields,
-						previous: previous ?? undefined,
+						previous: retired ?? undefined,
 					})
 				: signedFields.challenge;
 			const body = await readBody(response);
 			if (response.ok && signedFields.fields) {
-				previous = null;
+				if (retired !== null && retired === previous) previous = null;
 				return { kind: "session", ...(body as Ids & { bearer: string }) };
 			}
 			if (isAccessBody(body)) return { kind: "access", status: response.status, body };
@@ -247,6 +303,8 @@ export function createSessionClient(
 					: { kind: "other", sessionId: result.sessionId, loginId: result.loginId };
 		if (result.kind === "session" && row.kind === "bound" && mode !== "held") {
 			recovering = false;
+			// A load that joins a session ends any sign-in that was waiting for its code.
+			if (mode !== "bound") markPendingSignIn(false);
 			mode = "bound";
 			bound = { sessionId: result.sessionId, loginId: result.loginId };
 			bearer = {
@@ -283,6 +341,7 @@ export function createSessionClient(
 		if (leaving || mode === "held" || (mode === "signed-out" && row.kind === "gone")) return;
 		if (row.kind === "other") {
 			bearer = null;
+			if (offerOnLoad) offerSignOut(row.sessionId);
 			if (target && target !== location.href) navigate.assign(target);
 			else navigate.reload();
 			return;
@@ -311,6 +370,10 @@ export function createSessionClient(
 	 * notice or a stale answer asks for another pass, which a hidden tab leaves for its return.
 	 */
 	async function check(join = false) {
+		if (installation && (isPublicPath(location.pathname) || mode === "held")) {
+			await reconcile();
+			return;
+		}
 		if (settled()) return;
 		if (checking) {
 			if (!join) recheck = true;
@@ -355,6 +418,89 @@ export function createSessionClient(
 			: null;
 	}
 
+	function offerSignOut(sessionId: string) {
+		try {
+			sessionStorage.setItem(signOutOfferKey, sessionId);
+		} catch {}
+	}
+
+	let reconciling: Promise<boolean> | null = null;
+	let reconcileAgain = false;
+	/**
+	 * `/sign-in`, `/setup` and the codes hold: a stored key other than the one this tab last
+	 * resumed or checked gets a signed `resume`. True when the tab loads `/` for its session.
+	 */
+	function reconcile(): Promise<boolean> {
+		if (reconciling) {
+			reconcileAgain = true;
+			return reconciling;
+		}
+		reconciling = (async () => {
+			let joined = false;
+			do {
+				reconcileAgain = false;
+				if (leaving || !installation) break;
+				// A tab holding its own candidate drops it for another tab's key.
+				if (isPublicPath(location.pathname) && attempts.holding) {
+					await attempts.storedKeyChanged();
+					break;
+				}
+				const stored = await storedKey();
+				if ((stored?.spki ?? null) === lastSpki) continue;
+				noteKey(stored);
+				if (!stored) continue;
+				const result = await resumeKey(stored, null).catch((): Renewal => ({ kind: "failure" }));
+				if (result.kind !== "session" || leaving) continue;
+				if (mode === "held") joinedInHold();
+				else if (isPublicPath(location.pathname)) {
+					navigate.assign("/");
+					joined = true;
+				}
+			} while (reconcileAgain);
+			return joined;
+		})().finally(() => {
+			reconciling = null;
+		});
+		return reconciling;
+	}
+	/** The codes hold met the new key's live session: the codes changed, Done opens Security. */
+	function joinedInHold() {
+		if (state.codes && state.codes.notice !== "replaced")
+			state.codes = { ...state.codes, notice: "changed" };
+		if (destination?.url === "/sign-in")
+			destination = { url: "/settings/security", priority: destination.priority };
+		changed();
+	}
+
+	const attempts = createSignInAttempts({
+		installation,
+		post,
+		keys,
+		async resume(key): Promise<Resumed> {
+			const result = await resumeKey(key, null);
+			if (result.kind === "session")
+				return {
+					kind: "session",
+					issued: { bearer: result.bearer, sessionId: result.sessionId, loginId: result.loginId },
+				};
+			if (result.kind === "gone") return { kind: "gone" };
+			if (result.kind === "access")
+				return result.body.recoveryRequired || !result.body.retry
+					? { kind: "recovery", message: result.body.message }
+					: { kind: "retry", message: result.body.message };
+			return { kind: "lost" };
+		},
+		bind(issued: Issued, kind: NoticeKind, key: BrowserKey) {
+			record = noteKey(key);
+			bindLogin(issued, kind);
+		},
+		open: (url) => navigate.assign(url),
+		reconcile: () => void reconcile(),
+		get leaving() {
+			return leaving;
+		},
+	});
+
 	function bindLogin(issued: Ids & { bearer: string }, kind: NoticeKind) {
 		mode = "bound";
 		bound = { sessionId: issued.sessionId, loginId: issued.loginId };
@@ -365,12 +511,6 @@ export function createSessionClient(
 		};
 		previous = null;
 		notices?.post(kind, issued.sessionId);
-	}
-
-	async function ownerKey() {
-		if (!installation) throw new TypeError("Siluet could not identify this installation.");
-		record = await keys.ensure(installation);
-		return record;
 	}
 
 	return {
@@ -397,7 +537,7 @@ export function createSessionClient(
 		/** Make sure the tab knows whether it has a key, then bind a cold tab. */
 		async prepare(): Promise<Row | null> {
 			if (mode === "cold") {
-				record = installation ? await keys.read(installation).catch(() => null) : null;
+				record = noteKey(await storedKey());
 				if (!record) {
 					mode = "keyless";
 					return null;
@@ -433,41 +573,21 @@ export function createSessionClient(
 			bearer = null;
 		},
 
-		// Claim, sign-in, factor and sign-out post signed requests and bind the result.
-		async claim(fields: { token: string; username: string; password: string }) {
-			const response = await signed("claim", "/owner/claim", await ownerKey(), fields, "");
-			const body = await readBody(response);
-			if (response.ok) bindLogin(body, "claim");
-			return { ok: response.ok, status: response.status, body };
+		/** Claim and sign-in with a new candidate key, on `/setup` and `/sign-in`. */
+		attempts,
+		/** On `/` bound to the session a sign-out offer names: show it once. */
+		takeSignOutOffer() {
+			const offered = signOutOffer;
+			signOutOffer = null;
+			return offered !== null && location.pathname === "/" && offered === bound?.sessionId;
 		},
-		async signIn(fields: { username: string; password: string }) {
-			const response = await signed("sign-in", "/owner/sign-in", await ownerKey(), fields, "");
-			const body = await readBody(response);
-			if (response.ok && body?.bearer) bindLogin(body, "sign-in");
-			return { ok: response.ok, status: response.status, body };
-		},
-		async factor(proof: string, fields: { code: string } | { cancel: true }) {
-			const digest = Array.from(
-				new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(proof))),
-				(byte) => byte.toString(16).padStart(2, "0"),
-			).join("");
-			const response = await signed(
-				"factor",
-				"/owner/factor",
-				await ownerKey(),
-				{ proof, ...fields },
-				digest,
-			);
-			const body = await readBody(response);
-			if (response.ok && body?.bearer) bindLogin(body, "factor");
-			return { ok: response.ok, status: response.status, body };
-		},
+
 		/**
-		 * Sign out this browser's current login. The result applies only while the tab still
-		 * holds that key and login ID.
+		 * Sign out this browser's current login. Results apply against the key and login ID taken
+		 * when sign-out began; before success applies, a key stored since resumes instead.
 		 */
 		async signOut(): Promise<"signed-out" | "other" | "retry"> {
-			const key = installation ? await keys.read(installation).catch(() => null) : null;
+			const key = await storedKey();
 			const login = bound?.loginId;
 			if (!key || !login) {
 				leave({ kind: "gone", location: "/sign-in" }, null);
@@ -481,14 +601,28 @@ export function createSessionClient(
 				login,
 				true,
 			).catch(() => null);
-			if (bound?.loginId !== login || record?.spki !== key.spki) return "retry";
+			if (bound?.loginId !== login) return "retry";
 			if (response?.ok) {
+				const stored = await storedKey();
+				if (stored && stored.spki !== key.spki) {
+					// Another tab signed in with a new key: its result applies through the table.
+					const row = await classify(await renew());
+					if (row.kind === "other") {
+						offerSignOut(row.sessionId);
+						leave(row, new URL("/", location.href).href);
+						return "other";
+					}
+					if (row.kind !== "gone") return "retry";
+				}
 				notices?.post("sign-out", null);
 				leave({ kind: "gone", location: "/sign-in" }, null);
 				return "signed-out";
 			}
 			if (response?.status === 409) {
-				void check();
+				offerOnLoad = true;
+				void check().finally(() => {
+					offerOnLoad = false;
+				});
 				return "other";
 			}
 			return "retry";
@@ -589,6 +723,7 @@ export function createSessionClient(
 		},
 		/** `pagehide` clears codes and the hold; a pending destination waits for `pageshow`. */
 		pagehide() {
+			attempts.pagehide();
 			abandoned = leaving;
 			state.codes = null;
 			codesFrom = null;
@@ -599,7 +734,18 @@ export function createSessionClient(
 			// A page restored from the back/forward cache was not replaced after all.
 			const left = persisted && abandoned;
 			abandoned = false;
-			if (persisted) leaving = false;
+			if (persisted) {
+				leaving = false;
+				signOutOffer = null;
+				takeSignOutOffer();
+			}
+			// A return without the candidate: the sign-in restarts unless a live session is joined.
+			if (attempts.pageshow() && !destination && !left) {
+				void reconcile().then((joined) => {
+					if (!joined) attempts.restarted();
+				});
+				return;
+			}
 			if (destination) {
 				const url = new URL(destination.url, location.href).href;
 				destination = null;

@@ -83,7 +83,12 @@ function harness({ stored = key as BrowserKey | null } = {}) {
 			reload: () => navigations.push("reload"),
 			replace: (url) => navigations.push(`replace ${url}`),
 		},
-		{ read: async () => stored, ensure: async () => key },
+		{
+			read: async () => stored,
+			base: async () => ({ expected: stored?.spki ?? null, base: stored }),
+			candidate: async () => key,
+			commit: async () => true,
+		},
 	);
 	return {
 		fetch: authenticatedFetch(client, native),
