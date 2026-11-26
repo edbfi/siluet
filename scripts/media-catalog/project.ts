@@ -151,19 +151,23 @@ export function specModels(document: JsonObject) {
 }
 
 /**
- * The in-scope IDs a spec names anywhere outside an `example` or `examples`: a `model` enum,
- * const or default, a path parameter, a combinator branch. A spec recorded as listing no
- * in-scope model must name none.
+ * The in-scope IDs a spec names anywhere outside an `example` or `examples` keyword, as a value
+ * or a key: a `model` enum, const or default, a path parameter, a combinator branch, a
+ * discriminator mapping. A spec recorded as listing no in-scope model must name none.
  */
 export function listedModels(document: Json, inScopeIds: ReadonlySet<string>) {
 	const found = new Set<string>();
-	const visit = (value: Json) => {
-		if (typeof value === "string") {
-			if (inScopeIds.has(value)) found.add(value);
-		} else if (Array.isArray(value)) value.forEach(visit);
+	const note = (id: string) => inScopeIds.has(id) && found.add(id);
+	const visit = (value: Json, parent?: string) => {
+		if (typeof value === "string") note(value);
+		else if (Array.isArray(value)) for (const item of value) visit(item);
 		else if (isObject(value))
-			for (const [key, item] of Object.entries(value))
-				if (key !== "example" && key !== "examples") visit(item);
+			for (const [key, item] of Object.entries(value)) {
+				// Under `properties`, `example` names a field, not an example.
+				if (parent !== "properties" && (key === "example" || key === "examples")) continue;
+				note(key);
+				visit(item, key);
+			}
 	};
 	visit(document);
 	return [...found].sort();
@@ -224,8 +228,8 @@ export function modelInputs(document: JsonObject, path = "The spec") {
  * The docs index digest, a manifest of every listed spec and, for in-scope IDs only, each
  * model's resolved `input` schema, stored once per distinct schema under its SHA-256. A spec
  * recorded as listing no in-scope model (non-model endpoints; out-of-scope music and voice
- * `Request` specs) is only digested, and fails once any `model` property in it lists an
- * in-scope ID; any other spec without a usable model enum fails the projection.
+ * `Request` specs) is only digested, and fails once it names an in-scope ID outside an
+ * example; any other spec without a usable model enum fails the projection.
  */
 export function projectOpenApi(
 	index: string,

@@ -78,11 +78,14 @@ const orphans = (schema: Schema) =>
 
 /**
  * The construct that leaves a declaration nothing for the validator to run, or null: an untyped
- * declaration with only annotations, a nested object, an unknown type, an array of arrays.
+ * declaration with no other construct, a nested object, an unknown type, an array of arrays.
  */
 function opaqueConstruct(schema: Schema, item: boolean) {
 	if (!has(schema, "type"))
-		return Object.keys(schema).every((keyword) => annotations.includes(keyword))
+		return Object.entries(schema).every(
+			([keyword, value]) =>
+				annotations.includes(keyword) || ownConstruct(schema, keyword, value) === null,
+		)
 			? "untyped property"
 			: null;
 	if (schema.type === "object") return "nested object";

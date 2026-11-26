@@ -322,7 +322,7 @@ test("a spec that repeats a model ID fails the projection", () => {
 	).toThrow("repeats fixture-image");
 });
 
-test("a spec recorded as listing no in-scope model fails once any model property lists one", () => {
+test("a spec recorded as listing no in-scope model fails once it names one outside an example", () => {
 	const index = "## OpenAPI Specs\n\n- [one](/one.json)\n";
 	const project = (document: object) =>
 		projectOpenApi(
@@ -384,6 +384,22 @@ test("a spec recorded as listing no in-scope model fails once any model property
 	).toThrow(listed);
 	expect(() => project(request({ anyOf: [{ const: "fixture-image" }] }))).toThrow(listed);
 	expect(() => project(request({ type: "string", default: "fixture-image" }))).toThrow(listed);
+	// An ID as a key, as in a discriminator mapping, or as a property named `example`, trips it.
+	expect(() =>
+		project(
+			request({
+				type: "string",
+				discriminator: { propertyName: "model", mapping: { "fixture-image": "#/x" } },
+			}),
+		),
+	).toThrow(listed);
+	expect(() =>
+		project({
+			components: {
+				schemas: { Request: { properties: { example: { enum: ["fixture-image"] } } } },
+			},
+		}),
+	).toThrow(listed);
 	// An example naming an in-scope ID, and a SubmitRequest listing only out-of-scope IDs, stay.
 	expect(
 		JSON.parse(

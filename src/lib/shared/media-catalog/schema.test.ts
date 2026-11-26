@@ -172,6 +172,10 @@ describe("constructs outside the subset", () => {
 		],
 		["nested object", { type: "object", properties: {} }, "nested object"],
 		["untyped", { description: "anything" }, "untyped property"],
+		["untyped with a bound", { maxLength: 3 }, "untyped property"],
+		["untyped with a minimum", { minimum: 1 }, "untyped property"],
+		["untyped with a format", { format: "uri" }, "untyped property"],
+		["untyped items", { type: "array", items: { maxLength: 3 } }, "untyped property"],
 		[
 			"contains",
 			{ type: "array", items: { type: "string" }, contains: { type: "string" } },
