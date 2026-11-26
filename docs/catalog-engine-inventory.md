@@ -171,6 +171,11 @@ Constructs outside the validator, each until a reviewed rule covers it (G2a):
 - `contains` (2): `kling-4.0`, `kling-4.0-flash`
 - `maxContains` (2): `kling-4.0`, `kling-4.0-flash`
 - `minContains` (2): `kling-4.0`, `kling-4.0-flash`
+- `pattern` outside the allowlist, each with its family's typing rule ([spec](SPEC-catalog-engine.md#deriving-and-validating-rows)):
+  - `size` on `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2.6-flare`, `gpt-image-2.6-sunburst`: G6
+  - `size` on `mai-image-2.6`, `mai-image-2.6-flash`, `mai-image-2.7`, `mai-image-2.7-flash`: G6
+  - `size`, and the `data:image` alternative on `image_urls`, `reference_image_urls` and `mask_url`, on `ideogram-v4.5-edit`: G6
+  - `WIDTHxHEIGHT` branch of the `size` `oneOf` on `seedream-4.5`, `seedream-4.5-edit`, `seedream-5.0-lite`, `seedream-5.0-lite-edit`: G4 and G5, custom sizes unknown with question 11
 - `oneOf` (14): `flux-3-klein`, `flux-3-klein-edit`, `flux-dev`, `flux-schnell`, `seedream-4.5`, `seedream-4.5-edit`, `seedream-5.0-lite`, `seedream-5.0-lite-edit`, `wan-2.7-image`, `wan-2.7-image-pro`, `heygen-avatar-6`, `heygen-avatar-6-turbo`, `kling-4.0`, `kling-4.0-flash`
 - `x-server-validation` (5): `gemini-omni-1.2-flash`, `heygen-avatar-6`, `heygen-avatar-6-turbo`, `kling-4.0`, `kling-4.0-flash`
 - `x-video-duration-seconds` (4): `gemini-omni-1.1-flash`, `gemini-omni-1.2-flash`, `kling-4.0`, `kling-4.0-flash`
@@ -200,7 +205,7 @@ Fields that both the pinned catalog and the model's OpenAPI input list with diff
 
 | ID | Field | Catalog | OpenAPI input | Disputed |
 | --- | --- | --- | --- | --- |
-| `seedream-4.5`, `seedream-4.5-edit` (multi) | `n` | 1–15 | 1–6 | 7–15 (Phase 3 multi-output) |
+| `seedream-4.5`, `seedream-4.5-edit` (multi) | `n` | 1–15 | 1–6 | 7–15, unknown with question 8; 2–6 are Phase 3 multi-output obligations |
 | `gpt-image-2.6-flare`, `gpt-image-2.6-sunburst` | `output_format` | gif, jpeg, png, webp | jpeg, png, webp | gif (never offered) |
 | `ideogram-v4.5` (multi) | `quality` | high, low, medium | adds `very_low` | `very_low` |
 | `ideogram-v4.5` (multi) | `size` | 43-value enum | untyped string | values outside the enum |
@@ -213,20 +218,32 @@ At `ec73207` the list also gains `ideogram-v4.6-edit` `reference_image_urls`, wh
 
 ## Prose-only domains
 
-String options that are not free text and whose domain appears only in a description, with no `enum`, `pattern` or `format` in either source at `747e5d7`. Each is offered only through a hash-bound reviewed rule that types it; otherwise it has no covered path and Siluet omits it.
+String options that are not free text and whose domain appears only in a description, with no `enum`, `pattern` or `format` in either source at `747e5d7`. Each is offered only through a hash-bound reviewed rule that types it; otherwise it has no covered path and Siluet omits it. A row marked "omitted until documented" is unknown with [question 11](SPEC-catalog-engine.md#open-questions).
 
 | IDs | Field | Domain in prose | Path |
 | --- | --- | --- | --- |
-| `minimax-h3-image` | `size` | ten ratios, `auto` or `WIDTHxHEIGHT` within 655,360–20,000,000 pixels and 1:3–3:1 | typing rule with G6b; large sizes after G13 |
+| `minimax-h3-image` | `size` | ten ratios, `auto` or `WIDTHxHEIGHT` within 655,360–20,000,000 pixels and 1:3–3:1 | typing rule with G6; large sizes after G13 |
 | `gpt-image-2`, `gpt-image-2-edit` | `size` | preset ratios, `auto` or a custom pixel size | typing rule with G4 and G5 |
-| `kling-2.5-turbo-pro` | `aspect_ratio` | none ("Optional aspect ratio string") | omitted until documented |
-| `wan2.5-text-to-video`, `wan2.5-image-to-video` | `audio` | none beyond the example `background_music` | omitted until documented |
-| `wan2.7-text-to-video`, `wan2.7-image-to-video`, `wan2.7-reference-to-video` | `audio_setting` | none | omitted until documented |
+| `kling-2.5-turbo-pro` | `aspect_ratio` | none ("Optional aspect ratio string") | omitted until documented · Q11 |
+| `wan2.5-text-to-video`, `wan2.5-image-to-video` | `audio` | none beyond the example `background_music` | omitted until documented · Q11 |
+| `wan2.7-text-to-video`, `wan2.7-image-to-video`, `wan2.7-reference-to-video` | `audio_setting` | none | omitted until documented · Q11 |
 | `poyo-ai/image-translator` | `source_language`, `target_language` | none | Q6 |
 | `wan2.7-edit-video` | `audio_setting` | none | P3 source-video work |
 | `poyo-ai/video-translator` | `source_language`, `target_language` | none | P3 source-video work |
 | `heygen-avatar-6`, `heygen-avatar-6-turbo` | `voice`, `avatar` | names from a linked list | P3 audio and avatars |
 | `create-music-video`, `generate-music-cover` | `task_id`, `audio_id` | provider task IDs | P3 prerequisites |
+
+## Prompt limits
+
+Fields with free text (`prompt`, `negative_prompt`, `text` and similar) whose catalog schema and OpenAPI input at `747e5d7` both state no `maxLength`, found by a throwaway script on 2026-11-26 that also read each field's description. Each takes Siluet's envelope, enforced by Queue, and its free text is unknown with [question 10](SPEC-catalog-engine.md#open-questions), "prompt limit not documented". G2a re-derives the list per row and also reads each page.
+
+| Envelope | IDs | Field |
+| --- | --- | --- |
+| 5,000 code points | `flux-3-klein`, `flux-3-klein-edit`, `flux-dev`, `flux-schnell`, `grok-imagine-image-quality`, `nano-banana-2-lite`, `nano-banana-2-lite-edit`, `seedream-5.0-pro`, `seedream-5.0-pro-edit` | `prompt` |
+| 4,000 UTF-8 bytes | `flux-3-max/image-to-video`, `flux-3-max/keyframes-to-video`, `flux-3-max/text-to-video`, `flux-3/extend-video`, `flux-3/first-last-frame-to-video`, `flux-3/image-to-video`, `flux-3/keyframes-to-video`, `flux-3/text-to-video`, `omnihuman-2.0`, `seedance-2.5`, `seedance-2.5-flash`, `veo3.1-extend`, `veo3.1-fast`, `veo3.1-fast-official`, `veo3.1-lite`, `veo3.1-lite-official`, `veo3.1-quality`, `veo3.1-quality-official` | `prompt` |
+| 4,000 UTF-8 bytes | `kling-2.1/pro`, `kling-2.1/standard`, `kling-2.5-turbo-pro`, `wan2.5-image-to-video`, `wan2.5-text-to-video` | `negative_prompt` |
+
+Rows that stay byte-limited: the 4,000-byte video rows above, and every ToAPIs video row, including verified `seedance-2-5`, until its descriptor records its page's limit (G11a). Every other video row is checked at its documented limit L in code points and at 4L UTF-8 bytes, which never refuses text within L. `h3-max` and `h3-max-turbo` (50,000) rise with G7. At `ec73207` the added IDs all state a limit.
 
 ## D4 states after the ledger migration
 
