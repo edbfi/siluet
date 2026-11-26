@@ -180,6 +180,8 @@ Constructs outside the validator, each until a reviewed rule covers it (G2a):
 - `x-server-validation` (5): `gemini-omni-1.2-flash`, `heygen-avatar-6`, `heygen-avatar-6-turbo`, `kling-4.0`, `kling-4.0-flash`
 - `x-video-duration-seconds` (4): `gemini-omni-1.1-flash`, `gemini-omni-1.2-flash`, `kling-4.0`, `kling-4.0-flash`
 
+At `ec73207`, G2c adds the `size` pattern on `ideogram-v4.6` and `ideogram-v4.6-edit`, and the `data:image/<type>;base64,` alternative and top-level `allOf` on `ideogram-v4.6-edit`, to this list as data. Their rules land with G6.
+
 ## Poyo.ai OpenAPI specs
 
 Fetched 2026-11-26 from the "OpenAPI Specs" section of the [docs index](https://docs.poyo.ai/llms.txt) (SHA-256 `5b84a6d…`): 175 files, 168 English and 7 Chinese. The Chinese files are digested but not projected; the five Chinese Sora specs match their English ones. 147 English specs name models in `SubmitRequest.model.enum`, covering 210 IDs. The SHA-256 of the `sha256  path` list in index order is `3a830a6…`. A throwaway script kept outside the repository projects each spec's `input` schema, resolving local `$ref`s. A property counts when any `oneOf` or `anyOf` branch lists it, and the input is closed only when every branch is. G2a's projection replaces the script and resolves each model's own branch.
@@ -235,7 +237,7 @@ String options that are not free text and whose domain appears only in a descrip
 
 ## Prompt limits
 
-Fields with free text (`prompt`, `negative_prompt`, `text` and similar) whose catalog schema and OpenAPI input at `747e5d7` both state no `maxLength`, found by a throwaway script on 2026-11-26 that also read each field's description. Each takes Siluet's envelope, enforced by Queue, and its free text is unknown with [question 10](SPEC-catalog-engine.md#open-questions), "prompt limit not documented". G2a re-derives the list per row and also reads each page.
+Fields with free text (`prompt`, `negative_prompt`, `text` and similar) whose catalog schema and OpenAPI input at `747e5d7` both state no `maxLength`, found by a throwaway script on 2026-11-26 that also read each field's description. Each takes Siluet's envelope, enforced by Queue, and its free text is unknown with [question 10](SPEC-catalog-engine.md#open-questions), "prompt limit not documented". G2a re-derives the list per row and reads each model page before it assigns question 10.
 
 | Envelope | IDs | Field |
 | --- | --- | --- |
