@@ -298,7 +298,8 @@ export function createSignInAttempts(owner: {
 				if (!alive()) return null;
 				if (resumed?.kind === "session") return commit(current, resumed.issued, alive);
 				if (resumed?.kind === "gone") return refuse(current, answer);
-				return offerRetry();
+				if (resumed?.kind === "recovery") return settle(current, resumed, false, alive);
+				return offerRetry(resumed?.kind === "retry" ? resumed.message : failed);
 			}
 			case "retry":
 				return offerRetry(answer.message);

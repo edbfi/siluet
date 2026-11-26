@@ -236,6 +236,24 @@ test("a refused resend resumes once more: a session commits, a 401 applies its o
 	expect(f.client.attempts.held).toBeNull();
 });
 
+test("a refused resend whose resume answers an access error shows it: host recovery, or Retry", async () => {
+	for (const [retry, message] of [
+		[false, "Stop Siluet and recover."],
+		[true, "Storage is busy."],
+	] as const) {
+		const h = await harness();
+		h.queue("/owner/sign-in", "network", refused("invalid-login"));
+		h.queue("/owner/resume", gone, {
+			status: 503,
+			body: { message, retry, recoveryRequired: !retry },
+		});
+		await h.client.attempts.submit("sign-in", signIn);
+		expect(h.view()).toMatchObject({ retry, message });
+		if (retry) expect(h.client.attempts.held?.fields).toEqual(Object.keys(signIn));
+		else expect(h.client.attempts.held).toBeNull();
+	}
+});
+
 test("a second lost answer offers Retry, which resumes first and resends only on a 401", async () => {
 	const h = await harness();
 	h.queue("/owner/sign-in", "network", "network");
