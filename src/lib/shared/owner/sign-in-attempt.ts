@@ -385,14 +385,14 @@ export function createSignInAttempts(owner: {
 		get holding() {
 			return attempt !== null || view.busy;
 		},
-		/** For tests: what the attempt holds, without its keys. */
+		/** For tests: what the attempt holds, naming its fields without their values. */
 		get held() {
 			return (
 				attempt && {
 					candidate: attempt.candidate.spki,
 					base: attempt.base?.spki ?? null,
-					fields: attempt.fields,
-					proof: attempt.proof,
+					fields: attempt.fields && Object.keys(attempt.fields),
+					proof: attempt.proof !== null,
 				}
 			);
 		},

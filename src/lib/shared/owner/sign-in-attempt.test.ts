@@ -167,7 +167,7 @@ test("the factor step and its retries reuse the sign-in's candidate and base", a
 	h.queue("/owner/factor", refused("invalid-code"), session("s1"));
 	await h.client.attempts.factor("000000");
 	expect(h.view()).toMatchObject({ factor: true, message: "Refused: invalid-code" });
-	expect(h.client.attempts.held?.proof).toBe("proof-1");
+	expect(h.client.attempts.held?.proof).toBe(true);
 	expect(await h.client.attempts.factor("123456")).toBe("/");
 	const keys = [...h.to("/owner/sign-in"), ...h.to("/owner/factor")].map((r) => r.body.key);
 	expect(new Set(keys)).toEqual(new Set([h.candidates[0].spki]));
@@ -224,7 +224,7 @@ test("a refused resend resumes once more: a session commits, a 401 applies its o
 	f.queue("/owner/resume", gone, gone);
 	await f.client.attempts.factor("123456");
 	expect(f.view()).toMatchObject({ factor: true, retry: false, message: "Refused: invalid-code" });
-	expect(f.client.attempts.held?.proof).toBe("proof-1");
+	expect(f.client.attempts.held?.proof).toBe(true);
 	// A resend refused as stale restarts the sign-in.
 	f.queue("/owner/factor", "network", refused("stale-proof"));
 	f.queue("/owner/resume", gone, gone);
@@ -241,7 +241,7 @@ test("a second lost answer offers Retry, which resumes first and resends only on
 	h.queue("/owner/sign-in", "network", "network");
 	await h.client.attempts.submit("sign-in", signIn);
 	expect(h.view()).toMatchObject({ retry: true });
-	expect(h.client.attempts.held?.fields).toEqual(signIn);
+	expect(h.client.attempts.held?.fields).toEqual(Object.keys(signIn));
 	h.queue("/owner/resume", session("s1"));
 	expect(await h.client.attempts.retry()).toBe("/");
 	expect(h.to("/owner/sign-in")).toHaveLength(2);
@@ -279,7 +279,7 @@ test("a non-retryable access error shows its host-recovery message without Retry
 	});
 	await r.client.attempts.submit("sign-in", signIn);
 	expect(r.view()).toMatchObject({ retry: true, message: "Storage is busy." });
-	expect(r.client.attempts.held?.fields).toEqual(signIn);
+	expect(r.client.attempts.held?.fields).toEqual(Object.keys(signIn));
 });
 
 test("refusals: stale-proof, a missing reason and others drop both and clear the proof", async () => {
