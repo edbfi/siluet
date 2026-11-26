@@ -58,10 +58,11 @@ function harness({ stored = key as BrowserKey | null } = {}) {
 	const credentials: (RequestCredentials | undefined)[] = [];
 	const navigations: string[] = [];
 	const native = (async (input: RequestInfo | URL, init?: RequestInit) => {
-		const request = new Request(
-			new URL(String(input instanceof Request ? input.url : input), origin),
-			init,
-		);
+		// A Request input keeps its body, which this read consumes as the browser's fetch would.
+		const request =
+			input instanceof Request
+				? new Request(input, init)
+				: new Request(new URL(String(input), origin), init);
 		const path = new URL(request.url).pathname;
 		if (path === "/owner/challenge") return json({ status: 200, body: { nonce: "n" } });
 		if (path === "/owner/resume") {
@@ -387,6 +388,126 @@ describe("concurrent requests and studio errors", () => {
 		// The remount already dropped the drafts; this answer drops nothing more.
 		expect(h.client.remountKey).toBe(1);
 	});
+
+	test("a recovery answer that arrives after another request remounts still reaches its caller", async () => {
+		const h = harness();
+		h.resumes.push(session("s1"));
+		await h.fetch("/jobs/__data.json");
+		const recovery = { ...access, retry: false, recoveryRequired: true };
+		for (const answer of [
+			{ status: 503, body: recovery },
+			{ status: 503, body: access },
+			{ status: 200, body: { ok: true } },
+		]) {
+			const headers = Promise.withResolvers<void>();
+			h.routes.push(async () => {
+				await headers.promise;
+				return answer;
+			});
+			const load = h.fetch("/gallery/__data.json");
+			await Bun.sleep(1);
+			// A sibling request's answer remounts the studio before this one's headers arrive.
+			h.client.dropDrafts();
+			headers.resolve();
+			if (answer.body === recovery) {
+				const response = await load;
+				expect([response.status, await response.json()]).toEqual([503, recovery]);
+				// The remount already dropped the drafts; this answer drops nothing more.
+				expect(h.client.remountKey).toBe(1);
+			} else {
+				// Any other answer from before the remount, an access error included, applies nothing.
+				await expect(load).rejects.toMatchObject({ name: "AbortError" });
+			}
+		}
+	});
+
+	/** Browsers move a source Request's body into the Request built from it; Bun copies it. */
+	function withBrowserRequests(run: () => Promise<void>) {
+		const BunRequest = Request;
+		const moved = new WeakSet<Request>();
+		const usable = (request: Request) => {
+			if (moved.has(request)) throw new TypeError("The request body was already used.");
+		};
+		class BrowserRequest extends BunRequest {
+			constructor(input: RequestInfo | URL, init?: RequestInit) {
+				// A replacement body makes even a used source acceptable.
+				if (input instanceof BunRequest && init?.body == null) usable(input);
+				super(input, init);
+				if (input instanceof BunRequest && input.body && init?.body == null) moved.add(input);
+			}
+			override clone() {
+				usable(this);
+				return super.clone();
+			}
+		}
+		globalThis.Request = BrowserRequest;
+		return run().finally(() => {
+			globalThis.Request = BunRequest;
+		});
+	}
+
+	function refusedThenOk() {
+		const h = harness();
+		h.resumes.push(session("s1"), session("s1", "bearer-2"));
+		h.routes.push(
+			() => refused(),
+			() => ({ status: 200, body: {} }),
+		);
+		return h;
+	}
+
+	test("a Request with a body is resent whole after a hook refusal", () =>
+		withBrowserRequests(async () => {
+			const h = refusedThenOk();
+			const request = new Request(`${origin}/image/queue`, { method: "POST", body: "prompt" });
+			expect((await h.fetch(request)).status).toBe(200);
+			expect(await Promise.all(h.sent.map((sent) => sent.text()))).toEqual(["prompt", "prompt"]);
+			expect(h.sent[1].headers.get("authorization")).toBe("Bearer bearer-2");
+		}));
+
+	test("a replacement body is sent and resent, even for a used Request", () =>
+		withBrowserRequests(async () => {
+			const h = refusedThenOk();
+			const request = new Request(`${origin}/image/queue`, { method: "POST", body: "old" });
+			new Request(request);
+			const response = await h.fetch(request, { body: "replacement" });
+			expect(response.status).toBe(200);
+			expect(await Promise.all(h.sent.map((sent) => sent.text()))).toEqual([
+				"replacement",
+				"replacement",
+			]);
+		}));
+
+	test("a form body keeps its multipart Content-Type on the send and the resend", () =>
+		withBrowserRequests(async () => {
+			const h = refusedThenOk();
+			const form = new FormData();
+			form.set("prompt", "a pier");
+			expect((await h.fetch("/image/queue", { method: "POST", body: form })).status).toBe(200);
+			for (const init of h.inits)
+				expect(new Headers(init?.headers).get("content-type")).toStartWith(
+					"multipart/form-data; boundary=",
+				);
+			const parsed = await Promise.all(h.sent.map((sent) => sent.formData()));
+			expect(parsed.map((data) => data.get("prompt"))).toEqual(["a pier", "a pier"]);
+		}));
+
+	test("a stream body is resent whole after a hook refusal", () =>
+		withBrowserRequests(async () => {
+			const h = refusedThenOk();
+			const body = new ReadableStream({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode("streamed"));
+					controller.close();
+				},
+			});
+			const init = { method: "POST", body, duplex: "half" } as RequestInit;
+			expect((await h.fetch(`${origin}/image/queue`, init)).status).toBe(200);
+			expect(await Promise.all(h.sent.map((sent) => sent.text()))).toEqual([
+				"streamed",
+				"streamed",
+			]);
+		}));
 
 	test("SvelteKit's load flag reaches its own fetch, still hidden from enumeration", async () => {
 		const h = harness();

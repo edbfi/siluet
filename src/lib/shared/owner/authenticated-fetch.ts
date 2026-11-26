@@ -69,17 +69,33 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 		};
 		// Captured now, before any renewal or wait.
 		const pinned = siluetSession ?? client.bound()?.sessionId ?? null;
+		// A body is applied once, to a request each send clones, so a resend never reuses a
+		// consumed body. `init.body` replaces the caller's `Request` body, even a consumed one.
+		const { body, ...bodiless } = forwarded;
+		let base: Request | null;
+		try {
+			base = request || body != null ? new Request(request ?? url, forwarded) : null;
+		} catch (error) {
+			return Promise.reject(error);
+		}
 
 		function send(bearer: string | null) {
 			const sent = client.remountKey;
-			const outgoing = new Headers(headers);
+			// The base's headers include the Content-Type its body implies, such as a form boundary.
+			const outgoing = new Headers(base ? base.headers : headers);
 			if (bearer) outgoing.set("authorization", `Bearer ${bearer}`);
 			else outgoing.delete("authorization");
-			const options = flagged({ ...forwarded, headers: outgoing, credentials: "omit" as const });
-			return native(request ? new Request(request, options) : input, options).then((response) => {
-				// A response from before a remount applies nothing. A Security response always
-				// reaches its settlement, which decides for itself.
-				if (client.remountKey !== sent && !securityPost)
+			const options = flagged({
+				...(base ? bodiless : forwarded),
+				headers: outgoing,
+				credentials: "omit" as const,
+			});
+			const outgoingInput = base ? new Request(base.clone(), options) : input;
+			return native(outgoingInput, options).then(async (response) => {
+				// A response from before a remount applies nothing. A recovery answer covers the whole
+				// host, so it still reaches its caller. A Security response always reaches its
+				// settlement, which decides for itself.
+				if (client.remountKey !== sent && !securityPost && !(await recoveryRequired(response)))
 					throw new DOMException("The studio changed session.", "AbortError");
 				const successor = response.headers.get("x-siluet-bearer");
 				if (successor === null) return response;
@@ -154,8 +170,8 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 					const recovery = await recoveryRequired(response);
 					const remounted = client.remountKey !== generation;
 					// A remount while the body was read makes the answer stale, as in `send`. A
-					// recovery answer read during a remount covers the whole host, so it still
-					// reaches its caller.
+					// recovery answer still reaches its caller, but one from before a remount drops
+					// no drafts.
 					if (remounted && !securityPost && !recovery)
 						throw new DOMException("The studio changed session.", "AbortError");
 					if (recovery && !remounted) client.recoveryRequired();

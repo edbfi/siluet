@@ -27,7 +27,7 @@ Second 403, 5xx, 429, network | Stays bound | `TypeError`; `/sign-in`, `/setup` 
 Access error | Stays bound; `recoveryRequired` drops drafts | Access JSON, or action `{type:"error"}`
 Second `invalid_token` | Stays bound | `TypeError`
 
-Responses apply effects only if `remountKey` is unchanged since sent.
+Responses apply effects only if `remountKey` is unchanged since sent. Otherwise they are dropped, except a recovery-required answer, which reaches its caller without effects, and a Security response, which goes to its settlement. A request body is applied once and cloned for each send.
 
 **Revalidation and notices.** On `focus`, visible `visibilitychange` and `pageshow` a tab checks (`GET /owner/session` with a live bearer, else `resume`; single-flight, recheck bit) and the table applies; none runs while a destination is pending or loading. Claim, sign-in, factor, Security and sign-out post `{id, kind, sessionId | null}` on `BroadcastChannel("siluet-owner-<installation>")` and localStorage. Notices are hints: a tab on that ID ignores one; a hidden tab drops its bearer (kept as `previous`) and checks when visible; a failed check stays pending; `/sign-in` and `/setup` never reload.
 
