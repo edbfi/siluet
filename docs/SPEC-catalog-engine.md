@@ -1,6 +1,6 @@
 # Catalog engine · V1
 
-**Revision 3, 2026-11-26, for council review.** Applies the round-2 rulings. Implements Models 1 in the [capability map](SPEC.md#remaining-deliverables-and-release-checks) under [D2](decisions.md#verification-by-contract-family), [D4](decisions.md#d4--optional-filtering-on-media-requests), [D5](decisions.md#d5--verify-gallery-images-before-saving) and [D6](decisions.md#d6--verify-downloaded-video-structure-in-typescript), on top of the [media catalog](SPEC-media-catalog.md) and [per-mode Save limits](SPEC-video-save-limits.md). v0.1.0 waits for full D2 coverage ([D11](decisions.md#d11--v010-waits-for-full-d2-coverage); the anchor exists once PR #72 merges). Every slice here lands before the tag. The [remaining-work inventory](catalog-engine-inventory.md) assigns each pair to a slice or a question.
+**Revision 4, 2026-11-26, for council review.** Applies the round-3 rulings. Implements Models 1 in the [capability map](SPEC.md#remaining-deliverables-and-release-checks) under [D2](decisions.md#verification-by-contract-family), [D4](decisions.md#d4--optional-filtering-on-media-requests), [D5](decisions.md#d5--verify-gallery-images-before-saving) and [D6](decisions.md#d6--verify-downloaded-video-structure-in-typescript), on top of the [media catalog](SPEC-media-catalog.md) and [per-mode Save limits](SPEC-video-save-limits.md). v0.1.0 waits for full D2 coverage ([D11](decisions.md#d11--v010-waits-for-full-d2-coverage); the anchor exists once PR #72 merges). Every slice here lands before the tag. The [remaining-work inventory](catalog-engine-inventory.md) assigns each pair to a slice or a question.
 
 ## Objective
 
@@ -19,7 +19,7 @@ Contributors get one ledger with a state and evidence for every pair, a coverage
 
 A family is its provider, route, request and acknowledgement envelope, status route and recovery, result envelope and Save contract. A row joins a family only with evidence for its exact ID covering all six:
 
-- **Request:** the pinned schema (Poyo.ai) or the model's page (ToAPIs).
+- **Request:** the pinned catalog schema and the model's OpenAPI spec (Poyo.ai), or the model's page (ToAPIs).
 - **Acknowledgement:** the documented submit response.
 - **Recovery:** the family's verified recovery, unchanged.
   - Poyo.ai: no correlation. Job code tells the kind, as for H3 Max.
@@ -33,9 +33,9 @@ A family is its provider, route, request and acknowledgement envelope, status ro
 
 | Family | Representative | Qualified classes today | Added here, with the model that qualifies each |
 | --- | --- | --- | --- |
-| Poyo.ai image, `POST /api/generate/submit`, D5 | `seedream-5.5`, `z-image` | prompt; enum options; `output_format` png/jpeg; 1–10 ordered public URLs in `image_urls`; local JPEG/PNG | boolean (`prompt_extend`), integer (`seed`) and free text (`negative_prompt`) on `qwen-image-3` (G4); more than 10 URLs on `nano-banana-2-lite-edit` (G5); still WebP (G1) |
-| Poyo.ai video, same route, D6 | `h3-max` | prompt; enum options; integer `duration` | boolean (`audio`) on `wan3.0-text-to-video`, free text (`negative_prompt`) on `wan2.5-text-to-video` (G7); frames (G8) and `reference_image_urls` (G8b) on `h3-max`; number: see question 3 |
-| ToAPIs image, `POST /v1/images/generations`, D5 | `doubao-seedream-5-5` | prompt; `size`; 1–10 ordered public URLs; local JPEG/PNG; `metadata.output_format` | other exact IDs (G10a); more than 10 references: no admitted row yet (question 4) |
+| Poyo.ai image, `POST /api/generate/submit`, D5 | `seedream-5.5`, `z-image` | prompt; enum options; `output_format` png/jpeg; 1–10 ordered public URLs in `image_urls`; local JPEG/PNG | boolean (`prompt_extend`) and integer (`seed`) on `qwen-image-2.1` (G4); free text: question 6; more than 10 URLs: question 4; still WebP (G1) |
+| Poyo.ai video, same route, D6 | `h3-max` | prompt; enum options; integer `duration` | boolean (`audio`) on `wan3.0-text-to-video`, free text (`negative_prompt`) on `wan2.5-text-to-video` (G7); frames (G8) and `reference_image_urls` (G8b) on `h3-max`; number: question 3 |
+| ToAPIs image, `POST /v1/images/generations`, D5 | `doubao-seedream-5-5` | prompt; `size`; 1–10 ordered public URLs; local JPEG/PNG; `metadata.output_format` | other exact IDs (G10a); up to 16 references on `minimax-h3-image` (G10b) |
 | ToAPIs video, `POST /v1/videos/generations`, D6 | `seedance-2-5` | prompt; duration, resolution, ratio; `first_frame` and `last_frame`; one `reference_video` for edit | other exact IDs (G11a); frames on them (G11b); image references, frames with image references and one reference video for generation (G11c, on the first admitted row of each); source edit on other IDs (G11d) |
 
 A qualifying model is promoted to **verified** for its class: the seven D2 fixtures and one built-app journey from Queue to verified Save and offline reopen. The ToAPIs video adapter now accepts only `seedance-2-5` in its task envelope (`toapis/video.ts`). G11a generalizes it to the row's submitted ID. A page whose response names another model, such as MiniMax-H3's, needs a reviewed rule that states which model name the response must carry. Subjects and non-URL characters (`sora-2-vvip` personas) are Phase 3.
@@ -43,12 +43,18 @@ A qualifying model is promoted to **verified** for its class: the seven D2 fixtu
 Verified representatives keep their reviewed descriptors. The deriver cross-checks them and fails on any disagreement, but never rewrites them. The engine reads no wire name as a role. Only reviewed **family conventions** do, each with its quote:
 
 - `image_urls` as ordered image references on Poyo.ai images (Seedream 5.5: "Optional 1–10 reference image URLs").
-- `n` as output count where the schema says "Number of output images" or "Number of images to generate".
+- `n` as output count where its description begins with "Number of output images" or "Number of images to generate". At `747e5d7` that covers every in-scope `n` but `ideogram-vector-1.0/text-to-vector` ("Output count, from 1 to 8") and `kling-4.0-image` ("Number of images. When enable_sequential is false: 1–9"), which each need a reviewed note. Any further sentence that constrains `n` needs a reviewed rule. For example, `seedream-4` says "The total of image_urls plus n must not exceed 15", so with `n: 1` it takes at most 14 references.
 - `duration` as output seconds where the schema or page says so (H3 Max: "`duration` is an integer from 5 through 15 seconds").
 
 Any other mapping needs a reviewed note that quotes the provider. A row whose operation needs an unqualified input stays pending and names the class.
 
-**One output per request.** Siluet sends `n: 1` only where a documented count field accepts 1. Without a count field, the row needs evidence that the mode returns one output: a schema, page or result envelope that says so. Seedream 5.5 has no `n`: its Poyo.ai schema says "Generate one image", and its ToAPIs page says "Ordinary generation returns one image". Otherwise the row is pending. Derived rows start at one request and zero retries.
+**One output per request.** Siluet sends `n: 1` only where a documented count field accepts 1. Without a count field, the row needs evidence that its mode returns one output: a schema, page or result envelope that says so for that mode. Seedream 5.5 has no `n`: its Poyo.ai schema says "Generate one image", and its ToAPIs page says "Ordinary generation returns one image". Otherwise the row is pending. Derived rows start at one request and zero retries.
+
+Each new representative has that evidence for the mode it qualifies:
+
+- `qwen-image-2.1` text-to-image: "The Qwen Image 2.1 API generates one image from text" (OpenAPI `info.description`). It replaces `qwen-image-3`, whose schema, OpenAPI spec and page state no output count.
+- ToAPIs `minimax-h3-image` edit, for more than 10 references: `n`, "Number of images to generate, range 1-10", sent as 1. The page accepts "up to 16" reference URLs and names `GET /v1/images/generations/{task_id}`. It does not say that order matters, so Review promises no order. Its `resolution` defaults to `4K`, so Siluet always sends the tier, and 4K waits for G13.
+- Poyo.ai, more than 10 references: `nano-banana-2-lite-edit` states no output count, and no other Poyo.ai row with more than 10 references states one for its edit mode (question 4).
 
 **More than 10 Poyo.ai references.** A request carries at most 10 local files, one full window of the 10-uploads-per-60-s limit (`poyo-upload-window.ts`). Any references beyond them must be public URLs.
 
@@ -56,7 +62,11 @@ Any other mapping needs a reviewed note that quotes the provider. A row whose op
 
 **Poyo.ai.** The capability catalog ([`747e5d7`](https://github.com/PoyoAPI/poyo-devtools/blob/747e5d75319585d66396a3c05bd1b97d9390ce74/artifacts/capability-catalog.json), 2026-11-19, sha256 `eebbc67…`) holds 252 entries. 162 are in scope: those whose category gives an image or video result, plus the two music-prerequisite IDs. G2c re-pins to the newest head (now [`ec73207`](https://github.com/PoyoAPI/poyo-devtools/blob/ec7320720913a55f955e1bf6a651e9c38bd356c5/artifacts/capability-catalog.json), 2026-11-26, sha256 `844ed1d…`, 173 in scope). It does so in a data-only PR that shows the diff, re-dates the D2 baseline and moves the v2 price feed to the same revision.
 
-`scripts/media-catalog/sources/poyo-<rev>.json` holds a deterministic projection of the in-scope entries: `model_id`, `category`, `status`, `service_type`, `execution_mode`, `input_schema` with descriptions, and `billing`. It is canonical compact JSON (sorted keys, no whitespace), about 313 KB, under the 500 KB hook. `biome.json` adds `!!scripts/media-catalog/sources` to `files.includes`, so formatting never expands it. The upstream revision, upstream SHA-256, projection SHA-256 and MIT notice sit beside it. `bun run catalog:derive` turns it, the ledger and reviewed overrides into `src/lib/shared/media-catalog/poyo-rows.json`. The app never fetches a catalog at runtime.
+`scripts/media-catalog/sources/poyo-<rev>.json` holds a deterministic projection of the in-scope entries: `model_id`, `category`, `status`, `service_type`, `execution_mode`, `input_schema` with descriptions, and `billing`. It is canonical compact JSON (sorted keys, no whitespace), about 313 KB, under the 500 KB hook. `biome.json` adds `!!scripts/media-catalog/sources` and `!!src/lib/shared/media-catalog/poyo-rows.json` to `files.includes`, so formatting never expands them. The upstream revision, upstream SHA-256, projection SHA-256 and MIT notice sit beside it.
+
+**Poyo.ai OpenAPI specs.** The "OpenAPI Specs" section of the [docs index](https://docs.poyo.ai/llms.txt) lists one spec per model page. G2a projects each one's `SubmitRequest`, keyed by `model.enum`, into `scripts/media-catalog/sources/poyo-openapi-<date>.json` in the same canonical form, with the index digest and each spec's SHA-256. On 2026-11-26 the index lists 175 files, and 147 English specs cover 210 IDs, including 157 of the 162 in-scope entries. The five without a spec are discovery-only. G2c re-projects with the re-pin. The [inventory](catalog-engine-inventory.md#poyoai-openapi-specs) records the digests and counts.
+
+`bun run catalog:derive` turns both projections, the ledger and reviewed overrides into `src/lib/shared/media-catalog/poyo-rows.json`. A test keeps it under the 500 KB hook, and a build check keeps the client bundle within a recorded budget. The app never fetches a catalog at runtime.
 
 **ToAPIs.** ToAPIs publishes no schema. Each docs page gets one descriptor, `src/lib/shared/media-catalog/toapis/<page>.ts`, with:
 
@@ -65,28 +75,29 @@ Any other mapping needs a reviewed note that quotes the provider. A row whose op
 - the D4 state, output formats, the Save bound with its quote and the rate key
 - the page URL, access date and SHA-256 of its Markdown rendering
 
-**Validation.** Queue validates the complete body it will send, with defaults applied as the provider sees them, including `n`, the D4 field and media URLs. `src/lib/shared/media-catalog/schema.ts` is an in-repo validator for the constructs the catalog uses:
+**Validation.** Queue validates the complete body it will send, with defaults applied as the provider sees them, including `n`, the D4 field and media URLs. A Poyo.ai body is valid only against both the catalog schema and the model's OpenAPI `input`. Where the OpenAPI input is closed, a field that only the catalog lists is a contradiction for that option: it is never offered, and its state is unknown with question 7. The negative fixtures are `gpt-image-2.6-fixed` with `resolution` and `poyo-ai/image-translator` with `protect_text`, `synthesis_on_image` or `translate_on_image`. A row without an OpenAPI spec validates against the catalog alone.
+
+`src/lib/shared/media-catalog/schema.ts` is an in-repo validator for the constructs the catalog and the OpenAPI specs use:
 
 - `type`, `properties`, `required`, `additionalProperties`, `enum`, `default`, `minimum`, `maximum`, `minLength` and `maxLength`
 - arrays with `items`, `minItems` and `maxItems`, and `format: uri`
 - `allOf`, `not`, `if`/`then`/`else`, and `anyOf` whose branches are `required` lists or `properties` with `required`
-- `pattern`, from an allowlist only. That holds `\S`, `^https?://` and `^https?://\S+$`. The validator runs the pattern on the value.
+- `pattern`, from an allowlist only. That holds `\S`, `^https?://`, `^https?://\S+$` and `^\d+x\d+$`. The validator runs the pattern on the value.
 
-`oneOf`, `contains`, `const`, `x-*` keys, nested objects and untyped properties are outside it. Fourteen entries use `oneOf` and five use `x-server-validation` (see the [inventory](catalog-engine-inventory.md#option-classes-in-the-pinned-schemas)). Such a construct keeps the row pending if it touches a required input or the whole schema. Otherwise that option has no covered path yet.
+`oneOf`, `contains`, `const`, `x-*` keys, nested objects and untyped properties are outside it. Fourteen entries use `oneOf` and five use `x-server-validation` (see the [inventory](catalog-engine-inventory.md#option-classes-in-the-pinned-schemas)). The OpenAPI specs add `const`, `minProperties` and `maxProperties` in two specs each. A `discriminator` on `model` in two specs only selects each model's branch. Such a construct keeps the row pending if it touches a required input or the whole schema. Otherwise that option has no covered path yet.
 
 A **reviewed rule** expresses one cross-field constraint, quotes it and records the SHA-256 of the schema it was checked against. A reviewed **override** may only narrow a row. Either goes stale when the hash changes, and every construct and rule has a negative fixture. If no valid minimal request exists (prompt, required inputs, defaults), the row stays pending.
 
-**Patterned sizes.** A `WxH` value matching a schema pattern is offered only under a hash-bound rule for the provider's dimension range, divisibility, aspect and tier constraints. `flux-3-klein` is the model case: "Custom dimensions must each be 256-4096, divisible by 16, and accompanied by an explicit matching resolution", where the long edge selects 1K, 2K or 4K. Without such a rule, only the listed ratios are offered.
+**Patterned sizes.** A `WxH` value matching a schema pattern is offered only under a hash-bound rule for the provider's dimension range, divisibility, aspect and tier constraints. `flux-3-klein` is the model case. Its `size` is exactly `oneOf` [an enum of seven ratios, `pattern: ^\d+x\d+$`], and its schema says "Custom dimensions must each be 256-4096, divisible by 16, and accompanied by an explicit matching resolution", where the long edge selects 1K, 2K or 4K. The rule replaces that exact `oneOf` and validates both branches: a listed ratio passes the enum, and explicit dimensions pass the pattern and then the range, divisibility and tier checks. Its tests cover a listed ratio, an unlisted ratio and explicit dimensions with the wrong tier. Without such a rule, only the listed ratios are offered.
 
-**Prompt limits.** Each family has one explicit maximum with its unit for rows whose schema and page are silent. Otherwise the smaller of that maximum and the stated limit applies, each counted in its own unit:
+**Prompt and free-text limits.** A limit that the schema (`maxLength`) or page states applies as written, in its own unit. A smaller envelope bound replaces it only with evidence, and the bound cites its source. Today the one such bound is the shipped video request check, 4,000 UTF-8 bytes (`video-studio/request.ts`, [first saved video](SPEC-first-saved-video.md)), so `h3-max`'s stated 50,000 characters becomes 4,000 bytes. Where schema and page are both silent, the family default applies to `prompt` and to every free-text option:
 
-- Poyo.ai image: 5,000 code points, Seedream 5.5's limit. Z-Image keeps its 1,000.
-- ToAPIs image: 5,000 code points.
-- Poyo.ai and ToAPIs video: 4,000 UTF-8 bytes (`video-studio/request.ts`).
+- Poyo.ai and ToAPIs image: 5,000 code points, Seedream 5.5's limit.
+- Poyo.ai and ToAPIs video: 4,000 UTF-8 bytes.
 
-`maxLength` counts Unicode code points, as JSON Schema does. Verified representatives keep their shipped limits.
+So `gpt-image-2.6-fixed` keeps its stated 32,000, and Z-Image its 1,000. `maxLength` counts Unicode code points, as JSON Schema does. Verified representatives keep their shipped limits.
 
-**Drift.** At a re-pin, `catalog:drift --repin` checks that the fetched upstream file matches its recorded SHA-256 and that projecting it reproduces the committed projection byte for byte. The offline checks verify the projection's recorded SHA-256 and regenerate the rows, failing on any difference. Run weekly and online, `catalog:drift` compares the projection with the upstream head. It also compares the digest of every source that controls eligibility: the [docs index](https://docs.poyo.ai/llms.txt), each REST page behind a reviewed state, each ToAPIs descriptor page and the ToAPIs model list. It fails with an evidence diff, and app behaviour changes only through a reviewed re-pin.
+**Drift.** At a re-pin, `catalog:drift --repin` checks that the fetched upstream file matches its recorded SHA-256 and that projecting it reproduces the committed projection byte for byte. The offline checks verify the projection's recorded SHA-256 and regenerate the rows, failing on any difference. Run weekly and online, `catalog:drift` compares the projection with the upstream head. It also compares the digest of every source that controls eligibility: the [docs index](https://docs.poyo.ai/llms.txt), each OpenAPI spec it lists, each REST page behind a reviewed state, each ToAPIs descriptor page and the ToAPIs model list. It fails with an evidence diff, and app behaviour changes only through a reviewed re-pin.
 
 ## When a row can Review and Queue
 
@@ -104,29 +115,38 @@ A row is **Queue-eligible** only when every condition holds. Review names the fi
 
 ### D4 by catalog and REST evidence
 
-Siluet sends the filtering field on every model, documented or not, unless the schema forbids it (D4, revised 2026-11-26). Each row takes one ledger state:
+Siluet sends the filtering field on every model, documented or not, unless the schema forbids it (D4, revised 2026-11-26). The REST column comes from the model's OpenAPI spec. Each row takes one ledger state:
 
-| Pinned catalog | REST declares the field | REST input closed without it | REST says filtering is fixed | REST silent or not reviewed |
+| Pinned catalog | REST declares the field | REST input closed without it | REST says filtering is fixed | REST open without it, or no spec |
 | --- | --- | --- | --- | --- |
 | declares `enable_safety_checker` | declared | contradiction | contradiction | declared |
 | closed schema without it | contradiction | closed-absent | closed-absent | closed-absent |
-| open schema without it | declared | closed-absent | open-absent | open-absent |
+| open schema without it | declared | closed-absent | open-absent, fixed | open-absent |
 
 - **declared:** send `false`.
-- **closed-absent:** omit the field after the acknowledgement. The most restrictive published schema wins.
-- **open-absent:** send `false`, with the disclosure.
+- **closed-absent:** omit the field after the acknowledgement.
+- **open-absent:** send `false`, with the disclosure. *Fixed* takes its own disclosure.
 - **contradiction:** blocked.
 - **refused:** a page that explicitly refuses the field or `false`. Blocked, except where the row is closed-absent and already omits the field.
 
-A blocked row is Review-only and counts as tag-blocking until the owner decides. A reviewed REST state carries a quote and the page's SHA-256, which drift watches. A row whose REST page has not been reviewed takes the catalog's state alone, and Review says so: "Siluet read this from Poyo.ai's catalog. This model's API page was not reviewed." ToAPIs descriptors record declared, open-absent (unconfirmed) or refused. Rows not yet derived keep the ledger default `unknown`, which blocks Queue.
+**Engine ruling, 2026-11-26.** Where the catalog and Poyo.ai's API schema disagree on whether the input is closed, the stricter schema wins. This is the engine's reading of D4 as revised in PR #72, recorded here and not in `decisions.md`.
 
-**Ledger migration (G2a).** The 38 rows marked `conflict` today (36 by `d4`, the two Gemini Omni Flash rows by `catalogD4`) all become `closed-absent`. The [inventory](catalog-engine-inventory.md#d4-states-after-the-ledger-migration) lists each with its evidence. `catalogD4` then survives only as `conflict` beside `d4: contradiction`, naming the catalog as the contradicting source. G2a updates `queueEvidenceProblem`, `scripts/media-catalog/ledger.test.ts` and the D4 bullet in the [media catalog spec](SPEC-media-catalog.md). The guard blocks contradiction, refused and `unknown`. It requires the bound acknowledgement for closed-absent and the bound disclosure for open-absent. It runs in `services/queue/submission.ts`, `services/queue/video.ts` and `services/file-edit/queue.ts`.
+A blocked row is Review-only and counts as tag-blocking until the owner decides. The REST state is mechanical from the projected spec, whose SHA-256 drift watches. *Fixed* also needs a reviewed quote from the spec or page. Only a row with no OpenAPI spec takes the catalog's state alone, and Review says so: "Siluet read this from Poyo.ai's catalog. This model's API page was not reviewed." At `747e5d7` no documented row is in that case. At `ec73207` the eight added IDs without a spec are. ToAPIs descriptors record declared, open-absent (unconfirmed) or refused. Rows not yet derived keep the ledger default `unknown`, which blocks Queue.
+
+**Ledger migration (G2a).** Counted by exact model ID with the query in the [inventory](catalog-engine-inventory.md#d4-states-after-the-ledger-migration), the 159 documented Poyo.ai IDs hold 39 marked `conflict` today (37 by `d4`, the two Gemini Omni Flash IDs by `catalogD4`), 31 declared and 89 with neither. They become 39 closed-absent, 31 declared and 89 open-absent, and the inventory lists each conflict row with its evidence. The fields change as follows:
+
+- `d4` holds one state from the table, or `unknown` before derivation.
+- `catalogD4` becomes optional and survives only as `conflict` beside `d4: contradiction`, naming the catalog as the contradicting source. G2a drops its `declared` and `unknown` values, because the table derives them. That covers one ledger row with `declared`, four with `unknown`, and the registry's `seedreamEvidence`, `zImageEvidence`, Seedance and H3 Max evidence. The shipped `submission.test.ts` fixtures move to the new states.
+- `scripts/media-catalog/coverage.ts` and `ledger.test.ts` count one key per primary route, so a route alias no longer counts twice.
+
+G2a also updates `queueEvidenceProblem` and the D4 bullet in the [media catalog spec](SPEC-media-catalog.md). The guard blocks contradiction, refused and `unknown`. It requires the bound acknowledgement for closed-absent and the bound disclosure for open-absent. G2a puts it at every call site: `services/queue/submission.ts`, `services/queue/video.ts`, `services/file-edit/queue.ts`, and the browser's `ImageReview.svelte`, which uses it to decide whether Queue is offered.
 
 Exact wording, each part of the Review digest:
 
-- **Acknowledgement**, for closed-absent: "Poyo.ai's schema for this model has no filtering setting and allows no fields it does not list, so Siluet sends this request without one. Filtering is up to Poyo.ai. I understand."
+- **Acknowledgement**, for closed-absent. It names the sources that close the input: "Poyo.ai's API schema", "Poyo.ai's catalog schema" or "Poyo.ai's catalog and API schemas". For example: "Poyo.ai's API schema for this model has no filtering setting and allows no fields it does not list, so Siluet sends this request without one. Filtering is up to Poyo.ai. I understand."
 - **Poyo.ai disclosure**, for open-absent: "Poyo.ai does not document a filtering setting for this model. Siluet sends `enable_safety_checker: false` anyway. It may have no effect, and Siluet never resends without it."
-- **ToAPIs disclosure:** the same, with "ToAPIs" and `disable_nsfw: false`.
+- **Fixed disclosure**, for open-absent where the API page says filtering is fixed: "Poyo.ai's API page says filtering for this model is fixed. Siluet sends `enable_safety_checker: false` anyway. It may have no effect, and Siluet never resends without it."
+- **ToAPIs disclosure:** the Poyo.ai disclosure, with "ToAPIs" and `disable_nsfw: false`.
 
 A provider rejection keeps its original request and is never resubmitted.
 
@@ -134,14 +154,15 @@ A provider rejection keeps its original request and is never resubmitted.
 
 A price applies only on an exact match of operation, resolved options, billing unit and reference counts, within D1 freshness. Resolution matches case-insensitively, as Save does (`1080P` is 1080p). Anything else is unknown. The collector evaluates `fixed`, `tiered` with a known formula string, and `parameterized` without reference tokens. `dynamic`, `token` and other formulas are unknown. A missing entry gaps only that row.
 
-**Basis.** A rate is valid for a derived row while the SHA-256 of that entry's canonical `billing` and `input_schema` matches the projection's. A re-pin that leaves the entry unchanged keeps its rate. Older builds decode only exact top-level keys and credit decimals inside rates, so the v2 feed cannot carry the digest. The collector writes `pricing/v2/poyo-basis.json` with `{revision, feedSha256, digests}`: the feed's revision, the SHA-256 of the feed body it belongs to, and one digest per rate key. The feed and its basis are one unit:
+**Basis.** A rate is valid for a derived row while the SHA-256 of that entry's canonical `billing` and `input_schema` matches the projection's. A re-pin that leaves the entry unchanged keeps its rate. Older builds decode only exact top-level keys and credit decimals inside rates, so the v2 feed cannot carry the digest. The collector writes `pricing/v2/poyo-basis.json` with `{revision, feedSha256, digests}`: the feed's revision, the SHA-256 of `canonicalJson(decoded feed)` as `local-feed.ts` defines it, and one digest per rate key. The feed and its basis are one unit:
 
 - `publish.sh` publishes both in one tree, or neither.
 - `refresh.ts` fetches both, applies the feed's size limit to each and validates the pair before it replaces the cached pair.
-- `stage-feeds.sh` bundles both.
-- `freshness.ts` checks the pair.
+- `studio-feeds.ts` embeds the bundled basis beside the bundled v2 feed.
+- `loadLocalPricing` and `preferPoyoFeed` select the feed and its basis from the same source, cache or bundled. A cached feed never pairs with the bundled basis.
+- `stage-feeds.sh` only stages both files for `freshness.ts`, which checks the pair.
 
-A basis whose revision or body digest does not match its feed, or a refresh interrupted between the two files, makes every derived rate unknown. Older builds ignore the basis file. Verified representatives (`z-image`, `seedream-5.5`, `h3-max`) keep quoting from their reviewed rate keys without it.
+When the selected feed is v1, the pair is mixed, its revision or body digest does not match, or a refresh stopped between the two files, every derived rate is unknown. Older builds ignore the basis file. Verified representatives (`z-image`, `seedream-5.5`, `h3-max`) keep quoting from their reviewed rate keys without it. Fixtures quote a derived row after a refresh, after a restart and from the bundled load.
 
 **Rate kinds.** The collector emits a shipped kind only when the entry fits that kind's decoder exactly. An older build rejects the whole v2 feed when a shipped kind fails to decode, as `per-second-by-resolution` does with a `2K` key. Anything else gets a new kind within the unfamiliar-rate grammar:
 
@@ -180,7 +201,7 @@ Gallery verifies still WebP, lossy and lossless, with the same full sharp decode
 
 - The size field equals the file length less 8, with no trailing bytes.
 - Every chunk fits, and odd sizes carry one zero pad byte.
-- The chunks are `VP8 ` or `VP8L` alone, or `VP8X` first, then optional `ICCP`, optional `ALPH`, one image chunk, then optional `EXIF` and `XMP `. Any other chunk is refused.
+- The chunks are `VP8 ` or `VP8L` alone, or `VP8X` first, then optional `ICCP`, then one image chunk, then at most one `EXIF` and at most one `XMP `, in either order. `ALPH` may appear only directly before a `VP8 ` image chunk, never with `VP8L`. Any other chunk, or a repeat, is refused.
 - `VP8X` flags match the chunks present: ICC with `ICCP`, alpha with `ALPH` or `VP8L` alpha, EXIF and XMP with theirs. Its canvas size equals the image chunk's dimensions.
 
 The walk refuses the `VP8X` animation flag, `ANIM` and `ANMF`, and sharp's `pages > 1`. A refusal is held as **unsupported image for Gallery**, as GIF is. A truncated WebP takes the failed-download path (D9). Downloads are named `.webp`. The migration rebuilds `gallery_image` to admit `image/webp` and copies every row and every video constraint unchanged, including the 61 s ceiling.
@@ -196,8 +217,9 @@ At `747e5d7`, 35 in-scope entries have `output_format`. D5 says fifteen offer We
 The owner asked on 2026-11-26 for Gallery to support every size the providers offer (D5, D6). Today Gallery saves up to 16,000,000 pixels and 16,384 px per edge. D6 allows 1,920 px per edge, 2,073,600 px, 64 MiB and 60 fps.
 
 - Until G13 and G14 land, an option value over these limits has no covered path. Each such value blocks the tag.
-- **G13** raises the image limits to the largest documented output, for example 4K tiers (4096×4096) and explicit `WxH`. It raises, with peak memory and time measured in CI, every bound in the path: the Gallery pixel and edge limits, `verificationPixels` (20 MP, `verify-image.ts`), `encodedLimit` (32 MiB, `gallery/download.ts`), the transfer deadline and `mediaLimits.image`.
-- **G14** raises D6's dimension caps, frame-rate bound, the 64 MiB download and the 4 MiB `moov` budget to each operation's documented maximum, including 1080p, 2K and 4K. It also raises the browser-key delivery budget (`mediaLimits.video`, 64 MiB per video, and 192 MiB per tab in `private-media.ts`) and proves it with a built-app journey that reopens a clip at the raised bound offline. Larger sizes within `avc1`/`mp4a` SDR are verified from fixtures. A new codec, profile, bit depth or HDR needs a suitable real sample, which takes an owner-approved live call (D6, D11).
+- **G13** raises the image limits to the largest documented output, for example 4K tiers (4096×4096), explicit `WxH` and ToAPIs `minimax-h3-image`'s custom sizes ("total pixels in the range 655360-20000000"). It raises, with peak memory and time measured in CI, every bound in the path: the Gallery pixel and edge limits, `verificationPixels` (20 MP, `verify-image.ts`), `encodedLimit` (32 MiB, `gallery/download.ts`), the transfer deadline, `mediaLimits.image` (32 MiB) and the 192 MiB per-tab read limit (`maxBytes` in `private-media.ts`).
+- **G14** raises D6's dimension caps, frame-rate bound, the 64 MiB download and the 4 MiB `moov` budget to each operation's documented maximum, including 1080p, 2K and 4K. It also raises the browser-key delivery budget: `mediaLimits.video` (64 MiB per video) and the same 192 MiB per-tab read limit. G14's PR amends D1's 64 MiB cost line with the measured bound. Larger sizes within `avc1`/`mp4a` SDR are verified from fixtures. A new codec, profile, bit depth or HDR needs a suitable real sample, which takes an owner-approved live call (D6, D11).
+- Each raised image and video bound has a built-app journey that saves an output at that bound, reopens it offline and checks that the downloaded original's bytes match the saved ones.
 - An undocumented maximum keeps today's limit. That option's state is unknown, with its question. An image row may still be offered with the Review statement below, but a video row stays Review-only.
 - When the request cannot bound the output, as with `auto` or a reference-following edit, Review states the limit: "Gallery saves images up to N megapixels. A completed billable image over that stays with the provider." The statement is bound into the digest.
 
@@ -240,7 +262,7 @@ The migration adds the snapshot table. **Pre-snapshot exception:** the shipped T
 - **provider unsupported**, with evidence
 - **unknown**: provider evidence is missing or contradictory, the source has been checked and an open question is recorded
 
-**Option obligations** come from the full documented contract, including fields Siluet does not send. An obligation is one option of one row. One Queue-eligible path on that row satisfies it when the path offers the option's whole documented domain: every enum value, the full numeric range, or free text within the documented length. Combinations follow the reviewed rules. A value over Gallery's limits is covered only once G13 or G14 covers it. Removing an option from the composer must leave a blocker, and a test proves it.
+**Option obligations** come from the full documented contract, including fields Siluet does not send. An obligation is one creator-selectable option of one exact operation. One Queue-eligible path on that row satisfies it when the path offers the option's whole documented domain: every enum value, the full numeric range, or free text within the documented length. Values Siluet fixes are not obligations: the D4 boolean at `false`, a pinned `n: 1` and fixed wire sentinels such as Seedance edit's `-1`. Combinations follow the reviewed rules. A value over Gallery's limits is covered only once G13 or G14 covers it. Tests prove that D4's fixed value does not block coverage and that removing a genuine creator option from the composer leaves a blocker.
 
 The report prints tag-counting coverage separately. It also prints the **tag-blocking count**:
 
@@ -251,7 +273,7 @@ The report prints tag-counting coverage separately. It also prints the **tag-blo
 
 The tag needs that count at zero, unless the owner approves a scope change for each remainder (D11). The [inventory](catalog-engine-inventory.md) is its first output. From G2a, CI regenerates it and fails on any difference.
 
-The arithmetic: at `747e5d7`, the catalog alone splits the 162 in-scope entries into 31 declared, 98 open and 33 closed. With the reviewed REST evidence, the four open `poyo-ai/*` tools are closed-absent, giving 31, 94 and 37. All three queueing states count. At `ec73207` the catalog split is 31, 98 and 44. The ledger expands to 647 documented keys (317 Poyo.ai, 330 ToAPIs; Midjourney `imagine` counts once despite its route alias), and 11 are verified. Engine slices cover 496 and Phase 3 covers 147, so 4 wait on evidence. 26 discovery-only IDs add no keys until their contracts are found. A key in an engine slice still counts as tag-blocking while its schema, class, Save bound or a D4 contradiction keeps it pending.
+The arithmetic: at `747e5d7`, the catalog alone splits the 162 in-scope entries into 31 declared, 98 open and 33 closed. With the OpenAPI REST column, the four open `poyo-ai/*` tools are closed-absent, giving 31 declared, 94 open-absent and 37 closed-absent. At `ec73207` the catalog split is 31, 98 and 44, and with the REST column 31, 94 and 48. Counted by documented ledger ID instead, the split is 31, 89 and 39 of 159 (the [inventory](catalog-engine-inventory.md#d4-states-after-the-ledger-migration) reconciles the two). All three queueing states count. The ledger expands to 647 documented keys (317 Poyo.ai, 330 ToAPIs; Midjourney `imagine` counts once despite its route alias), and 11 are verified. Engine slices cover 496 and Phase 3 covers 147, so 4 wait on evidence. 26 discovery-only IDs add no keys until their contracts are found. A key in an engine slice still counts as tag-blocking while its schema, class, Save bound or a D4 contradiction keeps it pending.
 
 ## Failure, unknown and stale cases
 
@@ -293,42 +315,45 @@ Logs and diagnostics redact every wire field typed `format: uri` or matched by a
 
 Run `bun run --bun test`, `bun run --bun build` and `bun run --bun smoke`.
 
-1. **Derivation.** It reproduces the committed rows byte for byte. The projection is canonical compact JSON under 500 KB, its SHA-256 matches its record, and a re-pin fixture verifies the upstream digest and projection.
-2. **Validator.** Each supported construct, allowlisted pattern and reviewed rule has passing and negative fixtures, including the `flux-3-klein` size rule. Unsupported constructs on required and optional inputs, a stale rule hash and a row with no valid minimal request each yield their stated state.
-3. **Drift.** A fixture upstream with one model added, one removed, one enum changed and one billing changed makes `catalog:drift` fail and list all four. A changed descriptor, REST or model-list digest fails the same way, and an unchanged upstream passes.
+1. **Derivation.** It reproduces the committed rows byte for byte. Both projections and `poyo-rows.json` are canonical compact JSON under 500 KB, each SHA-256 matches its record, and a re-pin fixture verifies the upstream digests and projections. The client bundle stays within its recorded budget.
+2. **Validator.** Each supported construct, allowlisted pattern and reviewed rule has passing and negative fixtures. The `flux-3-klein` size rule passes a listed ratio and refuses an unlisted ratio and explicit dimensions with the wrong tier. A body valid for the catalog but not the closed OpenAPI input fails: `gpt-image-2.6-fixed` with `resolution`, and `poyo-ai/image-translator` with each of its three catalog-only fields. Unsupported constructs on required and optional inputs, a stale rule hash and a row with no valid minimal request each yield their stated state.
+3. **Drift.** A fixture upstream with one model added, one removed, one enum changed and one billing changed makes `catalog:drift` fail and list all four. A changed descriptor, OpenAPI spec, REST or model-list digest fails the same way, and an unchanged upstream passes.
 4. **Queue conditions.** Failing any one condition alone blocks Queue with its message, zero POSTs and zero uploads.
-5. **D4.** Every cell of the table and the refused state have a fixture through the guard in `submission.ts`, `services/queue/video.ts` and `services/file-edit/queue.ts`, including both Gemini Omni Flash rows:
+5. **D4.** Every cell of the table and the refused state have a fixture through the guard in `submission.ts`, `services/queue/video.ts`, `services/file-edit/queue.ts` and `ImageReview.svelte`, including both Gemini Omni Flash rows:
    - Closed-absent makes zero POSTs without the acknowledgement. With it, the body omits the field.
-   - Open-absent and declared send `false`. Open-absent needs its disclosure, and catalog-only rows show the unreviewed-page sentence.
+   - Open-absent and declared send `false`. Open-absent needs its disclosure, or the fixed disclosure for that cell, and rows without an OpenAPI spec show the unreviewed-page sentence.
+   - The acknowledgement names the closing source: API schema, catalog schema, or both.
    - Contradiction, refused and `unknown` block.
    - Changed wording makes the Review stale.
    - A rejection fixture makes one POST, records a confirmed rejection and sends nothing more.
-   - The migrated ledger has no `conflict` outside contradiction.
+   - The migrated ledger has no `conflict` outside contradiction and no `catalogD4` of `declared` or `unknown`, and its counts match the inventory query.
 6. **Payload and recovery.**
    - The body validates with defaults applied.
    - `n: 1` is sent where a count field accepts 1. A row without one queues only with evidence of one output (Seedream 5.5), and is pending otherwise.
-   - Over-length prompts fail, in code points and in bytes, under the family maximum and under a smaller page limit.
+   - Over-length prompts and free-text options fail, in code points and in bytes: at a stated limit, at the family default where schema and page are silent, and at the video envelope bound where it is smaller than the stated limit.
    - A ToAPIs image job sends no correlation and sets no `business_id`. A lost acknowledgement leaves it uncertain with no second POST.
    - URI fields are redacted in logs.
 7. **Pricing.**
    - An exact match quotes, `1080P` matches `1080p`, and any other option is unknown.
-   - An unchanged-digest re-pin keeps the rate. A missing basis, a basis for another revision or body, and an interrupted refresh each make derived rates unknown, while verified representatives still quote.
+   - An unchanged-digest re-pin keeps the rate. A derived row quotes after a refresh, after a restart and from the bundled load.
+   - A missing basis, a basis for another revision or body, a selected v1 feed, a cached feed beside the bundled basis and an interrupted refresh each make derived rates unknown, while verified representatives still quote.
    - An older build's decoder fed a `2K` tier and a three-level price table keeps the feed and treats both as unquotable. `480*832` is published and looked up as `480x832`.
    - A quote that expires between Review and Queue goes stale.
 8. **Claims.** A claimed job whose row a re-pin removed still replays, recovers and saves. A job with a NULL contract takes the shipped path. A stale consent transfers zero bytes. An unusable upload receipt sends no generation request.
 9. **WebP and formats.**
    - Offered values are sent verbatim, and `gif` is never offered.
    - Lossy and lossless still WebP save, reopen offline, serve `image/webp` and download as `.webp`.
-   - Animated, padded-wrong, trailing-byte, unknown-chunk, wrong-flag, wrong-canvas and multi-page WebP and GIF are held. Truncated WebP retries as a failed download.
+   - Animated, padded-wrong, trailing-byte, unknown-chunk, repeated-`EXIF`, `ALPH`-with-`VP8L`, wrong-flag, wrong-canvas and multi-page WebP and GIF are held. `EXIF` and `XMP ` after the image save in either order. Truncated WebP retries as a failed download.
    - An upgrade keeps every Gallery row and video constraint.
 10. **Sizes and video.**
     - Before G13 and G14, over-limit values have no covered path. After, they are offered within the measured budgets, and each raised constant is tested at its bound.
+    - Each raised image and video bound has a built-app journey that saves, reopens offline and checks the downloaded original's bytes, within the 192 MiB per-tab read limit.
     - Video rows take their limit per operation. Unbounded durations are never a choice, and `auto` without a frame bound is never offered. The `seedance-2-5-flash` edit sends its fixed sentinel under the upstream limit.
     - Resolution matching is case-insensitive.
 11. **Inventory.** Fixtures cover listed, absent, failed, stale, skipped (no key, no network), revision change, a late response and two concurrent checks. Only a fresh *listed* entry queues. The claim re-reads it, and replacement is atomic. The pre-snapshot exception queues a shipped operation, never a derived row, and does not revive after a failed, stale or absent snapshot.
 12. **Review.** It names the verified model, schema revision and date, and "not individually tested". A `permission_denied_error` 403 refuses one job and keeps the key. A plain 403 stays an authorization failure.
 13. **Qualification.** Each new class passes the seven family fixtures on its named model and one built-app journey to verified Save and offline reopen.
-14. **Coverage.** `catalog:coverage` gives every expanded key and option exactly one state. Its tag-blocking count matches the ledger, an option removed from the composer still blocks, and the inventory regenerates unchanged.
+14. **Coverage.** `catalog:coverage` gives every expanded key and option exactly one state, and a route alias adds no key. Its tag-blocking count matches the ledger. A genuine creator option removed from the composer still blocks, while D4's fixed `false`, a pinned `n: 1` and a fixed sentinel never do. The inventory regenerates unchanged.
 
 ## Slice plan
 
@@ -337,22 +362,22 @@ Slices merge in table order, and each is independently mergeable. The numbers ar
 | Slice | Creator-visible outcome | Verification |
 | --- | --- | --- |
 | G1 Still WebP Save | A WebP result saves, reopens offline and downloads as `.webp`; animated WebP and GIF are held. | Check 9; migration upgrade test. |
-| G2a Derivation and coverage | Contributors get derived rows, the validator, the migrated ledger D4 states and `catalog:coverage` with its tag-blocking count, all offline. | Checks 1, 2, 5 (ledger) and 14. |
+| G2a Derivation and coverage | Contributors get derived rows from the catalog and OpenAPI projections, the validator, the migrated ledger D4 states with the guard at all four call sites, and `catalog:coverage` with its tag-blocking count and no alias double counting, all offline. | Checks 1, 2, 5 (ledger) and 14. |
 | G2b Picker | The picker lists every derived row as Review-only with its reason. | Picker journey. |
-| G2c Re-pin | Data only: projection, ledger and price feed move to the newest head together, with the diff, and the D2 baseline is re-dated. | Checks 1 and 14. |
+| G2c Re-pin | Data only: both projections, ledger and price feed move to the newest heads together, with the diff, and the D2 baseline is re-dated. | Checks 1 and 14. |
 | G2d Drift job | The weekly online drift check runs (CI change, owner approves). | Check 3. |
 | G3 Per-model formats | Image Review offers each model's own formats and shows the expected type; Seedream moves onto the same path. | Check 9. |
-| G4 Poyo.ai text-to-image | Declared and open-absent image rows queue, with the disclosure where needed, estimates or unknown-price consent, and the access note; `qwen-image-3` becomes verified for booleans, integers and free text; a permission 403 keeps the key. | Checks 4–8, 12 and 13; migration test. |
-| G5 Poyo.ai image edits | The same rows edit with 1–10 ordered URLs or local JPEG/PNG; then more than 10 references, at most 10 of them local, on `nano-banana-2-lite-edit`. | Checks 8 and 13. |
+| G4 Poyo.ai text-to-image | Declared and open-absent image rows queue, with the disclosure where needed, estimates or unknown-price consent, and the access note; `qwen-image-2.1` becomes verified for booleans and integers; a permission 403 keeps the key. | Checks 4–8, 12 and 13; migration test. |
+| G5 Poyo.ai image edits | The same rows edit with 1–10 ordered URLs or local JPEG/PNG. More than 10 references, at most 10 of them local, wait for question 4. | Checks 8 and 13. |
 | G6 Closed-absent image rows | Closed-schema image rows queue after the acknowledgement (gpt-image-2.5/2.6, Ideogram, Kling image, MAI and others). | Check 5. |
-| G13 Gallery image limits | 4K tiers and large explicit sizes save, within measured decode, download and transfer budgets. | Check 10; budget test. |
+| G13 Gallery image limits | 4K tiers and large explicit sizes, up to `minimax-h3-image`'s 20 MP, save within measured decode, download, transfer and per-tab read budgets. | Check 10; built-app save, offline reopen and original-bytes download at each raised bound. |
 | G7 Poyo.ai text-to-video | Poyo.ai video rows queue with data Save limits, including closed-absent rows after the acknowledgement; `wan3.0-text-to-video` and `wan2.5-text-to-video` become verified for booleans and free text. | Checks 5, 10 and 13. |
 | G8 Poyo.ai frames | First and first-and-last frames qualify on H3 Max, then derived rows follow with reviewed role notes, including `start_image_url`/`end_image_url`. | Check 13. |
 | G8b Poyo.ai image references | `reference_image_urls` qualifies on H3 Max, then derived reference-to-video rows follow. | Check 13. |
-| G14 Gallery video limits | 1080p, 2K and 4K clips save and reopen offline in the built app within measured budgets; new structures only after an approved real sample. | Check 10; built-app reopen at the raised bound. |
+| G14 Gallery video limits | 1080p, 2K and 4K clips save and reopen offline in the built app within measured budgets, including the per-tab read limit; D1's 64 MiB cost line is amended with the measured bound; new structures only after an approved real sample. | Check 10; built-app save, offline reopen and original-bytes download at each raised bound. |
 | G9 Inventory snapshot | Settings and Review show listed, absent or unknown per exact ToAPIs model, with Check again. | Check 11; migration test. |
 | G10a ToAPIs text-to-image | Admitted ToAPIs image rows queue with disclosure and unknown-price consent, without correlation; pages that neither name nor link the status route stay Review-only. | Checks 4–6 and 13. |
-| G10b ToAPIs image edits | Admitted rows edit with ordered references; more than 10 only on an admitted row that documents it. | Checks 8 and 13. |
+| G10b ToAPIs image edits | Admitted rows edit with references; `minimax-h3-image` qualifies up to 16 with `n: 1`, if it passes the other admission checks. | Checks 8 and 13. |
 | G11a ToAPIs text-to-video | The adapter serves every admitted exact ID; text-to-video rows queue. | Checks 5, 10 and 13. |
 | G11b ToAPIs frames | First and first-and-last frame rows queue. | Check 13. |
 | G11c ToAPIs reference generation | Image-reference, frame-and-image-reference and one-reference-video rows queue, each qualified on its first admitted row, apart from edit. | Check 13. |
@@ -372,23 +397,26 @@ Slices merge in table order, and each is independently mergeable. The numbers ar
 - music-task prerequisites (`generate-music-cover`, `create-music-video`)
 - local MP4, WAV and other formats (Uploads 1 and 2)
 
-Long, webpage and e-commerce images and image translation stay in the engine. They join G4, G5 or G10 once G13 covers a documented output bound, and translation once its target-language option is qualified.
+Long, webpage and e-commerce images and image translation stay in the engine. They join G4, G5 or G10 once G13 covers a documented output bound, and translation once its target-language option is qualified. The translator's three catalog-only options follow question 7.
 
 ## Open questions
 
-For the owner:
+For the owner or council. The former question 1 is settled: G14 amends D1's 64 MiB cost line with the measured bound.
 
-1. **Browser-key buffer.** D1 states that clips buffer up to 64 MiB. G14 raises that budget (and the 192 MiB per tab) to the largest documented video. *Recommendation:* amend D1's cost line when G14 measures the new bound, and approve one cheapest live call per new video structure when G14 finds one.
 2. **ToAPIs image pages that neither name nor link the status route.** These rows are Review-only, and their number is unknown until G10a reads every page. *Recommendation:* keep the rule, and ask ToAPIs to link the generic route.
-3. **Number options.** Only `kling-1.6/pro` and `/standard` (`cfg_scale`) and the Phase 3 upscaler use `number`. The Kling 1.6 page documents no output frame size, so neither row has a Save bound, and the class has no admitted representative. *Recommendation:* keep both rows unknown with this question. Approve a scope change for them only if Poyo.ai does not document a frame size before G12.
-4. **More than 10 ToAPIs references.** The only page known to document more (`gpt-image-2`, 14) is Review-only under the status-route rule. *Recommendation:* keep the class unknown until an admitted page documents it, and decide at G12.
-5. **Explicit D4 refusals.** None are known yet. Any found would need a D4 decision before it counts.
+3. **Number options.** Only `kling-1.6/pro` and `/standard` (`cfg_scale`) and the Phase 3 upscaler use `number`. Neither the Kling 1.6 page nor its OpenAPI spec documents an output frame size, so neither row has a Save bound, and the class has no admitted representative. *Recommendation:* name `kling-1.6/pro` the number representative once Poyo.ai documents a frame size, and keep both rows unknown until then. Approve a scope change for them only if none is documented before G12.
+4. **More than 10 references.** On ToAPIs, `minimax-h3-image` answers this if G10b admits it. On Poyo.ai, no row with more than 10 references states one output for its edit mode. The nearest is `minimax-h3-image`, whose OpenAPI input says "Generate one image. With image_urls, edit or combine the reference images." *Recommendation:* read that input-level sentence as covering both modes, and qualify the class on it after G6, since the row is closed-absent. Otherwise keep the class unknown and decide at G12.
+5. **Explicit D4 refusals.** None are known yet. ToAPIs `minimax-h3-image` says "Do not apply parameters or defaults from other image models", and its list of unsupported parameters does not name `disable_nsfw`. *Recommendation:* treat that as no explicit refusal, so the row is open-absent (unconfirmed) with the disclosure, and have the council confirm it before G10b. Any explicit refusal found would need a D4 decision before it counts.
+6. **Free text on Poyo.ai images.** Only `qwen-image-3` and `qwen-image-3-pro` carry free text (`negative_prompt`) on Poyo.ai images, and none of their sources states an output count. Both rows are pending, and the class has no representative. *Recommendation:* keep both unknown with this question, ask Poyo.ai to document the output count, and decide at G12.
+7. **Catalog fields that the API schema does not list.** `gpt-image-2.6-fixed` (`resolution`), `poyo-ai/image-translator` (`protect_text`, `synthesis_on_image`, `translate_on_image`) and the Phase 3 `poyo-ai/video-translator` (`wy_need_text`, `voice_role_id`, `remove_bg_audio`) list fields in the catalog that their closed OpenAPI inputs do not. *Recommendation:* never offer them, keep each option unknown, report the difference to Poyo.ai, and approve a scope change at G12 for any that remain.
 
 ## Unverified
 
 - Which ToAPIs pages name or link the image status route.
-- Whether undocumented filtering fields have any effect on either provider.
-- The REST D4 state of Poyo.ai rows whose page was not reviewed, including all 78 open-absent rows. Review discloses them as catalog-only.
+- Whether undocumented filtering fields have any effect on either provider, including the 89 open-absent IDs whose OpenAPI inputs are open without the field.
+- The REST state of the eight IDs added at `ec73207` that have no OpenAPI spec.
+- Which branch of a multi-model OpenAPI spec applies to each model. The throwaway projection takes their union, so it may miss a catalog-only field. G2a resolves each branch.
+- Whether order matters for ToAPIs `minimax-h3-image` references.
 - Actual output dimensions per tier and ratio, delivered types when a format is requested, and the largest outputs and decode costs G13 and G14 must measure.
 - Per-key Poyo.ai entitlement.
 - Whether ToAPIs' Markdown pages are stable enough to hash without false drift.
@@ -396,5 +424,6 @@ For the owner:
 ## Sources
 
 - PoYo capability catalog at [`747e5d7`](https://github.com/PoyoAPI/poyo-devtools/blob/747e5d75319585d66396a3c05bd1b97d9390ce74/artifacts/capability-catalog.json) (committed 2026-11-19) and [`ec73207`](https://github.com/PoyoAPI/poyo-devtools/blob/ec7320720913a55f955e1bf6a651e9c38bd356c5/artifacts/capability-catalog.json) (2026-11-26, the upstream head on 2026-11-26), compared with `c89a6a4`. Fetched 2026-11-26.
-- [PoYo docs index](https://docs.poyo.ai/llms.txt) and REST pages for Nano Banana 2, 2 New, 2 Lite, Kling 1.6, Kling 3.0, Kling 4.0, Seedance 2.5, Flux 3 Max, Ideogram v4.6, Gemini Omni 1.1 and 1.2 Flash, and the image translator, video background removal, video translator and video upscaler tools, accessed 2026-11-26.
-- ToAPIs [model list](https://docs.toapis.com/docs/en/api-reference/chat/list-models), [image status](https://docs.toapis.com/docs/en/api-reference/tasks/image-status), [GPT Image 2](https://docs.toapis.com/docs/en/api-reference/images/gpt-image-2/generation), [Seedream 5.5](https://docs.toapis.com/docs/en/api-reference/images/seedream-5.5/generation) and [Seedance 2.5](https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation), accessed 2026-11-26. The [public catalog](https://docs.toapis.com/docs/en/api-reference/models) snapshot is dated 2026-11-10.
+- [PoYo docs index](https://docs.poyo.ai/llms.txt) and REST pages for Nano Banana 2, 2 New, 2 Lite, Kling 1.6, Kling 3.0, Kling 4.0, Seedance 2.5, Flux 3 Max, Ideogram v4.6, Gemini Omni 1.1 and 1.2 Flash, and the image translator, video background removal, video translator and video upscaler tools, accessed 2026-11-26. Qwen Image 3 and Nano Banana 2 Lite pages re-read 2026-11-26.
+- The 175 PoYo OpenAPI specs that the docs index lists under "OpenAPI Specs", fetched 2026-11-26. The [inventory](catalog-engine-inventory.md#poyoai-openapi-specs) holds their digests.
+- ToAPIs [model list](https://docs.toapis.com/docs/en/api-reference/chat/list-models), [image status](https://docs.toapis.com/docs/en/api-reference/tasks/image-status), [GPT Image 2](https://docs.toapis.com/docs/en/api-reference/images/gpt-image-2/generation), [Seedream 5.5](https://docs.toapis.com/docs/en/api-reference/images/seedream-5.5/generation), [MiniMax H3 Image](https://docs.toapis.com/docs/en/api-reference/images/minimax-h3-image/generation) (Markdown SHA-256 `bbb2b08…`) and [Seedance 2.5](https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation), accessed 2026-11-26. The [public catalog](https://docs.toapis.com/docs/en/api-reference/models) snapshot is dated 2026-11-10.

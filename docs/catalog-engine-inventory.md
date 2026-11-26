@@ -144,14 +144,14 @@ Each in-scope `747e5d7` property, by the input class it needs. "Entries" counts 
 | Class | Entries | Path |
 | --- | ---: | --- |
 | prompt | 153 | qualified (G4, G7) |
-| enum, integer and number options | 151 | qualified (G4, G7) within the validator |
-| `image_urls` on images | 72 | qualified 1–10 (G5); more than 10 in G5, with at most 10 local files |
+| enum and integer options | 150 | qualified (G4, G7) within the validator |
+| `image_urls` on images | 72 | qualified 1–10 (G5); more than 10: Q4 |
 | `image_urls` on video | 72 | G8 frames; G8b where the schema makes them references |
 | boolean options | 59 | G4 and G7 qualify booleans |
 | source or reference video URLs | 41 | P3 (Poyo.ai source-video and video references) |
 | output format and compression | 35 | G3 |
 | output count (`n`, `max_images`, `enable_sequential`) | 34 | pinned to one output; P3 multi-output |
-| free-text options (`negative_prompt`, `text` …) | 34 | G4 and G7 qualify free text |
+| free-text options (`negative_prompt`, `text` …) | 34 | G7 qualifies free text on video; Q6 on Poyo.ai images |
 | `enable_safety_checker` | 31 | D4 table (G4, G6, G7) |
 | image references on video | 28 | G8b |
 | audio, voice and avatar inputs | 27 | P3 audio and avatars |
@@ -160,6 +160,7 @@ Each in-scope `747e5d7` property, by the input class it needs. "Entries" counts 
 | frame URL fields (`start_image_url`, `end_image_url`) | 9 | G8 with a reviewed role note |
 | untyped properties | 6 | validator gap; Q per row |
 | file and webpage references | 6 | Q accepted types and fetching |
+| number options | 3 | Q3 (`kling-1.6/pro` once a frame size is documented) |
 | image references on images | 2 | G5 with a reviewed role note |
 | parent task (`task_id`) | 2 | P3 prerequisites |
 
@@ -173,11 +174,38 @@ Constructs outside the validator, each until a reviewed rule covers it (G2a):
 - `x-server-validation` (5): `gemini-omni-1.2-flash`, `heygen-avatar-6`, `heygen-avatar-6-turbo`, `kling-4.0`, `kling-4.0-flash`
 - `x-video-duration-seconds` (4): `gemini-omni-1.1-flash`, `gemini-omni-1.2-flash`, `kling-4.0`, `kling-4.0-flash`
 
+## Poyo.ai OpenAPI specs
+
+Fetched 2026-11-26 from the "OpenAPI Specs" section of the [docs index](https://docs.poyo.ai/llms.txt) (SHA-256 `5b84a6d…`): 175 files, 168 English and 7 Chinese. The Chinese files are digested but not projected; the five Chinese Sora specs match their English ones. 147 English specs name models in `SubmitRequest.model.enum`, covering 210 IDs. The SHA-256 of the `sha256  path` list in index order is `3a830a6…`. A throwaway script kept outside the repository projects each spec's `input` schema, resolving local `$ref`s. A property counts when any `oneOf` or `anyOf` branch lists it, and the input is closed only when every branch is. G2a's projection replaces the script and resolves each model's own branch.
+
+| Catalog | In-scope entries | With a spec | REST declares the field | REST closed without it | REST open without it | No spec |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `747e5d7` | 162 | 157 | 31 | 35 | 91 | 5 |
+| `ec73207` | 173 | 160 | 31 | 38 | 91 | 13 |
+
+No spec at `747e5d7`: `gpt-image-1-edit-official`, `gpt-image-1-official`, `gpt-image-1.5-edit-official`, `gpt-image-1.5-official`, `veo3.1-extend`, all discovery-only. At `ec73207` also: `recraft-v4.1`, `recraft-v4.1-flash`, `recraft-v4.1-pro`, `recraft-v4.1-pro-vector`, `recraft-v4.1-vector`, `ltx-2.5-fast`, `ltx-2.5-pro`, `sync-lipsync-3`.
+
+Catalog fields that a closed REST input does not list. Each is a contradiction for that option: never offered, and unknown with [question 7](SPEC-catalog-engine.md#open-questions).
+
+- `gpt-image-2.6-fixed`: `resolution`
+- `poyo-ai/image-translator`: `protect_text`, `synthesis_on_image`, `translate_on_image`
+- `poyo-ai/video-translator`: `wy_need_text`, `voice_role_id`, `remove_bg_audio`
+
 ## D4 states after the ledger migration
 
-G2a replaces `conflict` with the [D4 table](SPEC-catalog-engine.md#d4-by-catalog-and-rest-evidence)'s state. Poyo.ai documented rows by state: closed-absent 38, declared 30, open-absent 78. No reviewed row is a contradiction or a refusal. These 38 rows carry `conflict` today and all become `closed-absent`; `catalogD4` is then dropped from them and kept only for a contradiction. Rows the REST page has not reviewed take the catalog's state alone (*silent or not reviewed*), and Review says so. ToAPIs rows keep `declared`; each descriptor review sets `open-absent` or `refused` in place of the default `unknown`.
+Counted by exact model ID, because D4 applies per model. The ledger's 146 documented Poyo.ai rows hold 159 IDs. This query gives today's fields as `d4/catalogD4`:
 
-| IDs | Ledger `d4` / `catalogD4` | Pinned catalog | REST input schema | New state |
+```sh
+jq '[.providers.poyo.rows[] | select(.contract == "documented") | . as $r | .ids[]
+  | "\($r.d4 // "-")/\($r.catalogD4 // "-")"] | group_by(.) | map({(.[0]): length}) | add' \
+  docs/media-catalog.v1.json
+```
+
+It returns `-/-` 89, `-/conflict` 2, `conflict/-` 33, `conflict/unknown` 4, `declared/-` 30, `declared/declared` 1. So 39 IDs carry `conflict`, 31 are declared and 89 have neither.
+
+After G2a, with the REST column from the OpenAPI projection: closed-absent 39, declared 31, open-absent 89. Every `conflict` ID becomes closed-absent, and no ID is a contradiction or a refusal. Over the 162 in-scope catalog entries the split is 37, 31 and 94: the entries add the five open discovery-only IDs and lack the two closed `ideogram-v4.6` IDs, which are not pinned. ToAPIs rows keep `declared`; each descriptor review sets `open-absent` or `refused` in place of the default `unknown`.
+
+| IDs | Ledger `d4` / `catalogD4` | Pinned catalog | REST input (OpenAPI) | New state |
 | --- | --- | --- | --- | --- |
 | `gpt-image-2.5-fixed` | conflict / – | closed | closed without it | closed-absent |
 | `gpt-image-2.5-flare` | conflict / – | closed | closed without it | closed-absent |
@@ -203,8 +231,8 @@ G2a replaces `conflict` with the [D4 table](SPEC-catalog-engine.md#d4-by-catalog
 | `flux-3-max/image-to-video` | conflict / – | closed | closed without it | closed-absent |
 | `flux-3-max/keyframes-to-video` | conflict / – | closed | closed without it | closed-absent |
 | `flux-3-max/text-to-video` | conflict / – | closed | closed without it | closed-absent |
-| `gemini-omni-1.1-flash` | unknown / conflict | closed | silent, no field | closed-absent |
-| `gemini-omni-1.2-flash` | unknown / conflict | closed | silent, no field | closed-absent |
+| `gemini-omni-1.1-flash` | – / conflict | closed | open without it | closed-absent |
+| `gemini-omni-1.2-flash` | – / conflict | closed | open without it | closed-absent |
 | `heygen-avatar-6`, `heygen-avatar-6-turbo` | conflict / – | closed | closed without it | closed-absent |
 | `kling-1.6/pro` | conflict / – | closed | closed without it | closed-absent |
 | `kling-1.6/standard` | conflict / – | closed | closed without it | closed-absent |
