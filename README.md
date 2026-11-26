@@ -43,7 +43,7 @@ Open the setup URL printed in the terminal, paste the claim token, and choose a 
 | Concern | Choice |
 | --- | --- |
 | Language | TypeScript with strict type checking |
-| Framework | Svelte 5 and SvelteKit 3 with server-side rendering |
+| Framework | Svelte 5 and SvelteKit 3, with pages rendered in the browser |
 | Runtime | Bun, with `@sveltejs/adapter-bun` bound to loopback |
 | Database | Embedded Turso with Drizzle ORM |
 | Styling | Panda CSS and Ark UI for Svelte |
@@ -57,8 +57,8 @@ bun run dev
 bun run --bun check
 bun run --bun lint
 bun run --bun test
-bun test --timeout 60000 ./tests/media-cleanup
 bun run --bun build
+bun test --timeout 60000 ./tests/media-cleanup
 bunx --bun --no-install playwright install chromium firefox  # and webkit on macOS
 bun run --bun smoke
 prek run --all-files --hook-stage manual

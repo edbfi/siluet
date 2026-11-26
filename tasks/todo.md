@@ -9,20 +9,35 @@
 - [x] Verify Dependabot security updates are enabled in the [repository settings](https://github.com/edbfi/siluet/settings/security_analysis). Checked 2026-11-22.
 - [ ] Confirm the central Bun maintenance token can open a maintenance PR for Siluet. The owner reads back the `edbfi-bun-maintenance` token: it covers `edbfi/siluet` with read-write Contents and Pull requests and has not expired. Close this item when the first real Bun maintenance PR opens. The [scheduled run](https://github.com/edbfi/edbfi-ci/actions/runs/44910073092) found Bun 1.4.5 clean on 2026-11-21, so it exercised discovery only. The [upstream setup](https://github.com/edbfi/edbfi-ci/blob/main/SETUP.md#credentials) lists the account-level grant.
 
-## v0.1.0 scoped preview
+## v0.1.0, the complete feature set
 
-Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scoped-preview).
+Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-waits-for-full-d2-coverage). The owner moved the release to full D2 coverage on 2026-11-26.
 
-- [x] The bundled Poyo.ai v2 feed is refreshed first. `pricing/v2/poyo.json` includes `h3-max` (on `pricing-data` since `db0551e`, 2026-11-23) and matches `pricing-data` semantically ([#63](https://github.com/edbfi/siluet/pull/63)). On 2026-11-25 the rates equal `pricing-data` `b08488a`; only `confirmedAt` differs.
-- [x] The ToAPIs collector publishes a v2 feed (`pricing-data-toapis:pricing/v2/toapis.json`) with the Seedream reference-image rate, still fails closed on any other change, and is bundled. Review adds $0.0064 per reference image to ToAPIs edits. `freshness.ts --toapis` reads v2, `--bundled-toapis` exists, and both freshness jobs (`pricing.yml` `check-freshness`, `ci.yml` `pricing-freshness`) check the published v2 feed, with `check-freshness` also checking the bundled one. [#66](https://github.com/edbfi/siluet/pull/66); [pricing run](https://github.com/edbfi/siluet/actions/runs/45527357589) published the v2 feed and kept the v1 blob, and the [dispatched CI run](https://github.com/edbfi/siluet/actions/runs/45527441871) passed `pricing-freshness`.
-- [ ] On the commit to tag, after `git fetch origin pricing-data pricing-data-toapis`, this passes; it fails at 14 days or fewer. Leave out `--poyo-v1`, which would stand in for a missing Poyo.ai v2 feed. The feeds price every shipped priced operation, including `h3-max` and the Seedream reference image.
+- [ ] The #71 follow-ups are merged: the Download link's pending state and read-slot wait, `send()` across an early remount and with a `Request` body, key rotation on sign-in, and Gallery's can't-play note in WebKit. In Firefox, the forty-tab restore journey passes, and so does the Image Studio mobile-menu journey under parallel load.
+- [ ] The council confirms the catalog engine spec, and its slices merge with green checks.
+- [ ] Each Phase 3 module has a council-confirmed spec and merges with verified Save in the built app.
+- [ ] Every ledger pair is verified, contract-covered, provider unsupported, or unknown with its open question, and none stays documented and pending. Each in-scope operation and option has a verified or contract-covered path, unless the owner approves a scope change; a D4 exception does not stop a row from counting.
+- [ ] At each family's documented maximum image and video output, Gallery saves, reopens and downloads.
+- [ ] Each new video family's Save is verified from fixtures when its output fits the D6 profile; a structure outside it was qualified by a suitable real sample, and any new sample came from an owner-approved live call.
+- [ ] The Impeccable and workflow-skill artifact cleanup merges before the tag, with its scope confirmed by the owner.
+- [ ] Short release notes list the blocked, provider-unsupported and unknown pairs and the families with real-clip evidence, and say Safari is untested beyond Playwright WebKit.
+- [ ] A security review of the release candidate is recorded in D11, with every blocker resolved or accepted.
+- [ ] On the commit to tag: the local checks, both archived real clips through `verifyVideoFile`, the pricing check below and hosted `ci-ok` pass, and the README is current. Then the owner tags `0.1.0` and titles the release `v0.1.0`.
+- [ ] On the commit to tag, after `git fetch origin pricing-data pricing-data-toapis`, the four-feed check passes, and the feeds price every shipped priced operation; it fails at 14 days or fewer. Leave out `--poyo-v1`, which would stand in for a missing Poyo.ai v2 feed. The bundled Poyo.ai feed fails this from 2026-12-10T16:04Z; refresh the feeds before the tag.
   ```sh
   git show origin/pricing-data:pricing/v2/poyo.json > /tmp/poyo-v2.json
   git show origin/pricing-data-toapis:pricing/v2/toapis.json > /tmp/toapis-v2.json
   bun scripts/pricing/freshness.ts --fail-within-days 14 --poyo-v2 /tmp/poyo-v2.json \
     --toapis /tmp/toapis-v2.json --bundled-poyo pricing/v2/poyo.json --bundled-toapis pricing/v2/toapis.json
   ```
-  It passed during release preparation on 2026-11-25. The bundled Poyo.ai rates expire first, at 2026-12-24T16:04:23Z, so it fails from 2026-12-10T16:04Z. Run it again on the commit to tag.
+
+## v0.1.0 scoped preview (superseded 2026-11-26)
+
+Preparation for the earlier scoped preview.
+
+- [x] The bundled Poyo.ai v2 feed is refreshed first. `pricing/v2/poyo.json` includes `h3-max` (on `pricing-data` since `db0551e`, 2026-11-23) and matches `pricing-data` semantically ([#63](https://github.com/edbfi/siluet/pull/63)). On 2026-11-25 the rates equal `pricing-data` `b08488a`; only `confirmedAt` differs.
+- [x] The ToAPIs collector publishes a v2 feed (`pricing-data-toapis:pricing/v2/toapis.json`) with the Seedream reference-image rate, still fails closed on any other change, and is bundled. Review adds $0.0064 per reference image to ToAPIs edits. `freshness.ts --toapis` reads v2, `--bundled-toapis` exists, and both freshness jobs (`pricing.yml` `check-freshness`, `ci.yml` `pricing-freshness`) check the published v2 feed, with `check-freshness` also checking the bundled one. [#66](https://github.com/edbfi/siluet/pull/66); [pricing run](https://github.com/edbfi/siluet/actions/runs/45527357589) published the v2 feed and kept the v1 blob, and the [dispatched CI run](https://github.com/edbfi/siluet/actions/runs/45527441871) passed `pricing-freshness`.
+- [x] Superseded by the pricing check above; passed on 2026-11-25.
 - [x] Documentation sync, done by [#64](https://github.com/edbfi/siluet/pull/64): capability map through #61, D11, D12, the promoted decisions and the plan.
 - [x] Generate one real clip per shipped video family with owner approval (2026-11-24): Poyo.ai H3 Max 5 s 480p for 50 credits, ToAPIs Seedance 2.5 4 s 480p for 77.66 credits. Both fail `verifyVideoFile` on `5321d7f`. Originals are kept outside git in `audit/realclip/`, SHA-256 `0942ac5a…be96d` (H3 Max) and `bad803dc…76363` (Seedance).
 - [x] The council confirms the D6 revision for these structures: an approved plan and three code rounds ending in unanimous approval, then [#65](https://github.com/edbfi/siluet/pull/65) ([CI on the merged commit](https://github.com/edbfi/siluet/actions/runs/45525368090)).
@@ -31,10 +46,10 @@ Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-is-a-scop
 - [x] Completed, unsaved clips held for an MP4 refusal the fix now accepts re-arm once: those with unexpired links save with one status read and no generation call; expired ones settle as expired with zero status reads.
 - [x] The council confirms the per-mode video Save limits spec, the implementation merges, and Review states each mode's limits ([#67](https://github.com/edbfi/siluet/pull/67), [SPEC](../docs/SPEC-video-save-limits.md)).
 - [x] [#62](https://github.com/edbfi/siluet/pull/62) is rebased onto the per-mode limits with its source-length disclosure at 30 s, passes its checks and merges (`49b1451`, [CI on the merged commit](https://github.com/edbfi/siluet/actions/runs/45542430661)).
-- [x] A cross-cutting security review is recorded as one short entry in `docs/decisions.md` with its scope, date, findings and their dispositions, and every blocker is resolved or explicitly accepted by the owner. Recorded on 2026-11-25 with its fixes ([#69](https://github.com/edbfi/siluet/pull/69)); the cross-port session cookie is fixed with browser-key sessions ([#71](https://github.com/edbfi/siluet/pull/71)), pending the owner's real-Safari check.
-- [x] Re-check the README against shipped behaviour after the per-mode limits and #62. Checked against `6b94cd7`, edited in [#70](https://github.com/edbfi/siluet/pull/70). The cookie item is now a fix (owner decision 2026-11-25), not a README note; see the remaining item. Former note: waits on the owner's decision.
-- [x] The release coverage table lists each operation as verified, Review-only or pending and cites the real-clip results, and `package.json` reads `0.1.0`. `package.json` is set on `chore/release-0.1.0` and the table is drafted for the owner's GitHub release; confirm both on the commit to tag.
-- [ ] Remaining: the owner's real-Safari check of browser-key sessions; on the commit to tag, the local checks, both archived clips through `verifyVideoFile`, the four-feed 14-day pricing check and hosted `ci-ok`; then the owner's tag `0.1.0` with the release titled `v0.1.0`.
+- [x] A cross-cutting security review is recorded as one short entry in `docs/decisions.md` with its scope, date, findings and their dispositions, and every blocker is resolved or explicitly accepted by the owner. Recorded on 2026-11-25 with its fixes ([#69](https://github.com/edbfi/siluet/pull/69)); the cross-port session cookie is fixed with browser-key sessions ([#71](https://github.com/edbfi/siluet/pull/71)), with an agent-browser check, run in Chrome, standing in for real Safari.
+- [x] Re-check the README against shipped behaviour after the per-mode limits and #62. Checked against `6b94cd7`, edited in [#70](https://github.com/edbfi/siluet/pull/70). The cookie item is now a fix (owner decision 2026-11-25), not a README note. Former note: waits on the owner's decision.
+- [x] The release coverage table lists each operation as verified, Review-only or pending and cites the real-clip results, and `package.json` reads `0.1.0`. `main` reads `0.1.0` since [#70](https://github.com/edbfi/siluet/pull/70); the table is superseded by the short notes D11 now asks for.
+- [x] Checked on `23efde9` (2026-11-25): hosted `ci-ok`, both archived clips through `verifyVideoFile`, the four-feed 14-day pricing check, and locally `check`, `lint`, `test`, `build`, media cleanup and prek pass. Local smoke had three Firefox failures under host load; two passed alone, and the Image Studio mobile-menu journey failed 2 of 3 with three workers and passed 6 of 6 with one (a follow-up above). The owner accepted an agent-browser check, run in Chrome, in place of real Safari (2026-11-26). Superseded by the section above.
 
 ## R0 operations
 
