@@ -64,8 +64,9 @@ export function playability(report: (unplayable: boolean) => void): Attachment<H
 		const Observer = view?.IntersectionObserver;
 		let onScreen = !Observer;
 		const observer = Observer
-			? new Observer(([entry]) => {
-					onScreen = entry?.isIntersecting ?? false;
+			? new Observer((entries) => {
+					// A batch can hold several entries for the video, oldest first.
+					onScreen = entries.at(-1)?.isIntersecting ?? false;
 					time();
 				})
 			: null;

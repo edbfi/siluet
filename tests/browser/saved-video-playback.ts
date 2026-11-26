@@ -41,6 +41,10 @@ export async function seekThenPlay(page: Page, video: Locator) {
 	await expect
 		.poll(() => video.evaluate((v: HTMLVideoElement) => v.ended), { timeout: 15_000 })
 		.toBe(true);
+	// Gallery decides at the end only after two rendering turns, so wait them out first.
+	await video.evaluate(
+		() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+	);
 	expect(await framesShown(video)).toBeGreaterThan(0);
 	expect(await noteShown(video)).toBe(false);
 }

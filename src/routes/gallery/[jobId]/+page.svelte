@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { Attachment } from "svelte/attachments";
 import { link, meta, page, viewer, viewerActions } from "#lib/components/gallery/gallery-styles.ts";
 import PrivateDownload from "#lib/components/gallery/PrivateDownload.svelte";
 import { playability } from "#lib/components/gallery/playability.ts";
@@ -14,12 +15,19 @@ const href = $derived(`/gallery/${encodeURIComponent(data.image.jobId)}`);
 // The job whose clip this browser cannot play; another item starts without the note.
 let failed = $state<string | null>(null);
 const unplayable = $derived(failed === data.image.jobId);
-/** Watch one job's player; its reports concern that job only. */
-const watch = (job: string) =>
-	playability((cannot) => {
-		if (cannot) failed = job;
-		else if (failed === job) failed = null;
-	});
+/** Watch one job's player; its reports concern that job only, and its note goes with it. */
+const watch =
+	(job: string): Attachment<HTMLVideoElement> =>
+	(video) => {
+		const detach = playability((cannot) => {
+			if (cannot) failed = job;
+			else if (failed === job) failed = null;
+		})(video);
+		return () => {
+			detach?.();
+			if (failed === job) failed = null;
+		};
+	};
 // The saved file could not be read through this session, or exceeds the page's limit.
 let missing = $state<string | null>(null);
 </script>
