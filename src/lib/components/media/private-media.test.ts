@@ -113,6 +113,7 @@ afterEach(async () => {
 	sizes.clear();
 	bodies.clear();
 	undeclared.clear();
+	cancelled.clear();
 	session = "s1";
 	remountKey = 0;
 	leaving = false;

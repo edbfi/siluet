@@ -362,8 +362,8 @@ const downloading = new Map<string, Promise<void>>();
 /**
  * Download a private file under its Gallery name, reusing a blob already shown on the page.
  * Downloads take their share and read in click order. The temporary link is revoked a minute
- * after the click; until then its bytes count against the downloads' share. A download whose
- * session ended or whose tab is leaving stops at once and saves nothing.
+ * after the click; until then its bytes count against the downloads' share. A remount stops a
+ * download at once; one whose tab is leaving is dropped before it starts or saves nothing.
  */
 export function downloadPrivate(src: string, mime: string, kind: MediaKind, name: string) {
 	const client = sessionClient();
