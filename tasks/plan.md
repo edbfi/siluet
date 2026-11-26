@@ -16,7 +16,7 @@ On 2026-11-26 the owner moved v0.1.0 from a scoped preview to the complete featu
 
 ## Phase 2 · catalog engine
 
-6. Spec the catalog engine (slice G): contract-covered rows for the Poyo.ai image and video families from the pinned catalog and for ToAPIs from curated descriptors, still WebP Save and per-model output formats, the ToAPIs inventory snapshot, data-driven Save limits, the two D4 exception paths, and Gallery limits raised to every provider output size.
+6. Spec the catalog engine (slice G): contract-covered rows for the Poyo.ai image and video families from the pinned catalog and for ToAPIs from curated descriptors, still WebP Save and per-model output formats, the ToAPIs inventory snapshot, data-driven Save limits, the two D4 exception paths, and Gallery's dimension limits raised to every provider's documented output size ([D5](../docs/decisions.md#d5--verify-gallery-images-before-saving), D6).
 7. Implement it in slices, each reaching verified Save in the built app.
 
 ## Phase 3 · operations and inputs, after the engine where they depend on it
