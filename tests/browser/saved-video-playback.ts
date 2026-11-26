@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 /**
  * With the saved clip's native controls focused: seek by keyboard while paused, before any
- * playback, then play with Space. No "can't play" note may appear.
+ * playback, then play with Space to the end. No "can't play" note may appear.
  */
 export async function seekThenPlay(page: Page, video: Locator) {
 	expect(await video.evaluate((v: HTMLVideoElement) => v.autoplay)).toBe(false);
@@ -36,6 +36,10 @@ export async function seekThenPlay(page: Page, video: Locator) {
 	await expect
 		.poll(() => video.evaluate((v: HTMLVideoElement) => v.played.length && v.played.end(0)))
 		.toBeGreaterThan(0);
+	// Gallery says a clip cannot play when it ends with no frame shown, so play it to the end.
+	await expect
+		.poll(() => video.evaluate((v: HTMLVideoElement) => v.ended), { timeout: 15_000 })
+		.toBe(true);
 	await expect(page.getByText("This browser can't play this video.", { exact: false })).toHaveCount(
 		0,
 	);

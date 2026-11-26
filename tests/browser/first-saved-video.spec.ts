@@ -3,6 +3,7 @@ import { copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect } from "@playwright/test";
+import { pictureWaitMs } from "../../src/lib/components/gallery/playability";
 import { seedanceOperation } from "../../src/lib/shared/media-catalog/registry";
 import { videoDefaults } from "../../src/lib/shared/video-studio/seedance";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
@@ -283,7 +284,24 @@ test("Gallery says when this browser cannot play a saved clip and keeps Download
 		await video.evaluate((v: HTMLVideoElement) => {
 			v.play().catch(() => {});
 		});
-		await expect(note).toBeVisible();
+		// WebKit on macOS plays the sound and raises no error: the note follows a frameless wait.
+		await expect(note)
+			.toBeVisible({ timeout: pictureWaitMs + 5000 })
+			.catch(async (error) => {
+				const state = await video.evaluate((v: HTMLVideoElement) => ({
+					error: v.error?.code ?? null,
+					networkState: v.networkState,
+					readyState: v.readyState,
+					paused: v.paused,
+					ended: v.ended,
+					currentTime: v.currentTime,
+					duration: v.duration,
+					size: [v.videoWidth, v.videoHeight],
+					frameCallbacks: typeof v.requestVideoFrameCallback === "function",
+					canPlay: v.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"'),
+				}));
+				throw new Error(`${error.message}\nVideo element: ${JSON.stringify(state)}`);
+			});
 		const download = page.getByRole("link", { name: "Download video" });
 		await expect(download).toBeVisible();
 		const media = await ownerRequest(page).get(origin + (await download.getAttribute("href")));
