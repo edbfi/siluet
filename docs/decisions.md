@@ -98,9 +98,13 @@ The owner approved two exceptions on 2026-11-22:
 
 Siluet omits a field the schema forbids only on that acknowledged path. It never drops a field the provider accepts.
 
+Revised by the owner on 2026-11-26: Siluet sends the field on every model, documented or not. Where the provider does not document it, it may have no effect, and Review says so. An open Poyo.ai schema without the field therefore queues like an unconfirmed ToAPIs row. Rows on either exception path count toward D2 coverage. A closed schema that forbids the field keeps the acknowledged path, because sending it would get every request refused (orchestrator's reading of the owner's intent, 2026-11-26).
+
 ## D5 · Verify Gallery images before saving
 
 A damaged image can have valid dimensions and headers. Gallery needs a complete pixel decode and access to decoder warnings. Bun 1.4.5 exposes metadata and encoded output. Use sharp with libvips to verify every pixel within the size limits and reject warnings before publishing the original PNG or JPEG bytes.
+
+On 2026-11-26 the owner asked Gallery to support every output size the providers offer. The catalog engine raises the image and video limits in D5 and D6 to the documented maximums, with measured decode budgets.
 
 ### Still WebP and per-model output formats
 
@@ -136,7 +140,7 @@ Approved by the owner on 2026-11-24 as a scoped preview and revised by the owner
 
 Tag only when every gate holds:
 
-- Every ledger pair is verified, contract-covered, provider unsupported, or unknown with its open question; none stays documented and pending. Each in-scope operation and option has a verified or contract-covered path, unless the owner approves a scope change. A row that ships under an approved D4 exception does not count while its D4 gap is open (owner, 2026-11-26).
+- Every ledger pair is verified, contract-covered, provider unsupported, or unknown with its open question; none stays documented and pending. Each in-scope operation and option has a verified or contract-covered path, unless the owner approves a scope change. Rows on the D4 exception paths count (owner, 2026-11-26, [D4](#d4--optional-filtering-on-media-requests)).
 - The follow-ups recorded with browser-key sessions ([#71](https://github.com/edbfi/siluet/pull/71)) are done, as listed in the [tasks](../tasks/todo.md#v010-the-complete-feature-set), with the Image Studio Firefox flake.
 - After the main feature set, a thorough cleanup removes the Impeccable and workflow-skill artifacts and files the repository no longer needs; the owner made it a tag gate on 2026-11-26. The owner confirms its scope, which includes the skills `AGENTS.md` installs, `skills-lock.json`, and keeping or removing license notices with the files they cover.
 - A cross-cutting security review of the release candidate is recorded here as one short entry with the reviewed SHA, scope, date, findings and their dispositions. Every blocker is resolved or explicitly accepted by the owner, and later changes in its scope get a fresh review.

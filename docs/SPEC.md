@@ -75,7 +75,7 @@ Track D4 separately as compatible, incompatible or unverified. The [D4 amendment
 - provider-fixed filtering, with a per-Review acknowledgement
 - an unconfirmed ToAPIs field, with a Review disclosure
 
-Both ship with the catalog engine. Both count as outstanding coverage until the provider documents the toggle. Show unverified behavior and known conflicts in Review before Queue eligibility is evaluated. Preserve a provider rejection and the original request semantics. [D4](decisions.md#d4--optional-filtering-on-media-requests)
+Both ship with the catalog engine. Since 2026-11-26 Siluet sends the field on every model, documented or not, and rows on either path count toward coverage ([D4](decisions.md#d4--optional-filtering-on-media-requests)). Show unverified behavior and known conflicts in Review before Queue eligibility is evaluated. Preserve a provider rejection and the original request semantics. [D4](decisions.md#d4--optional-filtering-on-media-requests)
 
 Sample rows for the 2026-11-24 baseline and pending work. Provider docs were checked on 2026-11-22, or on the date of the linked module spec.
 
@@ -93,7 +93,7 @@ Sample rows for the 2026-11-24 baseline and pending work. Provider docs were che
 | ToAPIs `seedance-2-5` | Video edit via public upload | Documented and pending. MP4 is a cleanup candidate within the upload and edit limits, with H.264 and AAC documented upstream. The upload route excludes MKV. [Edit](https://docs.toapis.com/docs/en/api-reference/videos/seedance-2-5/generation) · [Upload](https://docs.toapis.com/docs/en/api-reference/uploads/videos) · [Upstream model limits](https://docs.byteplus.com/en/docs/ModelArk/seedance-2-5) |
 | Poyo.ai `gemini-omni-1.2-flash` | Video edit via file stream upload | Documented and pending with an MP4 edit example. The upload route accepts MKV. The edit operation’s MKV eligibility is unknown. [Edit](https://poyo.ai/hub/gemini-omni-1-2-flash-api-guide) · [Upload](https://docs.poyo.ai/api-manual/file-series/upload-stream) |
 
-Close the audit when every catalog entry and documented operation has an evidence-backed disposition. Close implementation for that dated scope when each in-scope operation and option has a verified or contract-covered production path with no outstanding D4 gap, or the owner approves an explicit scope change. Report pending, blocked and unknown paths alongside the verified scope. Unknown pricing follows D1’s explicit acceptance flow. Use fixture providers and the [development checks](../README.md#development) for release verification. Live billable checks: none by default. A new family whose responses cannot be authored from documentation may use one, with express owner approval. [Amendment](decisions.md#verification-by-contract-family)
+Close the audit when every catalog entry and documented operation has an evidence-backed disposition. Close implementation for that dated scope when each in-scope operation and option has a verified or contract-covered production path, or the owner approves an explicit scope change. Report pending, blocked and unknown paths alongside the verified scope. Unknown pricing follows D1’s explicit acceptance flow. Use fixture providers and the [development checks](../README.md#development) for release verification. Live billable checks: none by default. A new family whose responses cannot be authored from documentation may use one, with express owner approval. [Amendment](decisions.md#verification-by-contract-family)
 
 ### Design and operations
 
