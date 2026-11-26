@@ -5,9 +5,11 @@ Generated on 2026-11-26 from the [ledger](media-catalog.v1.json) (observed 2026-
 <!-- catalog:coverage summary -->
 Expanded keys: 647, of which Poyo.ai 317 (5 verified) and ToAPIs 330 (6 verified). Engine slices hold 496, Phase 3 147 and evidence questions 4. A route alias adds no key: Midjourney `imagine` counts once, on its primary route. `catalog:coverage` names each pending key's reason.
 
-Keys: verified 11, contract-covered 0, pending 632, unsupported 0, unknown 4. Option obligations of the derived Poyo.ai rows: 1491; verified 13, contract-covered 0, pending 1375, unsupported 0, unknown 103. Fixed values (the D4 `false`, a pinned `n: 1`, a fixed sentinel) add none.
+Keys: verified 11, contract-covered 0, pending 632, unsupported 0, unknown 4. Option obligations of the derived Poyo.ai rows: 1498; verified 15, contract-covered 0, pending 1375, unsupported 0, unknown 108. Fixed values (the D4 `false`, a pinned `n: 1`, a fixed sentinel) add none.
 
-**Tag-blocking count: 2114.** Pending pairs and options 2006; documented values a Siluet envelope excludes 1; options or pairs without a covered path, each with its question, 107; provider-unsupported pairs without evidence 0; unknown pairs or options without a question 0.
+The 6 verified ToAPIs operations each add one placeholder item until their page descriptors type their options (G10a, G11a). Each is pending and counts as tag-blocking.
+
+**Tag-blocking count: 2125.** Pending pairs and options 2012; documented values a Siluet envelope excludes 1; options or pairs without a covered path, each with its question, 112; provider-unsupported pairs without evidence 0; unknown pairs or options without a question 0.
 <!-- /catalog:coverage -->
 
 ## Documented operations
@@ -40,12 +42,6 @@ Keys: verified 11, contract-covered 0, pending 632, unsupported 0, unknown 4. Op
 | G11d | ToAPIs | `video-edit` | 9 | 1 |
 | Q · file and webpage references (accepted types, who fetches) | ToAPIs | `file-reference-to-video` | 2 |  |
 | Q · file and webpage references (accepted types, who fetches) | ToAPIs | `webpage-reference-to-video` | 2 |  |
-| P3 · audio and avatar inputs | Poyo.ai | `image-and-driving-audio-to-avatar-video` | 5 |  |
-| P3 · audio and avatar inputs | Poyo.ai | `character-video-and-driving-audio-to-avatar-video` | 2 |  |
-| P3 · audio and avatar inputs | Poyo.ai | `public-avatar-and-driving-audio-to-video` | 2 |  |
-| P3 · audio and avatar inputs | Poyo.ai | `public-avatar-and-text-to-video` | 2 |  |
-| P3 · draft and draft-to-final chain | ToAPIs | `draft-to-final-video` | 1 |  |
-| P3 · draft and draft-to-final chain | ToAPIs | `draft-video-generation` | 1 |  |
 | P3 · GIF and SVG output | Poyo.ai | `text-to-gif` | 2 |  |
 | P3 · GIF and SVG output | Poyo.ai | `image-to-svg` | 1 |  |
 | P3 · GIF and SVG output | Poyo.ai | `reference-guided-text-to-svg` | 1 |  |
@@ -53,12 +49,6 @@ Keys: verified 11, contract-covered 0, pending 632, unsupported 0, unknown 4. Op
 | P3 · GIF and SVG output | ToAPIs | `image-to-gif` | 4 |  |
 | P3 · GIF and SVG output | ToAPIs | `text-to-gif` | 4 |  |
 | P3 · GIF and SVG output | ToAPIs | `text-to-svg` | 4 |  |
-| P3 · layer decomposition | Poyo.ai | `image-layer-decomposition` | 1 |  |
-| P3 · layer decomposition | ToAPIs | `image-layer-decomposition` | 2 |  |
-| P3 · mask, markup and localized edits | Poyo.ai | `mask-image-edit` | 9 |  |
-| P3 · mask, markup and localized edits | Poyo.ai | `localized-mask-image-edit` | 1 |  |
-| P3 · mask, markup and localized edits | ToAPIs | `mask-image-edit` | 4 |  |
-| P3 · mask, markup and localized edits | ToAPIs | `markup-guided-image-edit` | 2 |  |
 | P3 · Midjourney actions | ToAPIs | `blend` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `edits` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `high-variation` | 1 |  |
@@ -74,6 +64,25 @@ Keys: verified 11, contract-covered 0, pending 632, unsupported 0, unknown 4. Op
 | P3 · Midjourney actions | ToAPIs | `upscale` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `variation` | 1 |  |
 | P3 · Midjourney actions | ToAPIs | `zoom` | 1 |  |
+| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `first-frame-to-video` | 3 |  |
+| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `image-reference-to-video` | 3 |  |
+| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `text-to-video` | 3 |  |
+| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `video-extension` | 3 |  |
+| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `video-remix` | 3 |  |
+| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `first-and-last-frame-to-video` | 2 |  |
+| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `video-reference-to-video` | 1 |  |
+| P3 · audio and avatar inputs | Poyo.ai | `image-and-driving-audio-to-avatar-video` | 5 |  |
+| P3 · audio and avatar inputs | Poyo.ai | `character-video-and-driving-audio-to-avatar-video` | 2 |  |
+| P3 · audio and avatar inputs | Poyo.ai | `public-avatar-and-driving-audio-to-video` | 2 |  |
+| P3 · audio and avatar inputs | Poyo.ai | `public-avatar-and-text-to-video` | 2 |  |
+| P3 · draft and draft-to-final chain | ToAPIs | `draft-to-final-video` | 1 |  |
+| P3 · draft and draft-to-final chain | ToAPIs | `draft-video-generation` | 1 |  |
+| P3 · layer decomposition | Poyo.ai | `image-layer-decomposition` | 1 |  |
+| P3 · layer decomposition | ToAPIs | `image-layer-decomposition` | 2 |  |
+| P3 · mask, markup and localized edits | Poyo.ai | `mask-image-edit` | 9 |  |
+| P3 · mask, markup and localized edits | Poyo.ai | `localized-mask-image-edit` | 1 |  |
+| P3 · mask, markup and localized edits | ToAPIs | `mask-image-edit` | 4 |  |
+| P3 · mask, markup and localized edits | ToAPIs | `markup-guided-image-edit` | 2 |  |
 | P3 · multi-output and image sets | Poyo.ai | `sequential-image-set` | 1 |  |
 | P3 · multi-output and image sets | ToAPIs | `sequential-image-set` | 4 |  |
 | P3 · multi-shot | Poyo.ai | `multi-shot-video-generation` | 9 |  |
@@ -91,13 +100,6 @@ Keys: verified 11, contract-covered 0, pending 632, unsupported 0, unknown 4. Op
 | P3 · source-video operations on Poyo.ai | Poyo.ai | `video-upscaling` | 1 |  |
 | P3 · subjects and non-URL characters | ToAPIs | `character-reference-to-video` | 1 |  |
 | P3 · subjects and non-URL characters | ToAPIs | `subjects-to-video` | 1 |  |
-| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `first-frame-to-video` | 3 |  |
-| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `image-reference-to-video` | 3 |  |
-| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `text-to-video` | 3 |  |
-| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `video-extension` | 3 |  |
-| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `video-remix` | 3 |  |
-| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `first-and-last-frame-to-video` | 2 |  |
-| P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `video-reference-to-video` | 1 |  |
 | P3 · video extension | Poyo.ai | `video-extension` | 1 |  |
 | P3 · video extension | ToAPIs | `video-extension` | 6 |  |
 | P3 · video or audio references | ToAPIs | `multimodal-reference-to-video` | 14 |  |
@@ -163,10 +165,14 @@ Generated by `catalog:coverage` from the derived rows (`poyo-rows.json`). Each P
 | `flux-3/image-to-video` | `prompt`: question 10: prompt limit not documented |
 | `flux-3/keyframes-to-video` | `prompt`: question 10: prompt limit not documented |
 | `flux-3/text-to-video` | `prompt`: question 10: prompt limit not documented |
-| `flux-dev` | `prompt`: question 10: prompt limit not documented; `size`: uses oneOf |
-| `flux-schnell` | `prompt`: question 10: prompt limit not documented; `size`: uses oneOf |
+| `flux-dev` | `n`: question 11: no documented maximum; counts above 1 are P3 · multi-output and image sets; `prompt`: question 10: prompt limit not documented; `size`: uses oneOf |
+| `flux-schnell` | `n`: question 11: no documented maximum; counts above 1 are P3 · multi-output and image sets; `prompt`: question 10: prompt limit not documented; `size`: uses oneOf |
 | `gemini-omni-1.2-flash` | `aspect_ratio`, `duration`, `prompt`, `resolution`: schema uses x-server-validation |
 | `generate-music-cover` | `task_id`: domain only in prose: Phase 3 prerequisites |
+| `gpt-4o-image` | `n`: P3 · multi-output and image sets |
+| `gpt-4o-image-edit` | `n`: P3 · multi-output and image sets |
+| `gpt-image-1.5` | `n`: P3 · multi-output and image sets |
+| `gpt-image-1.5-edit` | `n`: P3 · multi-output and image sets |
 | `gpt-image-2` | `size`: domain only in prose: typing rule with G4 |
 | `gpt-image-2-edit` | `size`: domain only in prose: typing rule with G5 |
 | `gpt-image-2.5-flare` | `size`: uses pattern "^(?:auto\|1:1\|2:3\|3:2\|4:3\|3:4\|4:5\|5:4\|16:9\|9:16\|21:9\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
@@ -175,8 +181,8 @@ Generated by `catalog:coverage` from the derived rows (`poyo-rows.json`). Each P
 | `gpt-image-2.6-flare` | `output_format`: question 8: the catalog and the API schema disagree; `size`: uses pattern "^(?:auto\|1:1\|2:3\|3:2\|4:3\|3:4\|4:5\|5:4\|16:9\|9:16\|21:9\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
 | `gpt-image-2.6-sunburst` | `output_format`: question 8: the catalog and the API schema disagree; `size`: uses pattern "^(?:auto\|1:1\|2:3\|3:2\|4:3\|3:4\|4:5\|5:4\|16:9\|9:16\|21:9\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
 | `grok-imagine-image-2.0` | `n`: P3 · multi-output and image sets |
-| `grok-imagine-image-quality` | `prompt`: question 10: prompt limit not documented |
-| `h3-max` | `aspect_ratio`: composer omits "adaptive"; `duration`: composer offers 5–10 of 5–15; `prompt`: Siluet's 4000-byte envelope excludes the documented 50000 characters; `resolution`: composer omits "1080p" |
+| `grok-imagine-image-quality` | `n`: question 11: no documented maximum; counts above 1 are P3 · multi-output and image sets; `prompt`: question 10: prompt limit not documented |
+| `h3-max` | `duration`: composer offers 5–10 of 5–15; `prompt`: Siluet's 4000-byte envelope excludes the documented 50000 characters; `resolution`: composer omits "1080p" |
 | `heygen-avatar-6` | `aspect_ratio`, `prompt`, `resolution`, `text`: schema uses oneOf in allOf, x-server-validation; `avatar`, `voice`: domain only in prose: Phase 3 audio and avatars |
 | `heygen-avatar-6-turbo` | `aspect_ratio`, `prompt`, `resolution`, `text`: schema uses oneOf in allOf, x-server-validation; `avatar`, `voice`: domain only in prose: Phase 3 audio and avatars |
 | `ideogram-v4.5` | `n`: P3 · multi-output and image sets |
@@ -214,7 +220,6 @@ Generated by `catalog:coverage` from the derived rows (`poyo-rows.json`). Each P
 | `seedream-5.0-lite-edit` | `n`: P3 · multi-output and image sets; `size`: uses oneOf |
 | `seedream-5.0-pro` | `prompt`: question 10: prompt limit not documented |
 | `seedream-5.0-pro-edit` | `prompt`: question 10: prompt limit not documented |
-| `seedream-5.5-layerize` | `max_images`: P3 · multi-output and image sets |
 | `veo3.1-fast` | `prompt`: question 10: prompt limit not documented |
 | `veo3.1-fast-official` | `prompt`: question 10: prompt limit not documented |
 | `veo3.1-lite` | `prompt`: question 10: prompt limit not documented |
@@ -229,7 +234,6 @@ Generated by `catalog:coverage` from the derived rows (`poyo-rows.json`). Each P
 | `wan2.7-image-to-video` | `audio_setting`: question 11: domain not documented |
 | `wan2.7-reference-to-video` | `audio_setting`: question 11: domain not documented |
 | `wan2.7-text-to-video` | `audio_setting`: question 11: domain not documented |
-| `z-image` | `size`: not offered by the composer |
 <!-- /catalog:coverage -->
 
 Constructs outside the validator, each until a reviewed rule covers it. G2a binds the `flux-3-klein` and `flux-3-klein-edit` `size` rule to both schemas:
@@ -262,7 +266,7 @@ Projection size, measured with a second throwaway script on 2026-11-26: keeping 
 
 No spec at `747e5d7`: `gpt-image-1-edit-official`, `gpt-image-1-official`, `gpt-image-1.5-edit-official`, `gpt-image-1.5-official`, `veo3.1-extend`, all discovery-only. At `ec73207` also: `recraft-v4.1`, `recraft-v4.1-flash`, `recraft-v4.1-pro`, `recraft-v4.1-pro-vector`, `recraft-v4.1-vector`, `ltx-2.5-fast`, `ltx-2.5-pro`, `sync-lipsync-3`.
 
-Catalog fields that a closed REST input does not list. Each is a contradiction for that option: never offered, and unknown with [question 7](SPEC-catalog-engine.md#open-questions).
+Fields one source lists while the other is closed, here catalog fields that a closed REST input does not list. Each is a contradiction for that option: never offered, and unknown with [question 7](SPEC-catalog-engine.md#open-questions).
 
 - `gpt-image-2.6-fixed`: `resolution`
 - `poyo-ai/image-translator`: `protect_text`, `synthesis_on_image`, `translate_on_image`

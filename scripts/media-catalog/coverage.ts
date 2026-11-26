@@ -234,8 +234,58 @@ export function offerGap(domain: Domain, offered: Offered | undefined) {
 		: null;
 }
 
+const wholeNumbers = new Set<DerivedOption["kind"]>(["count", "integer"]);
+
+/**
+ * Values that only one source accepts beyond the shared domain, each its own unknown item with
+ * question 8: enum values and the tails of `minimum`, `maximum` and `maxLength`. A bound one
+ * source omits leaves that source unbounded.
+ */
+function disputedTails(option: DerivedOption): { values: string }[] {
+	const { disputed, domain } = option;
+	if (!disputed) return [];
+	const tails: { values: string }[] = [];
+	if (domain.values) {
+		const values = [
+			...new Set([...(disputed.catalog.values ?? []), ...(disputed.api.values ?? [])]),
+		];
+		const only = values.filter((value) => !domain.values?.includes(value));
+		if (only.length) tails.push({ values: range({ values: only }) });
+	}
+	const sides = [disputed.catalog, disputed.api];
+	const wider = (key: "minimum" | "maximum" | "maxLength", pick: (...n: number[]) => number) => {
+		const bounds = sides.map((side) => side[key]);
+		return bounds.some((bound) => bound === undefined) ? undefined : pick(...(bounds as number[]));
+	};
+	const whole = wholeNumbers.has(option.kind);
+	if (domain.minimum !== undefined) {
+		const low = wider("minimum", Math.min);
+		if (low !== domain.minimum)
+			tails.push({
+				values: whole
+					? `${low ?? "…"}–${domain.minimum - 1}`
+					: `below ${domain.minimum}${low === undefined ? "" : ` down to ${low}`}`,
+			});
+	}
+	if (domain.maximum !== undefined) {
+		const high = wider("maximum", Math.max);
+		if (high !== domain.maximum)
+			tails.push({
+				values: whole
+					? `${domain.maximum + 1}–${high ?? "…"}`
+					: `above ${domain.maximum}${high === undefined ? "" : ` up to ${high}`}`,
+			});
+	}
+	if (domain.maxLength !== undefined) {
+		const longest = wider("maxLength", Math.max);
+		if (longest !== domain.maxLength)
+			tails.push({ values: `${domain.maxLength + 1}–${longest ?? "…"} characters` });
+	}
+	return tails;
+}
+
 /** One creator option's obligations on one key; fixed values add none. */
-function optionItems(
+export function optionObligations(
 	key: Key & { verified: boolean },
 	row: DerivedRow,
 	option: DerivedOption,
@@ -244,48 +294,37 @@ function optionItems(
 ): CoverageItem[] {
 	const base = { ...key, option: option.field };
 	const domain = documented(row, option, key.operation);
-	const items: CoverageItem[] = [];
-	if (option.disputed && option.domain.values) {
-		const disputed = [
-			...new Set([
-				...(option.disputed.catalog.values ?? []),
-				...(option.disputed.api.values ?? []),
-			]),
-		].filter((value) => !option.domain.values?.includes(value));
-		if (disputed.length)
+	const disputed: CoverageItem[] = disputedTails(option).map(({ values }) => ({
+		...base,
+		values,
+		state: "unknown",
+		reason: "the catalog and the API schema disagree",
+		question: 8,
+	}));
+	if (option.kind === "count") {
+		// `n: 1` is pinned. Shared counts above one are Phase 3 multi-output; a count with no
+		// documented maximum is unknown, and values only one source documents are unknown.
+		const numbers = domain.values?.filter((value): value is number => typeof value === "number");
+		const max = numbers ? Math.max(1, ...numbers) : domain.maximum;
+		const items: CoverageItem[] = [];
+		if (max === undefined)
 			items.push({
 				...base,
-				values: range({ values: disputed }),
+				values: "2–…",
 				state: "unknown",
-				reason: "the catalog and the API schema disagree",
-				question: 8,
+				reason: `no documented maximum; counts above 1 are ${p3("multi-output and image sets")}`,
+				question: 11,
 			});
-	}
-	if (option.kind === "count") {
-		// `n: 1` is pinned. Shared counts above one are Phase 3 multi-output, and values only
-		// one source documents are unknown.
-		const max = domain.maximum ?? 1;
-		const other = Math.max(
-			option.disputed?.catalog.maximum ?? max,
-			option.disputed?.api.maximum ?? max,
-		);
-		if (max > 1)
+		else if (max > 1)
 			items.push({
 				...base,
 				values: `2–${max}`,
 				state: "pending",
 				reason: p3("multi-output and image sets"),
 			});
-		if (other > max)
-			items.push({
-				...base,
-				values: `${max + 1}–${other}`,
-				state: "unknown",
-				reason: "the catalog and the API schema disagree",
-				question: 8,
-			});
-		return items;
+		return [...items, ...disputed];
 	}
+	const items = disputed;
 	const values = range(domain);
 	if (option.gap) {
 		items.push({ ...base, values, ...option.gap });
@@ -344,7 +383,7 @@ export function coverage({
 					entry.key.operation === key.operation,
 			)?.offered;
 			for (const option of row.options)
-				items.push(...optionItems(key, row, option, choices, slice));
+				items.push(...optionObligations(key, row, option, choices, slice));
 		} else if (key.verified)
 			items.push({
 				...key,
@@ -379,12 +418,16 @@ export function tally(items: readonly CoverageItem[]) {
 	return { blocking, tagBlocking: total };
 }
 
+/** Order by UTF-16 code unit, independent of the host's locale. */
+export const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
 const count = (items: readonly CoverageItem[], test: (item: CoverageItem) => boolean) =>
 	items.filter(test).length;
 
-function summary(items: readonly CoverageItem[]) {
+export function summary(items: readonly CoverageItem[]) {
 	const keys = items.filter((item) => item.option === undefined);
-	const options = items.filter((item) => item.option !== undefined);
+	const options = items.filter((item) => item.option !== undefined && item.option !== "*");
+	const placeholders = items.filter((item) => item.option === "*");
 	const byProvider = (provider: Provider) => keys.filter((key) => key.provider === provider);
 	const verified = (list: CoverageItem[]) => count(list, ({ state }) => state === "verified");
 	const engine = count(keys, (key) => /^G\d/.test(assignment(key)));
@@ -399,6 +442,8 @@ function summary(items: readonly CoverageItem[]) {
 		`Expanded keys: ${keys.length}, of which Poyo.ai ${byProvider("poyo").length} (${verified(byProvider("poyo"))} verified) and ToAPIs ${byProvider("toapis").length} (${verified(byProvider("toapis"))} verified). Engine slices hold ${engine}, Phase 3 ${phase3} and evidence questions ${questions}. A route alias adds no key: Midjourney \`imagine\` counts once, on its primary route. \`catalog:coverage\` names each pending key's reason.`,
 		"",
 		`Keys: ${states(keys)}. Option obligations of the derived Poyo.ai rows: ${options.length}; ${states(options)}. Fixed values (the D4 \`false\`, a pinned \`n: 1\`, a fixed sentinel) add none.`,
+		"",
+		`The ${placeholders.length} verified ToAPIs operations each add one placeholder item until their page descriptors type their options (G10a, G11a). Each is pending and counts as tag-blocking.`,
 		"",
 		`**Tag-blocking count: ${tagBlocking}.** Pending pairs and options ${blocking.pending}; documented values a Siluet envelope excludes ${blocking.envelope}; options or pairs without a covered path, each with its question, ${blocking.withoutPath}; provider-unsupported pairs without evidence ${blocking.unsupportedWithoutEvidence}; unknown pairs or options without a question ${blocking.unknownWithoutQuestion}.`,
 	].join("\n");
@@ -434,10 +479,10 @@ function operationsTable(items: readonly CoverageItem[]) {
 	const ordered = [...groups.values()].sort(
 		(a, b) =>
 			rank(a.reason) - rank(b.reason) ||
-			(rank(a.reason) < 100 ? 0 : a.reason.localeCompare(b.reason)) ||
+			(rank(a.reason) < 100 ? 0 : byCodeUnit(a.reason, b.reason)) ||
 			(a.provider === b.provider ? 0 : a.provider === "poyo" ? -1 : 1) ||
 			b.keys - a.keys ||
-			a.operation.localeCompare(b.operation),
+			byCodeUnit(a.operation, b.operation),
 	);
 	return [
 		"| Assigned to | Provider | Operation | Keys | Verified |",

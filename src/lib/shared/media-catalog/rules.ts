@@ -92,4 +92,12 @@ export const reviewedOverrides: readonly ReviewedOverride[] = [
 		excludes: ["auto"],
 		quote: "auto applies to image editing and follows the reference images",
 	},
+	{
+		model: "h3-max",
+		operation: "text-to-video",
+		field: "aspect_ratio",
+		schemaSha256: "a6ed2d836a9301a26981500d1632c33c902732776f8e24cb692f09c61f02b3d4",
+		excludes: ["adaptive"],
+		quote: "Text mode defaults to 16:9 and does not accept adaptive.",
+	},
 ];

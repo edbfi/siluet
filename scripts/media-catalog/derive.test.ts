@@ -1,9 +1,18 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import { d4States } from "../../src/lib/shared/media-catalog/filtering";
-import { crossCheck, deriveRows, renderRows, rowsPath } from "./derive";
+import type { Schema } from "../../src/lib/shared/media-catalog/schema";
+import {
+	type CatalogEntry,
+	crossCheck,
+	deriveRow,
+	deriveRows,
+	type RowSources,
+	renderRows,
+	rowsPath,
+} from "./derive";
 import { verifiedOptions } from "./verified";
 
 const committed = readFileSync(rowsPath, "utf8");
@@ -110,4 +119,113 @@ test("derived rows record constructs, contradictions and unknowns, and nothing q
 	]);
 	expect(rows.find((row) => row.model === "vidu-q4")?.pending).toEqual([]);
 	expect(JSON.stringify(rows)).not.toMatch(/"queue"|"eligible"/);
+});
+
+test("a verified enum choice needs documented values", () => {
+	const valueless = rows.map((row) =>
+		row.model === "seedream-5.5"
+			? {
+					...row,
+					options: row.options.map((option) =>
+						option.field === "resolution" ? { ...option, domain: {} } : option,
+					),
+				}
+			: row,
+	);
+	expect(() => crossCheck(valueless)).toThrow("seedream-5.5 resolution offers");
+});
+
+describe("fixture rows", () => {
+	const ledgerRow = {
+		media: "image",
+		route: "POST /api/generate/submit",
+		operations: ["text-to-image"],
+	};
+	const entry = (input_schema: Schema, extra: Partial<CatalogEntry> = {}): CatalogEntry => ({
+		model_id: "fixture",
+		category: "text2img",
+		status: "stable",
+		service_type: "generate",
+		execution_mode: "async",
+		input_schema,
+		billing: { type: "fixed" },
+		...extra,
+	});
+	const prompt = { type: "string", maxLength: 100 };
+	const declared = {
+		type: "object",
+		required: ["prompt"],
+		properties: { prompt, enable_safety_checker: { type: "boolean" } },
+	};
+	const none: RowSources = { models: {}, schemas: {}, rules: [] };
+	const withApi = (input: Schema): RowSources => ({
+		models: { fixture: { input: "api", spec: "/fixture.json" } },
+		schemas: { api: input },
+		rules: [],
+	});
+
+	test("a declared fixture with a valid minimal request has nothing pending", () => {
+		expect(deriveRow(ledgerRow, "fixture", entry(declared), none)).toMatchObject({
+			d4: { d4: "declared", catalogOnly: true },
+			pending: [],
+		});
+	});
+	test("no valid minimal request keeps the row pending", () => {
+		const impossible = {
+			...declared,
+			properties: {
+				...declared.properties,
+				prompt: { type: "string", minLength: 5, maxLength: 2 },
+			},
+		};
+		expect(deriveRow(ledgerRow, "fixture", entry(impossible), none).pending).toEqual([
+			"no valid minimal request: catalog: prompt is longer than 2 characters",
+		]);
+	});
+	test("an unsupported construct on a required input keeps the row pending", () => {
+		const constant = {
+			...declared,
+			properties: { ...declared.properties, prompt: { type: "string", const: "x" } },
+		};
+		expect(deriveRow(ledgerRow, "fixture", entry(constant), none).pending).toEqual([
+			"required input uses prompt const",
+		]);
+	});
+	test("a route other than generate/async keeps the row pending", () => {
+		expect(
+			deriveRow(ledgerRow, "fixture", entry(declared, { execution_mode: "sync" }), none).pending,
+		).toEqual(["service generate/sync"]);
+		expect(
+			deriveRow(ledgerRow, "fixture", entry(declared, { service_type: "chat" }), none).pending,
+		).toEqual(["service chat/async"]);
+	});
+	test("a D4 contradiction keeps the row pending", () => {
+		const closedApi = {
+			type: "object",
+			required: ["prompt"],
+			properties: { prompt },
+			additionalProperties: false,
+		};
+		const row = deriveRow(ledgerRow, "fixture", entry(declared), withApi(closedApi));
+		expect(row.d4).toEqual({ d4: "contradiction" });
+		expect(row.pending).toEqual(["D4 contradiction"]);
+	});
+	test("n is a count only under the description convention", () => {
+		const counted = (description: string) =>
+			deriveRow(
+				ledgerRow,
+				"fixture",
+				entry({
+					...declared,
+					properties: {
+						...declared.properties,
+						n: { type: "integer", minimum: 1, maximum: 4, description },
+					},
+				}),
+				none,
+			).options.find((option) => option.field === "n")?.kind;
+		expect(counted("Number of output images.")).toBe("count");
+		expect(counted("Number of images to generate (1-4).")).toBe("count");
+		expect(counted("Noise steps.")).toBe("integer");
+	});
 });

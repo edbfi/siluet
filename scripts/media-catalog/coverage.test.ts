@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import ledger from "../../docs/media-catalog.v1.json";
+import { reviewedOverrides } from "../../src/lib/shared/media-catalog/rules";
 import {
 	assignment,
 	type CoverageItem,
@@ -9,10 +10,12 @@ import {
 	expandKeys,
 	inventoryPath,
 	offerGap,
+	optionObligations,
 	renderInventory,
+	summary,
 	tally,
 } from "./coverage";
-import { deriveRows } from "./derive";
+import { type DerivedOption, type DerivedRow, deriveRows } from "./derive";
 import { verifiedOptions } from "./verified";
 
 const rows = deriveRows();
@@ -127,11 +130,11 @@ test("D4's fixed false, a pinned n: 1 and a fixed sentinel never block", () => {
 		verifiedRows
 			.filter((item) => item.state !== "verified")
 			.map((item) => [item.model, item.operation, item.option]),
-	).toEqual([["z-image", "reference-image-edit", "size"]]);
+	).toEqual([]);
 	// A count whose only documented value is the pinned 1 adds no obligation, and a shared
 	// count above 1 is the Phase 3 multi-output obligation, never `n: 1` itself.
 	for (const item of options.filter((option) => option.option === "n"))
-		expect(item.values).toMatch(/^\d+–\d+$/);
+		expect(item.values).toMatch(/^\d+–(\d+|…)$/);
 	expect(
 		options.filter((item) => item.option === "n").every((item) => !item.values?.startsWith("1")),
 	).toBe(true);
@@ -171,4 +174,136 @@ test("each key has an assignment and the inventory regenerates unchanged", () =>
 	const inventory = readFileSync(inventoryPath, "utf8");
 	expect(renderInventory(inventory, result.items)).toBe(inventory);
 	expect(inventory.match(/<!-- catalog:coverage \S+ -->/g)).toHaveLength(4);
+});
+
+const itemsOf = (model: string, option: string, operation?: string) =>
+	result.items
+		.filter(
+			(item) =>
+				item.model === model &&
+				item.option === option &&
+				(operation === undefined || item.operation === operation),
+		)
+		.map(({ values, state, question }) => [values, state, question]);
+
+test("a count takes its maximum from its enum, and a count without one is unknown", () => {
+	expect(itemsOf("gpt-4o-image", "n", "text-to-image")).toEqual([["2–4", "pending", undefined]]);
+	expect(itemsOf("flux-dev", "n", "text-to-image")).toEqual([["2–…", "unknown", 11]]);
+	expect(itemsOf("nano-banana-2", "n")).toEqual([]);
+});
+
+test("only the description convention or a reviewed note makes a count", () => {
+	const option = (model: string, field: string) =>
+		rows.find((row) => row.model === model)?.options.find((item) => item.field === field);
+	expect(option("seedream-5.5-layerize", "max_images")?.kind).toBe("integer");
+	expect(option("kling-4.0-image", "n")?.kind).toBe("count");
+	expect(option("ideogram-vector-1.0/text-to-vector", "n")?.kind).toBe("count");
+	expect(option("seedream-4.5", "n")?.kind).toBe("count");
+});
+
+test("a disputed range tail is its own unknown item on any option", () => {
+	const key = {
+		provider: "poyo",
+		model: "fixture",
+		route: "POST /api/generate/submit",
+		operation: "text-to-video",
+		verified: false,
+	} as const;
+	const row = { model: "fixture", catalog: null, pending: [] } as unknown as DerivedRow;
+	const option = (
+		field: string,
+		kind: DerivedOption["kind"],
+		catalog: object,
+		api: object,
+		domain: object,
+	) =>
+		({
+			field,
+			kind,
+			domain,
+			disputed: { catalog, api },
+			default: { state: "resolved", value: 1 },
+		}) as DerivedOption;
+	const items = (o: DerivedOption) =>
+		optionObligations(key, row, o, undefined, "G7").map(({ values, state, question }) => [
+			values,
+			state,
+			question,
+		]);
+	expect(
+		items(
+			option(
+				"duration",
+				"integer",
+				{ minimum: 3, maximum: 15 },
+				{ minimum: 5, maximum: 10 },
+				{ minimum: 5, maximum: 10 },
+			),
+		),
+	).toEqual([
+		["3–4", "unknown", 8],
+		["11–15", "unknown", 8],
+		["5–10", "pending", undefined],
+	]);
+	expect(
+		items(
+			option("prompt", "free-text", { maxLength: 5000 }, { maxLength: 2000 }, { maxLength: 2000 }),
+		),
+	).toEqual([
+		["2001–5000 characters", "unknown", 8],
+		["up to 2000 characters", "pending", undefined],
+	]);
+	expect(items(option("strength", "number", { maximum: 1 }, {}, { maximum: 1 }))).toEqual([
+		["above 1", "unknown", 8],
+		["…–1", "pending", undefined],
+	]);
+});
+
+test("verified composer facts: Z-Image edit offers size, and H3 Max text mode excludes adaptive", () => {
+	expect(itemsOf("z-image", "size", "reference-image-edit")).toEqual([
+		['"1:1", "4:3", "3:4", "16:9", "9:16"', "verified", undefined],
+	]);
+	expect(itemsOf("h3-max", "aspect_ratio", "text-to-video")).toEqual([
+		['"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"', "verified", undefined],
+	]);
+	const h3 = rows.find((row) => row.model === "h3-max");
+	const override = reviewedOverrides.find((item) => item.model === "h3-max");
+	expect(override).toMatchObject({
+		operation: "text-to-video",
+		field: "aspect_ratio",
+		excludes: ["adaptive"],
+		schemaSha256: h3?.catalog,
+	});
+	expect(override?.quote).toBe("Text mode defaults to 16:9 and does not accept adaptive.");
+	// A stale hash no longer narrows the row.
+	const stale = coverage({
+		rows: rows.map((row) => (row.model === "h3-max" ? { ...row, catalog: "0".repeat(64) } : row)),
+	});
+	expect(
+		stale.items.find(
+			(item) =>
+				item.model === "h3-max" &&
+				item.option === "aspect_ratio" &&
+				item.operation === "text-to-video",
+		)?.values,
+	).toContain('"adaptive"');
+});
+
+test("the summary reports ToAPIs placeholders apart from Poyo.ai option obligations", () => {
+	const placeholders = result.items.filter((item) => item.option === "*");
+	expect(placeholders).toHaveLength(6);
+	expect(placeholders.every((item) => item.provider === "toapis")).toBe(true);
+	const poyo = result.items.filter((item) => item.option !== undefined && item.provider === "poyo");
+	const text = summary(result.items);
+	expect(text).toContain(`Option obligations of the derived Poyo.ai rows: ${poyo.length};`);
+	expect(text).toContain(
+		"The 6 verified ToAPIs operations each add one placeholder item until their page descriptors type their options (G10a, G11a).",
+	);
+});
+
+test("the operations table sorts labels by code unit", () => {
+	const table = renderInventory(readFileSync(inventoryPath, "utf8"), result.items);
+	expect(table.indexOf("| P3 · GIF and SVG output |")).toBeLessThan(
+		table.indexOf("| P3 · audio and avatar inputs |"),
+	);
 });

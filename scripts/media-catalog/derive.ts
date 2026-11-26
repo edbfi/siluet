@@ -15,6 +15,7 @@ import { reviewedRules } from "../../src/lib/shared/media-catalog/rules";
 import {
 	type Construct,
 	effectiveDefault,
+	type ReviewedRule,
 	type Schema,
 	uncovered,
 	validateBody,
@@ -28,7 +29,16 @@ import { verifiedOptions } from "./verified";
 
 const d4Field = "enable_safety_checker";
 const freeText = new Set(["prompt", "negative_prompt", "text", "author", "domain_name"]);
-const counts = new Set(["n", "max_images"]);
+/**
+ * The output-count convention: `n` whose description begins with one of these (spec, "family
+ * conventions"). Any other count needs a reviewed note that quotes the provider.
+ */
+const countConvention = ["Number of output images", "Number of images to generate"];
+const countNotes: Record<string, string> = {
+	"ideogram-vector-1.0/text-to-vector n": "Output count, from 1 to 8. Defaults to 1.",
+	"kling-4.0-image n":
+		"Number of images. When enable_sequential is false: 1–9, default 1. When enable_sequential is true: 2–10, default 4.",
+};
 // Question 10 is assigned only after the model's page was read and found silent.
 const silentPages = new Set(
 	pageReviews.pages.flatMap((page) =>
@@ -114,7 +124,7 @@ const propertiesOf = (schema: Schema | null) =>
 
 function side(schema: Schema | null): RestSide {
 	if (!schema) return "none";
-	if (d4Field in propertiesOf(schema)) return "declared";
+	if (Object.hasOwn(propertiesOf(schema), d4Field)) return "declared";
 	return schema.additionalProperties === false ? "closed" : "open";
 }
 
@@ -154,8 +164,16 @@ const isMedia = (field: string, declaration: Schema) =>
 	/_urls?$/.test(field) ||
 	/^(elements|keyframes|kling_elements|multi_prompt)$/.test(field);
 
-function kindOf(field: string, declaration: Schema): DerivedOption["kind"] {
-	if (counts.has(field)) return "count";
+/** An output count only under the description convention or a reviewed note. */
+function isCount(model: string, field: string, declaration: Schema) {
+	const description = typeof declaration.description === "string" ? declaration.description : "";
+	if (Object.hasOwn(countNotes, `${model} ${field}`))
+		return description === countNotes[`${model} ${field}`];
+	return field === "n" && countConvention.some((opening) => description.startsWith(opening));
+}
+
+function kindOf(model: string, field: string, declaration: Schema): DerivedOption["kind"] {
+	if (isCount(model, field, declaration)) return "count";
 	if (freeText.has(field)) return "free-text";
 	if (Array.isArray(declaration.enum)) return "enum";
 	if (declaration.type === "integer") return "integer";
@@ -169,7 +187,7 @@ function kindOf(field: string, declaration: Schema): DerivedOption["kind"] {
 function minimalBody(required: string[], properties: Record<string, Schema>) {
 	const body: Record<string, Json> = {};
 	for (const field of required) {
-		const declaration = properties[field] ?? {};
+		const declaration = Object.hasOwn(properties, field) ? properties[field] : {};
 		const items = isSchema(declaration.items) ? declaration.items : {};
 		if (Array.isArray(declaration.enum)) body[field] = declaration.enum[0] as Json;
 		else if (declaration.type === "array")
@@ -202,24 +220,44 @@ function filtering(catalogSide: CatalogSide | null, restSide: RestSide): Filteri
 	return { d4: "unknown" };
 }
 
-function deriveRow(
-	row: (typeof ledger.providers.poyo.rows)[number],
+/** The evidence one row derives from: the OpenAPI projection and the reviewed rules. */
+export type RowSources = {
+	readonly models: Readonly<Record<string, { input: string; spec: string; shared?: true }>>;
+	readonly schemas: Readonly<Record<string, Schema>>;
+	readonly rules: readonly ReviewedRule[];
+};
+const pinned: RowSources = {
+	models: openapi.models as RowSources["models"],
+	schemas: openapi.schemas as RowSources["schemas"],
+	rules: reviewedRules,
+};
+
+/** A ledger row's fields a derived row keeps. */
+export type LedgerRow = { media: string; route: string | null; operations: string[] };
+/** A catalog entry's projected fields. */
+export type CatalogEntry = Pick<
+	Entry,
+	"model_id" | "category" | "status" | "service_type" | "execution_mode"
+> & { input_schema: Schema; billing: unknown };
+
+/** One documented Poyo.ai ID's row, from its catalog entry and OpenAPI input. */
+export function deriveRow(
+	row: LedgerRow,
 	model: string,
-	entry: Entry | undefined,
+	entry: CatalogEntry | undefined,
+	{ models, schemas, rules: allRules }: RowSources = pinned,
 ): DerivedRow {
-	const api = (openapi.models as Record<string, { input: string; spec: string; shared?: true }>)[
-		model
-	];
-	const apiSchema = api ? ((openapi.schemas as Record<string, Schema>)[api.input] ?? null) : null;
-	const catalogSchema = entry ? (entry.input_schema as Schema) : null;
+	const api = Object.hasOwn(models, model) ? models[model] : undefined;
+	const apiSchema = api && Object.hasOwn(schemas, api.input) ? schemas[api.input] : null;
+	const catalogSchema = entry ? entry.input_schema : null;
 	const sources = [catalogSchema, apiSchema].filter((schema): schema is Schema => !!schema);
 	const catalogSha = catalogSchema && sha256(canonicalJson(catalogSchema));
-	const rules = reviewedRules.filter(
+	const rules = allRules.filter(
 		({ schemaSha256 }) => schemaSha256 === catalogSha || schemaSha256 === api?.input,
 	);
 	const unsupported = [
 		...(catalogSchema ? uncovered(catalogSchema, catalogSha, rules) : []),
-		...(apiSchema ? uncovered(apiSchema, api.input, rules) : []),
+		...(apiSchema && api ? uncovered(apiSchema, api.input, rules) : []),
 	];
 	const required = [
 		...new Set(
@@ -263,7 +301,7 @@ function deriveRow(
 		if (!inCatalog && api?.shared && catalogSchema?.additionalProperties === false) continue;
 		const found = unsupported.filter((construct) => construct.field === field);
 		const ruled = rules.some((rule) => rule.field === field);
-		const kind = found.length ? "construct" : ruled ? "rule" : kindOf(field, declaration);
+		const kind = found.length ? "construct" : ruled ? "rule" : kindOf(model, field, declaration);
 		const a = domainOf(declaration);
 		const b = inCatalog && inApi ? domainOf(inApi) : undefined;
 		const { domain, disputed } = shared(a, b);
@@ -297,7 +335,9 @@ function deriveRow(
 				? { state: "unknown", reason: "prompt limit not documented", question: 10 }
 				: { state: "pending", reason: "no documented limit: read the model page" };
 		else if (kind === "prose") {
-			const route = proseDomains[`${model} ${field}`];
+			const route = Object.hasOwn(proseDomains, `${model} ${field}`)
+				? proseDomains[`${model} ${field}`]
+				: undefined;
 			option.gap = route?.startsWith("question")
 				? { state: "unknown", reason: "domain only in prose", question: Number(route.slice(9)) }
 				: route
@@ -313,7 +353,7 @@ function deriveRow(
 		const properties = { ...apiProps, ...catalogProps };
 		const schemas = {
 			catalog: { schema: catalogSchema, sha256: catalogSha },
-			rest: apiSchema ? { schema: apiSchema, sha256: api.input } : null,
+			rest: apiSchema && api ? { schema: apiSchema, sha256: api.input } : null,
 		};
 		const attempts = [required, ...inputs.map((input) => [...required, input])].map((fields) =>
 			validateBody(schemas, minimalBody([...new Set(fields)], properties), rules),
@@ -343,7 +383,9 @@ function deriveRow(
 
 /** Every documented Poyo.ai ledger ID, as one derived row per exact ID. */
 export function deriveRows() {
-	const entries = new Map(catalog.entries.map((entry) => [entry.model_id, entry]));
+	const entries = new Map(
+		catalog.entries.map((entry) => [entry.model_id, entry as unknown as CatalogEntry]),
+	);
 	const rows = ledger.providers.poyo.rows
 		.filter((row) => row.contract === "documented")
 		.flatMap((row) => row.ids.map((model) => deriveRow(row, model, entries.get(model))));
@@ -366,7 +408,7 @@ export function crossCheck(rows: DerivedRow[], verified = verifiedOptions) {
 			const { domain } = option;
 			const outside =
 				"values" in choice
-					? choice.values.filter((value) => domain.values && !domain.values.includes(value as Json))
+					? choice.values.filter((value) => !domain.values?.includes(value as Json))
 					: "maxCodePoints" in choice
 						? domain.maxLength !== undefined && choice.maxCodePoints > domain.maxLength
 							? [choice.maxCodePoints]

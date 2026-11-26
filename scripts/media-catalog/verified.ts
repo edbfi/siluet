@@ -39,7 +39,11 @@ const poyoOffered: Record<string, Record<string, Offered>> = {
 		prompt: { maxCodePoints: zImagePromptCharacters },
 		size: { values: zImageSizes },
 	},
-	"z-image reference-image-edit": { prompt: { maxCodePoints: zImagePromptCharacters } },
+	// The edit composer offers every size as an optional choice.
+	"z-image reference-image-edit": {
+		prompt: { maxCodePoints: zImagePromptCharacters },
+		size: { values: zImageSizes },
+	},
 	"h3-max text-to-video": {
 		prompt: { maxBytes: videoPromptBytes },
 		duration: { minimum: fields.duration.min, maximum: fields.duration.max },
