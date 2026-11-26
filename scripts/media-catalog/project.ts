@@ -9,7 +9,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import record from "./sources/sources.json";
 
@@ -32,6 +31,7 @@ export const inScopeCategories = [
 export const musicPrerequisites = ["create-music-video", "generate-music-cover"] as const;
 
 type CatalogItem = Record<string, unknown> & { model_id: string; category: string };
+type SourceRecord = typeof record;
 const projectedFields = [
 	"model_id",
 	"category",
@@ -49,18 +49,38 @@ function inScope(item: CatalogItem) {
 	);
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	!!value && typeof value === "object" && !Array.isArray(value);
+const stringFields = ["status", "service_type", "execution_mode"] as const;
+const objectFields = ["input_schema", "billing"] as const;
+
+/** An item with a string ID and category, or a failed projection. */
+function catalogItem(item: unknown): CatalogItem {
+	if (!isRecord(item) || typeof item.model_id !== "string" || typeof item.category !== "string")
+		throw new Error(`The catalog has a malformed catalog entry: ${JSON.stringify(item)}.`);
+	return item as CatalogItem;
+}
+
+/** An in-scope entry's projected fields, each of the shape the deriver reads. */
+function projectedEntry(item: CatalogItem) {
+	for (const field of projectedFields)
+		if (!Object.hasOwn(item, field)) throw new Error(`${item.model_id} has no ${field}.`);
+	for (const field of stringFields)
+		if (typeof item[field] !== "string")
+			throw new Error(`${item.model_id} has a malformed ${field}.`);
+	for (const field of objectFields)
+		if (!isRecord(item[field])) throw new Error(`${item.model_id} has a malformed ${field}.`);
+	return Object.fromEntries(projectedFields.map((field) => [field, item[field]])) as {
+		model_id: string;
+	};
+}
+
 /** The in-scope entries of one catalog revision, sorted by model ID. */
 export function projectCatalog(upstream: string, revision: string) {
 	const catalog = JSON.parse(upstream) as { has_more?: unknown; items?: unknown };
 	if (catalog.has_more !== false || !Array.isArray(catalog.items))
 		throw new Error("The catalog is not one complete page of items.");
-	const entries = (catalog.items as CatalogItem[]).filter(inScope).map((item) => {
-		for (const field of projectedFields)
-			if (!(field in item)) throw new Error(`${item.model_id} has no ${field}.`);
-		return Object.fromEntries(projectedFields.map((field) => [field, item[field]])) as {
-			model_id: string;
-		};
-	});
+	const entries = catalog.items.map(catalogItem).filter(inScope).map(projectedEntry);
 	entries.sort((a, b) => (a.model_id < b.model_id ? -1 : 1));
 	const ids = entries.map((entry) => entry.model_id);
 	if (new Set(ids).size !== ids.length) throw new Error("The catalog repeats a model ID.");
@@ -90,10 +110,10 @@ export function resolveRefs(value: Json, document: JsonObject, seen: string[] = 
 			throw new Error(`Remote or invalid $ref ${JSON.stringify(ref)}.`);
 		if (seen.includes(ref)) throw new Error(`Cyclic $ref ${ref}.`);
 		let target: Json | undefined = document;
-		for (const part of ref.slice(2).split("/"))
-			target = isObject(target)
-				? target[part.replaceAll("~1", "/").replaceAll("~0", "~")]
-				: undefined;
+		for (const part of ref.slice(2).split("/")) {
+			const key = part.replaceAll("~1", "/").replaceAll("~0", "~");
+			target = isObject(target) && Object.hasOwn(target, key) ? target[key] : undefined;
+		}
 		if (target === undefined) throw new Error(`Missing $ref target ${ref}.`);
 		const siblings = Object.entries(value).filter(([key]) => key !== "$ref");
 		if (siblings.some(([key]) => !annotations.has(key)))
@@ -108,24 +128,34 @@ export function resolveRefs(value: Json, document: JsonObject, seen: string[] = 
 	);
 }
 
+const ownAt = (value: Json | undefined, key: string) =>
+	isObject(value) && Object.hasOwn(value, key) ? value[key] : undefined;
 const schemaAt = (document: JsonObject, name: string) => {
-	const schemas = document.components;
-	const found = isObject(schemas) && isObject(schemas.schemas) ? schemas.schemas[name] : undefined;
+	const found = ownAt(ownAt(ownAt(document, "components"), "schemas"), name);
 	return isObject(found) ? found : undefined;
 };
+
+/** The model IDs a spec's `SubmitRequest.model.enum` lists, or null when it has no usable one. */
+export function specModels(document: JsonObject) {
+	const ids = ownAt(
+		ownAt(ownAt(schemaAt(document, "SubmitRequest"), "properties"), "model"),
+		"enum",
+	);
+	return Array.isArray(ids) && ids.length && ids.every((id) => typeof id === "string")
+		? (ids as string[])
+		: null;
+}
 
 /**
  * Each model's own `input` schema in one spec. A `discriminator` on `model` or an
  * `allOf` of `if model const … then input` selects the model's branch; otherwise every model in
- * `SubmitRequest.model.enum` shares the request's `input`.
+ * `SubmitRequest.model.enum` shares the request's `input`. A spec without a usable enum fails.
  */
-export function modelInputs(document: JsonObject) {
+export function modelInputs(document: JsonObject, path = "The spec") {
 	const submit = schemaAt(document, "SubmitRequest");
 	const properties = submit && isObject(submit.properties) ? submit.properties : undefined;
-	const model = properties && isObject(properties.model) ? properties.model : undefined;
-	const ids = model && Array.isArray(model.enum) ? model.enum : [];
-	if (!properties || !ids.every((id) => typeof id === "string"))
-		return new Map<string, { input: Json; shared: boolean }>();
+	const ids = specModels(document);
+	if (!properties || !ids) throw new Error(`${path} has no usable SubmitRequest.model.enum.`);
 	const branches = new Map<string, Json>();
 	const schemas = isObject(document.components) ? document.components.schemas : undefined;
 	for (const schema of isObject(schemas) ? Object.values(schemas) : []) {
@@ -154,7 +184,7 @@ export function modelInputs(document: JsonObject) {
 	}
 	const shared = properties.input;
 	const inputs = new Map<string, { input: Json; shared: boolean }>();
-	for (const id of ids as string[]) {
+	for (const id of ids) {
 		const input = branches.get(id) ?? shared;
 		if (input === undefined) throw new Error(`${id} has no input schema.`);
 		// A spec that lists several models without selecting a branch for this one documents
@@ -169,13 +199,16 @@ export function modelInputs(document: JsonObject) {
 
 /**
  * The docs index digest, a manifest of every listed spec and, for in-scope IDs only, each
- * model's resolved `input` schema, stored once per distinct schema under its SHA-256.
+ * model's resolved `input` schema, stored once per distinct schema under its SHA-256. A spec
+ * recorded as documenting no model (chat, uploads, status, the generic root spec) is only
+ * digested; any other spec without a usable model enum fails the projection.
  */
 export function projectOpenApi(
 	index: string,
 	read: (path: string) => string,
 	inScopeIds: ReadonlySet<string>,
 	date: string,
+	noModel: ReadonlySet<string> = new Set(record.openapi.noModelSpecs.paths),
 ) {
 	const paths = indexedSpecs(index);
 	const manifest = paths.map((path) => ({ path, sha256: sha256(read(path)) }));
@@ -184,7 +217,13 @@ export function projectOpenApi(
 	for (const path of paths) {
 		// The Chinese specs are digested in the manifest but not projected.
 		if (path.startsWith("/zh/")) continue;
-		for (const [id, { input, shared }] of modelInputs(JSON.parse(read(path)) as JsonObject)) {
+		const document = JSON.parse(read(path)) as JsonObject;
+		if (noModel.has(path)) {
+			if (specModels(document))
+				throw new Error(`${path} is recorded as documenting no model, but lists models.`);
+			continue;
+		}
+		for (const [id, { input, shared }] of modelInputs(document, path)) {
 			if (!inScopeIds.has(id)) continue;
 			if (models[id]) throw new Error(`${id} appears in ${models[id].spec} and ${path}.`);
 			const digest = sha256(canonicalJson(input));
@@ -203,20 +242,13 @@ export function projectOpenApi(
 }
 
 /**
- * The IDs whose OpenAPI input is projected: the pinned catalog's in-scope entries and every
- * documented Poyo.ai ledger ID, so a documented ID the pin lacks (`ideogram-v4.6`) still has
- * its REST state.
+ * The IDs whose OpenAPI input is projected: the pinned catalog's in-scope entries and the
+ * recorded extra IDs, documented ledger IDs the pin lacks, so they still have a REST state.
  */
-export function openApiScope(catalog: string) {
+export function openApiScope(catalog: string, expected: SourceRecord = record) {
 	const entries = (JSON.parse(catalog) as { entries: { model_id: string }[] }).entries;
-	const documented = ledger.providers.poyo.rows.filter((row) => row.contract === "documented");
-	return new Set([
-		...entries.map((entry) => entry.model_id),
-		...documented.flatMap((row) => row.ids),
-	]);
+	return new Set([...entries.map((entry) => entry.model_id), ...expected.openapi.extraIds.ids]);
 }
-
-type SourceRecord = typeof record;
 
 /**
  * Projects a mirror of the upstream files after checking the catalog against its recorded
@@ -230,8 +262,9 @@ export function repin(read: (path: string) => string, expected: SourceRecord = r
 	const openapi = projectOpenApi(
 		read("llms.txt"),
 		(path) => read(`openapi${path}`),
-		openApiScope(catalog),
+		openApiScope(catalog, expected),
 		expected.openapi.date,
+		new Set(expected.openapi.noModelSpecs.paths),
 	);
 	return { catalog, openapi };
 }

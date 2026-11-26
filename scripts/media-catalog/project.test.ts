@@ -195,6 +195,76 @@ test("a remote $ref, a cycle or a missing target fails the projection", () => {
 	).toThrow("Remote");
 });
 
+test("a $ref resolves only through own properties", () => {
+	const document = { components: { schemas: { Shared: { type: "object" } } } };
+	expect(() => resolveRefs({ $ref: "#/__proto__" }, document)).toThrow("Missing");
+	expect(() => resolveRefs({ $ref: "#/components/constructor" }, document)).toThrow("Missing");
+	expect(resolveRefs({ $ref: "#/components/schemas/Shared" }, document)).toEqual({
+		type: "object",
+	});
+});
+
+test("a malformed catalog entry fails the projection", () => {
+	const [item] = JSON.parse(fixtureCatalog).items;
+	const page = (changed: object) =>
+		JSON.stringify({ has_more: false, items: [{ ...item, ...changed }] });
+	expect(() => projectCatalog(JSON.stringify({ has_more: false, items: [null] }), "f00")).toThrow(
+		"malformed catalog entry",
+	);
+	expect(() => projectCatalog(page({ model_id: 7 }), "f00")).toThrow("malformed catalog entry");
+	expect(() => projectCatalog(page({ category: null }), "f00")).toThrow("malformed catalog entry");
+	for (const [field, value] of [
+		["status", 1],
+		["service_type", null],
+		["execution_mode", ["async"]],
+		["input_schema", "object"],
+		["billing", []],
+	] as const)
+		expect(() => projectCatalog(page({ [field]: value }), "f00")).toThrow(
+			`fixture-video has a malformed ${field}`,
+		);
+});
+
+test("a spec without a usable model enum fails unless it is recorded as documenting no model", () => {
+	const index = "## OpenAPI Specs\n\n- [one](/one.json)\n";
+	const project = (file: string, noModel: string[] = []) =>
+		projectOpenApi(index, () => file, new Set(["fixture-image"]), "2026-01-01", new Set(noModel));
+	const input = { $ref: "#/components/schemas/Shared" };
+	const bare = JSON.stringify({ paths: { "/v1/chat/completions": {} } });
+	expect(() => project(bare)).toThrow("/one.json has no usable SubmitRequest.model.enum");
+	expect(JSON.parse(project(bare, ["/one.json"])).models).toEqual({});
+	const withEnum = (models: unknown) => {
+		const document = JSON.parse(spec(["fixture-image"], input));
+		document.components.schemas.SubmitRequest.properties.model.enum = models;
+		return JSON.stringify(document);
+	};
+	for (const models of [undefined, [], ["fixture-image", 1], "fixture-image"])
+		expect(() => project(withEnum(models))).toThrow("has no usable SubmitRequest.model.enum");
+	// A spec recorded as documenting no model fails once it documents one.
+	expect(() => project(spec(["fixture-image"], input), ["/one.json"])).toThrow(
+		"/one.json is recorded as documenting no model",
+	);
+	expect(record.openapi.noModelSpecs.paths).toHaveLength(26);
+	const manifest = JSON.parse(openapiFile).manifest.map(({ path }: { path: string }) => path);
+	for (const path of record.openapi.noModelSpecs.paths) {
+		expect(manifest).toContain(path);
+		expect(path.startsWith("/zh/")).toBe(false);
+	}
+});
+
+test("the OpenAPI scope adds only the recorded documented IDs the pinned catalog lacks", () => {
+	const { entries } = JSON.parse(catalogFile) as { entries: { model_id: string }[] };
+	const pinned = new Set(entries.map((entry) => entry.model_id));
+	const documented = ledger.providers.poyo.rows
+		.filter((row) => row.contract === "documented")
+		.flatMap((row) => row.ids);
+	expect(record.openapi.extraIds.ids).toEqual(documented.filter((id) => !pinned.has(id)).sort());
+	expect(record.openapi.extraIds.reason).toBeTruthy();
+	expect([...openApiScope(catalogFile)].sort()).toEqual(
+		[...pinned, ...record.openapi.extraIds.ids].sort(),
+	);
+});
+
 test("a discriminator or an allOf branch selects each model's own input", () => {
 	const branch = (prompt: number) => ({
 		type: "object",

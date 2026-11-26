@@ -12,6 +12,44 @@
 		"file": "poyo-openapi-2026-11-26.json",
 		"date": "2026-11-26",
 		"index": "https://docs.poyo.ai/llms.txt",
-		"projectionSha256": "e08c7925cf22270b3a6f9fd30939416c058cb81a7de6059000a7a63627f338e1"
+		"projectionSha256": "e08c7925cf22270b3a6f9fd30939416c058cb81a7de6059000a7a63627f338e1",
+		"extraIds": {
+			"ids": [
+				"ideogram-v4.6",
+				"ideogram-v4.6-edit"
+			],
+			"reason": "Documented ledger IDs that the pinned catalog lacks; projected so they keep a REST state until G2c re-pins."
+		},
+		"noModelSpecs": {
+			"paths": [
+				"/openapi.json",
+				"/api-manual/task-management/image-status.json",
+				"/api-manual/task-management/video-status.json",
+				"/api-manual/task-management/3d-status.json",
+				"/api-manual/music-series/query-music-detail.json",
+				"/api-manual/file-series/upload-url.json",
+				"/api-manual/file-series/upload-base64.json",
+				"/api-manual/file-series/upload-stream.json",
+				"/api-manual/account-management/user-balance.json",
+				"/api-manual/chat-series/chat-completions.json",
+				"/api-manual/chat-series/responses.json",
+				"/api-manual/chat-series/claude-messages.json",
+				"/api-manual/chat-series/gemini-native-format.json",
+				"/api-manual/chat-series/openai.json",
+				"/api-manual/chat-series/anthropic.json",
+				"/api-manual/chat-series/google.json",
+				"/api-manual/chat-series/deepseek.json",
+				"/api-manual/chat-series/xai.json",
+				"/api-manual/chat-series/moonshot.json",
+				"/api-manual/music-series/generate-mashup.json",
+				"/api-manual/music-series/generate-sounds.json",
+				"/api-manual/music-series/voice/validate.json",
+				"/api-manual/music-series/voice/generate.json",
+				"/api-manual/music-series/voice/regenerate.json",
+				"/api-manual/music-series/voice/check.json",
+				"/integrations/capability-catalog.json"
+			],
+			"reason": "Listed English specs that document no generation model (the generic root spec, catalog, balance, chat, uploads, task status and music endpoints); digested in the manifest only."
+		}
 	}
 }
