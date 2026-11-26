@@ -382,6 +382,49 @@ describe("rules cover exact constructs", () => {
 		expect(validateInput(schema, { size: 7 }, bind(schema, rule))).toEqual(["size must be string"]);
 	});
 
+	test("a rule strips the keyword behind each construct it names, on the field and its items", () => {
+		const slow = "(a+)+$";
+		const size = object({ size: { type: "string", maxLength: 9, pattern: slow } });
+		const sizeRule = fieldRule(size, { constructs: [`pattern ${JSON.stringify(slow)}`] });
+		expect(uncovered(size, bind(size, sizeRule))).toEqual([]);
+		expect(validateInput(size, { size: "1024x1024" }, bind(size, sizeRule))).toEqual([]);
+		expect(validateInput(size, { size: "1024x10240" }, bind(size, sizeRule))).toEqual([
+			"size is longer than 9 characters",
+		]);
+		expect(validateInput(size, { size: 7 }, bind(size, sizeRule))).toEqual(["size must be string"]);
+
+		const urls = object({
+			size: { type: "array", minItems: 1, maxItems: 2, items: { type: "string", pattern: slow } },
+		});
+		const urlsRule = fieldRule(urls, { constructs: [`pattern ${JSON.stringify(slow)}`] });
+		expect(uncovered(urls, bind(urls, urlsRule))).toEqual([]);
+		expect(validateInput(urls, { size: ["a"] }, bind(urls, urlsRule))).toEqual([]);
+		expect(validateInput(urls, { size: [] }, bind(urls, urlsRule))).toEqual([
+			"size has fewer than 1 items",
+		]);
+		expect(validateInput(urls, { size: ["a", "b", "c"] }, bind(urls, urlsRule))).toEqual([
+			"size has more than 2 items",
+		]);
+		expect(validateInput(urls, { size: [7] }, bind(urls, urlsRule))).toEqual([
+			"size[0] must be string",
+		]);
+		expect(validateInput(urls, { size: "a" }, bind(urls, urlsRule))).toEqual([
+			"size must be array",
+		]);
+
+		const bad = object({ size: { type: "string", enum: ["a"], maxLength: -1 } });
+		const badRule = fieldRule(bad, { constructs: ["malformed maxLength"] });
+		expect(validateInput(bad, { size: "a" }, bind(bad, badRule))).toEqual([]);
+		expect(validateInput(bad, { size: "b" }, bind(bad, badRule))).toEqual([
+			"size is not an allowed value",
+		]);
+
+		// A rule that replaces a declaration the validator cannot read replaces all of it.
+		const odd = object({ size: { type: "wat", maxLength: 1 } });
+		const oddRule = fieldRule(odd, { constructs: ['type "wat"'], check: () => null });
+		expect(validateInput(odd, { size: "abc" }, bind(odd, oddRule))).toEqual([]);
+	});
+
 	test("a rule that covers nothing on its field is refused", () => {
 		const schema = object({ size: { type: "string", enum: ["a"] } });
 		const rule = fieldRule(schema, { check: () => "always refused" });

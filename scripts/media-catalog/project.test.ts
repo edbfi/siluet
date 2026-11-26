@@ -370,6 +370,40 @@ test("a spec recorded as listing no in-scope model fails once any model property
 			),
 		),
 	).toThrow(listed);
+	// Any in-scope ID outside an example trips it: a path parameter, a combinator, a default.
+	expect(() =>
+		project({
+			paths: {
+				"/v1/{model}": {
+					post: {
+						parameters: [{ name: "model", in: "path", schema: { enum: ["fixture-image"] } }],
+					},
+				},
+			},
+		}),
+	).toThrow(listed);
+	expect(() => project(request({ anyOf: [{ const: "fixture-image" }] }))).toThrow(listed);
+	expect(() => project(request({ type: "string", default: "fixture-image" }))).toThrow(listed);
+	// An example naming an in-scope ID, and a SubmitRequest listing only out-of-scope IDs, stay.
+	expect(
+		JSON.parse(
+			project(request({ type: "string", example: "fixture-image", examples: ["fixture-image"] })),
+		).models,
+	).toEqual({});
+	expect(
+		JSON.parse(
+			project({
+				components: {
+					schemas: {
+						SubmitRequest: {
+							type: "object",
+							properties: { model: { type: "string", enum: ["generate-mashup"] } },
+						},
+					},
+				},
+			}),
+		).models,
+	).toEqual({});
 	expect(record.openapi.noModelSpecs.reason).toBe(
 		"Listed English specs that list no in-scope model (non-model endpoints; out-of-scope music and voice `Request` specs); digested in the manifest only.",
 	);

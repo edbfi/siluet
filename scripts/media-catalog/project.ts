@@ -151,21 +151,19 @@ export function specModels(document: JsonObject) {
 }
 
 /**
- * The in-scope IDs any `model` property anywhere in a spec lists in its `enum` or `const`,
- * through a local `$ref` too. A spec recorded as listing no in-scope model must list none.
+ * The in-scope IDs a spec names anywhere outside an `example` or `examples`: a `model` enum,
+ * const or default, a path parameter, a combinator branch. A spec recorded as listing no
+ * in-scope model must name none.
  */
-export function listedModels(document: JsonObject, inScopeIds: ReadonlySet<string>) {
+export function listedModels(document: Json, inScopeIds: ReadonlySet<string>) {
 	const found = new Set<string>();
 	const visit = (value: Json) => {
-		if (Array.isArray(value)) return value.forEach(visit);
-		if (!isObject(value)) return;
-		const model = ownAt(value, "model");
-		if (isObject(model)) {
-			const resolved = resolveRefs(model, document);
-			const ids = [ownAt(resolved, "const"), ...[ownAt(resolved, "enum")].flat()];
-			for (const id of ids) if (typeof id === "string" && inScopeIds.has(id)) found.add(id);
-		}
-		for (const item of Object.values(value)) visit(item);
+		if (typeof value === "string") {
+			if (inScopeIds.has(value)) found.add(value);
+		} else if (Array.isArray(value)) value.forEach(visit);
+		else if (isObject(value))
+			for (const [key, item] of Object.entries(value))
+				if (key !== "example" && key !== "examples") visit(item);
 	};
 	visit(document);
 	return [...found].sort();
@@ -246,9 +244,9 @@ export function projectOpenApi(
 		const document = JSON.parse(read(path)) as JsonObject;
 		if (noModel.has(path)) {
 			const listed = listedModels(document, inScopeIds);
-			if (specModels(document) || listed.length)
+			if (listed.length)
 				throw new Error(
-					`${path} is recorded as listing no in-scope model, but lists ${listed.join(", ") || "models"}.`,
+					`${path} is recorded as listing no in-scope model, but lists ${listed.join(", ")}.`,
 				);
 			continue;
 		}

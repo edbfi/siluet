@@ -76,41 +76,50 @@ function keywordConstruct(keyword: string, value: unknown) {
 const orphans = (schema: Schema) =>
 	has(schema, "if") ? [] : ["then", "else"].filter((key) => has(schema, key));
 
-/** Constructs in a property declaration of the input object. */
+/**
+ * The construct that leaves a declaration nothing for the validator to run, or null: an untyped
+ * declaration with only annotations, a nested object, an unknown type, an array of arrays.
+ */
+function opaqueConstruct(schema: Schema, item: boolean) {
+	if (!has(schema, "type"))
+		return Object.keys(schema).every((keyword) => annotations.includes(keyword))
+			? "untyped property"
+			: null;
+	if (schema.type === "object") return "nested object";
+	if (typeof schema.type !== "string" || !declarationTypes.includes(schema.type))
+		return `type ${JSON.stringify(schema.type)}`;
+	if (item && schema.type === "array") return "nested array";
+	return null;
+}
+
+/** The construct one keyword of a declaration names, or null when the validator runs it. */
+function ownConstruct(schema: Schema, keyword: string, value: unknown) {
+	if (!valueKeywords.includes(keyword)) return keyword;
+	if (keyword === "items") {
+		if (!has(schema, "type")) return "items without type";
+		return schema.type === "array" ? null : "items on a non-array";
+	}
+	return keywordConstruct(keyword, value);
+}
+
+/**
+ * Constructs in a property declaration of the input object. A rule for an untyped field's
+ * combinator never hides a malformed or disallowed keyword beside it.
+ */
 function declarationConstructs(field: string, schema: unknown, item = false): Construct[] {
 	if (!isSchema(schema)) return [{ field, construct: "non-schema property" }];
-	if (!has(schema, "type")) {
-		// A rule for an untyped field's combinator never hides a malformed or disallowed keyword.
-		const found: Construct[] = [];
-		for (const [keyword, value] of Object.entries(schema)) {
-			if (annotations.includes(keyword)) continue;
-			const construct = !valueKeywords.includes(keyword)
-				? keyword
-				: keyword === "items"
-					? "items without type"
-					: keywordConstruct(keyword, value);
-			if (construct) found.push({ field, construct });
-		}
-		return found.length ? found : [{ field, construct: "untyped property" }];
-	}
-	if (schema.type === "object") return [{ field, construct: "nested object" }];
-	if (typeof schema.type !== "string" || !declarationTypes.includes(schema.type))
-		return [{ field, construct: `type ${JSON.stringify(schema.type)}` }];
-	if (item && schema.type === "array") return [{ field, construct: "nested array" }];
+	const whole = opaqueConstruct(schema, item);
+	if (whole) return [{ field, construct: whole }];
 	const found: Construct[] = [];
 	for (const [keyword, value] of Object.entries(schema)) {
 		if (annotations.includes(keyword)) continue;
-		if (!valueKeywords.includes(keyword)) {
-			found.push({ field, construct: keyword });
-			continue;
-		}
-		const construct = keywordConstruct(keyword, value);
+		const construct = ownConstruct(schema, keyword, value);
 		if (construct) found.push({ field, construct });
 	}
 	if (schema.type === "array") {
 		if (!has(schema, "items")) found.push({ field, construct: "array without items" });
 		else found.push(...declarationConstructs(field, schema.items, true));
-	} else if (has(schema, "items")) found.push({ field, construct: "items on a non-array" });
+	}
 	return found;
 }
 
@@ -275,11 +284,29 @@ export function uncovered(schema: Schema, binding: Binding) {
 	return constructs(schema).filter((found) => !bound.some((rule) => covers(rule, found)));
 }
 
-/** A declaration without the keywords its bound rules replace. */
-function stripped(declaration: unknown, replaced: readonly string[]) {
+/**
+ * A declaration without the keywords behind the constructs its bound rules replace, on the
+ * field and its items. A replaced opaque construct replaces the whole declaration.
+ */
+function stripped(declaration: unknown, replaced: readonly string[], item = false): Schema {
 	if (!isSchema(declaration)) return {};
+	const replaces = (construct: string | null) => construct !== null && replaced.includes(construct);
+	if (replaces(opaqueConstruct(declaration, item))) return {};
 	return Object.fromEntries(
-		Object.entries(declaration).filter(([keyword]) => !replaced.includes(keyword)),
+		Object.entries(declaration).flatMap(([keyword, value]) =>
+			annotations.includes(keyword)
+				? [[keyword, value]]
+				: replaces(ownConstruct(declaration, keyword, value))
+					? []
+					: [
+							[
+								keyword,
+								keyword === "items" && declaration.type === "array"
+									? stripped(value, replaced, true)
+									: value,
+							],
+						],
+		),
 	);
 }
 
