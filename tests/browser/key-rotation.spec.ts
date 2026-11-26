@@ -24,6 +24,17 @@ const test = base.extend<{ studio: { server: Studio; origin: string; password: s
 });
 
 /** The SPKI of this origin's stored browser key, or null. */
+/**
+ * Fires `focus` on a bound tab. The commit notice may already have had the tab check and load
+ * the new session, which destroys the page's context mid-call; only that is tolerated.
+ */
+const focusBoundTab = (page: Page) =>
+	page
+		.evaluate(() => dispatchEvent(new Event("focus")))
+		.catch((error: Error) => {
+			if (!error.message.includes("Execution context was destroyed")) throw error;
+		});
+
 const storedSpki = (page: Page) =>
 	page.evaluate(async () => {
 		const installation =
@@ -647,7 +658,7 @@ test("a bound tab meeting the old key's 401 after the commit reaches the new ses
 	const signing = await signInFormWhileSignedIn(context, origin);
 	await fillSignIn(signing, password);
 	await expect(signing).toHaveURL(`${origin}/`);
-	await page.evaluate(() => dispatchEvent(new Event("focus")));
+	await focusBoundTab(page);
 	await expect.poll(() => documents).toContain("/jobs");
 	await expect(page.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
 	expect(documents).not.toContain("/sign-in");
