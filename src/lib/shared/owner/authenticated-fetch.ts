@@ -76,10 +76,13 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 			if (bearer) outgoing.set("authorization", `Bearer ${bearer}`);
 			else outgoing.delete("authorization");
 			const options = flagged({ ...forwarded, headers: outgoing, credentials: "omit" as const });
-			return native(request ? new Request(request, options) : input, options).then((response) => {
-				// A response from before a remount applies nothing. A Security response always
-				// reaches its settlement, which decides for itself.
-				if (client.remountKey !== sent && !securityPost)
+			// A clone keeps the caller's body for a resend; building a Request from one consumes it.
+			const outgoingInput = request ? new Request(request.clone(), options) : input;
+			return native(outgoingInput, options).then(async (response) => {
+				// A response from before a remount applies nothing. A recovery answer covers the whole
+				// host, so it still reaches its caller. A Security response always reaches its
+				// settlement, which decides for itself.
+				if (client.remountKey !== sent && !securityPost && !(await recoveryRequired(response)))
 					throw new DOMException("The studio changed session.", "AbortError");
 				const successor = response.headers.get("x-siluet-bearer");
 				if (successor === null) return response;
@@ -154,8 +157,8 @@ export function authenticatedFetch(client: SessionClient, native: typeof fetch) 
 					const recovery = await recoveryRequired(response);
 					const remounted = client.remountKey !== generation;
 					// A remount while the body was read makes the answer stale, as in `send`. A
-					// recovery answer read during a remount covers the whole host, so it still
-					// reaches its caller.
+					// recovery answer still reaches its caller, but one from before a remount drops
+					// no drafts.
 					if (remounted && !securityPost && !recovery)
 						throw new DOMException("The studio changed session.", "AbortError");
 					if (recovery && !remounted) client.recoveryRequired();
