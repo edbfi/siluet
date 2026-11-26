@@ -10,7 +10,7 @@
 			"!!.codex",
 			"!!.impeccable",
 			"!!skills-lock.json",
-			"!!scripts/media-catalog/sources",
+			"!!scripts/media-catalog/sources/poyo-*.json",
 			"!!src/lib/shared/media-catalog/poyo-rows.json"
 		]
 	},

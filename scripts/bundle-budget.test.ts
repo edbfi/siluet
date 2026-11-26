@@ -39,7 +39,7 @@ test("a client bundle over its budget fails the build; the server bundle is not 
 	expect(run(1, "ssr")).toEqual([]);
 });
 
-test("the client never imports the derived rows before the picker slice raises the budget", () => {
+test("the derived rows would exceed the client budget, which the build enforces", () => {
 	expect(clientBudgetBytes).toBe(524_288);
 	const rows = readFileSync(
 		new URL("../src/lib/shared/media-catalog/poyo-rows.json", import.meta.url),

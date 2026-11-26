@@ -14,10 +14,7 @@
 		"index": "https://docs.poyo.ai/llms.txt",
 		"projectionSha256": "e08c7925cf22270b3a6f9fd30939416c058cb81a7de6059000a7a63627f338e1",
 		"extraIds": {
-			"ids": [
-				"ideogram-v4.6",
-				"ideogram-v4.6-edit"
-			],
+			"ids": ["ideogram-v4.6", "ideogram-v4.6-edit"],
 			"reason": "Documented ledger IDs that the pinned catalog lacks; projected so they keep a REST state until G2c re-pins."
 		},
 		"noModelSpecs": {
