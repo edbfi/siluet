@@ -145,13 +145,14 @@ Each in-scope `747e5d7` property, by the input class it needs. "Entries" counts 
 | --- | ---: | --- |
 | prompt | 153 | qualified (G4, G7) |
 | enum and integer options | 150 | qualified (G4, G7) within the validator |
-| `image_urls` on images | 72 | qualified 1–10 (G5); more than 10: Q4 |
+| `image_urls` on images | 72 | qualified 1–10 (G5); 11–16 on `minimax-h3-image` (G6b) |
 | `image_urls` on video | 72 | G8 frames; G8b where the schema makes them references |
 | boolean options | 59 | G4 and G7 qualify booleans |
 | source or reference video URLs | 41 | P3 (Poyo.ai source-video and video references) |
 | output format and compression | 35 | G3 |
 | output count (`n`, `max_images`, `enable_sequential`) | 34 | pinned to one output; P3 multi-output |
 | free-text options (`negative_prompt`, `text` …) | 34 | G7 qualifies free text on video; Q6 on Poyo.ai images |
+| prose-only string domains | 16 | reviewed typing rule per row; otherwise omitted ([below](#prose-only-domains)) |
 | `enable_safety_checker` | 31 | D4 table (G4, G6, G7) |
 | image references on video | 28 | G8b |
 | audio, voice and avatar inputs | 27 | P3 audio and avatars |
@@ -178,6 +179,8 @@ Constructs outside the validator, each until a reviewed rule covers it (G2a):
 
 Fetched 2026-11-26 from the "OpenAPI Specs" section of the [docs index](https://docs.poyo.ai/llms.txt) (SHA-256 `5b84a6d…`): 175 files, 168 English and 7 Chinese. The Chinese files are digested but not projected; the five Chinese Sora specs match their English ones. 147 English specs name models in `SubmitRequest.model.enum`, covering 210 IDs. The SHA-256 of the `sha256  path` list in index order is `3a830a6…`. A throwaway script kept outside the repository projects each spec's `input` schema, resolving local `$ref`s. A property counts when any `oneOf` or `anyOf` branch lists it, and the input is closed only when every branch is. G2a's projection replaces the script and resolves each model's own branch.
 
+Projection size, measured with a second throwaway script on 2026-11-26: keeping only in-scope IDs' resolved `input` schemas, one copy per distinct schema, plus the 175-file manifest, gives 95 schemas for 157 IDs at `747e5d7` (191,792 bytes canonical, 175,095 without `example` keys) and 98 schemas for 160 IDs at `ec73207` (198,356 and 181,456 bytes). No listed spec uses a remote `$ref`.
+
 | Catalog | In-scope entries | With a spec | REST declares the field | REST closed without it | REST open without it | No spec |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `747e5d7` | 162 | 157 | 31 | 35 | 91 | 5 |
@@ -190,6 +193,40 @@ Catalog fields that a closed REST input does not list. Each is a contradiction f
 - `gpt-image-2.6-fixed`: `resolution`
 - `poyo-ai/image-translator`: `protect_text`, `synthesis_on_image`, `translate_on_image`
 - `poyo-ai/video-translator`: `wy_need_text`, `voice_role_id`, `remove_bg_audio`
+
+## Disputed domains
+
+Fields that both the pinned catalog and the model's OpenAPI input list with different limits, found by comparing `enum`, `minimum`, `maximum`, `minItems`, `maxItems`, `minLength` and `maxLength`. The shared domain stays eligible, and the disputed values are unknown with [question 8](SPEC-catalog-engine.md#open-questions). Rows marked *multi* come from a spec that serves several models, where the throwaway comparison takes the union of branches; G2a confirms them per branch.
+
+| ID | Field | Catalog | OpenAPI input | Disputed |
+| --- | --- | --- | --- | --- |
+| `seedream-4.5`, `seedream-4.5-edit` (multi) | `n` | 1–15 | 1–6 | 7–15 (Phase 3 multi-output) |
+| `gpt-image-2.6-flare`, `gpt-image-2.6-sunburst` | `output_format` | gif, jpeg, png, webp | jpeg, png, webp | gif (never offered) |
+| `ideogram-v4.5` (multi) | `quality` | high, low, medium | adds `very_low` | `very_low` |
+| `ideogram-v4.5` (multi) | `size` | 43-value enum | untyped string | values outside the enum |
+| `ideogram-vector-1.0/text-to-vector` (multi) | `image_urls` | 1–5 items | no item limits | more than 5 |
+| `ideogram-vector-1.0/image-to-vector` (multi) | `image_urls` | 1 item | no item limits | more than 1 |
+| `kling-4.0` | `resolution` | 1080p, 720p | adds `4k` | `4k` at `747e5d7`; agreed at `ec73207` |
+| `seedance-2.5` | `resolution` | 1080p, 480p, 720p | adds `4k` | `4k` at `747e5d7`; agreed at `ec73207` |
+
+At `ec73207` the list also gains `ideogram-v4.6-edit` `reference_image_urls`, which G2c records with the re-pin.
+
+## Prose-only domains
+
+String options that are not free text and whose domain appears only in a description, with no `enum`, `pattern` or `format` in either source at `747e5d7`. Each is offered only through a hash-bound reviewed rule that types it; otherwise it has no covered path and Siluet omits it.
+
+| IDs | Field | Domain in prose | Path |
+| --- | --- | --- | --- |
+| `minimax-h3-image` | `size` | ten ratios, `auto` or `WIDTHxHEIGHT` within 655,360–20,000,000 pixels and 1:3–3:1 | typing rule with G6b; large sizes after G13 |
+| `gpt-image-2`, `gpt-image-2-edit` | `size` | preset ratios, `auto` or a custom pixel size | typing rule with G4 and G5 |
+| `kling-2.5-turbo-pro` | `aspect_ratio` | none ("Optional aspect ratio string") | omitted until documented |
+| `wan2.5-text-to-video`, `wan2.5-image-to-video` | `audio` | none beyond the example `background_music` | omitted until documented |
+| `wan2.7-text-to-video`, `wan2.7-image-to-video`, `wan2.7-reference-to-video` | `audio_setting` | none | omitted until documented |
+| `poyo-ai/image-translator` | `source_language`, `target_language` | none | Q6 |
+| `wan2.7-edit-video` | `audio_setting` | none | P3 source-video work |
+| `poyo-ai/video-translator` | `source_language`, `target_language` | none | P3 source-video work |
+| `heygen-avatar-6`, `heygen-avatar-6-turbo` | `voice`, `avatar` | names from a linked list | P3 audio and avatars |
+| `create-music-video`, `generate-music-cover` | `task_id`, `audio_id` | provider task IDs | P3 prerequisites |
 
 ## D4 states after the ledger migration
 
