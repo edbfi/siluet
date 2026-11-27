@@ -29,9 +29,10 @@ function rejection(status: number, body: unknown): Rejection | null {
 	const httpRejection = error == null && (code == null || code === status);
 	if ((code === 402 && error === "insufficient_credits_error") || (httpRejection && status === 402))
 		return "quota";
+	// A per-job refusal of this model for this key; the key itself stays valid (spec).
+	if (code === 403 && error === "permission_denied_error") return "permission";
 	if (
 		(code === 401 && error === "authentication_error") ||
-		(code === 403 && error === "permission_denied_error") ||
 		(httpRejection && (status === 401 || status === 403))
 	)
 		return "authorization";

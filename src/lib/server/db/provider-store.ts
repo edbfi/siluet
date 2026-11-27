@@ -12,6 +12,7 @@ import {
 	jobsNeedCredential,
 } from "./image-job-store";
 import type { Installation } from "./installation";
+import { clearRefusals } from "./model-refusal";
 import { ProviderKeyPolicyError, prepareProviderKey, readProviderKey } from "./provider-key";
 
 const algorithm = "aes-256-gcm";
@@ -205,6 +206,8 @@ export function providerStore(installation: Installation) {
 								);
 								await tx.run(sql`UPDATE provider_credential SET revision=${revision}, ciphertext=${ciphertext},
 									verified_at=${verifiedAt}, seedream=${Number(seedream)} WHERE provider=${id}`);
+								// A new key revision clears the refusals recorded against the old one.
+								await clearRefusals(tx, id, revision);
 								return true;
 							},
 							{ behavior: "immediate" },
@@ -224,6 +227,8 @@ export function providerStore(installation: Installation) {
 					await db.get(sql`UPDATE provider_credential SET revision=revision+1, ciphertext=NULL,
 					verified_at=NULL, seedream=NULL WHERE provider=${id} ${guard} RETURNING revision`);
 				if (!changed) return "job-warning" as const;
+				// No refusal outlives the key it was recorded against.
+				await db.run(sql`DELETE FROM model_refusal WHERE provider=${id}`);
 			});
 		},
 	};

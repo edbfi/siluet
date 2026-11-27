@@ -484,6 +484,46 @@ test("a derived job whose row a re-pin removed dispatches, recovers and delivers
 	expect(posts).toHaveLength(1);
 });
 
+test("a Poyo.ai permission refusal rejects one job, keeps the key and records the refusal", async () => {
+	let posts = 0;
+	const jobs = makeTracking(async (url, request) => {
+		if (request.method === "POST") {
+			posts++;
+			return Response.json(
+				{ code: 403, error: { type: "permission_denied_error", message: "not enabled" } },
+				{ status: 403 },
+			);
+		}
+		return Response.json({ code: 200, data: { credits_amount: 10 } });
+	});
+	await jobs.resume();
+	const before = await installation.use((db) =>
+		db.get(
+			sql`SELECT revision, ciphertext, verified_at FROM provider_credential WHERE provider='poyo'`,
+		),
+	);
+	await insert("refused", "poyo", "flux-dev");
+	await dispatch("poyo", "refused");
+	expect(posts).toBe(1);
+	expect(await latest("refused")).toMatchObject({
+		state: "rejected",
+		message: "Poyo.ai refused this model for this key. The saved key is unchanged.",
+	});
+	expect(
+		await installation.use((db) =>
+			db.get(
+				sql`SELECT revision, ciphertext, verified_at FROM provider_credential WHERE provider='poyo'`,
+			),
+		),
+	).toEqual(before);
+	expect(await jobs.needsCredential("poyo")).toBe(false);
+	expect(
+		await installation.use((db) =>
+			db.all(sql`SELECT provider, model, credential_revision, job_id FROM model_refusal`),
+		),
+	).toEqual([{ provider: "poyo", model: "flux-dev", credential_revision: 1, job_id: "refused" }]);
+});
+
 test("Poyo wallet comparison stays separate from task credits and omits account details", async () => {
 	let balances = 0;
 	const jobs = makeTracking(async (url, request) => {

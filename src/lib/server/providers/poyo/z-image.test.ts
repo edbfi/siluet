@@ -156,7 +156,7 @@ test("a balance check can succeed before Z-Image denies model permission", async
 			[
 				403,
 				{ code: 403, error: { type: "permission_denied_error" } },
-				{ kind: "rejected", reason: "authorization" },
+				{ kind: "rejected", reason: "permission" },
 			],
 			[
 				200,

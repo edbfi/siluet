@@ -59,6 +59,25 @@ test("Poyo distinguishes business validation and quota rejection from an unknown
 	expect(await upstream.submit(key, request)).toEqual({ kind: "unknown" });
 });
 
+test("a permission_denied_error 403 is a per-job permission refusal; a plain 403 stays authorization", async () => {
+	const refused = createPoyoImage(async () =>
+		Response.json(
+			{ code: 403, error: { type: "permission_denied_error", message: "model not enabled" } },
+			{ status: 403 },
+		),
+	);
+	expect(await refused.submit(key, request)).toEqual({ kind: "rejected", reason: "permission" });
+	const plain = createPoyoImage(async () => new Response(null, { status: 403 }));
+	expect(await plain.submit(key, request)).toEqual({ kind: "rejected", reason: "authorization" });
+	const unauthorized = createPoyoImage(async () =>
+		Response.json({ code: 401, error: { type: "authentication_error" } }, { status: 401 }),
+	);
+	expect(await unauthorized.submit(key, request)).toEqual({
+		kind: "rejected",
+		reason: "authorization",
+	});
+});
+
 test("Poyo keeps a file-format error with any task-ID field uncertain", async () => {
 	for (const id of [taskId, "invalid/id", "", 42, null]) {
 		const image = createPoyoImage(async () =>
@@ -178,7 +197,7 @@ test("only a consistent submit-limiter rejection authorizes a Poyo retry", async
 	expect(await submit(503, { code: 429, error })).toEqual({ kind: "unknown" });
 });
 
-test("the shared Poyo status reader keeps the image result rules and authorization kind", async () => {
+test("the shared Poyo status reader keeps the image result rules, and a 403 refusal is per job", async () => {
 	const url = "https://media.example.org/one.png";
 	const image = createPoyoImage(async () =>
 		Response.json({
@@ -216,5 +235,5 @@ test("the shared Poyo status reader keeps the image result rules and authorizati
 			method: "POST",
 			body: { model: "z-image", input: { prompt: "x", size: "1:1" } },
 		} as never),
-	).toEqual({ kind: "rejected", reason: "authorization" });
+	).toEqual({ kind: "rejected", reason: "permission" });
 });

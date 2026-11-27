@@ -1,6 +1,7 @@
 import type { EventEmitter } from "node:events";
 import { fileAttemptStore } from "../../db/file-attempt";
 import { mediaCleaning } from "../../db/media-cleaning";
+import { modelRefusals } from "../../db/model-refusal";
 import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
 import { saveIntentStore } from "../../db/save-intent";
@@ -106,6 +107,7 @@ async function openOwner(dev: boolean) {
 		const videoQueue = await createVideoQueue(installation, videoAccess, jobs.dispatchVideo);
 		const gallery = createGallery(installation);
 		const queue = await createSubmissionQueue(installation, store.credential, jobs);
+		const refusals = modelRefusals(installation);
 		// File attempts carry this runtime's nonce, so a later runtime never sends for them.
 		const nonce = crypto.randomUUID();
 		const files = await createFileQueue(
@@ -211,6 +213,7 @@ async function openOwner(dev: boolean) {
 			gallery,
 			autoSave,
 			queue,
+			refusals,
 			files,
 			access,
 			providers,
