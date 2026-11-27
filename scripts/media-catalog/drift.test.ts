@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -410,6 +410,37 @@ test("mirror paths stay inside the mirror and on the expected hosts", () => {
 		"https://docs.poyo.ai/",
 	])
 		expect(() => mirrorPath(url)).toThrow();
+});
+
+test("a mirror reader refuses absolute paths, traversal, links that leave the mirror and oversized files", () => {
+	const base = mkdtempSync(join(tmpdir(), "siluet-drift-test-"));
+	try {
+		const [dir, outside] = [join(base, "mirror"), join(base, "outside")];
+		mkdirSync(join(dir, "pages"), { recursive: true });
+		mkdirSync(outside);
+		writeFileSync(join(outside, "secret.txt"), "outside");
+		writeFileSync(join(dir, "llms.txt"), "inside");
+		writeFileSync(join(dir, "big.json"), "x".repeat(4 * 2 ** 20 + 1));
+		symlinkSync(join(outside, "secret.txt"), join(dir, "capability-catalog.json"));
+		symlinkSync(outside, join(dir, "pages", "docs.poyo.ai"));
+		symlinkSync(join(dir, "llms.txt"), join(dir, "revision"));
+		const read = readMirror(dir);
+		expect(read("llms.txt")).toBe("inside");
+		// A link that stays inside the mirror is read like the file it names.
+		expect(read("revision")).toBe("inside");
+		for (const path of [
+			join(dir, "llms.txt"),
+			"../outside/secret.txt",
+			"capability-catalog.json",
+			"pages/docs.poyo.ai/secret.txt",
+			"big.json",
+			"pages",
+			"missing.json",
+		])
+			expect(read(path)).toBeUndefined();
+	} finally {
+		rmSync(base, { recursive: true });
+	}
 });
 
 test("the head revision comes from the anonymous ref advertisement", () => {

@@ -15,11 +15,12 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import {
@@ -142,14 +143,29 @@ export function mirrorPath(url: string) {
 /** The mirror path of a spec the docs index lists, or null for an unsafe path. */
 const specPath = (path: string) => (safePath(path) ? `openapi${path}` : null);
 
-/** A reader over a mirror directory that never leaves it. */
+/** The largest file a mirror holds: the biggest fetch limit. */
+const mirrorFileLimit = 4 * 2 ** 20;
+
+/**
+ * A reader over a mirror directory that never leaves it: a relative path whose real path, after
+ * every link, is a regular file inside the mirror's real root and within `mirrorFileLimit`.
+ */
 export function readMirror(dir: string): Mirror {
-	const root = resolve(dir);
-	return (path) => {
-		const file = resolve(root, path);
+	const root = realpathSync(dir);
+	const within = (file: string) => {
 		const inside = relative(root, file);
-		if (!inside || inside.startsWith("..")) return undefined;
-		return statSync(file, { throwIfNoEntry: false })?.isFile()
+		return !!inside && !inside.startsWith("..") && !isAbsolute(inside);
+	};
+	return (path) => {
+		if (isAbsolute(path) || !within(resolve(root, path))) return undefined;
+		let file: string;
+		try {
+			file = realpathSync(resolve(root, path));
+		} catch {
+			return undefined;
+		}
+		const stat = statSync(file);
+		return within(file) && stat.isFile() && stat.size <= mirrorFileLimit
 			? readFileSync(file, "utf8")
 			: undefined;
 	};
@@ -521,8 +537,8 @@ export function headRevision(advertisement: string) {
 
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 const limits = {
-	refs: 4 * 2 ** 20,
-	catalog: 4 * 2 ** 20,
+	refs: mirrorFileLimit,
+	catalog: mirrorFileLimit,
 	index: 2 ** 20,
 	spec: 2 ** 20,
 	page: 2 ** 20,
