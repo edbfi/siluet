@@ -113,7 +113,9 @@ test("one owner can claim the studio and sign in after a process restart", async
 			});
 			expect(repeat.status()).toBe(403);
 			expect(server.announcements()).toBe(0);
-			// Client navigation to a claimed /setup finds nothing.
+			// Client navigation to a claimed /setup finds nothing. The form renders only once the
+			// client router runs (`ssr = false`); a click before that would load the document.
+			await expect(revisit.getByLabel("Username", { exact: true })).toBeVisible();
 			await revisit.evaluate(() => {
 				const link = document.createElement("a");
 				link.href = "/setup";
