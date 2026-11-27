@@ -9,8 +9,10 @@ import {
 import ImageComposer from "#lib/components/image-studio/ImageComposer.svelte";
 import ImageReview from "#lib/components/image-studio/ImageReview.svelte";
 import { LocalCopies } from "#lib/components/image-studio/local-copy.svelte.ts";
+import { setAside } from "#lib/components/image-studio/request-styles.ts";
 import SeedreamFields from "#lib/components/image-studio/SeedreamFields.svelte";
 import ZImageFields from "#lib/components/image-studio/ZImageFields.svelte";
+import ReviewOnlyPanel from "#lib/components/media-catalog/ReviewOnlyPanel.svelte";
 import {
 	duplicateReferenceSlots,
 	stageableReferences,
@@ -26,6 +28,7 @@ import {
 	createZImageDraft,
 	validateZImageDraft,
 } from "#lib/shared/image-studio/z-image.ts";
+import { reviewOnlyFamily, reviewOnlyImageRows } from "#lib/shared/media-catalog/picker.ts";
 import {
 	releasedImageOperations,
 	seedreamModel,
@@ -36,6 +39,7 @@ import type { PageProps } from "./$types";
 let { data }: PageProps = $props();
 const memory = getImageDraftContext();
 const headingId = "studio-review-title";
+const reviewOnlyHeadingId = "studio-review-only-title";
 let composer = $state<ComposerDraft>(
 	untrack(
 		() =>
@@ -61,7 +65,13 @@ const localCopies = new LocalCopies(
 );
 let shell: ReturnType<typeof ImageComposer>;
 let previewIndex = $state(0);
+// A derived row is Review-only. Choosing it sets the shipped draft aside, so nothing can queue.
+// Its fields and Review stay mounted, hidden, so a lost Queue's Retry and any file check survive.
+let reviewOnly = $state.raw<(typeof reviewOnlyImageRows)[number] | null>(null);
+let pending = $state<"review" | "queue" | null>(null);
 function switchModel(id: string) {
+	reviewOnly = reviewOnlyImageRows.find((row) => row.model === id) ?? null;
+	if (reviewOnly) return;
 	const { prompt, operation } = composer.request;
 	if (id === composer.model) return;
 	composer =
@@ -126,52 +136,67 @@ $effect(() => {
 <svelte:head><title>Image Studio · Siluet</title></svelte:head>
 <ImageComposer
 	bind:this={shell}
-	model={composer.model === "z-image" ? zImageModel : seedreamModel}
+	modelId={reviewOnly?.model ?? composer.model}
+	family={reviewOnly
+		? reviewOnlyFamily(reviewOnly.media)
+		: (composer.model === "z-image" ? zImageModel : seedreamModel).family}
+	reviewOnly={!!reviewOnly}
+	locked={!!pending}
 	onModel={switchModel}
-	reviewHref={`#${headingId}`}
+	reviewHref={`#${reviewOnly ? reviewOnlyHeadingId : headingId}`}
 	operation={composer.request.operation}
 	{previewIndex}
 	reference={composer.request.references[previewIndex]}
 >
 	{#snippet fields()}
-		{#if composer.model === "seedream-5.5" && seedream}
-			<SeedreamFields
-				eligibleProviders={data.eligibleProviders}
-				unavailableProviders={data.unavailableProviders}
-				bind:draft={composer.request}
-				bind:referenceDraft={composer.references}
-				validation={seedream}
-				{duplicateWarning}
-				{localCopies}
-				bind:previewIndex
-				focusPreview={() => shell.focusPreview()}
-			/>
-		{:else if composer.model === "z-image"}
-			<ZImageFields
-				bind:draft={composer.request}
-				bind:privateName={composer.privateName}
-				connected={data.zImageConnected}
-				promptError={zImage && !zImage.ok ? zImage.errors.prompt : undefined}
-			/>
-		{/if}
+		<div class={setAside} hidden={!!reviewOnly}>
+			{#if composer.model === "seedream-5.5" && seedream}
+				<SeedreamFields
+					eligibleProviders={data.eligibleProviders}
+					unavailableProviders={data.unavailableProviders}
+					bind:draft={composer.request}
+					bind:referenceDraft={composer.references}
+					validation={seedream}
+					{duplicateWarning}
+					{localCopies}
+					bind:previewIndex
+					focusPreview={() => shell.focusPreview()}
+				/>
+			{:else if composer.model === "z-image"}
+				<ZImageFields
+					bind:draft={composer.request}
+					bind:privateName={composer.privateName}
+					connected={data.zImageConnected}
+					promptError={zImage && !zImage.ok ? zImage.errors.prompt : undefined}
+				/>
+			{/if}
+		</div>
 	{/snippet}
 	{#snippet reviewPanel()}
-		<ImageReview
-			modelId={composer.model}
-			connected={composer.model === "z-image" ? data.zImageConnected : !!composer.request.provider}
-			entry={active?.entry ?? null}
-			review={active?.review ?? null}
-			draft={composer.request}
-			referenceLabels={composer.model === "seedream-5.5"
-				? composer.references.slots.map((slot) => referenceLabel(slot.identity))
-				: []}
-			{duplicateWarning}
-			{headingId}
-			feeds={data.pricingFeeds}
-			nowMs={data.pricingNowMs}
-			provider={composer.request.provider ?? undefined}
-			operation={composer.request.operation}
-			{localCopies}
-		/>
+		{#if reviewOnly}
+			<ReviewOnlyPanel row={reviewOnly} headingId={reviewOnlyHeadingId} />
+		{/if}
+		<div class={setAside} hidden={!!reviewOnly}>
+			<ImageReview
+				modelId={composer.model}
+				connected={composer.model === "z-image"
+					? data.zImageConnected
+					: !!composer.request.provider}
+				entry={active?.entry ?? null}
+				review={active?.review ?? null}
+				draft={composer.request}
+				referenceLabels={composer.model === "seedream-5.5"
+					? composer.references.slots.map((slot) => referenceLabel(slot.identity))
+					: []}
+				{duplicateWarning}
+				{headingId}
+				feeds={data.pricingFeeds}
+				nowMs={data.pricingNowMs}
+				provider={composer.request.provider ?? undefined}
+				operation={composer.request.operation}
+				{localCopies}
+				bind:pending
+			/>
+		</div>
 	{/snippet}
 </ImageComposer>

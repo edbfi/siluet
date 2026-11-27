@@ -2,6 +2,7 @@
 import type { Snippet } from "svelte";
 import type { SeedreamReference } from "#lib/shared/image-studio/references.ts";
 import type { SeedreamOperation } from "#lib/shared/image-studio/seedream.ts";
+import { reviewOnlyFamily, reviewOnlyImageRows } from "#lib/shared/media-catalog/picker.ts";
 import { releasedImageModels, zImageModel } from "#lib/shared/media-catalog/registry.ts";
 import { css } from "#styled-system/css";
 import { studioPanel } from "#styled-system/recipes";
@@ -12,11 +13,15 @@ import {
 	requestField,
 	requestLabel,
 	requestLink,
+	setAside,
 } from "./request-styles.ts";
 
 const id = $props.id();
 let {
-	model,
+	modelId,
+	family,
+	reviewOnly,
+	locked,
 	onModel,
 	fields,
 	reviewPanel,
@@ -25,7 +30,13 @@ let {
 	reference,
 	previewIndex,
 }: {
-	model: (typeof releasedImageModels)[number];
+	/** The selected shipped model or derived row. */
+	modelId: string;
+	family: string;
+	/** A derived row is selected: it has no request to preview. */
+	reviewOnly: boolean;
+	/** A Review or Queue is in flight, so the model stays put. */
+	locked: boolean;
 	onModel: (model: string) => void;
 	fields: Snippet;
 	reviewPanel: Snippet;
@@ -105,15 +116,14 @@ export function focusPreview() {
 			<div class={[requestField, requestLabel]}>
 				<div class={fieldHeading}>
 					<label for={`${id}-model`}>Model</label>
-					<span class={css({ color: "muted", fontWeight: 500 })} id={`${id}-family`}
-						>{model.family}</span
-					>
+					<span class={css({ color: "muted", fontWeight: 500 })} id={`${id}-family`}>{family}</span>
 				</div>
 				<select
 					class={requestControl}
 					id={`${id}-model`}
 					aria-describedby={`${id}-family`}
-					value={model.id}
+					value={modelId}
+					disabled={locked}
 					onchange={(event) => onModel(event.currentTarget.value)}
 				>
 					{#each releasedImageModels as choice (choice.id)}
@@ -121,19 +131,26 @@ export function focusPreview() {
 							<option value={choice.id}>{choice.label}</option>
 						</optgroup>
 					{/each}
+					<optgroup label={reviewOnlyFamily("image")}>
+						{#each reviewOnlyImageRows as row (row.model)}
+							<option value={row.model}>{row.model} (Review only: {row.reason})</option>
+						{/each}
+					</optgroup>
 				</select>
 			</div>
 
 			{@render fields()}
 		</section>
 		<div class={css({ display: "grid", minWidth: 0, gap: "1rem" })}>
-			<ImageReferencePreview
-				bind:this={preview}
-				urlOnly={model.id === zImageModel.id}
-				{operation}
-				index={previewIndex}
-				{reference}
-			/>
+			<div class={setAside} hidden={reviewOnly}>
+				<ImageReferencePreview
+					bind:this={preview}
+					urlOnly={modelId === zImageModel.id}
+					{operation}
+					index={previewIndex}
+					{reference}
+				/>
+			</div>
 			{@render reviewPanel()}
 		</div>
 	</div>

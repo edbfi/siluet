@@ -47,6 +47,7 @@ let {
 	operation = "generate",
 	headingId = "studio-review-title",
 	localCopies = undefined,
+	pending = $bindable(null),
 }: {
 	modelId: string;
 	connected: boolean;
@@ -62,6 +63,8 @@ let {
 	headingId?: string;
 	/** The staged copies of the attached JPEG and PNG files, which Review and Queue send in order. */
 	localCopies?: LocalCopies;
+	/** The Review or Queue in flight. */
+	pending?: "review" | "queue" | null;
 } = $props();
 
 const providerNames = { poyo: "Poyo.ai", toapis: "ToAPIs" };
@@ -167,7 +170,6 @@ const request = $derived.by((): QueueInput | null => {
 // survives edits and renewals, and Retry sends exactly this body again.
 let submitted = $state.raw<{ body: object; cleaned: boolean } | null>(null);
 let authorized = $state.raw<{ request: QueueInput; terms: ReviewTerms } | null>(null);
-let pending = $state<"review" | "queue" | null>(null);
 let acceptedToken = $state<string | null>(null);
 let feedback = $state.raw<{ request: QueueInput; message: string } | null>(null);
 // The answer to a Retry. It concerns the earlier request, never this form's Review.

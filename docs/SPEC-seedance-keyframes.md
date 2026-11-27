@@ -45,7 +45,7 @@ Result expiry, the use of `url` then one optional `fallback_url`, and Save follo
 
 ## Poyo.ai
 
-Poyo.ai Seedance 2.5 keyframes are not offered; the picker keeps "Queue unavailable: filtering conflict" (D4). They can become eligible only through slice G's acknowledged provider-fixed filtering path, in a later revision of this spec.
+Poyo.ai Seedance 2.5 keyframes are not offered. Poyo.ai `seedance-2.5` is a Review-only row in the picker's "Poyo.ai video" group, with the reason "Poyo.ai text-to-video is not verified yet (G7)". It can become eligible only through the catalog engine's acknowledged closed-absent path (D4, G7), in a later revision of this spec.
 
 ## Out of scope
 
