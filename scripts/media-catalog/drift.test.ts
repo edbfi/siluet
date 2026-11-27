@@ -352,7 +352,9 @@ test("the committed baseline watches every reviewed REST page and both ToAPIs mo
 	expect(rest.map(({ url, sha256 }) => ({ url, sha256 }))).toEqual(
 		reviews.pages.map(({ url, sha256 }: WatchedPage) => ({ url, sha256 })),
 	);
-	expect(rest[0].note).toBe("question 10: flux-3-klein prompt, flux-3-klein-edit prompt");
+	expect(rest.find((page) => page.url.endsWith("/flux-3-klein.md"))?.note).toBe(
+		"question 10: flux-3-klein prompt, flux-3-klein-edit prompt",
+	);
 	// A page reviewed for one-output evidence names that review, so a change to it fails drift
 	// with what it was reviewed for.
 	const pro = rest.find((page) => page.url.endsWith("/seedream-5-0-pro.md"));
@@ -365,6 +367,40 @@ test("the committed baseline watches every reviewed REST page and both ToAPIs mo
 	expect(changed.findings.find((finding) => finding.subject === pro?.url)?.detail).toContain(
 		"one output: seedream-5.0-pro silent",
 	);
+	// The conditional one-output pages, each at the digest read anonymously on 2026-11-27, and
+	// silent on the count. A page with no prompt question names only its output review.
+	const image = "https://docs.poyo.ai/api-manual/image-series";
+	expect(
+		rest
+			.filter((page) => !page.note.startsWith("question 10"))
+			.map(({ url, sha256, note }) => ({ url, sha256, note })),
+	).toEqual([
+		{
+			url: `${image}/flux-2.md`,
+			sha256: "33176c65c6127a4b6c4211635da5b47cc7c7f8e2a8478fed767f8e57b381df3a",
+			note: "one output: flux-2-flex silent, flux-2-pro silent",
+		},
+		{
+			url: `${image}/flux-kontext.md`,
+			sha256: "9e8a3e2b273a0b49e0550accc3cc71da322cab2b9142d8118e61a7cc589fea20",
+			note: "one output: flux-kontext-max silent, flux-kontext-pro silent",
+		},
+		{
+			url: `${image}/grok-imagine-image.md`,
+			sha256: "289491a065f6e1ee1167ddec81e5f75a94496bf2b467e038db387b7dadef1189",
+			note: "one output: grok-imagine-image silent",
+		},
+		{
+			url: `${image}/nano-banana-2-new.md`,
+			sha256: "7db9ccc323b66a6ab1d56a90c263a224713f0800598c16c03a764cd764707e03",
+			note: "one output: nano-banana-2-new silent, nano-banana-2-official silent",
+		},
+		{
+			url: `${image}/nano-banana.md`,
+			sha256: "0fab78a7b724775e707a12c485848b9c87b79dca6992b0487d10e9207f315858",
+			note: "one output: nano-banana silent",
+		},
+	]);
 	// The ledger's ToAPIs model list and public catalog, as Markdown, at the digests read on the
 	// baseline date.
 	const ledger = read("../../docs/media-catalog.v1.json").providers.toapis.sources;

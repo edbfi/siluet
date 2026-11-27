@@ -561,6 +561,17 @@ describe("fixture rows", () => {
 				deriveRow(ledgerRow, "fixture", entry(declared), sources([pageNote("b".repeat(64))])),
 			).toThrow("The fixture text-to-image output note quotes text its source lacks");
 		});
+		test("a page reviewed and silent on the count names that review in the pending reason", () => {
+			const silent = {
+				"https://docs.poyo.ai/fixture.md": {
+					sha256: "b".repeat(64),
+					outputs: { fixture: "silent" },
+				},
+			};
+			expect(
+				deriveRow(ledgerRow, "fixture", entry(declared), sources([], { pages: silent })).pending,
+			).toEqual(["no evidence of one output (page reviewed, silent)"]);
+		});
 		test("a text-to-image row without either is pending, and a video row is never asked", () => {
 			expect(deriveRow(ledgerRow, "fixture", entry(declared), none).pending).toEqual([
 				"no evidence of one output",
@@ -611,12 +622,12 @@ test("the pinned rows' one-output evidence: count fields, info quotes, and none 
 		expect(row(model)?.count).toBeNull();
 		expect(row(model)?.pending).toEqual([]);
 	}
+	// Each conditional page was read and is silent on the output count (page-reviews.json).
 	for (const model of [
 		"flux-2-flex",
 		"flux-2-pro",
 		"flux-kontext-max",
 		"flux-kontext-pro",
-		"gpt-image-2",
 		"grok-imagine-image",
 		"nano-banana",
 		"nano-banana-2-lite",
@@ -624,7 +635,9 @@ test("the pinned rows' one-output evidence: count fields, info quotes, and none 
 		"nano-banana-2-official",
 		"seedream-5.0-pro",
 	])
-		expect(row(model)?.pending).toEqual(["no evidence of one output"]);
+		expect(row(model)?.pending).toEqual(["no evidence of one output (page reviewed, silent)"]);
+	// gpt-image-2's page states one output, but the row is held until its size is typed.
+	expect(row("gpt-image-2")?.pending).toEqual(["no evidence of one output"]);
 	for (const model of ["qwen-image-3", "qwen-image-3-pro"])
 		expect(row(model)?.pending).toEqual(["no evidence of one output: question 6"]);
 	// Verified representatives keep their reviewed descriptors; closed-schema and edit-only rows

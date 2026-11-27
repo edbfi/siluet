@@ -1,7 +1,17 @@
 {
 	"accessed": "2026-11-26",
-	"note": "Model pages read before assigning question 10, each silent on the listed fields' limits. `outputs` records, per text-to-image ID, the page's one-output quote or that it is silent on the output count.",
+	"note": "Model pages read before assigning question 10, each silent on the listed fields' limits, and the conditional text-to-image pages read for one-output evidence. `outputs` records, per text-to-image ID, the page's one-output quote or that it is silent on the output count. A page without its own `accessed` date was read on the top-level date.",
 	"pages": [
+		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/flux-2.md",
+			"sha256": "33176c65c6127a4b6c4211635da5b47cc7c7f8e2a8478fed767f8e57b381df3a",
+			"accessed": "2026-11-27",
+			"silent": {},
+			"outputs": {
+				"flux-2-flex": "silent",
+				"flux-2-pro": "silent"
+			}
+		},
 		{
 			"url": "https://docs.poyo.ai/api-manual/image-series/flux-3-klein.md",
 			"sha256": "5bfab0667f87fdf5571ac7b17c4ac70174ea4a333146d32af9234cb8379a0b4a",
@@ -15,6 +25,16 @@
 			"sha256": "113218b643e24480447f09bbff3d1a5c159e11261e556c9fde93d27dc9161a93",
 			"silent": {
 				"flux-dev": ["prompt"]
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/flux-kontext.md",
+			"sha256": "9e8a3e2b273a0b49e0550accc3cc71da322cab2b9142d8118e61a7cc589fea20",
+			"accessed": "2026-11-27",
+			"silent": {},
+			"outputs": {
+				"flux-kontext-max": "silent",
+				"flux-kontext-pro": "silent"
 			}
 		},
 		{
@@ -32,6 +52,15 @@
 			}
 		},
 		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/grok-imagine-image.md",
+			"sha256": "289491a065f6e1ee1167ddec81e5f75a94496bf2b467e038db387b7dadef1189",
+			"accessed": "2026-11-27",
+			"silent": {},
+			"outputs": {
+				"grok-imagine-image": "silent"
+			}
+		},
+		{
 			"url": "https://docs.poyo.ai/api-manual/image-series/nano-banana-2-lite.md",
 			"sha256": "e213cadb74d08478c81a16452328676fb269982ab3e947149ef4348c2c3a24e6",
 			"silent": {
@@ -40,6 +69,25 @@
 			},
 			"outputs": {
 				"nano-banana-2-lite": "silent"
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/nano-banana-2-new.md",
+			"sha256": "7db9ccc323b66a6ab1d56a90c263a224713f0800598c16c03a764cd764707e03",
+			"accessed": "2026-11-27",
+			"silent": {},
+			"outputs": {
+				"nano-banana-2-new": "silent",
+				"nano-banana-2-official": "silent"
+			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/nano-banana.md",
+			"sha256": "0fab78a7b724775e707a12c485848b9c87b79dca6992b0487d10e9207f315858",
+			"accessed": "2026-11-27",
+			"silent": {},
+			"outputs": {
+				"nano-banana": "silent"
 			}
 		},
 		{

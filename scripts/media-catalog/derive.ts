@@ -582,7 +582,9 @@ export function deriveRow(
 			pending.push(
 				Object.hasOwn(outputQuestions, model)
 					? `no evidence of one output: question ${outputQuestions[model]}`
-					: "no evidence of one output",
+					: Object.values(sources.pages ?? {}).some((page) => page.outputs[model] === "silent")
+						? "no evidence of one output (page reviewed, silent)"
+						: "no evidence of one output",
 			);
 	}
 

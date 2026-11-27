@@ -96,9 +96,16 @@ export function committedBaseline(): Baseline {
 			url: page.url,
 			sha256: page.sha256,
 			note: [
-				`question 10: ${Object.entries(page.silent)
-					.flatMap(([model, fields]) => (fields as string[]).map((field) => `${model} ${field}`))
-					.join(", ")}`,
+				// A page read only for one-output evidence has no question-10 fields.
+				...(Object.keys(page.silent).length
+					? [
+							`question 10: ${Object.entries(page.silent)
+								.flatMap(([model, fields]) =>
+									(fields as string[]).map((field) => `${model} ${field}`),
+								)
+								.join(", ")}`,
+						]
+					: []),
 				...("outputs" in page && page.outputs
 					? [
 							`one output: ${Object.entries(

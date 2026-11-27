@@ -525,9 +525,11 @@ export type OutputNote = {
 const openapiInfo = (path: string, sha256: string) =>
 	({ kind: "openapi-info", spec: `/api-manual/image-series/${path}.json`, sha256 }) as const;
 
-// The eleven rows the G4 plan lists as conditional on their model page stay without a note:
-// the two pinned pages (seedream-5.0-pro, nano-banana-2-lite) state no output count, and the
-// other nine pages are not pinned (page-reviews.json).
+// The eleven rows the G4 plan lists as conditional on their model page stay without a note.
+// Ten of them have their page pinned in page-reviews.json, each silent on the output count.
+// gpt-image-2's page says "Each request returns a single image.", but it is not pinned: without
+// a typed `size`, the row would offer a `resolution` the page says a request without `size`
+// ignores.
 export const outputNotes: readonly OutputNote[] = [
 	{
 		model: "qwen-image-2.1",
