@@ -38,6 +38,7 @@ export const handle: Handle = async (input) => {
 };
 const admit: Handle = async ({ event, resolve }) => {
 	const { request, route } = event;
+	studio.watchServer(event.platform?.server);
 	const headers: Record<string, string> = {
 		"cache-control":
 			route.id === "/gallery/[jobId]/media" || route.id === "/image/files/[draft]/[handle]"

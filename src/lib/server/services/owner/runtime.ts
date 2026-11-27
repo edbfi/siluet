@@ -5,6 +5,7 @@ import { providerStore } from "../../db/provider-store";
 import { openRuntimeInstallation, runtimeEntry } from "../../db/runtime-installation";
 import { saveIntentStore } from "../../db/save-intent";
 import { checkRequestSecurity, cleanUnusedKeys } from "../../db/security-state";
+import { closeRequestlessOnStop } from "../../http/stop-connections";
 import { requireSupportedPlatform } from "../../platform";
 import { checkPoyoConnection } from "../../providers/poyo/connection";
 import { checkToapisConnection } from "../../providers/toapis/connection";
@@ -174,9 +175,12 @@ async function openOwner(dev: boolean) {
 			})();
 			return closing;
 		}
+		/** Names the listener to the stop, from the first request that reaches it. */
+		let watchServer: ReturnType<typeof closeRequestlessOnStop> = () => {};
 		if (dev) {
 			await announce();
 		} else {
+			watchServer = closeRequestlessOnStop(lifecycle);
 			// The launcher emits siluet:stopping before the adapter drains requests.
 			lifecycle.once("siluet:stopping", () => shutdown.abort());
 			lifecycle.once("sveltekit:shutdown", () => {
@@ -194,6 +198,7 @@ async function openOwner(dev: boolean) {
 		});
 		return {
 			close,
+			watchServer,
 			browserSessions,
 			stages,
 			cleaning,
