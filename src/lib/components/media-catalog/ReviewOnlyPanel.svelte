@@ -9,9 +9,16 @@ let {
 }: { row: ReviewOnlyRow; headingId: string; title?: string } = $props();
 
 const sentence = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
-const operations = $derived(
-	row.operations.map((operation) => sentence(operation.replaceAll("-", " "))).join(", "),
-);
+// Format names in operation IDs keep their capitals: "Image to SVG", "Text to GIF".
+const acronyms = new Set(["svg", "gif"]);
+const operationLabel = (operation: string) =>
+	sentence(
+		operation
+			.split("-")
+			.map((word) => (acronyms.has(word) ? word.toUpperCase() : word))
+			.join(" "),
+	);
+const operations = $derived(row.operations.map(operationLabel).join(", "));
 </script>
 
 <!-- A Review-only row offers no Queue and sends no request. -->

@@ -86,6 +86,11 @@ test("the picker lists every derived Poyo.ai row as Review-only with its reason,
 		await expect(prompt).toHaveCount(0);
 		await model.selectOption("gpt-image-2.6-fixed");
 		await expect(review.getByRole("status")).toContainText("(G6)");
+		// Format names keep their capitals.
+		await model.selectOption("ideogram-vector-1.0/text-to-vector");
+		await expect(review.getByRole("definition").last()).toHaveText(
+			"Text to SVG, Reference guided text to SVG",
+		);
 
 		await model.selectOption("seedream-5.5");
 		await expect(prompt).toHaveValue("Fog over a quiet harbour");
