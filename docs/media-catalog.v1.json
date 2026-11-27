@@ -39,6 +39,12 @@
 			"queue": "one reviewed request with video access and consent to Gallery's 30-second upstream Save limit, zero uploads, zero retries",
 			"optionCoverage": "partial"
 		},
+		"qwen-image-2.1-generate": {
+			"addedSinceBaseline": true,
+			"review": "derived text-to-image row: prompt up to 5,000 code points, background, output format, prompt extension, resolution, optional seed and size, unknown price",
+			"queue": "one reviewed request with a balance-checked Poyo key, zero retries",
+			"optionCoverage": "partial"
+		},
 		"z-image-generate": {
 			"addedSinceBaseline": true,
 			"review": "prompt, five aspect ratios, batch and retry estimate",
@@ -927,6 +933,7 @@
 					"operations": ["text-to-image", "reference-image-edit", "mask-image-edit"],
 					"contract": "documented",
 					"sources": ["qwen-image-2-1"],
+					"support": { "text-to-image": "qwen-image-2.1-generate" },
 					"catalogCategory": "image",
 					"d4": "declared"
 				},

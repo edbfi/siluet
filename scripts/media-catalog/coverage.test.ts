@@ -57,7 +57,8 @@ test("a route alias adds no key", () => {
 test("the tag-blocking count matches the ledger", () => {
 	const keys = expandKeys();
 	const shipped = keys.filter((key) => key.verified);
-	expect(shipped).toHaveLength(11);
+	// The eleven shipped operations and qwen-image-2.1, verified on the derived path.
+	expect(shipped).toHaveLength(12);
 	const supportKeys = (["poyo", "toapis"] as const).flatMap((provider) =>
 		ledger.providers[provider].rows.flatMap((row) =>
 			Object.keys(("support" in row && row.support) || {}).flatMap((operation) =>

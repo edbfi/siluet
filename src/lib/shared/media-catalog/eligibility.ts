@@ -6,9 +6,16 @@ import { type FilteringEvidence, queueEvidenceProblem } from "./filtering";
 
 /**
  * The option classes the Poyo.ai image family has qualified on a verified representative (spec,
- * "Families and admission"). A row that sends an option of any other class stays pending.
+ * "Families and admission"): Seedream 5.5's prompt, enums and formats, and qwen-image-2.1's
+ * boolean (`prompt_extend`) and integer (`seed`). A row that sends any other class stays pending.
  */
-export const qualifiedClasses: readonly string[] = ["prompt", "enum", "output_format"];
+export const qualifiedClasses: readonly string[] = [
+	"prompt",
+	"enum",
+	"output_format",
+	"boolean",
+	"integer",
+];
 
 /** A derived option's field, kind and documented domain. */
 export type OptionShape = {

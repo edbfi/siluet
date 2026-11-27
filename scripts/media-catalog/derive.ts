@@ -14,7 +14,6 @@ import {
 import { offeredFormats } from "../../src/lib/shared/media-catalog/formats";
 import { releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import {
-	galleryEnvelope,
 	type OutputNote,
 	outputNotes,
 	type QualifierDisposition,
@@ -34,6 +33,9 @@ import {
 	uncovered,
 	validateBody,
 } from "../../src/lib/shared/media-catalog/schema";
+
+export { envelopeValues, narrowedDomain, offeredDomain } from "./domains";
+
 import { sha256 } from "./project";
 import pageReviews from "./sources/page-reviews.json";
 import catalog from "./sources/poyo-ec73207.json";
@@ -340,57 +342,6 @@ function combinationsOf(schema: Schema | null): Combination[] {
 		if (!single && (second.enum as Json[]).length !== 1) return [];
 		return [{ when: { [when]: whenValue }, refuses: { [refused]: values } }];
 	});
-}
-
-/** The documented domain of one option on one operation, after the reviewed value overrides. */
-export function narrowedDomain(
-	row: Pick<DerivedRow, "model" | "catalog">,
-	option: DerivedOption,
-	operation: string,
-	overrides: readonly ReviewedOverride[] = reviewedOverrides,
-): Domain {
-	const excludes = overrides
-		.filter(
-			(override) =>
-				override.model === row.model &&
-				override.operation === operation &&
-				override.field === option.field &&
-				override.schemaSha256 === row.catalog,
-		)
-		.flatMap(({ excludes }) => excludes);
-	if (!excludes.length || !option.domain.values) return option.domain;
-	return {
-		...option.domain,
-		values: option.domain.values.filter((value) => !excludes.includes(value)),
-	};
-}
-
-/** Values of one option that a Siluet envelope withholds until a later slice raises it. */
-export function envelopeValues(
-	row: Pick<DerivedRow, "media">,
-	option: DerivedOption,
-	domain: Domain,
-) {
-	if (
-		row.media !== "image" ||
-		!(galleryEnvelope.fields as readonly string[]).includes(option.field)
-	)
-		return [];
-	return (domain.values ?? []).filter((value) =>
-		(galleryEnvelope.values as readonly Json[]).includes(value),
-	);
-}
-
-/** What the composer may offer on one operation: the narrowed domain, less envelope values. */
-export function offeredDomain(
-	row: Pick<DerivedRow, "model" | "catalog" | "media">,
-	option: DerivedOption,
-	operation: string,
-): Domain {
-	const domain = narrowedDomain(row, option, operation);
-	const withheld = envelopeValues(row, option, domain);
-	if (!withheld.length) return domain;
-	return { ...domain, values: domain.values?.filter((value) => !withheld.includes(value)) };
 }
 
 /**
@@ -784,7 +735,9 @@ export function crossCheck(rows: DerivedRow[], verified = verifiedOptions(rows))
 		for (const [field, choice] of Object.entries(offered)) {
 			const option = row.options.find((candidate) => candidate.field === field);
 			if (!option) throw new Error(`${key.model} offers undocumented ${field}.`);
-			const { domain } = option;
+			// A boolean's domain is both values; any other enum lists its own.
+			const domain =
+				option.kind === "boolean" ? { ...option.domain, values: [false, true] } : option.domain;
 			const outside =
 				"values" in choice
 					? choice.values.filter((value) => !domain.values?.includes(value as Json))

@@ -6,6 +6,7 @@ import {
 	qualifiedClasses,
 	queueBlocker,
 } from "./eligibility";
+import projection from "./poyo-queue.json";
 
 const eligible: QueueConditions = {
 	contract: null,
@@ -25,8 +26,8 @@ test("each condition failing alone names itself", () => {
 	expect(queueBlocker({ ...eligible, contract: "the preselected request does not validate" })).toBe(
 		"Queue is unavailable: the preselected request does not validate.",
 	);
-	expect(queueBlocker({ ...eligible, classes: ["prompt", "boolean"] })).toBe(
-		"Queue is unavailable: class not yet qualified: boolean.",
+	expect(queueBlocker({ ...eligible, classes: ["prompt", "number"] })).toBe(
+		"Queue is unavailable: class not yet qualified: number.",
 	);
 	expect(queueBlocker({ ...eligible, d4: { d4: "closed-absent", closedBy: "api" } })).toBe(
 		"Queue is unavailable until closed-schema Poyo.ai images take their acknowledgement (G6).",
@@ -48,7 +49,7 @@ test("each condition failing alone names itself", () => {
 test("conditions are checked in the spec's order: contract, D4, price, Save, access", () => {
 	const all: QueueConditions = {
 		contract: "no valid request",
-		classes: ["boolean"],
+		classes: ["number"],
 		d4: { d4: "unknown" },
 		price: "unknown",
 		save: "no format",
@@ -62,8 +63,11 @@ test("conditions are checked in the spec's order: contract, D4, price, Save, acc
 	);
 });
 
-test("prompt, enums and output formats are qualified; a listed-set rule projects as an enum", () => {
-	expect(qualifiedClasses).toEqual(["prompt", "enum", "output_format"]);
+test("booleans and integers join once qwen-image-2.1 qualifies them; a listed-set rule is an enum", () => {
+	expect(qualifiedClasses).toEqual(["prompt", "enum", "output_format", "boolean", "integer"]);
+	// Free text and numbers stay unqualified on Poyo.ai images (questions 6 and 3).
+	expect(qualifiedClasses).not.toContain("free text");
+	expect(qualifiedClasses).not.toContain("number");
 	expect(optionClass({ field: "prompt", kind: "free-text", domain: {} })).toBe("prompt");
 	expect(optionClass({ field: "negative_prompt", kind: "free-text", domain: {} })).toBe(
 		"free text",
@@ -81,4 +85,22 @@ test("the access note says what Siluet checked and what Poyo.ai does not publish
 	expect(poyoAccessNote).toBe(
 		"Poyo.ai does not publish per-key model access. Siluet has checked only that this key works.",
 	);
+});
+
+test("nano-banana-pro and wan-2.7-image and -pro queue once booleans and integers qualify", () => {
+	const models = projection.rows.map((row) => row.key.model);
+	for (const model of ["nano-banana-pro", "wan-2.7-image", "wan-2.7-image-pro", "qwen-image-2.1"])
+		expect(models).toContain(model);
+	const pro = projection.rows.find((row) => row.key.model === "nano-banana-pro");
+	expect(pro?.fields.find((field) => field.wire === "enable_web_search")).toEqual({
+		wire: "enable_web_search",
+		kind: "boolean",
+		preselect: false,
+	});
+	const wan = projection.rows.find((row) => row.key.model === "wan-2.7-image");
+	expect(wan?.fields.find((field) => field.wire === "seed")).toEqual({
+		wire: "seed",
+		kind: "integer",
+		optional: true,
+	});
 });

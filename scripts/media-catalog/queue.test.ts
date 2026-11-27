@@ -9,6 +9,7 @@ import { sha256 } from "./project";
 import {
 	queuePath,
 	queueProjection,
+	queueRow,
 	queueSchemasPath,
 	renderQueue,
 	renderQueueSchemas,
@@ -32,7 +33,7 @@ test("both queue projections reproduce byte for byte, canonical and small", () =
 	expect(Buffer.byteLength(readFileSync(queuePath))).toBeLessThan(32 * 1024);
 });
 
-test("thirteen text-to-image rows queue before booleans and integers qualify", () => {
+test("seventeen text-to-image rows queue: the plan's firm set", () => {
 	expect(projection.rows.map(({ key }) => key.model)).toEqual([
 		"flux-3-klein",
 		"flux-dev",
@@ -43,11 +44,19 @@ test("thirteen text-to-image rows queue before booleans and integers qualify", (
 		"grok-imagine-image-quality",
 		"kling-o3-image",
 		"nano-banana-2",
+		"nano-banana-pro",
+		"qwen-image-2.1",
 		"seedream-4",
 		"seedream-4.5",
 		"seedream-5.0-flash",
 		"seedream-5.0-lite",
+		"wan-2.7-image",
+		"wan-2.7-image-pro",
 	]);
+	// Five declared and twelve open-absent.
+	const states = projection.rows.map(({ d4 }) => d4.d4);
+	expect(states.filter((state) => state === "declared")).toHaveLength(5);
+	expect(states.filter((state) => state === "open-absent")).toHaveLength(12);
 	for (const { key } of projection.rows)
 		expect(key).toEqual({
 			provider: "poyo",
@@ -58,14 +67,21 @@ test("thirteen text-to-image rows queue before booleans and integers qualify", (
 });
 
 test("an unqualified class keeps the row pending with its class", () => {
-	expect(pending("nano-banana-pro")).toEqual({
-		model: "nano-banana-pro",
-		operation: "text-to-image",
-		reason: "class not yet qualified: boolean",
-	});
-	for (const model of ["wan-2.7-image", "wan-2.7-image-pro"])
-		expect(pending(model)?.reason).toBe("class not yet qualified: integer");
-	expect(pending("qwen-image-2.1")?.reason).toBe("class not yet qualified: boolean");
+	const flux = rows.find((row) => row.model === "flux-dev") as DerivedRow;
+	const numbered: DerivedRow = {
+		...flux,
+		options: [
+			...flux.options,
+			{
+				field: "guidance",
+				kind: "number",
+				domain: { minimum: 0, maximum: 10 },
+				default: { state: "resolved", value: 3 },
+			},
+		],
+	};
+	expect(queueRow(numbered)).toBe("class not yet qualified: number");
+	expect(pending("nano-banana-pro")).toBeUndefined();
 	// Verified representatives keep their shipped paths; rows pending in derivation stay so.
 	expect(row("seedream-5.5")).toBeUndefined();
 	expect(row("z-image")).toBeUndefined();
@@ -183,7 +199,5 @@ test("the picker separates Queue-eligible operations from Review-only rows", () 
 	expect(picker.filter(({ queue }) => queue).map(({ model }) => model)).toEqual(
 		projection.rows.map(({ key }) => key.model),
 	);
-	expect(picker.find(({ model }) => model === "nano-banana-pro")?.reason).toBe(
-		"its boolean options are not qualified yet (G4)",
-	);
+	expect(picker.find(({ model }) => model === "nano-banana-pro")?.queue).toEqual(["text-to-image"]);
 });

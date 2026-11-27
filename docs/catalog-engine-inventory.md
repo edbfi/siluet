@@ -3,13 +3,13 @@
 Generated on 2026-11-27 from the [ledger](media-catalog.v1.json) (observed 2026-11-22, with the Poyo.ai catalog re-pinned to `ec73207` on 2026-11-27) by expanding each documented row into its `(provider, ID, route, operation)` keys. It is a snapshot for [the catalog engine spec](SPEC-catalog-engine.md): from G2a, `bun run catalog:coverage` regenerates this inventory, with option gaps per derived row, and CI fails on any difference. **G*n*** is an engine slice, **P3** is bespoke Phase 3 work, and **Q** is an evidence question. Every item lands before the v0.1.0 tag ([D11](decisions.md#d11--v010-waits-for-full-d2-coverage)).
 
 <!-- catalog:coverage summary -->
-Expanded keys: 663, of which Poyo.ai 333 (5 verified) and ToAPIs 330 (6 verified). Engine slices hold 506, Phase 3 153 and evidence questions 4. A route alias adds no key: Midjourney `imagine` counts once, on its primary route. `catalog:coverage` names each pending key's reason.
+Expanded keys: 663, of which Poyo.ai 333 (6 verified) and ToAPIs 330 (6 verified). Engine slices hold 506, Phase 3 153 and evidence questions 4. A route alias adds no key: Midjourney `imagine` counts once, on its primary route. `catalog:coverage` names each pending key's reason.
 
-Keys: verified 11, contract-covered 0, pending 648, unsupported 0, unknown 4. Option obligations of the derived Poyo.ai rows: 1559; verified 15, contract-covered 0, pending 1451, unsupported 0, unknown 93. Fixed values (the D4 `false`, a pinned `n: 1`, a fixed sentinel) add none.
+Keys: verified 12, contract-covered 0, pending 647, unsupported 0, unknown 4. Option obligations of the derived Poyo.ai rows: 1559; verified 22, contract-covered 0, pending 1444, unsupported 0, unknown 93. Fixed values (the D4 `false`, a pinned `n: 1`, a fixed sentinel) add none.
 
 The 6 verified ToAPIs operations each add one placeholder item until their page descriptors type their options (G10a, G11a). Each is pending and counts as tag-blocking.
 
-**Tag-blocking count: 2202.** Pending pairs and options 2104; documented values a Siluet envelope excludes 1; options or pairs without a covered path, each with its question, 97; provider-unsupported pairs without evidence 0; unknown pairs or options without a question 0.
+**Tag-blocking count: 2194.** Pending pairs and options 2096; documented values a Siluet envelope excludes 1; options or pairs without a covered path, each with its question, 97; provider-unsupported pairs without evidence 0; unknown pairs or options without a question 0.
 <!-- /catalog:coverage -->
 
 ## Documented operations
@@ -17,7 +17,7 @@ The 6 verified ToAPIs operations each add one placeholder item until their page 
 <!-- catalog:coverage operations -->
 | Assigned to | Provider | Operation | Keys | Verified |
 | --- | --- | --- | ---: | ---: |
-| G4 | Poyo.ai | `text-to-image` | 32 | 2 |
+| G4 | Poyo.ai | `text-to-image` | 32 | 3 |
 | G4 after G13 · Q: documented output bound | Poyo.ai | `text-to-long-image` | 1 |  |
 | G5 | Poyo.ai | `reference-image-edit` | 34 | 2 |
 | G5 · Q: target-language option | Poyo.ai | `image-translation` | 1 |  |

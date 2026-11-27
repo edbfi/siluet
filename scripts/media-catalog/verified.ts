@@ -10,11 +10,13 @@ import {
 	seedreamResolutions,
 } from "../../src/lib/shared/image-studio/seedream-options";
 import { zImagePromptCharacters, zImageSizes } from "../../src/lib/shared/image-studio/z-image";
+import { derivedVerifiedOperations } from "../../src/lib/shared/media-catalog/derived-verified";
 import { offeredFormats } from "../../src/lib/shared/media-catalog/formats";
 import { h3MaxOperation, releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import { videoPromptBytes } from "../../src/lib/shared/video-studio/prompt-limit";
 import type { DerivedRow } from "./derive";
 import { formatEvidence } from "./format-evidence";
+import { queueRow } from "./queue-build";
 
 export type Offered =
 	| { readonly values: readonly unknown[] }
@@ -22,7 +24,9 @@ export type Offered =
 	| { readonly maxCodePoints: number }
 	| { readonly maxBytes: number };
 
-type Key = (typeof releasedOperations)[number]["key"];
+type Key =
+	| (typeof releasedOperations)[number]["key"]
+	| (typeof derivedVerifiedOperations)[number]["key"];
 export type VerifiedOptions = { readonly key: Key; readonly offered: Record<string, Offered> };
 
 /** The formats a row's own `output_format` offers, as the composer reads them. */
@@ -66,11 +70,43 @@ function poyoOffered(rows: readonly DerivedRow[]): Record<string, Record<string,
 	};
 }
 
-/** Each released operation's composer choices, given the derived rows they are checked against. */
+/**
+ * What a key verified on the derived path offers: its queue row's prompt limit and every field,
+ * read from the derived row the composer is built from. A row that no longer queues offers none.
+ */
+function derivedOffered(rows: readonly DerivedRow[], model: string): Record<string, Offered> {
+	const row = rows.find((candidate) => candidate.model === model);
+	const queued = row && queueRow(row);
+	if (!queued || typeof queued === "string") return {};
+	return {
+		prompt: { maxCodePoints: queued.prompt.max },
+		...Object.fromEntries(
+			queued.fields.map((field): [string, Offered] => [
+				field.wire,
+				field.kind === "enum"
+					? { values: field.values ?? [] }
+					: field.kind === "boolean"
+						? { values: [false, true] }
+						: {
+								minimum: field.min ?? Number.MIN_SAFE_INTEGER,
+								maximum: field.max ?? Number.MAX_SAFE_INTEGER,
+							},
+			]),
+		),
+	};
+}
+
+/** Each verified operation's composer choices, given the derived rows they are checked against. */
 export function verifiedOptions(rows: readonly DerivedRow[]): readonly VerifiedOptions[] {
 	const offered = poyoOffered(rows);
-	return releasedOperations.map(({ key }) => ({
-		key,
-		offered: key.provider === "poyo" ? (offered[`${key.model} ${key.operation}`] ?? {}) : {},
-	}));
+	return [
+		...releasedOperations.map(({ key }) => ({
+			key,
+			offered: key.provider === "poyo" ? (offered[`${key.model} ${key.operation}`] ?? {}) : {},
+		})),
+		...derivedVerifiedOperations.map(({ key }) => ({
+			key,
+			offered: derivedOffered(rows, key.model),
+		})),
+	];
 }

@@ -6,6 +6,7 @@ import {
 	reviewBatchCounts,
 	reviewRetryLimits,
 } from "../../src/lib/shared/image-studio/review-price";
+import { derivedVerifiedOperations } from "../../src/lib/shared/media-catalog/derived-verified";
 import { d4States } from "../../src/lib/shared/media-catalog/filtering";
 import {
 	h3MaxOperation,
@@ -236,20 +237,25 @@ test.each(providers)(
 				}
 			}
 		}
-		expect(shipped).toEqual(
-			releasedOperations
+		// Released operations keep their reviewed descriptors; a family representative verified on
+		// the derived path (qwen-image-2.1 for booleans and integers) is listed beside them.
+		const byKey = (a: { key: object }, b: { key: object }) =>
+			JSON.stringify(a.key) < JSON.stringify(b.key) ? -1 : 1;
+		expect(shipped.sort(byKey)).toEqual(
+			[...releasedOperations, ...derivedVerifiedOperations]
 				.filter((entry) => entry.key.provider === provider)
-				.map(({ key, profile, evidence }) => ({ key, profile, evidence })),
+				.map(({ key, profile, evidence }) => ({ key, profile, evidence }))
+				.sort(byKey),
 		);
 		expect(catalogCoverage(provider)).toEqual({
 			discoveredIds: provider === "poyo" ? 173 : 119,
 			unresolvedIds: provider === "poyo" ? 5 : 21,
 			documentedOperations: provider === "poyo" ? 333 : 330,
 			prerequisiteBound: provider === "poyo" ? 2 : 17,
-			review: provider === "poyo" ? 5 : 6,
-			queue: provider === "poyo" ? 5 : 6,
-			partialOptions: provider === "poyo" ? 5 : 6,
-			addedSinceBaseline: provider === "poyo" ? 3 : 4,
+			review: 6,
+			queue: 6,
+			partialOptions: 6,
+			addedSinceBaseline: 4,
 		});
 	},
 );
