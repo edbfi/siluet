@@ -57,6 +57,7 @@ let {
 	headingId = "studio-review-title",
 	localCopies = undefined,
 	catalogRow = null,
+	refusedAt = null,
 	pending = $bindable(null),
 }: {
 	modelId: string;
@@ -74,13 +75,15 @@ let {
 	headingId?: string;
 	/** The staged copies of the attached JPEG and PNG files, which Review and Queue send in order. */
 	localCopies?: LocalCopies;
-	/** A Queue-eligible derived row, and the date Poyo.ai refused it for this key, if it did. */
-	catalogRow?: { row: QueueRow; refusedAt: number | null } | null;
+	/** A Queue-eligible derived row. */
+	catalogRow?: QueueRow | null;
+	/** The date Poyo.ai refused this model for this key, if it did. It never blocks Queue. */
+	refusedAt?: number | null;
 	/** The Review or Queue in flight. */
 	pending?: "review" | "queue" | null;
 } = $props();
 // What a derived Review states and binds, shown offline before any Review request.
-const bound = $derived(catalogRow ? derivedWording(catalogRow.row) : null);
+const bound = $derived(catalogRow ? derivedWording(catalogRow) : null);
 const references = $derived("references" in draft ? draft.references : []);
 
 const providerNames = { poyo: "Poyo.ai", toapis: "ToAPIs" };
@@ -299,7 +302,7 @@ function applyTerms(input: QueueInput, terms: ReviewTerms) {
 		if (
 			!Array.isArray(lines) ||
 			!lines.every((line) => typeof line === "string" && line.trim()) ||
-			(catalogRow.row.d4.d4 !== "declared" && lines.length === 0)
+			(catalogRow.d4.d4 !== "declared" && lines.length === 0)
 		) {
 			authorized = null;
 			feedback = {
@@ -662,8 +665,8 @@ $effect(() => {
 							{#if filtering?.declaredField}
 								<p>The model contract declares <code>{filtering.declaredField}: false</code>.</p>
 							{/if}
-							{#if catalogRow?.refusedAt}
-								<p data-studio-refusal>{refusalNote(catalogRow.refusedAt)}</p>
+							{#if refusedAt}
+								<p data-studio-refusal>{refusalNote(refusedAt)}</p>
 							{/if}
 						</dd>
 					</div>
@@ -680,6 +683,9 @@ $effect(() => {
 								: "The global image model list included this model for this key."}
 							{#if filtering?.declaredField}
 								The model contract declares <code>{filtering.declaredField}: false</code>.
+							{/if}
+							{#if refusedAt}
+								<p data-studio-refusal>{refusalNote(refusedAt)}</p>
 							{/if}
 						</dd>
 					</div>

@@ -39,6 +39,7 @@ import { reviewOnlyFamily, reviewOnlyImageRows } from "#lib/shared/media-catalog
 import {
 	releasedImageOperations,
 	seedreamModel,
+	seedreamRoutes,
 	zImageModel,
 } from "#lib/shared/media-catalog/registry.ts";
 import type { PageProps } from "./$types";
@@ -111,8 +112,18 @@ const derivedCheck = $derived(
 		? validateDerivedDraft(derivedRow, composer.request)
 		: null,
 );
+// The active model's exact Poyo.ai ID: a derived row's, Z-Image's, or Seedream 5.5's on Poyo.ai.
+const poyoModel = $derived(
+	composer.model === "derived"
+		? derivedRow?.key.model
+		: composer.model === "z-image"
+			? zImageModel.id
+			: composer.request.provider === "poyo"
+				? seedreamRoutes.poyo.model
+				: undefined,
+);
 const refusedAt = $derived(
-	data.refusals.find((refusal) => refusal.model === derivedRow?.key.model)?.refusedAt ?? null,
+	data.refusals.find((refusal) => refusal.model === poyoModel)?.refusedAt ?? null,
 );
 const duplicateWarning = $derived.by(() => {
 	if (composer.model !== "seedream-5.5") return null;
@@ -249,7 +260,8 @@ $effect(() => {
 					? (composer.request.provider ?? undefined)
 					: "poyo"}
 				operation={composer.request.operation === "edit" ? "edit" : "generate"}
-				catalogRow={derivedRow ? { row: derivedRow, refusedAt } : null}
+				catalogRow={derivedRow ?? null}
+				{refusedAt}
 				{localCopies}
 				bind:pending
 			/>

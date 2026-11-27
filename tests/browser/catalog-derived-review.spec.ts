@@ -241,3 +241,46 @@ test("a Seedream batch does not follow the creator to a derived row, whose Revie
 		await expect(review.getByLabel("Additional attempts per request")).toHaveValue("0");
 	});
 });
+
+test("a refusal recorded for a shipped Poyo.ai model shows in its Review", async ({ page }) => {
+	test.setTimeout(90_000);
+	page.setDefaultTimeout(12_000);
+	const refused = new Set(["seedream-5.5", "z-image"]);
+	await withConnectedStudio(
+		page,
+		async (origin, submitted) => {
+			const review = page.getByRole("region", { name: "Review request" });
+			const model = page.getByLabel("Model", { exact: true });
+			const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
+			const evidence = review
+				.locator("dl > div")
+				.filter({ has: page.getByRole("term").getByText("Route evidence") });
+			const note = `Poyo.ai refused this model for this key on ${new Date().toISOString().slice(0, 10)}.`;
+			for (const [index, id] of [...refused].entries()) {
+				await model.selectOption(id);
+				await prompt.fill(`A refused ${id} crane`);
+				await expect(evidence).toContainText("The balance check accepted this key.");
+				await expect(evidence).not.toContainText("refused");
+				await review.getByRole("button", { name: "Review request" }).click();
+				const consent = review.getByRole("checkbox", { name: /unknown/i });
+				const queue = review.getByRole("button", { name: "Queue 1 request" });
+				await expect(consent.or(queue.and(page.locator(":enabled")))).not.toHaveCount(0);
+				if (await consent.count()) await consent.check();
+				await queue.click();
+				await page.waitForURL(/\/jobs/);
+				// One refused job per model so far, each with its note.
+				await expect(
+					page.getByText("Poyo.ai refused this model for this key. The saved key is unchanged."),
+				).toHaveCount(index + 1);
+				await page.goto(`${origin}/image`);
+				await model.selectOption(id);
+				await prompt.fill("Another crane");
+				await expect(evidence).toContainText(note);
+				await expect(review.getByRole("button", { name: "Review request" })).toBeEnabled();
+			}
+			// Each model was sent once, and refused.
+			expect(submitted.map(({ model }) => model)).toEqual(["seedream-5.5", "z-image"]);
+		},
+		(model) => refused.has(model),
+	);
+});
