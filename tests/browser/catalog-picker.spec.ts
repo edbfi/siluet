@@ -99,6 +99,13 @@ test("the picker lists every derived Poyo.ai row as Review-only with its reason,
 		await expect(picker.locator('option[value="h3-max"]')).toBeEnabled();
 		const videoPrompt = page.getByRole("textbox", { name: "Prompt" });
 		await videoPrompt.fill("A lantern drifts down a canal");
+		// The ToAPIs note agrees with the Poyo.ai row's own reason.
+		await expect(
+			page.getByText(
+				"Poyo.ai Seedance 2.5 is Review only: Poyo.ai text-to-video is not verified yet (G7).",
+			),
+		).toBeVisible();
+		await expect(page.getByText(/fixed filtering setting/)).toHaveCount(0);
 		await picker.selectOption("seedance-2.5");
 		const videoReview = page.getByRole("region", { name: "Review", exact: true });
 		await expect(videoReview.getByRole("status")).toHaveText(

@@ -136,6 +136,8 @@ function switchMode(key: string) {
 	frames = noFrames();
 	edit();
 }
+// The ToAPIs note names why Poyo.ai's Seedance 2.5 is Review-only, in the picker's own words.
+const poyoSeedance = reviewOnlyVideoRows.find((row) => row.model === "seedance-2.5");
 // A derived row is Review-only. Choosing it sets the shipped draft aside, so nothing can queue.
 let reviewOnly = $state.raw<(typeof reviewOnlyVideoRows)[number] | null>(null);
 // Keep the prompt and any compatible setting. Apply the target's defaults to the rest.
@@ -521,7 +523,9 @@ const frame = css({
 			<p class={style.note}>
 				{poyo
 					? "Poyo.ai confirms account access through your balance check. H3 Max access for this key is unverified until Poyo.ai accepts a request."
-					: "Poyo.ai Seedance 2.5 cannot accept the studio’s fixed filtering setting."}
+					: poyoSeedance
+						? `Poyo.ai Seedance 2.5 is Review only: ${poyoSeedance.reason}.`
+						: ""}
 				<a href={`/settings/providers?provider=${operation.key.provider}`}
 					>{poyo ? "Poyo.ai" : "ToAPIs"} settings</a
 				>
