@@ -186,16 +186,73 @@ test("a catalog with one model added, one removed, one enum changed and one bill
 		expect(report).toContain(subject);
 });
 
-test("a catalog change outside the projected entries still fails, since the pin no longer matches", () => {
-	const baseline = fixtureBaseline();
-	const files = {
-		...upstreamFiles(),
-		"capability-catalog.json": catalogText([...items, entry("fixture-chat-2", "chat")]),
-	};
-	const result = drift(baseline, reader(files));
-	expect(result.findings).toHaveLength(1);
-	expect(result.findings[0]).toMatchObject({ source: "Poyo.ai catalog", change: "changed" });
-	expect(result.findings[0].detail).toContain("in-scope projection is unchanged");
+/** The upstream with a changed head catalog, and the pinned catalog fetched beside it. */
+const movedCatalog = (list: object[], pinnedText = catalogText(items)) => ({
+	...upstreamFiles(),
+	"capability-catalog.json": catalogText(list),
+	"pinned-capability-catalog.json": pinnedText,
+});
+
+test("out-of-scope entries changed in categories seen at the pin pass, listed as notices", () => {
+	const files = movedCatalog([
+		...items.slice(0, 3),
+		entry("fixture-chat", "chat", { billing: { type: "fixed", credits: 9 } }),
+		entry("fixture-chat-2", "chat"),
+	]);
+	const result = drift(fixtureBaseline(), reader(files));
+	expect(result.findings).toEqual([]);
+	expect(
+		result.notices?.map(({ change, subject, detail }) => `${change} ${subject} ${detail}`),
+	).toEqual([
+		expect.stringMatching(/^changed .* the in-scope projection is unchanged/),
+		"added fixture-chat-2 chat",
+		"changed fixture-chat chat",
+	]);
+	const report = renderReport(result);
+	expect(report).toContain("**No drift.**");
+	expect(report).toContain("### Notices");
+	expect(report).toContain("- Poyo.ai catalog added: `fixture-chat-2` (`chat`)");
+});
+
+test("an entry in a category not seen at the pin, or an in-scope entry that moved, fails", () => {
+	for (const [list, subject, detail] of [
+		[
+			[...items, entry("fixture-song", "music")],
+			"fixture-song",
+			"music, a category not seen at the pin",
+		],
+		[
+			[...items.slice(0, 3), entry("fixture-chat", "audio")],
+			"fixture-chat",
+			"audio, a category not seen at the pin",
+		],
+		[
+			[...items.slice(1), entry("fixture-image", "text2img", { description: "new" })],
+			"fixture-image",
+			"text2img, an in-scope category",
+		],
+	] as const) {
+		const result = drift(fixtureBaseline(), reader(movedCatalog([...list])));
+		expect(result.findings.map((finding) => finding.subject)).toEqual([
+			expect.any(String),
+			subject,
+		]);
+		expect(result.findings[1].detail).toBe(detail);
+		expect(renderReport(result)).toContain("**Drift: 2 findings.**");
+	}
+});
+
+test("an out-of-scope change fails while the pinned catalog is missing or does not match its digest", () => {
+	const list = [...items, entry("fixture-chat-2", "chat")];
+	for (const files of [
+		{ ...upstreamFiles(), "capability-catalog.json": catalogText(list) },
+		movedCatalog(list, `${catalogText(items)} `),
+	]) {
+		const result = drift(fixtureBaseline(), reader(files));
+		expect(result.findings).toHaveLength(1);
+		expect(result.findings[0]).toMatchObject({ source: "Poyo.ai catalog", change: "changed" });
+		expect(result.findings[0].detail).toContain("the pinned catalog could not be verified");
+	}
 });
 
 test("a catalog that no longer projects fails with the reason", () => {
@@ -385,6 +442,11 @@ function fakeUpstream(files: Files, revision = pinned) {
 		[pages.list, files[mirrorPath(pages.list)]],
 		[pages.catalog, files[mirrorPath(pages.catalog)]],
 	]);
+	if (files["pinned-capability-catalog.json"] !== undefined)
+		routes.set(
+			`https://raw.githubusercontent.com/PoyoAPI/poyo-devtools/${pinned}/artifacts/capability-catalog.json`,
+			files["pinned-capability-catalog.json"],
+		);
 	const requests: { url: string; init: RequestInit }[] = [];
 	const fetcher = async (url: string, init: RequestInit) => {
 		requests.push({ url, init });
@@ -422,6 +484,27 @@ test("an online run fetches anonymously into a fresh mirror and passes on an unc
 		}
 	} finally {
 		rmSync(dir, { recursive: true });
+	}
+});
+
+test("an online run fetches the pinned catalog only when the head catalog differs from it", async () => {
+	const pinnedUrl = `https://raw.githubusercontent.com/PoyoAPI/poyo-devtools/${pinned}/artifacts/capability-catalog.json`;
+	const baseline = fixtureBaseline();
+	for (const [files, fetched] of [
+		[upstreamFiles(), false],
+		[movedCatalog([...items, entry("fixture-chat-2", "chat")]), true],
+	] as const) {
+		const { fetcher, requests } = fakeUpstream(files, head);
+		const dir = mkdtempSync(join(tmpdir(), "siluet-drift-test-"));
+		try {
+			expect(await fetchMirror(dir, baseline, { revision: "head", fetcher })).toEqual([]);
+			expect(requests.some(({ url }) => url === pinnedUrl)).toBe(fetched);
+			const result = drift(baseline, readMirror(dir));
+			expect(result.findings).toEqual([]);
+			expect(result.notices?.length).toBe(fetched ? 2 : 0);
+		} finally {
+			rmSync(dir, { recursive: true });
+		}
 	}
 });
 

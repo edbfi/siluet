@@ -24,6 +24,7 @@ import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import {
 	indexedSpecs,
+	inScope,
 	openApiScope,
 	projectCatalog,
 	projectOpenApi,
@@ -60,6 +61,8 @@ export type Finding = {
 export type DriftResult = {
 	head?: string;
 	findings: Finding[];
+	/** Changes that cannot affect eligibility: reported, never failing. */
+	notices: Finding[];
 	notCovered: string[];
 	pinned: string;
 	pages: number;
@@ -191,6 +194,42 @@ function entryChanges(source: string, before: string, after: string): Finding[] 
 	return findings;
 }
 
+/**
+ * Entries that moved between the pinned catalog and the head while the in-scope projection stayed
+ * byte-identical. An added or changed entry passes as a notice only when its category is outside
+ * the in-scope set and was already present at the pin; any other could be a new media category,
+ * so it fails. Removed entries are notices. Null when a model ID repeats, so nothing is compared.
+ */
+function outOfScopeChanges(source: string, pinnedText: string, headText: string) {
+	const list = (text: string) => (JSON.parse(text) as { items: Entry[] }).items;
+	const [before, after] = [list(pinnedText), list(headText)];
+	const [old, now] = [byId(before), byId(after)];
+	if (old.size !== before.length || now.size !== after.length) return null;
+	const seen = new Set(before.map((item) => item.category));
+	const ids = [...new Set([...old.keys(), ...now.keys()])].sort();
+	const findings: Finding[] = [];
+	const notices: Finding[] = [];
+	const classify = (change: Finding["change"], item: Entry) => {
+		const reason = inScope(item)
+			? "an in-scope category"
+			: !seen.has(item.category) && "a category not seen at the pin";
+		if (reason)
+			findings.push({
+				source,
+				change,
+				subject: item.model_id,
+				detail: `${item.category}, ${reason}`,
+			});
+		else notices.push({ source, change, subject: item.model_id, detail: item.category });
+	};
+	for (const id of ids) if (!old.has(id)) classify("added", now.get(id) as Entry);
+	for (const id of ids) if (!now.has(id)) classify("removed", old.get(id) as Entry);
+	for (const id of ids)
+		if (old.has(id) && now.has(id) && canonicalJson(old.get(id)) !== canonicalJson(now.get(id)))
+			classify("changed", now.get(id) as Entry);
+	return { findings, notices };
+}
+
 type OpenApiProjection = {
 	index: { sha256: string; url: string };
 	manifest: { path: string; sha256: string }[];
@@ -229,6 +268,7 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 export function drift(baseline: Baseline, read: Mirror): DriftResult {
 	const { record } = baseline;
 	const findings: Finding[] = [];
+	const notices: Finding[] = [];
 	// The head revision is untrusted mirror text; only a full commit SHA is reported.
 	const head = /^[0-9a-f]{40}$/.exec(read("revision")?.trim() ?? "")?.[0];
 
@@ -247,15 +287,45 @@ export function drift(baseline: Baseline, read: Mirror): DriftResult {
 		try {
 			const projected = projectCatalog(upstream, record.catalog.revision);
 			const entries = entryChanges(catalogSource, baseline.catalog, projected);
-			findings.push({
-				source: catalogSource,
-				change: "changed",
-				subject,
-				detail: entries.length
-					? digest
-					: `${digest}; the in-scope projection is unchanged, so only entries outside it moved`,
-			});
-			findings.push(...entries);
+			if (entries.length) {
+				findings.push({ source: catalogSource, change: "changed", subject, detail: digest });
+				findings.push(...entries);
+			} else {
+				// The in-scope projection is unchanged, so the pinned catalog shows what moved outside it.
+				const pinnedText = read("pinned-capability-catalog.json");
+				const outside =
+					pinnedText !== undefined && sha256(pinnedText) === record.catalog.upstreamSha256
+						? outOfScopeChanges(catalogSource, pinnedText, upstream)
+						: undefined;
+				const unchanged = `${digest}; the in-scope projection is unchanged`;
+				if (outside && !outside.findings.length)
+					notices.push(
+						{
+							source: catalogSource,
+							change: "changed",
+							subject,
+							detail: `${unchanged}, and every entry that moved is outside it, in a category seen at the pin`,
+						},
+						...outside.notices,
+					);
+				else {
+					findings.push({
+						source: catalogSource,
+						change: "changed",
+						subject,
+						detail:
+							outside === undefined
+								? `${unchanged}, but the pinned catalog could not be verified, so the entries outside it were not compared`
+								: outside === null
+									? `${unchanged}, but the catalog repeats a model ID, so the entries outside it were not compared`
+									: `${unchanged}, but entries outside it moved in a way that could affect eligibility`,
+					});
+					if (outside) {
+						findings.push(...outside.findings);
+						notices.push(...outside.notices);
+					}
+				}
+			}
 		} catch (error) {
 			findings.push({ source: catalogSource, change: "changed", subject, detail: digest });
 			findings.push({
@@ -370,6 +440,7 @@ export function drift(baseline: Baseline, read: Mirror): DriftResult {
 	return {
 		...(head && { head }),
 		findings,
+		notices,
 		notCovered: notCoveredKinds
 			.filter(([kind]) => !baseline.pages.some((page) => page.kind === kind))
 			.map(([, text]) => text),
@@ -529,11 +600,14 @@ export async function fetchMirror(
 	}
 	if (rev) {
 		save("revision", `${rev}\n`);
-		await fetchTo(
+		const text = await fetchTo(
 			`https://raw.githubusercontent.com/${repository}/${rev}/${artifact}`,
 			"capability-catalog.json",
 			limits.catalog,
 		);
+		// A head catalog that differs from the pin is compared entry by entry with the pinned one.
+		if (revision === "head" && text !== undefined && sha256(text) !== record.catalog.upstreamSha256)
+			await fetchTo(record.catalog.upstream, "pinned-capability-catalog.json", limits.catalog);
 	}
 
 	const index = await fetchTo(record.openapi.index, "llms.txt", limits.index);
@@ -629,6 +703,20 @@ export function renderReport(
 			mode === "repin"
 				? "**Reproduced.** The upstream matches its recorded SHA-256, and projecting it reproduces both committed projections byte for byte."
 				: "**No drift.** Every recorded source matches.",
+		);
+	if (result.notices?.length)
+		lines.push(
+			"",
+			"### Notices",
+			"",
+			"Outside the in-scope projection, so these cannot change what is eligible.",
+			"",
+			...bullets(
+				result.notices,
+				({ source, change, subject, detail }) =>
+					`${source} ${change}: ${untrusted(subject)}${detail ? ` (${untrusted(detail)})` : ""}`,
+				"notices",
+			),
 		);
 	if (failures.length)
 		lines.push(

@@ -42,7 +42,8 @@ const projectedFields = [
 	"billing",
 ] as const;
 
-function inScope(item: CatalogItem) {
+/** Whether a catalog entry belongs to the projection: by its category or as a music prerequisite. */
+export function inScope(item: { model_id: string; category: string }) {
 	return (
 		(inScopeCategories as readonly string[]).includes(item.category) ||
 		(musicPrerequisites as readonly string[]).includes(item.model_id)
