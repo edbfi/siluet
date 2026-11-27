@@ -215,6 +215,8 @@ test("Z-Image polls only the accepted task and offers exactly one completed imag
 				data: { task_id: taskId, status, files, credits_amount: 1.75, error_message: signed },
 			});
 		});
+		// Two images for one request are held, never saved (one output per request).
+		const multiple = state === "completed" && files.length === 2 && files[1] === image;
 		expect(await adapter.status("fixture-key", taskId)).toEqual({
 			kind: "observed",
 			state,
@@ -223,6 +225,7 @@ test("Z-Image polls only the accepted task and offers exactly one completed imag
 			expiresAt: null,
 			retryAfter: null,
 			failureReason: null,
+			...(multiple && { multipleImageResult: true }),
 		});
 		expect(await adapter.status("fixture-key", "different")).toMatchObject({
 			kind: "paused",

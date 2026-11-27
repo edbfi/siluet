@@ -38,6 +38,8 @@ export type TaskObservation = { retryAfter: string | null; queryAfter?: number }
 			billing: TaskBilling | null;
 			resultUrl: string | null;
 			unsupportedVideoResult?: true;
+			/** A completed image task returned more than one image: held, never saved. */
+			multipleImageResult?: true;
 			expiresAt: number | null;
 	  }
 	| { kind: "paused"; reason: StatusPause }

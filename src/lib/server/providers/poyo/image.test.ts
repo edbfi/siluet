@@ -102,6 +102,29 @@ test("Poyo reads only image entries and separates task credits and wallet credit
 	});
 });
 
+test("a completed Poyo.ai image result with more than one image is flagged and gives no link", async () => {
+	const files = [
+		{ file_type: "image", file_url: "https://media.example.net/first.png?signature=one" },
+		{ file_type: "image", file_url: "https://media.example.net/second.png?signature=two" },
+	];
+	const image = createPoyoImage(async () =>
+		Response.json({ code: 200, data: { task_id: taskId, status: "finished", files } }),
+	);
+	const observed = await image.status(key, taskId);
+	expect(observed).toMatchObject({
+		kind: "observed",
+		state: "completed",
+		resultUrl: null,
+		multipleImageResult: true,
+	});
+	expect(JSON.stringify(observed)).not.toContain("signature");
+	// One image among other files is still the result, and a running task is never flagged.
+	const running = createPoyoImage(async () =>
+		Response.json({ code: 200, data: { task_id: taskId, status: "running", files } }),
+	);
+	expect(await running.status(key, taskId)).not.toHaveProperty("multipleImageResult");
+});
+
 test("Poyo pauses missing or unknown tasks and retries upstream status errors", async () => {
 	for (const [status, code, reason] of [
 		[404, 200, "missing-task"],

@@ -161,6 +161,8 @@ const statusNotes: Record<StatusNote, string> = {
 	temporary: "The provider status is temporarily unavailable.",
 	"unsupported-video-result":
 		"The provider returned an unsupported video result. Check provider history.",
+	"multiple-image-result":
+		"Poyo.ai returned more than one image for a one-image request, so Siluet saved none of them. Check provider history.",
 	"result-unavailable":
 		"The provider has no usable image link. Try again or check provider history.",
 };

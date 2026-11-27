@@ -27,7 +27,8 @@ export type StatusNote =
 	| "credential-changed"
 	| "temporary"
 	| "result-unavailable"
-	| "unsupported-video-result";
+	| "unsupported-video-result"
+	| "multiple-image-result";
 
 export type SaveHold = "removed" | "unsupported" | "webm" | "failed";
 

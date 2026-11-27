@@ -59,6 +59,26 @@ const h3: ImageJob = {
 	contract: null,
 };
 
+test("a held result with more than one image says why nothing was saved", () => {
+	const job = {
+		...h3,
+		id: "multi",
+		model: "flux-dev",
+		operation: "text-to-image",
+		video_terms: null,
+		state: "completed",
+		pause_reason: "multiple-image-result",
+		save_hold: "unsupported",
+		save_due: null,
+	} as const;
+	expect(summarizeJob(job, true, now)).toMatchObject({
+		library: "unsupported",
+		retryable: false,
+		message:
+			"Poyo.ai returned more than one image for a one-image request, so Siluet saved none of them. Check provider history.",
+	});
+});
+
 test("permission rejection message", () => {
 	const job = { ...h3, state: "rejected", task_id: null, rejection: "permission" } as const;
 	expect(summarizeJob(job, true, now)).toMatchObject({
