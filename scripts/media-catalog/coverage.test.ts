@@ -5,6 +5,7 @@ import { reviewedOverrides } from "../../src/lib/shared/media-catalog/rules";
 import {
 	assignment,
 	type CoverageItem,
+	contractOptions,
 	coverage,
 	coverageStates,
 	expandKeys,
@@ -69,19 +70,30 @@ test("the tag-blocking count matches the ledger", () => {
 	expect(shipped.map((key) => `${key.provider} ${key.model} ${key.operation}`).sort()).toEqual(
 		supportKeys.sort(),
 	);
-	// Nothing is contract-covered or provider-unsupported before G4, so every key and option
-	// without a verified path blocks the tag.
-	const unblocked = result.items.filter((item) => item.state === "verified").length;
+	// Nothing is provider-unsupported yet, so every key and option without a verified or
+	// contract-covered path blocks the tag.
+	const unblocked = result.items.filter(
+		(item) => item.state === "verified" || item.state === "contract-covered",
+	).length;
 	expect(result.tagBlocking).toBe(result.items.length - unblocked);
 	expect(result.blocking.unknownWithoutQuestion).toBe(0);
 	expect(result.blocking.unsupportedWithoutEvidence).toBe(0);
 	expect(
 		result.items.filter((item) => item.option === undefined && item.state === "unknown"),
 	).toHaveLength(4);
-	expect(result.blocking.envelope).toBe(1);
-	expect(result.items.find((item) => item.envelope)?.reason).toBe(
-		"Siluet's 4000-byte envelope excludes the documented 50000 characters",
-	);
+	// H3 Max's prompt envelope, and the 4K tier left on each covered option until G13.
+	expect(result.blocking.envelope).toBe(7);
+	expect(
+		result.items.filter((item) => item.envelope).map(({ model, reason }) => [model, reason]),
+	).toEqual([
+		["flux-3-klein", "G13: over Gallery's image limits"],
+		["kling-o3-image", "G13: over Gallery's image limits"],
+		["nano-banana-2", "G13: over Gallery's image limits"],
+		["nano-banana-pro", "G13: over Gallery's image limits"],
+		["seedream-4", "G13: over Gallery's image limits"],
+		["seedream-4.5", "G13: over Gallery's image limits"],
+		["h3-max", "Siluet's 4000-byte envelope excludes the documented 50000 characters"],
+	]);
 });
 
 test("the buckets count unsupported pairs with evidence as unblocked", () => {
@@ -268,6 +280,85 @@ test("a covered option leaves its 4K tier to G13 and its custom sizes to their o
 			"G4",
 		),
 	).toHaveLength(1);
+});
+
+test("Queue-eligible keys and their fully offered options are contract-covered", () => {
+	const key = (model: string) =>
+		result.items.find(
+			(item) => item.model === model && item.operation === "text-to-image" && !item.option,
+		);
+	for (const model of ["flux-dev", "seedream-4.5", "nano-banana-pro", "wan-2.7-image"])
+		expect(key(model)).toMatchObject({ state: "contract-covered" });
+	expect(key("qwen-image-2.1")).toMatchObject({ state: "verified" });
+	expect(key("flux-2-pro")).toMatchObject({ state: "pending" });
+	const option = (model: string, field: string) =>
+		result.items
+			.filter(
+				(item) =>
+					item.model === model && item.option === field && item.operation === "text-to-image",
+			)
+			.map(({ values, state, reason, question, envelope }) => [
+				values,
+				state,
+				reason,
+				question,
+				envelope,
+			]);
+	expect(option("flux-dev", "output_format")).toEqual([
+		['"jpeg", "png"', "contract-covered", "offered in full", undefined, undefined],
+	]);
+	// A 4K tier stays with G13 and a custom size with its own state.
+	expect(option("kling-o3-image", "resolution")).toEqual([
+		['"4K"', "pending", "G13: over Gallery's image limits", undefined, true],
+		['"1K", "2K"', "contract-covered", "offered in full", undefined, undefined],
+	]);
+	expect(option("flux-3-klein", "size")[0]).toEqual([
+		"custom sizes",
+		"pending",
+		"class not yet qualified: custom size",
+		undefined,
+		undefined,
+	]);
+	// A prompt whose limit no source documents stays unknown under question 10.
+	expect(option("flux-dev", "prompt")[0]?.[3]).toBe(10);
+});
+
+// nano-banana-2-official's seed joins them once its page shows one output; until then the row is
+// pending for want of that evidence.
+test("an integer without a documented maximum is unknown under question 11, even when offered", () => {
+	for (const model of ["qwen-image-2.1", "wan-2.7-image", "wan-2.7-image-pro"]) {
+		const seed = result.items.filter(
+			(item) =>
+				item.model === model && item.option === "seed" && item.operation === "text-to-image",
+		);
+		expect(seed.map(({ state, question, reason }) => [state, question, reason])).toEqual([
+			["unknown", 11, "no documented maximum"],
+		]);
+	}
+});
+
+test("removing an option from a contract-covered composer leaves a blocker; fixed values add none", () => {
+	const contract = contractOptions(rows).map((entry) =>
+		entry.key.model === "seedream-4.5"
+			? {
+					...entry,
+					offered: Object.fromEntries(Object.entries(entry.offered).filter(([f]) => f !== "size")),
+				}
+			: entry,
+	);
+	const removed = coverage({ rows, contract });
+	expect(removed.tagBlocking).toBe(result.tagBlocking + 1);
+	const fixed = result.items.filter(
+		(item) =>
+			["flux-dev", "seedream-4.5", "nano-banana-2"].includes(item.model) &&
+			item.operation === "text-to-image",
+	);
+	expect(fixed.some((item) => item.option === "enable_safety_checker")).toBe(false);
+	expect(fixed.some((item) => item.option === "n" && item.values?.startsWith("1"))).toBe(false);
+	// An excluded field is no obligation.
+	expect(
+		fixed.some((item) => item.model === "nano-banana-2" && item.option === "enable_web_search"),
+	).toBe(false);
 });
 
 const itemsOf = (model: string, option: string, operation?: string) =>

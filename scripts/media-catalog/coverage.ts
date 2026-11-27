@@ -13,7 +13,8 @@ import {
 	envelopeValues,
 	narrowedDomain,
 } from "./derive";
-import { type Offered, type VerifiedOptions, verifiedOptions } from "./verified";
+import { queueProjection } from "./queue";
+import { type Offered, queueRowOffered, type VerifiedOptions, verifiedOptions } from "./verified";
 
 type Provider = keyof typeof ledger.providers;
 type Row = (typeof ledger.providers)[Provider]["rows"][number];
@@ -284,13 +285,33 @@ function disputedTails(option: DerivedOption): { values: string }[] {
 	return tails;
 }
 
-/** One creator option's obligations on one key; fixed values add none. */
+/**
+ * The composer choices of every Queue-eligible derived key that is not verified: each is
+ * contract-covered through its family's verified adapter.
+ */
+export function contractOptions(rows: DerivedRow[]): readonly VerifiedOptions[] {
+	return queueProjection(rows)
+		.rows.filter(({ key }) => !verifiedOptions(rows).some((entry) => sameKey(entry.key, key)))
+		.map((queued) => ({ key: queued.key, offered: queueRowOffered(queued) }));
+}
+
+const sameKey = (a: Omit<Key, "provider"> & { provider: string }, b: typeof a) =>
+	a.provider === b.provider &&
+	a.model === b.model &&
+	a.route === b.route &&
+	a.operation === b.operation;
+
+/**
+ * One creator option's obligations on one key; fixed values add none. `covered` names the
+ * key's covered path: its verified composer, or the contract-covered derived composer.
+ */
 export function optionObligations(
 	key: Key & { verified: boolean },
 	row: DerivedRow,
 	option: DerivedOption,
 	offered: Record<string, Offered> | undefined,
 	slice: string,
+	covered: "verified" | "contract-covered" | null = key.verified ? "verified" : null,
 ): CoverageItem[] {
 	const base = { ...key, slice, option: option.field };
 	const domain = narrowedDomain(row, option, key.operation);
@@ -337,7 +358,19 @@ export function optionObligations(
 		items.push(first);
 		return items;
 	}
-	if (key.verified) {
+	// An integer with no documented maximum is unknown, as a count without one is, even when the
+	// composer offers it (question 11).
+	if (option.kind === "integer" && domain.maximum === undefined) {
+		items.push({
+			...base,
+			values,
+			state: "unknown",
+			reason: "no documented maximum",
+			question: 11,
+		});
+		return items;
+	}
+	if (covered) {
 		// A covered option leaves its envelope values and custom branch to their own items.
 		const withheld = envelopeValues(row, option, domain);
 		if (withheld.length)
@@ -349,12 +382,12 @@ export function optionObligations(
 				envelope: true,
 			});
 		if (option.custom) items.push({ ...base, values: "custom sizes", ...option.custom });
-		const covered = withheld.length
+		const remaining = withheld.length
 			? { ...domain, values: domain.values?.filter((value) => !withheld.includes(value)) }
 			: domain;
-		const listed = range(covered);
+		const listed = range(remaining);
 		const choice = offered?.[option.field];
-		const gap = offerGap(covered, choice);
+		const gap = offerGap(remaining, choice);
 		items.push(
 			gap
 				? {
@@ -364,7 +397,7 @@ export function optionObligations(
 						reason: gap,
 						...(choice && "maxBytes" in choice && { envelope: true as const }),
 					}
-				: { ...base, values: listed, state: "verified", reason: "offered in full" },
+				: { ...base, values: listed, state: covered, reason: "offered in full" },
 		);
 		return items;
 	}
@@ -375,16 +408,26 @@ export function optionObligations(
 export function coverage({
 	rows = deriveRows(),
 	offered = verifiedOptions(rows),
+	contract = contractOptions(rows),
 }: {
 	rows?: DerivedRow[];
 	offered?: readonly VerifiedOptions[];
+	contract?: readonly VerifiedOptions[];
 } = {}) {
 	const derived = new Map(rows.map((row) => [row.model, row]));
 	const items: CoverageItem[] = [];
 	for (const key of expandKeys()) {
 		const row = key.provider === "poyo" ? derived.get(key.model) : undefined;
 		const slice = assignment(key, row?.d4.d4);
+		const eligible = key.verified ? undefined : contract.find((entry) => sameKey(entry.key, key));
 		if (key.verified) items.push({ ...key, slice, state: "verified", reason: "shipped operation" });
+		else if (eligible)
+			items.push({
+				...key,
+				slice,
+				state: "contract-covered",
+				reason: "Queue-eligible through the family's verified adapter",
+			});
 		else if (slice.startsWith("Q ·"))
 			items.push({ ...key, slice, state: "unknown", reason: slice, question: slice.slice(4) });
 		else
@@ -395,14 +438,15 @@ export function coverage({
 				reason: row?.pending.length ? `${slice}; ${row.pending.join("; ")}` : slice,
 			});
 		if (row) {
-			const choices = offered.find(
+			const choices = (eligible ? [eligible] : offered).find(
 				(entry) =>
 					entry.key.provider === key.provider &&
 					entry.key.model === key.model &&
 					entry.key.operation === key.operation,
 			)?.offered;
+			const covered = key.verified ? "verified" : eligible ? "contract-covered" : null;
 			for (const option of row.options)
-				items.push(...optionObligations(key, row, option, choices, slice));
+				items.push(...optionObligations(key, row, option, choices, slice, covered));
 		} else if (key.verified)
 			items.push({
 				...key,
@@ -517,7 +561,12 @@ function operationsTable(items: readonly CoverageItem[]) {
 function optionGaps(items: readonly CoverageItem[]) {
 	const byModel = new Map<string, Map<string, Set<string>>>();
 	for (const item of items) {
-		if (item.provider !== "poyo" || item.option === undefined || item.state === "verified")
+		if (
+			item.provider !== "poyo" ||
+			item.option === undefined ||
+			item.state === "verified" ||
+			item.state === "contract-covered"
+		)
 			continue;
 		if (item.state === "pending" && item.reason === item.slice) continue;
 		const reasons = byModel.get(item.model) ?? new Map<string, Set<string>>();

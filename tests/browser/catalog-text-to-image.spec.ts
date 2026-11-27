@@ -1,5 +1,7 @@
 import { rm } from "node:fs/promises";
 import { expect, type Page } from "@playwright/test";
+import { poyoAccessNote } from "../../src/lib/shared/media-catalog/eligibility";
+import { d4Disclosure } from "../../src/lib/shared/media-catalog/filtering";
 import { jobResponses } from "../fixtures/job-responses";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
@@ -117,5 +119,29 @@ test("Qwen Image 2.1 queues once with its boolean and seed, saves the verified i
 			size: "1:1",
 			enable_safety_checker: false,
 		},
+	});
+});
+
+test("flux-dev queues once after its disclosure, access note and unknown-price consent, saves and reopens offline", async ({
+	page,
+}) => {
+	test.setTimeout(90_000);
+	page.setDefaultTimeout(12_000);
+	const prompt = "A paper crane on a windowsill at dawn";
+	const body = await journey(page, "flux-dev", prompt, async () => {
+		const review = page.getByRole("region", { name: "Review request" });
+		// Open-absent: Review binds the disclosure and says nothing about a declared field.
+		await expect(review.getByRole("list", { name: "Provider disclosure" })).toHaveText(
+			d4Disclosure("poyo"),
+		);
+		await expect(review.getByText(poyoAccessNote)).toBeVisible();
+		await expect(review.getByText("declares")).toHaveCount(0);
+		await expect(
+			review.getByText("Unknown. No local rate is available for this request."),
+		).toBeVisible();
+	});
+	expect(body).toEqual({
+		model: "flux-dev",
+		input: { prompt, output_format: "png", n: 1, enable_safety_checker: false },
 	});
 });

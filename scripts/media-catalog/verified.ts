@@ -12,6 +12,7 @@ import {
 import { zImagePromptCharacters, zImageSizes } from "../../src/lib/shared/image-studio/z-image";
 import { derivedVerifiedOperations } from "../../src/lib/shared/media-catalog/derived-verified";
 import { offeredFormats } from "../../src/lib/shared/media-catalog/formats";
+import type { QueueRow } from "../../src/lib/shared/media-catalog/queue-row";
 import { h3MaxOperation, releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import { videoPromptBytes } from "../../src/lib/shared/video-studio/prompt-limit";
 import type { DerivedRow } from "./derive";
@@ -70,14 +71,8 @@ function poyoOffered(rows: readonly DerivedRow[]): Record<string, Record<string,
 	};
 }
 
-/**
- * What a key verified on the derived path offers: its queue row's prompt limit and every field,
- * read from the derived row the composer is built from. A row that no longer queues offers none.
- */
-function derivedOffered(rows: readonly DerivedRow[], model: string): Record<string, Offered> {
-	const row = rows.find((candidate) => candidate.model === model);
-	const queued = row && queueRow(row);
-	if (!queued || typeof queued === "string") return {};
+/** What a queue row's composer offers: its prompt limit and every field it sends. */
+export function queueRowOffered(queued: QueueRow): Record<string, Offered> {
 	return {
 		prompt: { maxCodePoints: queued.prompt.max },
 		...Object.fromEntries(
@@ -94,6 +89,13 @@ function derivedOffered(rows: readonly DerivedRow[], model: string): Record<stri
 			]),
 		),
 	};
+}
+
+/** What a key verified on the derived path offers. A row that no longer queues offers none. */
+function derivedOffered(rows: readonly DerivedRow[], model: string): Record<string, Offered> {
+	const row = rows.find((candidate) => candidate.model === model);
+	const queued = row && queueRow(row);
+	return !queued || typeof queued === "string" ? {} : queueRowOffered(queued);
 }
 
 /** Each verified operation's composer choices, given the derived rows they are checked against. */

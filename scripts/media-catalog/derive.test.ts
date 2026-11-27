@@ -918,6 +918,14 @@ describe("narrowing fixtures", () => {
 	});
 });
 
+test("an unbounded seed stays an offered integer; only coverage holds it under question 11", () => {
+	for (const model of ["qwen-image-2.1", "wan-2.7-image"]) {
+		const seed = rows.find((row) => row.model === model)?.options.find((o) => o.field === "seed");
+		expect(seed).toMatchObject({ kind: "integer", domain: {} });
+		expect(seed?.gap).toBeUndefined();
+	}
+});
+
 test("an ID documented in two ledger rows fails the derivation", () => {
 	const documented = ledger.providers.poyo.rows.filter((row) => row.contract === "documented");
 	expect(() => deriveRows([...documented, documented[0]])).toThrow(
