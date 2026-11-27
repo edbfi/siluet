@@ -24,7 +24,7 @@ Deferred on 2026-11-22: external OIDC and LDAP sign-in move to the backlog. Tiny
 
 ### Browser credential
 
-Agreed with the council on 2026-11-25, delegated by the owner. Browsers send a host's cookies to every port, so Siluet never authenticates with a cookie. A non-extractable WebCrypto key, usable only by Siluet's origin, signs single-use challenges for a short-lived in-memory bearer, one server session per key ([spec](SPEC-browser-key.md)). Declined: per-installation `*.localhost`, signing every request. Costs: private screens need JavaScript; media links fail outside the app; clips buffer (≤64 MiB); a new port or cleared site data, and the upgrade, need a sign-in.
+Agreed with the council on 2026-11-25, delegated by the owner. Browsers send a host's cookies to every port, so Siluet never authenticates with a cookie. A non-extractable WebCrypto key, usable only by Siluet's origin, signs single-use challenges for a short-lived in-memory bearer, one server session per key ([spec](SPEC-browser-key.md)). Each claim and sign-in rotates the key, so a sign-out and sign-in cut off a copied profile or backup; amended on 2026-11-26 before v0.1.0, reversing #71's deferral. Declined: per-installation `*.localhost`, signing every request. Costs: private screens need JavaScript; media links fail outside the app; clips buffer (≤64 MiB); a new port or cleared site data, and the upgrade, need a sign-in; each sign-in writes IndexedDB once, and a crash between the answer and that write signs the browser out.
 
 ### No native tools
 

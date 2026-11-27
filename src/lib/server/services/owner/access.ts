@@ -7,8 +7,10 @@ import { createAuthenticator } from "./authenticator";
 import { type Bearers, createBearers } from "./bearers";
 import { hashPassword, token } from "./credentials";
 
-const invalidClaim = () => new AccessError("Check the claim token in your terminal.", 403);
-const invalidLogin = () => new AccessError("Check your username and password.", 403);
+const invalidClaim = () =>
+	new AccessError("Check the claim token in your terminal.", 403, "invalid-claim");
+const invalidLogin = () =>
+	new AccessError("Check your username and password.", 403, "invalid-login");
 const digest = (value: string) => createHash("sha256").update(value).digest();
 export const rotationMs = 15 * 60000;
 export function createOwnerAccess(

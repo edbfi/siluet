@@ -55,7 +55,12 @@ function harness() {
 			reload: () => navigations.push("reload"),
 			replace: (url) => navigations.push(`replace ${url}`),
 		},
-		{ read: async () => key, ensure: async () => key },
+		{
+			read: async () => key,
+			base: async () => ({ expected: key.spki, base: key }),
+			candidate: async () => key,
+			commit: async () => true,
+		},
 	);
 	const states: unknown[] = [];
 	client.subscribe((state) => states.push(state));

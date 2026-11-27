@@ -1,10 +1,8 @@
 import { sql } from "drizzle-orm";
 import { staleProof } from "../services/owner/access-error";
-import { insertSession, newLogin } from "./access-store";
 import type { OwnerTransaction } from "./installation";
-import { issueProof } from "./owner-proofs";
+import { issueProof, issueRotated, requireNoLiveSession } from "./owner-proofs";
 import { currentPolicy, type Policy } from "./security-state";
-import { deleteOwnerSessions } from "./session-retirement";
 
 // Only a server-side primary verifier supplies this evidence. Its configuration
 // check runs again inside the transaction where the session or challenge is issued.
@@ -20,18 +18,21 @@ export async function requirePrimary(tx: OwnerTransaction, primary: VerifiedPrim
 	await primary.requireConfiguration(tx);
 }
 /**
- * Finish a verified primary sign-in for one browser key. Without MFA the key's session is
- * replaced; with MFA only the key's earlier pending sign-in is, and nothing is revoked yet.
+ * Finish a verified primary sign-in for one browser key, unless it already has a live session.
+ * Without MFA the key's session is issued and its base retired; with MFA only the key's
+ * earlier pending sign-in is replaced, and nothing is retired yet.
  */
 export async function issueAfterPrimary(
 	tx: OwnerTransaction,
 	primary: VerifiedPrimary,
 	origin: string,
 	key: string,
+	base: string | null,
 	elapsed: number,
 	time: number,
 ) {
 	await requirePrimary(tx, primary);
+	await requireNoLiveSession(tx, key, time);
 	await tx.run(
 		sql`DELETE FROM owner_proof WHERE (public_key=${key} AND purpose='signin' AND session_digest IS NULL) OR expires<=${elapsed}`,
 	);
@@ -43,10 +44,7 @@ export async function issueAfterPrimary(
 				method: primary.method,
 			}),
 		};
-	await deleteOwnerSessions(tx, sql`public_key=${key}`);
-	const ids = newLogin();
-	await tx.run(insertSession(key, ids, time));
-	return { kind: "session" as const, ...ids };
+	return { kind: "session" as const, ...(await issueRotated(tx, key, base, time)) };
 }
 export function verifiedPassword(
 	state: Policy,

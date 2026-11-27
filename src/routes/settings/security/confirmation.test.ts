@@ -95,9 +95,15 @@ test.each(["publication", "throttling", "expiry during publication"] as const)(
 			const changed = await confirm(failed.data.proof);
 			if (!("codes" in changed)) throw new Error("Expected the original candidate to commit.");
 			expect(changed.codes).toHaveLength(10);
-			const rotated = await access.signIn("owner", password, "key-a");
+			// The browser signs in again with a new key that replaces the one it had.
+			const rotated = await access.signIn("owner", password, "key-b", "key-a");
 			if (rotated.kind !== "pending") throw new Error("Expected a pending sign-in.");
-			const newSession = await access.security.complete(rotated.token, "key-a", changed.codes[0]);
+			const newSession = await access.security.complete(
+				rotated.token,
+				"key-b",
+				changed.codes[0],
+				"key-a",
+			);
 			const consumed = await confirm(replacement.digest, totp.generate(), newSession.digest);
 			if (!("status" in consumed)) throw new Error("Expected consumed proof to be refused.");
 			expect(consumed.data.proof === "").toBe(true);

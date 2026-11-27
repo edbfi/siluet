@@ -76,14 +76,17 @@ export function createAuthenticator(
 	return {
 		initialize: budget,
 		snapshot,
-		/** Primary sign-in for one browser key: a session, or that key's pending factor proof. */
-		async signIn(name: string, password: string, key: string) {
+		/**
+		 * Primary sign-in for one browser key: a session, or that key's pending factor proof.
+		 * `base` is the verified key this one replaces; issuing a session retires it.
+		 */
+		async signIn(name: string, password: string, key: string, base: string | null = null) {
 			const limits = await budget();
 			const { state } = await snapshot();
 			const primary = verifiedPassword(state, await verify(name, password));
 			return transact(
 				install,
-				(tx) => issueAfterPrimary(tx, primary, origin, key, limits.now(), clock()),
+				(tx) => issueAfterPrimary(tx, primary, origin, key, base, limits.now(), clock()),
 				(result) => (result.kind === "session" ? issued(result) : result),
 			);
 		},
@@ -93,7 +96,7 @@ export function createAuthenticator(
 			});
 		},
 		/** Finish this key's pending sign-in. Another key's proof is refused before any factor check. */
-		async complete(value: string, key: string, code: string) {
+		async complete(value: string, key: string, code: string, base: string | null = null) {
 			const limits = await budget();
 			const { state, seed, factor } = await snapshot();
 			if (!factor || !seed) throw staleProof();
@@ -108,7 +111,7 @@ export function createAuthenticator(
 				async (tx) => {
 					await consumeFactor(tx, install.id, factor, seed, code, clock());
 					await validate(tx);
-					return completeChallenge(tx, digest, key, clock());
+					return completeChallenge(tx, digest, key, base, clock());
 				},
 				issued,
 			);

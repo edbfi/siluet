@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
-import { invalidFactor, staleProof } from "../services/owner/access-error";
+import { invalidFactor, sessionLive, staleProof } from "../services/owner/access-error";
 import { sessionDigest, token } from "../services/owner/credentials";
 import { checkStep, makeRecoverySet, recoveryDigest } from "../services/owner/factors";
 import { idleMs, insertSession, lifetimeMs, newLogin, successor } from "./access-store";
@@ -15,6 +15,37 @@ export async function requireSession(tx: OwnerTransaction, digest: string, now: 
 		))
 	)
 		throw staleProof();
+}
+/** First commit wins: a key that already has a live session is refused another. */
+export async function requireNoLiveSession(tx: OwnerTransaction, key: string, now: number) {
+	if (
+		await tx.get(
+			sql`SELECT 1 FROM session WHERE public_key=${key} AND owner_id=1 AND last_activity>${now - idleMs} AND last_activity<=${now} AND created_at>${now - lifetimeMs} AND created_at<=${now}`,
+		)
+	)
+		throw sessionLive();
+}
+/**
+ * Issue a new login for `key`, replacing its expired session and the `base` key it rotated
+ * from: the base's session, with its bearers and staged work, and its pending sign-ins end
+ * in this transaction.
+ */
+export async function issueRotated(
+	tx: OwnerTransaction,
+	key: string,
+	base: string | null,
+	now: number,
+) {
+	await deleteOwnerSessions(tx, sql`public_key=${key}`);
+	if (base) {
+		await deleteOwnerSessions(tx, sql`public_key=${base}`);
+		await tx.run(
+			sql`DELETE FROM owner_proof WHERE public_key=${base} AND purpose='signin' AND session_digest IS NULL`,
+		);
+	}
+	const ids = newLogin();
+	await tx.run(insertSession(key, ids, now));
+	return ids;
 }
 /** Store a proof and return its secret value; only its digest is kept. */
 export async function issueProof(
@@ -153,11 +184,12 @@ const pendingSignIn = (digest: string, key: string) =>
 /** Cancel this key's pending sign-in. */
 export const dropProof = (tx: OwnerTransaction, digest: string, key: string) =>
 	tx.run(sql`DELETE FROM owner_proof WHERE ${pendingSignIn(digest, key)}`);
-/** Spend this key's pending sign-in and replace the key's session with a new login. */
+/** Spend this key's pending sign-in and issue the key a new login, retiring its base. */
 export async function completeChallenge(
 	tx: OwnerTransaction,
 	digest: string,
 	key: string,
+	base: string | null,
 	now: number,
 ) {
 	if (
@@ -166,10 +198,7 @@ export async function completeChallenge(
 		))
 	)
 		throw staleProof();
-	await deleteOwnerSessions(tx, sql`public_key=${key}`);
-	const ids = newLogin();
-	await tx.run(insertSession(key, ids, now));
-	return ids;
+	return issueRotated(tx, key, base, now);
 }
 export async function activateFactor(
 	tx: OwnerTransaction,

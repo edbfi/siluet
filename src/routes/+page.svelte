@@ -38,6 +38,8 @@ async function signOut() {
 	}
 }
 onMount(() => {
+	// A sign-out that found another sign-in left this offer for the session it joined.
+	if (sessionClient().takeSignOutOffer()) signOutProblem = "other";
 	try {
 		theme = localStorage.getItem("siluet-appearance") ?? "system";
 		applyAppearance(theme);
