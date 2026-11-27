@@ -508,6 +508,39 @@ test("an online run fetches the pinned catalog only when the head catalog differ
 	}
 });
 
+test("a docs index that repeats a spec path or lists over 500 fails closed before any spec is fetched", async () => {
+	const baseline = fixtureBaseline();
+	for (const [paths, reason] of [
+		[
+			["/api-manual/one.json", "/api-manual/two.json", "/api-manual/one.json"],
+			"repeats /api-manual/one.json",
+		],
+		[
+			Array.from({ length: 501 }, (_, at) => `/api-manual/s${at}.json`),
+			"lists 501 specs, over the limit of 500",
+		],
+	] as const) {
+		const files = { ...upstreamFiles(), "llms.txt": index([...paths]) };
+		const { fetcher, requests } = fakeUpstream(files);
+		const dir = mkdtempSync(join(tmpdir(), "siluet-drift-test-"));
+		try {
+			const failures = await fetchMirror(dir, baseline, { revision: "head", fetcher });
+			expect(failures.map((failure) => failure.reason)).toEqual([expect.stringContaining(reason)]);
+			expect(
+				requests.some(
+					({ url }) => url.endsWith(".json") && url.startsWith("https://docs.poyo.ai/"),
+				),
+			).toBe(false);
+			const finding = drift(baseline, readMirror(dir)).findings.find(
+				({ source, change }) => source === "Poyo.ai docs index" && change === "unprojectable",
+			);
+			expect(finding?.detail).toContain(reason);
+		} finally {
+			rmSync(dir, { recursive: true });
+		}
+	}
+});
+
 test("an online run refuses a used directory, oversized or failed responses and unsafe spec paths", async () => {
 	const files = upstreamFiles();
 	const baseline = fixtureBaseline(files);
