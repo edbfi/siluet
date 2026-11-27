@@ -167,6 +167,7 @@ test("derived rows record constructs, contradictions and unknowns, and nothing q
 	expect(option("kling-2.5-turbo-pro", "aspect_ratio")?.gap?.question).toBe(11);
 	expect(option("seedance-2.5", "prompt")?.gap).toMatchObject({ question: 10 });
 	// At ec73207 the catalog lists kling-4.0's dynamic_range and both sources agree on 4k.
+	expect(option("kling-4.0", "dynamic_range")).toBeDefined();
 	expect(option("kling-4.0", "dynamic_range")?.gap?.question).not.toBe(7);
 	for (const model of ["kling-4.0", "seedance-2.5"])
 		expect(option(model, "resolution")?.disputed).toBeUndefined();
