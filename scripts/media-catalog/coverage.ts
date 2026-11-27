@@ -4,8 +4,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import ledger from "../../docs/media-catalog.v1.json";
 import type { D4State } from "../../src/lib/shared/media-catalog/filtering";
-import { reviewedOverrides } from "../../src/lib/shared/media-catalog/rules";
-import { type DerivedOption, type DerivedRow, type Domain, deriveRows } from "./derive";
+import {
+	type DerivedOption,
+	type DerivedRow,
+	type Domain,
+	deriveRows,
+	narrowedDomain,
+} from "./derive";
 import { type Offered, type VerifiedOptions, verifiedOptions } from "./verified";
 
 type Provider = keyof typeof ledger.providers;
@@ -203,21 +208,6 @@ const range = (domain: Domain) =>
 			? `up to ${domain.maxLength} characters`
 			: `${domain.minimum ?? "…"}–${domain.maximum ?? "…"}`;
 
-/** The documented domain of one option on one operation, after reviewed narrowings. */
-function documented(row: DerivedRow, option: DerivedOption, operation: string): Domain {
-	const excludes = reviewedOverrides
-		.filter(
-			(override) =>
-				override.model === row.model &&
-				override.operation === operation &&
-				override.field === option.field &&
-				override.schemaSha256 === row.catalog,
-		)
-		.flatMap(({ excludes }) => excludes);
-	if (!excludes.length || !option.domain.values) return option.domain;
-	return { ...option.domain, values: option.domain.values.filter((v) => !excludes.includes(v)) };
-}
-
 /** Why a verified composer does not offer the whole documented domain, or null when it does. */
 export function offerGap(domain: Domain, offered: Offered | undefined) {
 	if (!offered) return "not offered by the composer";
@@ -301,7 +291,7 @@ export function optionObligations(
 	slice: string,
 ): CoverageItem[] {
 	const base = { ...key, slice, option: option.field };
-	const domain = documented(row, option, key.operation);
+	const domain = narrowedDomain(row, option, key.operation);
 	const disputed: CoverageItem[] = disputedTails(option).map(({ values }) => ({
 		...base,
 		values,

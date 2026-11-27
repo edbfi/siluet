@@ -29,7 +29,16 @@ test("every derived image row is listed once with its schema's output formats an
 			...(option.default.state === "resolved" && { default: option.default.value as string }),
 		});
 	}
-	expect(projected.filter((entry) => entry.output_format)).toHaveLength(35);
+	// 35 rows document the option; Nano Banana 2, 2 New and their edits drop it under the
+	// reviewed "Pro only" and "Official only" exclusions.
+	expect(projected.filter((entry) => entry.output_format)).toHaveLength(31);
+	for (const model of [
+		"nano-banana-2",
+		"nano-banana-2-edit",
+		"nano-banana-2-new",
+		"nano-banana-2-new-edit",
+	])
+		expect(projected.find((entry) => entry.model === model)).toEqual({ model });
 });
 
 test("an output format with a gap is recorded as pending with its reason, never thrown", () => {

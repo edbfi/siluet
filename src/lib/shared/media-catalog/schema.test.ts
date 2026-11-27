@@ -602,6 +602,30 @@ describe("both schemas", () => {
 	});
 });
 
+describe("combination rules", () => {
+	test("qwen-image-2.1 refuses a transparent background with jpeg against both schemas", () => {
+		const schemas = row("qwen-image-2.1");
+		const body = (background: string, output_format: string) => ({
+			prompt: "A lantern on a table",
+			background,
+			output_format,
+			size: "1:1",
+		});
+		expect(validateBody(schemas, body("transparent", "jpeg"))).toEqual([
+			"catalog: input matches a forbidden combination",
+			"API: input matches a forbidden combination",
+		]);
+		for (const [background, format] of [
+			["transparent", "png"],
+			["transparent", "webp"],
+			["opaque", "jpeg"],
+		])
+			expect(validateBody(schemas, body(background, format))).toEqual([]);
+		// `auto` follows a reference image, so a text-to-image body refuses it.
+		expect(validateBody(schemas, { ...body("opaque", "png"), size: "auto" })).not.toEqual([]);
+	});
+});
+
 describe("effective defaults", () => {
 	test("agree only when every source lists the field with the same default", () => {
 		const fixed = row("gpt-image-2.6-fixed");

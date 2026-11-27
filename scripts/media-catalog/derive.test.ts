@@ -5,6 +5,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import { d4States } from "../../src/lib/shared/media-catalog/filtering";
+import type { QualifierDisposition } from "../../src/lib/shared/media-catalog/rules";
 import type { ReviewedRule, Schema } from "../../src/lib/shared/media-catalog/schema";
 import {
 	type CatalogEntry,
@@ -13,6 +14,8 @@ import {
 	deriveRow,
 	deriveRows,
 	isMedia,
+	narrowedDomain,
+	qualifierProblems,
 	type RowSources,
 	renderRows,
 	rowsPath,
@@ -632,6 +635,215 @@ test("the pinned rows' one-output evidence: count fields, info quotes, and none 
 		state: "unknown",
 		reason: "domain only in prose",
 		question: 11,
+	});
+});
+
+describe("model-scoped narrowings", () => {
+	const row = (model: string) => {
+		const found = rows.find((candidate) => candidate.model === model);
+		if (!found) throw new Error(`${model} has no derived row.`);
+		return found;
+	};
+	const fields = (model: string) => row(model).options.map(({ field }) => field);
+	const offered = (model: string, field: string, operation = row(model).operations[0]) => {
+		const option = row(model).options.find((candidate) => candidate.field === field);
+		if (!option) throw new Error(`${model} has no ${field}.`);
+		return narrowedDomain(row(model), option, operation).values;
+	};
+	test("Nano Banana 2 and its edit drop the Pro-only fields and Pro's `auto`", () => {
+		for (const model of ["nano-banana-2", "nano-banana-2-edit"]) {
+			expect(fields(model)).not.toContain("enable_web_search");
+			expect(fields(model)).not.toContain("output_format");
+			expect(offered(model, "size")).not.toContain("auto");
+		}
+		for (const model of ["nano-banana-pro", "nano-banana-pro-edit"]) {
+			expect(fields(model)).toContain("enable_web_search");
+			expect(fields(model)).toContain("output_format");
+			expect(offered(model, "size")).toContain("auto");
+		}
+	});
+	test("Nano Banana 2 New and its edit drop the Official-only fields and values", () => {
+		for (const model of ["nano-banana-2-new", "nano-banana-2-new-edit"]) {
+			expect(fields(model)).not.toContain("seed");
+			expect(fields(model)).not.toContain("output_format");
+			expect(offered(model, "resolution")).toEqual(["1K", "2K", "4K"]);
+			for (const size of ["auto", "4:1", "1:4", "8:1", "1:8"])
+				expect(offered(model, "size")).not.toContain(size);
+		}
+		for (const model of ["nano-banana-2-official", "nano-banana-2-official-edit"]) {
+			expect(fields(model)).toContain("seed");
+			expect(offered(model, "resolution")).toContain("0.5K");
+			expect(offered(model, "size")).toContain("1:8");
+		}
+	});
+	test("`auto` leaves the text-to-image sizes that need an input image, and stays on their edits", () => {
+		for (const model of ["kling-o3-image", "flux-2-flex", "flux-2-pro"])
+			expect(offered(model, "size")).not.toContain("auto");
+		expect(offered("qwen-image-2.1", "size", "text-to-image")).not.toContain("auto");
+		expect(offered("qwen-image-2.1", "size", "reference-image-edit")).toContain("auto");
+		for (const model of ["kling-o3-image-edit", "flux-2-flex-edit", "flux-2-pro-edit"])
+			expect(offered(model, "size")).toContain("auto");
+	});
+	test("qwen-image-2.1 records its transparent and jpeg combination rule", () => {
+		expect(row("qwen-image-2.1").combinations).toEqual([
+			{ when: { background: "transparent" }, refuses: { output_format: ["jpeg"] } },
+		]);
+	});
+	test("the formats projection never sees an excluded field", () => {
+		for (const model of ["nano-banana-2", "nano-banana-2-edit", "nano-banana-2-new"])
+			expect(row(model).options.some(({ field }) => field === "output_format")).toBe(false);
+	});
+	test("every only or also-supports description in a shared schema has its disposition", () => {
+		expect(qualifierProblems()).toEqual([]);
+	});
+});
+
+describe("narrowing fixtures", () => {
+	const ledgerRow = {
+		media: "image",
+		route: "POST /api/generate/submit",
+		operations: ["text-to-image"],
+	};
+	const shared = {
+		type: "object",
+		required: ["prompt"],
+		properties: {
+			prompt: { type: "string", maxLength: 100 },
+			enable_safety_checker: { type: "boolean" },
+			web: { type: "boolean", description: "Fixture Pro only. Search first." },
+			size: {
+				type: "string",
+				enum: ["1:1", "auto"],
+				description: "Fixture Pro also supports `auto`.",
+			},
+			background: { type: "string", enum: ["opaque", "transparent"] },
+			output_format: { type: "string", enum: ["png", "jpeg"] },
+		},
+		allOf: [
+			{
+				not: {
+					properties: { background: { enum: ["transparent"] }, output_format: { enum: ["jpeg"] } },
+					required: ["background", "output_format"],
+				},
+			},
+		],
+	};
+	const digest = sha256(canonicalJson(shared));
+	const entry = (model: string): CatalogEntry => ({
+		model_id: model,
+		category: "text2img",
+		status: "stable",
+		service_type: "generate",
+		execution_mode: "async",
+		input_schema: shared,
+		billing: { type: "fixed" },
+	});
+	const exclusion = (quote = "Fixture Pro only", schemaSha256 = digest) => ({
+		model: "fixture",
+		operation: "text-to-image",
+		field: "web",
+		schemaSha256,
+		quote,
+	});
+	const sources = (fieldExclusions: RowSources["fieldExclusions"]): RowSources => ({
+		models: {},
+		schemas: {},
+		rules: [],
+		fieldExclusions,
+	});
+	test("a field exclusion removes the field; a changed hash leaves it; a missing quote fails", () => {
+		const fields = (s: RowSources) =>
+			deriveRow(ledgerRow, "fixture", entry("fixture"), s).options.map(({ field }) => field);
+		expect(fields(sources([exclusion()]))).not.toContain("web");
+		expect(fields(sources([exclusion(undefined, "0".repeat(64))]))).toContain("web");
+		expect(() => fields(sources([exclusion("Fixture Max only")]))).toThrow(
+			"The fixture web exclusion quotes text its field's description lacks",
+		);
+	});
+	test("a value exclusion narrows only its own operation, and a changed hash leaves the value", () => {
+		const derived = deriveRow(
+			{ ...ledgerRow, operations: ["text-to-image", "reference-image-edit"] },
+			"fixture",
+			entry("fixture"),
+			sources([]),
+		);
+		const size = derived.options.find(({ field }) => field === "size");
+		if (!size) throw new Error("No size option.");
+		const override = {
+			model: "fixture",
+			operation: "text-to-image",
+			field: "size",
+			schemaSha256: digest,
+			excludes: ["auto"],
+			quote: "Fixture Pro also supports `auto`.",
+		};
+		expect(narrowedDomain(derived, size, "text-to-image", [override]).values).toEqual(["1:1"]);
+		expect(narrowedDomain(derived, size, "reference-image-edit", [override]).values).toEqual([
+			"1:1",
+			"auto",
+		]);
+		expect(
+			narrowedDomain(derived, size, "text-to-image", [
+				{ ...override, schemaSha256: "0".repeat(64) },
+			]).values,
+		).toEqual(["1:1", "auto"]);
+	});
+	test("a not {A, B} allOf branch projects as a combination rule", () => {
+		expect(deriveRow(ledgerRow, "fixture", entry("fixture"), sources([])).combinations).toEqual([
+			{ when: { background: "transparent" }, refuses: { output_format: ["jpeg"] } },
+		]);
+	});
+	test("an unreviewed qualifier in a shared schema fails; a disposition or a changed hash decides", () => {
+		const entries = [entry("fixture"), entry("fixture-pro")];
+		const none = { models: {}, schemas: {} };
+		const problems = (dispositions: readonly QualifierDisposition[]) =>
+			qualifierProblems({ entries, openapi: none, dispositions, exclusions: [], overrides: [] });
+		expect(problems([])).toEqual([
+			`catalog ${digest.slice(0, 12)} properties/size (fixture, fixture-pro): "Fixture Pro also supports \`auto\`."`,
+			`catalog ${digest.slice(0, 12)} properties/web (fixture, fixture-pro): "Fixture Pro only. Search first."`,
+		]);
+		const every = (path: string, quote: string, schemaSha256 = digest) => ({
+			schemaSha256,
+			path,
+			quote,
+			applies: { to: "every-model" as const, reason: "fixture" },
+		});
+		expect(
+			problems([every("properties/size", "also supports"), every("properties/web", "Pro only")]),
+		).toEqual([]);
+		expect(
+			problems([
+				every("properties/size", "also supports", "0".repeat(64)),
+				every("properties/web", "Pro only"),
+			]),
+		).toHaveLength(1);
+		// A narrowing disposition holds only while each named model has an exclusion with its quote.
+		const narrowed = {
+			schemaSha256: digest,
+			path: "properties/web",
+			quote: "Fixture Pro only",
+			applies: { to: "narrowed" as const, models: ["fixture"] },
+		};
+		expect(
+			qualifierProblems({
+				entries,
+				openapi: none,
+				dispositions: [every("properties/size", "also supports"), narrowed],
+				exclusions: [],
+				overrides: [],
+			}),
+		).toEqual([
+			`catalog ${digest.slice(0, 12)} properties/web: fixture has no exclusion quoting "Fixture Pro only"`,
+		]);
+		expect(
+			qualifierProblems({
+				entries,
+				openapi: none,
+				dispositions: [every("properties/size", "also supports"), narrowed],
+				exclusions: [exclusion()],
+				overrides: [],
+			}),
+		).toEqual([]);
 	});
 });
 

@@ -78,9 +78,11 @@ test("every derived row that has the option reads its offered formats from the p
 			Object.keys(projection.rows.find((row) => row.model === model)?.output_format ?? {}),
 		).toEqual(["values"]);
 	expect(poyoOutputFormats("seedream-5.0-flash")).toMatchObject({ preselected: "jpeg" });
-	// The spec's recount: sixteen rows offer WebP.
-	expect(projection.rows.filter((row) => values(row.model).includes("webp"))).toHaveLength(16);
-	expect(values("nano-banana-2-new")).toEqual(["png", "jpg", "jpeg", "webp"]);
+	// The spec's recount found sixteen rows offering WebP. Nano Banana 2 New and its edit no
+	// longer offer formats: their schema says "Nano Banana 2 Official only" (G4 exclusions).
+	expect(projection.rows.filter((row) => values(row.model).includes("webp"))).toHaveLength(14);
+	expect(values("nano-banana-2-official")).toEqual(["png", "jpg", "jpeg", "webp"]);
+	expect(poyoOutputFormats("nano-banana-2-new")).toEqual({ state: "none" });
 	// The catalog lists gif here and the API schema does not: the shared domain never has it.
 	expect(values("gpt-image-2.6-flare")).toEqual(["png", "jpeg", "webp"]);
 	for (const row of projection.rows) {

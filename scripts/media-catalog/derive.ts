@@ -16,7 +16,11 @@ import { releasedOperations } from "../../src/lib/shared/media-catalog/registry"
 import {
 	type OutputNote,
 	outputNotes,
+	type QualifierDisposition,
+	qualifierDispositions,
+	type ReviewedFieldExclusion,
 	type ReviewedOverride,
+	reviewedFieldExclusions,
 	reviewedOverrides,
 	reviewedRules,
 } from "../../src/lib/shared/media-catalog/rules";
@@ -109,6 +113,11 @@ export type DerivedOption = {
 	/** Why the option has no covered path beyond its row's slice, if any. */
 	gap?: { state: "pending" | "unknown"; reason: string; question?: number };
 };
+/** A pair of values a schema refuses together: `when` one field has a value, `refuses` others. */
+export type Combination = {
+	when: Record<string, Json>;
+	refuses: Record<string, Json[]>;
+};
 export type DerivedRow = {
 	model: string;
 	media: string;
@@ -130,6 +139,8 @@ export type DerivedRow = {
 	count?: 1 | null;
 	inputs: string[];
 	options: DerivedOption[];
+	/** The schemas' `not {A, B}` combinations, which the composer disables and Queue refuses. */
+	combinations?: Combination[];
 };
 
 const isSchema = (value: unknown): value is Schema =>
@@ -269,6 +280,7 @@ export type RowSources = {
 		Record<string, { sha256: string; outputs: Readonly<Record<string, string>> }>
 	>;
 	readonly outputNotes?: readonly OutputNote[];
+	readonly fieldExclusions?: readonly ReviewedFieldExclusion[];
 };
 const pinned: RowSources = {
 	models: openapi.models as RowSources["models"],
@@ -284,6 +296,7 @@ const pinned: RowSources = {
 		]),
 	),
 	outputNotes,
+	fieldExclusions: reviewedFieldExclusions,
 };
 
 // Verified representatives keep their reviewed descriptors (spec, "Families and admission").
@@ -293,6 +306,61 @@ const verifiedModels = new Set<string>(
 // Rows whose sources state no output count, held by an open question (spec, question 6).
 const outputQuestions: Record<string, number> = { "qwen-image-3": 6, "qwen-image-3-pro": 6 };
 const queueing = new Set(["declared", "open-absent", "open-absent-fixed"]);
+
+/**
+ * A schema's top-level `allOf` branches of the form `not {A: one value, B: values}` with both
+ * required: the composer disables the pair, and the validator refuses it.
+ */
+function combinationsOf(schema: Schema | null): Combination[] {
+	const branches = schema && Array.isArray(schema.allOf) ? schema.allOf : [];
+	return branches.flatMap((branch): Combination[] => {
+		const not = isSchema(branch) && Object.keys(branch).length === 1 ? branch.not : undefined;
+		if (!isSchema(not) || !isSchema(not.properties) || !Array.isArray(not.required)) return [];
+		const fields = Object.entries(not.properties as Record<string, Schema>);
+		if (
+			fields.length !== 2 ||
+			Object.keys(not).some((key) => key !== "properties" && key !== "required") ||
+			not.required.length !== 2 ||
+			!fields.every(
+				([field, constraint]) =>
+					(not.required as unknown[]).includes(field) &&
+					Object.keys(constraint).length === 1 &&
+					Array.isArray(constraint.enum),
+			)
+		)
+			return [];
+		const [[a, first], [b, second]] = fields;
+		const single = (first.enum as Json[]).length === 1;
+		const [when, whenValue, refused, values] = single
+			? [a, (first.enum as Json[])[0], b, second.enum as Json[]]
+			: [b, (second.enum as Json[])[0], a, first.enum as Json[]];
+		if (!single && (second.enum as Json[]).length !== 1) return [];
+		return [{ when: { [when]: whenValue }, refuses: { [refused]: values } }];
+	});
+}
+
+/** The documented domain of one option on one operation, after the reviewed value overrides. */
+export function narrowedDomain(
+	row: Pick<DerivedRow, "model" | "catalog">,
+	option: DerivedOption,
+	operation: string,
+	overrides: readonly ReviewedOverride[] = reviewedOverrides,
+): Domain {
+	const excludes = overrides
+		.filter(
+			(override) =>
+				override.model === row.model &&
+				override.operation === operation &&
+				override.field === option.field &&
+				override.schemaSha256 === row.catalog,
+		)
+		.flatMap(({ excludes }) => excludes);
+	if (!excludes.length || !option.domain.values) return option.domain;
+	return {
+		...option.domain,
+		values: option.domain.values.filter((value) => !excludes.includes(value)),
+	};
+}
 
 /**
  * Whether a reviewed note shows this mode returns one output: its quote stands in the bound
@@ -333,7 +401,7 @@ export function deriveRow(
 	entry: CatalogEntry | undefined,
 	sources: RowSources = pinned,
 ): DerivedRow {
-	const { models, schemas, rules: allRules, overrides = [] } = sources;
+	const { models, schemas, rules: allRules, overrides = [], fieldExclusions = [] } = sources;
 	const api = Object.hasOwn(models, model) ? models[model] : undefined;
 	const apiSchema = api && Object.hasOwn(schemas, api.input) ? schemas[api.input] : null;
 	const catalogSchema = entry ? entry.input_schema : null;
@@ -362,6 +430,28 @@ export function deriveRow(
 				ownDeclaration(catalogSchema, override.field),
 				`The ${model} ${override.field} override`,
 			);
+	// A field exclusion removes the option from every operation of the row, or derivation fails.
+	const excluded = new Set<string>();
+	for (const exclusion of fieldExclusions) {
+		if (exclusion.model !== model || !catalogSchema || exclusion.schemaSha256 !== catalogSha)
+			continue;
+		quoted(
+			exclusion.quote,
+			ownDeclaration(catalogSchema, exclusion.field),
+			`The ${model} ${exclusion.field} exclusion`,
+		);
+		const covered = fieldExclusions.filter(
+			(other) =>
+				other.model === model &&
+				other.field === exclusion.field &&
+				other.schemaSha256 === catalogSha,
+		);
+		if (
+			!row.operations.every((operation) => covered.some((other) => other.operation === operation))
+		)
+			throw new Error(`The ${model} ${exclusion.field} exclusion does not cover every operation.`);
+		excluded.add(exclusion.field);
+	}
 	const rules = bindings.flatMap(({ schema, ...binding }) => boundRules(schema, binding));
 	const unsupported = bindings.flatMap(({ schema, ...binding }) => uncovered(schema, binding));
 	const required = [
@@ -393,7 +483,7 @@ export function deriveRow(
 	const inputs: string[] = [];
 	const options: DerivedOption[] = [];
 	for (const field of fields) {
-		if (field === d4Field) continue;
+		if (field === d4Field || excluded.has(field)) continue;
 		const inCatalog = ownDeclaration(catalogSchema, field);
 		const inApi = ownDeclaration(apiSchema, field);
 		const declaration = (inCatalog ?? inApi) as Schema;
@@ -506,6 +596,14 @@ export function deriveRow(
 			);
 	}
 
+	const combinations = [
+		...new Map(
+			[...combinationsOf(catalogSchema), ...combinationsOf(apiSchema)].map((rule) => [
+				canonicalJson(rule),
+				rule,
+			]),
+		).values(),
+	];
 	return {
 		model,
 		media: row.media,
@@ -523,8 +621,98 @@ export function deriveRow(
 		...(count !== undefined && { count }),
 		inputs,
 		options,
+		...(combinations.length && { combinations }),
 	};
 }
+
+const qualifier = /\bonly\b|also supports/i;
+
+/** Each description at any depth of a schema, with its path. */
+function descriptions(schema: unknown, path: string[] = []): [string, string][] {
+	if (!schema || typeof schema !== "object") return [];
+	const own: [string, string][] =
+		!Array.isArray(schema) && typeof (schema as Schema).description === "string"
+			? [[path.join("/"), (schema as Schema).description as string]]
+			: [];
+	return [
+		...own,
+		...Object.entries(schema).flatMap(([key, value]) =>
+			key === "description" ? [] : descriptions(value, [...path, key]),
+		),
+	];
+}
+
+/**
+ * Model-scoped qualifiers ("only", "also supports") in schemas that several models share, each
+ * without a reviewed disposition, or whose narrowing disposition lacks a named model's exclusion.
+ */
+export function qualifierProblems({
+	entries = catalog.entries as unknown as CatalogEntry[],
+	openapi: projected = pinned,
+	dispositions = qualifierDispositions,
+	exclusions = reviewedFieldExclusions,
+	overrides = reviewedOverrides,
+}: {
+	entries?: readonly CatalogEntry[];
+	openapi?: Pick<RowSources, "models" | "schemas">;
+	dispositions?: readonly QualifierDisposition[];
+	exclusions?: readonly ReviewedFieldExclusion[];
+	overrides?: readonly ReviewedOverride[];
+} = {}) {
+	const catalogSha = new Map(
+		entries.map((entry) => [entry.model_id, sha256(canonicalJson(entry.input_schema))]),
+	);
+	const groups = new Map<string, { sources: Set<string>; models: Set<string>; schema: Schema }>();
+	const add = (source: string, digest: string, model: string, schema: Schema) => {
+		const group = groups.get(digest) ?? { sources: new Set(), models: new Set(), schema };
+		group.sources.add(source);
+		group.models.add(model);
+		groups.set(digest, group);
+	};
+	for (const entry of entries)
+		add("catalog", catalogSha.get(entry.model_id) as string, entry.model_id, entry.input_schema);
+	for (const [model, { input }] of Object.entries(projected.models))
+		if (Object.hasOwn(projected.schemas, input))
+			add("rest", input, model, projected.schemas[input]);
+	const problems: string[] = [];
+	for (const [digest, { sources, models, schema }] of groups) {
+		if (models.size < 2) continue;
+		const label = `${[...sources].sort().join("+")} ${digest.slice(0, 12)}`;
+		for (const [path, description] of descriptions(schema)) {
+			if (!qualifier.test(description)) continue;
+			const disposition = dispositions.find(
+				(candidate) =>
+					candidate.schemaSha256 === digest &&
+					candidate.path === path &&
+					!!candidate.quote &&
+					description.includes(candidate.quote),
+			);
+			if (!disposition) {
+				problems.push(
+					`${label} ${path} (${[...models].sort().join(", ")}): ${JSON.stringify(description)}`,
+				);
+				continue;
+			}
+			if (disposition.applies.to !== "narrowed") continue;
+			for (const model of disposition.applies.models) {
+				const bound = [...exclusions, ...overrides].some(
+					(exclusion) =>
+						exclusion.model === model &&
+						models.has(model) &&
+						exclusion.schemaSha256 === catalogSha.get(model) &&
+						description.includes(exclusion.quote),
+				);
+				if (!bound)
+					problems.push(
+						`${label} ${path}: ${model} has no exclusion quoting ${JSON.stringify(disposition.quote)}`,
+					);
+			}
+		}
+	}
+	return problems.sort(byCodeUnit);
+}
+
+const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** Every documented Poyo.ai ledger ID, as one derived row per exact ID. */
 export function deriveRows(
@@ -540,6 +728,9 @@ export function deriveRows(
 	const repeated = rows.find((row, index) => index > 0 && rows[index - 1].model === row.model);
 	if (repeated) throw new Error(`${repeated.model} is documented in more than one ledger row.`);
 	crossCheck(rows);
+	const problems = qualifierProblems();
+	if (problems.length)
+		throw new Error(`Unreviewed qualifiers in shared schemas:\n${problems.join("\n")}`);
 	return rows;
 }
 
