@@ -58,5 +58,7 @@ export type QueueRow = {
 export type QueueProjection = {
 	/** The pinned catalog revision the rows derive from. */
 	readonly revision: string;
+	/** When Poyo.ai published that revision, as the sources record states it. */
+	readonly publishedAt: string;
 	readonly rows: readonly QueueRow[];
 };

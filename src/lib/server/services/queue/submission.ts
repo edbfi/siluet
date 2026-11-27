@@ -78,8 +78,10 @@ export async function createSubmissionQueue(
 		};
 	}
 
-	// A derived Review binds its row's D4 wording, so an open-absent row needs its disclosure.
+	// Only declared and open-absent rows queue in this release, whatever wording another state
+	// binds. A derived Review binds its row's D4 wording, so an open-absent row needs its disclosure.
 	const derivedBlocked = (row: QueueRow, bound: DerivedWording) =>
+		(row.d4.d4 !== "declared" && row.d4.d4 !== "open-absent") ||
 		queueEvidenceProblem(row.d4, "poyo", bound.d4) !== null;
 	const derivedCredential = (live: DerivedLiveRequest) =>
 		credential("poyo", undefined, imageCredentialAccess("poyo", live.key.model));

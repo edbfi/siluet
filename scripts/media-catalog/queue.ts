@@ -38,13 +38,18 @@ export function queueProjection(rows: DerivedRow[] = deriveRows()) {
 		if (typeof made === "string") pending.push({ model: row.model, operation, reason: made });
 		else eligible.push(made);
 	}
-	return { revision: record.catalog.revision, rows: eligible, pending };
+	return {
+		revision: record.catalog.revision,
+		publishedAt: record.catalog.publishedAt,
+		rows: eligible,
+		pending,
+	};
 }
 
 /** Canonical compact JSON of the browser's queue rows, with one final newline. */
 export function renderQueue(rows?: DerivedRow[]) {
-	const { revision, rows: eligible } = queueProjection(rows);
-	const projection: QueueProjection = { revision, rows: eligible };
+	const { revision, publishedAt, rows: eligible } = queueProjection(rows);
+	const projection: QueueProjection = { revision, publishedAt, rows: eligible };
 	return `${canonicalJson(projection)}\n`;
 }
 

@@ -73,8 +73,8 @@ const localCopies = new LocalCopies(
 );
 let shell: ReturnType<typeof ImageComposer>;
 let previewIndex = $state(0);
-// A derived row is Review-only. Choosing it sets the shipped draft aside, so nothing can queue.
-// Its fields and Review stay mounted, hidden, so a lost Queue's Retry and any file check survive.
+// A Review-only row sets the composer's draft aside, so nothing can queue. The draft's fields and
+// Review stay mounted, hidden, so a lost Queue's Retry and any file check survive.
 let reviewOnly = $state.raw<(typeof reviewOnlyImageRows)[number] | null>(null);
 let pending = $state<"review" | "queue" | null>(null);
 // A Queue-eligible derived row's text-to-image operation, by its exact model ID.

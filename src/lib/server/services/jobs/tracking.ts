@@ -206,7 +206,7 @@ export function createJobTracking(
 		// A contract written by a newer adapter version is held rather than read as this one.
 		const held = !isVideoJob(reserved) && contractReader(reserved.contract) === "held";
 		const observation: TaskObservation = held
-			? { kind: "paused", reason: "unknown-status", retryAfter: null }
+			? { kind: "paused", reason: "held-contract", retryAfter: null }
 			: (videoRead ??
 				(await (isVideoJob(reserved) ? poyoVideo : adapters[job.provider]).status(
 					key,

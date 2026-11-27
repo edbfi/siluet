@@ -391,14 +391,14 @@ describe("derived text-to-image Review", () => {
 
 	test("Review names the verified path, the schema revision and date, and that the model was not tested", () => {
 		expect(samePathSentence).toBe(
-			"Same request path as verified Seedream 5.5 on Poyo.ai. Options from Poyo.ai's schema dated 2026-11-26 (`ec73207`). This model was not tested individually.",
+			"Same request path as verified Seedream 5.5 on Poyo.ai. Options from Poyo.ai's schema dated 2026-11-26 (ec73207). This model was not tested individually.",
 		);
 	});
 
 	test("a verified representative names itself as verified for its classes, never as untested", () => {
 		const { samePath } = derivedWording(row("qwen-image-2.1"));
 		expect(samePath).toBe(
-			"qwen-image-2.1 is verified on Poyo.ai for boolean and integer options. Options from Poyo.ai's schema dated 2026-11-26 (`ec73207`).",
+			"qwen-image-2.1 is verified on Poyo.ai for boolean and integer options. Options from Poyo.ai's schema dated 2026-11-26 (ec73207).",
 		);
 		expect(samePath).not.toContain("not tested");
 		expect(derivedWording(row("flux-dev")).samePath).toBe(samePathSentence);

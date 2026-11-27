@@ -369,9 +369,8 @@ test("a continuing write lock leaves the saved connection intact", async () => {
 		await installation.use((db) =>
 			db.transaction(
 				async () => {
-					await expect(store.remove("poyo")).rejects.toMatchObject({
-						cause: { message: "database is locked" },
-					});
+					// Removal takes the write lock first, so it starts nothing while another holds it.
+					await expect(store.remove("poyo")).rejects.toThrow("database is locked");
 				},
 				{ behavior: "immediate" },
 			),

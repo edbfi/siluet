@@ -993,6 +993,29 @@ describe("derived text-to-image rows", () => {
 		});
 	});
 
+	test("a derived Review and a new claim refuse every D4 state but declared and open-absent", async () => {
+		const input = derivedInput("flux-dev");
+		const review = await (await derivedQueue()).review("owner", input);
+		if (!("token" in review)) throw new Error("Expected Review.");
+		const states: FilteringEvidence[] = [
+			{ d4: "closed-absent", closedBy: "api" },
+			{ d4: "open-absent-fixed" },
+			{ d4: "contradiction" },
+			{ d4: "refused" },
+			{ d4: "unknown" },
+		];
+		for (const d4 of states) {
+			// The default wording binds each state's own acknowledgement or disclosure.
+			const api = await derivedQueue({ rows: withRow("flux-dev", (row) => ({ ...row, d4 })) });
+			expect([d4.d4, await api.review("owner", input)]).toEqual([d4.d4, { error: "invalid" }]);
+			expect([d4.d4, await api.submit("owner", click(input, review.token))]).toEqual([
+				d4.d4,
+				{ error: "invalid" },
+			]);
+		}
+		expect(sent).toEqual([]);
+	});
+
 	test("a changed body, wording, Gallery statement, contract digest or credential revision is stale", async () => {
 		const input = derivedInput("flux-dev");
 		const review = await (await derivedQueue()).review("owner", input);

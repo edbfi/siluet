@@ -14,6 +14,7 @@ import {
 	renderQueue,
 	renderQueueSchemas,
 } from "./queue";
+import record from "./sources/sources.json";
 
 const rows = deriveRows();
 const projection = queueProjection(rows);
@@ -145,6 +146,9 @@ test("each row carries its prompt limits, formats, combinations, rate key and co
 		expect(contract).toBe(sha256(canonicalJson(rest)));
 	}
 	expect(projection.revision).toMatch(/^[0-9a-f]{40}$/);
+	// Review dates the schema from the sources record, never from a literal.
+	expect(projection.revision).toBe(record.catalog.revision);
+	expect(projection.publishedAt).toBe(record.catalog.publishedAt);
 });
 
 test("the projection carries qwen-image-2.1's combination rule once it queues", () => {

@@ -8,6 +8,8 @@ const queue = projection as unknown as QueueProjection;
 
 /** The pinned catalog revision the Queue rows derive from. */
 export const queueRevision = queue.revision;
+/** The date Poyo.ai published that revision. */
+export const queueRevisionDate = queue.publishedAt.slice(0, 10);
 export const queueRows: readonly QueueRow[] = queue.rows;
 
 const sameKey = (a: QueueKey, b: QueueKey) =>

@@ -9,7 +9,7 @@ import { claimOwner, ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
 const samePath =
-	"Same request path as verified Seedream 5.5 on Poyo.ai. Options from Poyo.ai's schema dated 2026-11-26 (`ec73207`). This model was not tested individually.";
+	"Same request path as verified Seedream 5.5 on Poyo.ai. Options from Poyo.ai's schema dated 2026-11-26 (ec73207). This model was not tested individually.";
 const access =
 	"Poyo.ai does not publish per-key model access. Siluet has checked only that this key works.";
 const gallery =
@@ -283,4 +283,37 @@ test("a refusal recorded for a shipped Poyo.ai model shows in its Review", async
 		},
 		(model) => refused.has(model),
 	);
+});
+
+test("once a derived Review is authorised, it shows the wording the server bound", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	page.setDefaultTimeout(12_000);
+	await withConnectedStudio(page, async (origin) => {
+		const review = page.getByRole("region", { name: "Review request" });
+		const fact = (name: string) =>
+			review.locator("dl > div").filter({ has: page.getByRole("term").getByText(name) });
+		await page.getByLabel("Model", { exact: true }).selectOption("flux-dev");
+		await page.getByRole("textbox", { name: "Prompt", exact: true }).fill("A paper crane");
+		await expect(fact("Contract")).toContainText(samePath);
+		// The server's terms are what Queue binds, so Review shows them over its offline copy.
+		await page.route(`${origin}/image/review`, async (route) => {
+			const response = await route.fetch();
+			const terms = await response.json();
+			terms.wording = {
+				...terms.wording,
+				samePath: "The server's same-path sentence.",
+				access: "The server's access note.",
+				gallery: "The server's Gallery statement.",
+			};
+			await route.fulfill({ response, json: terms });
+		});
+		await review.getByRole("button", { name: "Review request" }).click();
+		await expect(review.getByLabel("I accept the unknown cost of this request.")).toBeVisible();
+		await expect(fact("Contract")).toContainText("The server's same-path sentence.");
+		await expect(fact("Route evidence")).toContainText("The server's access note.");
+		await expect(fact("Expected type")).toContainText("The server's Gallery statement.");
+		await expect(fact("Contract")).not.toContainText("`");
+	});
 });

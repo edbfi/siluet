@@ -427,7 +427,11 @@ test("a stored contract selects its adapter; an unknown adapter version is held 
 	]);
 	expect(await latest("shipped")).toMatchObject({ state: "running" });
 	expect(await latest("current")).toMatchObject({ state: "running" });
-	expect(await latest("newer")).toMatchObject({ tracking: "paused", state: "waiting" });
+	expect(await latest("newer")).toMatchObject({
+		tracking: "paused",
+		state: "waiting",
+		message: "A newer version of Siluet recorded this job. Update Siluet to check its status.",
+	});
 });
 
 test("a derived job whose row a re-pin removed dispatches, recovers and delivers from its contract", async () => {

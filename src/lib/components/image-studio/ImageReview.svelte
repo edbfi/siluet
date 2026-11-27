@@ -226,11 +226,10 @@ const expiry = $derived.by(() => {
 const expired = $derived(expiry !== undefined && (browserNow ?? nowMs) >= expiry);
 const current = $derived(!expired ? terms : null);
 const quote = $derived(current?.quote ?? offlineQuote);
+// Once authorised, Review shows what the server bound, which is what Queue claims.
+const wording = $derived(bound && (current?.wording ?? bound));
 const disclosure = $derived.by(() => {
-	if (bound) {
-		const lines = current?.wording?.d4 ?? bound.d4;
-		return lines.length ? lines : undefined;
-	}
+	if (wording) return wording.d4.length ? wording.d4 : undefined;
 	return modelId === zImageModel.id
 		? (current?.disclosure ?? zImageDisclosure(operation))
 		: current?.editDisclosure;
@@ -299,9 +298,11 @@ function applyTerms(input: QueueInput, terms: ReviewTerms) {
 	// A derived Review must carry what it bound, including an open-absent row's disclosure.
 	if (catalogRow) {
 		const lines = terms.wording?.d4;
+		const shown = [terms.wording?.samePath, terms.wording?.access, terms.wording?.gallery];
 		if (
 			!Array.isArray(lines) ||
 			!lines.every((line) => typeof line === "string" && line.trim()) ||
+			!shown.every((text) => typeof text === "string" && text.trim()) ||
 			(catalogRow.d4.d4 !== "declared" && lines.length === 0)
 		) {
 			authorized = null;
@@ -656,12 +657,12 @@ $effect(() => {
 					<dt class={styles.term}>API provider</dt>
 					<dd class={styles.detail}>{providerName ?? "None connected"}</dd>
 				</div>
-				{#if bound}
+				{#if wording}
 					<!-- Shown offline: what Siluet checked, and the path this model shares. -->
 					<div class={styles.fact}>
 						<dt class={styles.term}>Route evidence</dt>
 						<dd class={styles.detail} data-studio-route-evidence>
-							<p>{bound.access}</p>
+							<p>{wording.access}</p>
 							{#if filtering?.declaredField}
 								<p>The model contract declares <code>{filtering.declaredField}: false</code>.</p>
 							{/if}
@@ -672,7 +673,7 @@ $effect(() => {
 					</div>
 					<div class={styles.fact}>
 						<dt class={styles.term}>Contract</dt>
-						<dd class={styles.detail} data-studio-contract>{bound.samePath}</dd>
+						<dd class={styles.detail} data-studio-contract>{wording.samePath}</dd>
 					</div>
 				{:else if entry && connected}
 					<div class={styles.fact}>
@@ -736,8 +737,8 @@ $effect(() => {
 							Save records the type Gallery verifies: PNG, JPEG or still WebP. Any other type stays
 							in Jobs.
 						</p>
-						{#if bound}
-							<p class={styles.note} data-studio-gallery>{bound.gallery}</p>
+						{#if wording}
+							<p class={styles.note} data-studio-gallery>{wording.gallery}</p>
 						{/if}
 					</dd>
 				</div>

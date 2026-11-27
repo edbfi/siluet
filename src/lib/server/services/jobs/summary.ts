@@ -156,6 +156,8 @@ const statusNotes: Record<StatusNote, string> = {
 		"The provider could not find this task. Check provider history before reviewing another request.",
 	"unknown-status":
 		"The provider returned an unrecognized task status. Refresh status to check again.",
+	"held-contract":
+		"A newer version of Siluet recorded this job. Update Siluet to check its status.",
 	"credential-changed":
 		"Status and downloads of unsaved results require the original API key for this job.",
 	temporary: "The provider status is temporarily unavailable.",

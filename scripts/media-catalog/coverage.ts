@@ -211,11 +211,19 @@ const range = (domain: Domain) =>
 			? `up to ${domain.maxLength} characters`
 			: `${domain.minimum ?? "…"}–${domain.maximum ?? "…"}`;
 
-/** Why a verified composer does not offer the whole documented domain, or null when it does. */
-export function offerGap(domain: Domain, offered: Offered | undefined) {
+/**
+ * Why a verified composer does not offer the whole documented domain, or null when it does. A
+ * boolean's domain is both values, though its schema lists none.
+ */
+export function offerGap(
+	domain: Domain,
+	offered: Offered | undefined,
+	kind?: DerivedOption["kind"],
+) {
 	if (!offered) return "not offered by the composer";
 	if ("values" in offered) {
-		const missing = (domain.values ?? []).filter((value) => !offered.values.includes(value));
+		const values = kind === "boolean" ? [false, true] : (domain.values ?? []);
+		const missing = values.filter((value) => !offered.values.includes(value));
 		return missing.length
 			? `composer omits ${missing.map((v) => JSON.stringify(v)).join(", ")}`
 			: null;
@@ -387,7 +395,7 @@ export function optionObligations(
 			: domain;
 		const listed = range(remaining);
 		const choice = offered?.[option.field];
-		const gap = offerGap(remaining, choice);
+		const gap = offerGap(remaining, choice, option.kind);
 		items.push(
 			gap
 				? {

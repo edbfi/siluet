@@ -5,14 +5,14 @@
 import { derivedVerifiedOperations } from "../media-catalog/derived-verified";
 import { poyoAccessNote } from "../media-catalog/eligibility";
 import { d4Wording } from "../media-catalog/filtering";
-import { queueRevision } from "../media-catalog/image-queue";
+import { queueRevision, queueRevisionDate } from "../media-catalog/image-queue";
 import type { QueueRow } from "../media-catalog/queue-row";
 import type { PriceEstimate } from "../pricing/estimate";
 
 /** Gallery's image limit today: 16,000,000 pixels (G13 raises it). */
 export const galleryMegapixels = 16;
 
-const schemaSentence = `Options from Poyo.ai's schema dated 2026-11-26 (\`${queueRevision.slice(0, 7)}\`).`;
+const schemaSentence = `Options from Poyo.ai's schema dated ${queueRevisionDate} (${queueRevision.slice(0, 7)}).`;
 
 /** The family's verified representative, named on every derived Review of an untested row. */
 export const samePathSentence = `Same request path as verified Seedream 5.5 on Poyo.ai. ${schemaSentence} This model was not tested individually.`;

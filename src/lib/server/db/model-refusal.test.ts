@@ -59,3 +59,21 @@ test("reads return only the current revision, and a new revision clears older re
 	await providerStore(db).remove("poyo");
 	expect(await modelRefusals(db).current("poyo")).toEqual([]);
 });
+
+test("removing a key clears its refusals in the same transaction, or changes nothing", async () => {
+	await job("refused", 1);
+	await record("refused", 10);
+	// A refusal delete that fails must leave the key saved, never removed with its refusals kept.
+	await db.use((conn) =>
+		conn.run(sql`CREATE TRIGGER keep_refusals BEFORE DELETE ON model_refusal
+			BEGIN SELECT RAISE(ABORT, 'refusals kept'); END`),
+	);
+	await expect(providerStore(db).remove("poyo")).rejects.toThrow();
+	expect(
+		await db.use((conn) =>
+			conn.get(sql`SELECT revision, ciphertext IS NOT NULL AS saved FROM provider_credential
+				WHERE provider='poyo'`),
+		),
+	).toEqual({ revision: 1, saved: 1 });
+	expect(await modelRefusals(db).current("poyo")).toEqual([{ model: "flux-dev", refusedAt: 10 }]);
+});

@@ -7,7 +7,7 @@ import type { Plugin } from "vite";
  * only their projection (`poyo-picker.json`, about 26 KB): 473,118 bytes on 2026-11-27. After the
  * `ec73207` re-pin added nine picker rows (`poyo-picker.json` now about 27 KB), the client
  * measured 474,600 bytes the same day. With the derived text-to-image composer and its queue rows
- * (`poyo-queue.json`, about 10 KB) it measured 508,567 bytes on 2026-11-27.
+ * (`poyo-queue.json`, about 13 KB) it measured 511,123 bytes on 2026-11-27.
  */
 export const clientBudgetBytes = 512 * 1024;
 

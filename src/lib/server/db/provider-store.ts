@@ -221,15 +221,20 @@ export function providerStore(installation: Installation) {
 			throw new Error("The provider key changed during both save attempts.");
 		},
 		remove(id: ProviderId, guardActiveJobs = false, now = Date.now()) {
-			return use(async (db) => {
-				const guard = guardActiveJobs ? sql`AND NOT ${jobsNeedCredential(id, now)}` : sql``;
-				const changed =
-					await db.get(sql`UPDATE provider_credential SET revision=revision+1, ciphertext=NULL,
-					verified_at=NULL, seedream=NULL WHERE provider=${id} ${guard} RETURNING revision`);
-				if (!changed) return "job-warning" as const;
-				// No refusal outlives the key it was recorded against.
-				await db.run(sql`DELETE FROM model_refusal WHERE provider=${id}`);
-			});
+			const guard = guardActiveJobs ? sql`AND NOT ${jobsNeedCredential(id, now)}` : sql``;
+			return use((db) =>
+				db.transaction(
+					async (tx) => {
+						const changed =
+							await tx.get(sql`UPDATE provider_credential SET revision=revision+1, ciphertext=NULL,
+							verified_at=NULL, seedream=NULL WHERE provider=${id} ${guard} RETURNING revision`);
+						if (!changed) return "job-warning" as const;
+						// No refusal outlives the key it was recorded against.
+						await tx.run(sql`DELETE FROM model_refusal WHERE provider=${id}`);
+					},
+					{ behavior: "immediate" },
+				),
+			);
 		},
 	};
 }

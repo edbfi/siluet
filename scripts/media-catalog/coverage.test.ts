@@ -161,6 +161,9 @@ test("D4's fixed false, a pinned n: 1 and a fixed sentinel never block", () => {
 	// A fixed sentinel is a value, not a choice: a domain of only the sentinel the composer
 	// sends leaves nothing to offer.
 	expect(offerGap({ values: [-1] }, { values: [-1] })).toBeNull();
+	// A boolean's domain is both values, though its schema lists none.
+	expect(offerGap({}, { values: [false] }, "boolean")).toBe("composer omits true");
+	expect(offerGap({}, { values: [false, true] }, "boolean")).toBeNull();
 	expect(offerGap({ minimum: 5, maximum: 15 }, { minimum: 5, maximum: 10 })).toBe(
 		"composer offers 5–10 of 5–15",
 	);

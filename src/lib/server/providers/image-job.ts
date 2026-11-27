@@ -23,7 +23,8 @@ export type Submission =
 
 export type TaskState = "waiting" | "running" | "completed" | "failed";
 export type TaskFailureReason = "reference_media_unreadable";
-export type StatusPause = "authorization" | "missing-task" | "unknown-status";
+/** `held-contract` is Siluet's own pause: a newer adapter version wrote the job's contract. */
+export type StatusPause = "authorization" | "missing-task" | "unknown-status" | "held-contract";
 export type TaskBilling =
 	| { status: "reported"; credits: string }
 	| { status: "settled" | "refunded"; credits: string | null; usd: string | null }
