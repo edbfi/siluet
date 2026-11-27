@@ -90,8 +90,12 @@ const tabs = [
 	{ value: "outgoing", label: "Outgoing request" },
 ];
 const panelId = (value: string) => `${headingId}-${value}`;
-let count = $state(1);
-let retryLimit = $state(0);
+// The Batch tab's choices. A derived row queues one request with zero retries, so they never
+// follow the creator from a Seedream batch to it.
+let batchCount = $state(1);
+let batchRetries = $state(0);
+const count = $derived(catalogRow ? 1 : batchCount);
+const retryLimit = $derived(catalogRow ? 0 : batchRetries);
 let browserNow = $state<number>();
 const batch = $derived({ count, retryLimit });
 const maxAttempts = $derived(maximumReviewAttempts(batch));
@@ -153,8 +157,6 @@ const unavailable = $derived.by(() => {
 	}
 	if (modelId === zImageModel.id && (count !== 1 || retryLimit !== 0))
 		return "Z-Image Queue supports one request and zero additional attempts.";
-	if (catalogRow && (count !== 1 || retryLimit !== 0))
-		return "This model queues one request with zero additional attempts.";
 	if (modelId === zImageModel.id && isEdit && references.length !== 1)
 		return "Add one public image URL to review this edit.";
 	if (
@@ -821,7 +823,11 @@ $effect(() => {
 			<div class={styles.batch}>
 				<label class={styles.batchLabel}>
 					Batch count
-					<select class={styles.batchSelect} bind:value={count} disabled={!!catalogRow}>
+					<select
+						class={styles.batchSelect}
+						bind:value={() => count, (value) => (batchCount = value)}
+						disabled={!!catalogRow}
+					>
 						{#each reviewBatchCounts as requests (requests)}
 							<option value={requests}>{requests} {requests === 1 ? "request" : "requests"}</option>
 						{/each}
@@ -829,7 +835,11 @@ $effect(() => {
 				</label>
 				<label class={styles.batchLabel}>
 					Additional attempts per request
-					<select class={styles.batchSelect} bind:value={retryLimit} disabled={!!catalogRow}>
+					<select
+						class={styles.batchSelect}
+						bind:value={() => retryLimit, (value) => (batchRetries = value)}
+						disabled={!!catalogRow}
+					>
 						{#each reviewRetryLimits as retries (retries)}
 							<option value={retries}>{retries}</option>
 						{/each}

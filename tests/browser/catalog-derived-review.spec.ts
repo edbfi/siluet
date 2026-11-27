@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { expect, type Locator } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { d4Disclosure } from "../../src/lib/shared/media-catalog/filtering";
 import { jobResponses } from "../fixtures/job-responses";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
@@ -162,4 +162,82 @@ test("a Queue-eligible derived row composes from its row and Review states what 
 		await fixture.stop();
 		await rm(directory, { recursive: true, force: true });
 	}
+});
+
+/** A built studio with Poyo.ai connected through the fixtures, on the Image Studio page. */
+async function withConnectedStudio(
+	page: Page,
+	run: (
+		origin: string,
+		submitted: { model: string; input: Record<string, unknown> }[],
+	) => Promise<void>,
+	refuse: (model: string) => boolean = () => false,
+) {
+	const directory = await createOwnerDirectory();
+	const submitted: { model: string; input: Record<string, unknown> }[] = [];
+	const respond = jobResponses();
+	const fixture = startProviderFixtures(async (request, path) => {
+		if (path === "/poyo/submit" && request.method === "POST") {
+			const body = await request.clone().json();
+			submitted.push(body);
+			if (refuse(body.model))
+				return Response.json(
+					{ code: 403, error: { type: "permission_denied_error", message: "not enabled" } },
+					{ status: 403 },
+				);
+		}
+		return respond(request, path);
+	});
+	let server: Awaited<ReturnType<typeof startStudio>> | undefined;
+	try {
+		server = await startStudio(directory, "0", false, fixture.env);
+		const { origin } = server.origin;
+		const outbound: string[] = [];
+		await page.route(/^https?:/, (route) => {
+			if (new URL(route.request().url()).origin === origin) return route.continue();
+			outbound.push(new URL(route.request().url()).hostname);
+			return route.abort();
+		});
+		await expect.poll(server.token).not.toBe("");
+		await claimOwner(page, server, crypto.randomUUID());
+		const connected = await ownerRequest(page).post(`${origin}/settings/providers?/connect`, {
+			headers: { origin, accept: "text/html" },
+			form: { provider: "poyo", key: providerFixtureKeys.poyo },
+		});
+		expect(connected.ok()).toBe(true);
+		await page.goto(`${origin}/image`);
+		await run(origin, submitted);
+		expect(outbound).toEqual([]);
+	} finally {
+		await server?.stop();
+		await fixture.stop();
+		await rm(directory, { recursive: true, force: true });
+	}
+}
+
+test("a Seedream batch does not follow the creator to a derived row, whose Review queues one request", async ({
+	page,
+}) => {
+	test.setTimeout(60_000);
+	page.setDefaultTimeout(12_000);
+	await withConnectedStudio(page, async () => {
+		const review = page.getByRole("region", { name: "Review request" });
+		await page.getByRole("textbox", { name: "Prompt", exact: true }).fill("A paper crane");
+		await review.getByRole("tab", { name: "Batch" }).click();
+		await review.getByLabel("Batch count").selectOption("2");
+		await review.getByLabel("Additional attempts per request").selectOption("1");
+		await expect(review.getByRole("button", { name: "Queue 2 requests" })).toBeVisible();
+		await review.getByRole("tab", { name: "Review" }).click();
+
+		await page.getByLabel("Model", { exact: true }).selectOption("flux-dev");
+		await expect(review.getByRole("button", { name: "Queue 1 request" })).toBeVisible();
+		await expect(review.getByRole("button", { name: "Review request" })).toBeEnabled();
+		await expect(review.getByRole("status")).toHaveText(
+			"Review the completed request to confirm its current terms.",
+		);
+		await expect(review).toContainText("Up to 1 potentially billable submission.");
+		await review.getByRole("tab", { name: "Batch" }).click();
+		await expect(review.getByLabel("Batch count")).toHaveValue("1");
+		await expect(review.getByLabel("Additional attempts per request")).toHaveValue("0");
+	});
 });
