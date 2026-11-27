@@ -60,10 +60,22 @@ afterEach(() => {
 	rmSync(sandbox, { recursive: true, force: true });
 });
 
+/**
+ * The sandbox's git: without the background `maintenance` that each fetch and push would
+ * otherwise start, which a run's throwaway repositories never need.
+ */
+const sandboxGit = () => ({
+	PATH: process.env.PATH,
+	HOME: sandbox,
+	GIT_CONFIG_COUNT: "1",
+	GIT_CONFIG_KEY_0: "maintenance.auto",
+	GIT_CONFIG_VALUE_0: "false",
+});
+
 function git(cwd: string, ...args: string[]) {
 	const result = Bun.spawnSync(["git", ...args], {
 		cwd,
-		env: { PATH: process.env.PATH, HOME: sandbox },
+		env: sandboxGit(),
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -75,15 +87,13 @@ function git(cwd: string, ...args: string[]) {
 function publish(value: unknown, licensePath = license) {
 	const input = resolve(sandbox, "input.json");
 	writeFileSync(input, typeof value === "string" ? value : JSON.stringify(value));
-	const result = Bun.spawnSync(
-		["bash", "-c", 'bash "$0" poyo "$1" < "$2"', script, licensePath, input],
-		{
-			cwd: local,
-			env: { PATH: process.env.PATH, HOME: sandbox, GITHUB_STEP_SUMMARY: summary },
-			stdout: "pipe",
-			stderr: "pipe",
-		},
-	);
+	const result = Bun.spawnSync(["bash", script, "poyo", licensePath], {
+		cwd: local,
+		env: { ...sandboxGit(), GITHUB_STEP_SUMMARY: summary },
+		stdin: Bun.file(input),
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	return { ...result, out: result.stdout.toString(), err: result.stderr.toString() };
 }
 
@@ -102,7 +112,7 @@ function show(path: string, at = ref) {
 /** Write a data branch commit as an earlier publisher would have left it. */
 function seed(files: Record<string, string>) {
 	const index = resolve(sandbox, "seed-index");
-	const env = { PATH: process.env.PATH, HOME: sandbox, GIT_INDEX_FILE: index };
+	const env = { ...sandboxGit(), GIT_INDEX_FILE: index };
 	const run = (args: string[], stdin?: string) => {
 		const result = Bun.spawnSync(["git", ...args], {
 			cwd: remote,
@@ -205,7 +215,7 @@ describe("PoYo v2 publication", () => {
 		expect(head()).toBe(published);
 	});
 
-	test("publishes a same-day revision or gap fill", () => {
+	test("publishes a same-day gap fill and projects v1 again", () => {
 		const gap = {
 			...v2,
 			confirmedAt: earlierToday,
@@ -218,43 +228,65 @@ describe("PoYo v2 publication", () => {
 		expect(git(remote, "rev-parse", `${ref}^`).trim()).toBe(gapHead);
 		expect(blob(v1Path)).not.toBe(v1Blob);
 		expect(JSON.parse(show(v1Path))).toEqual(bundledV1);
+	});
+
+	test("publishes a same-day revision", () => {
+		// As the gap fill above leaves it: `v2` projects to the bundled v1.
+		const seeded = seedV2(v2);
 		const revised = { ...v2, revision: newRevision, sourceDate: newSource };
 		expect(publish(revised).success).toBe(true);
+		expect(git(remote, "rev-parse", `${ref}^`).trim()).toBe(seeded);
 		expect(JSON.parse(show(v1Path))).toMatchObject({
 			revision: newRevision,
 			sourceDate: newSource,
 		});
 	});
 
-	test("rejects ordering, timing and coverage violations without moving the branch", () => {
-		expect(publish(v2).success).toBe(true);
-		const published = head();
-		const rejected: [unknown, RegExp][] = [
-			[
-				// An older confirmation, whether or not it falls on the same UTC day.
-				{ ...v2, revision: newRevision, sourceDate: newSource, confirmedAt: iso(nowSeconds - 60) },
-				/older confirmation/,
-			],
-			[{ ...v2, revision: newRevision }, /newer source date/],
-			[{ ...v2, confirmedAt: iso(nowSeconds + 120) }, /future/],
-			[{ ...v2, confirmedAt: iso(nowSeconds - 2 * 3600) }, /one hour/],
-			[
-				{ ...v2, sourceDate: iso(nowSeconds - 30 * day), confirmedAt: iso(nowSeconds - 30 * day) },
-				/expired/,
-			],
-			[{ ...v2, rates: { ...v2.rates, "seedream-5.5": { kind: "unavailable" } } }, /changed/],
-			[
-				{ ...v2, rates: { "z-image": v2.rates["z-image"], extra: { kind: "unavailable" } } },
-				/Invalid/,
-			],
-			[bundledV1, /Invalid/],
-		];
-		for (const [candidate, reason] of rejected) {
-			const result = publish(candidate);
-			expect(result.success).toBe(false);
-			expect(result.err).toMatch(reason);
-			expect(head()).toBe(published);
-		}
+	// One publisher run each: the branch is seeded as an earlier publish of `v2` left it.
+	test.each<[string, unknown, RegExp]>([
+		[
+			// Whether or not it falls on the same UTC day.
+			"an older confirmation",
+			{ ...v2, revision: newRevision, sourceDate: newSource, confirmedAt: iso(nowSeconds - 60) },
+			/older confirmation/,
+		],
+		[
+			"a new revision without a newer source",
+			{ ...v2, revision: newRevision },
+			/newer source date/,
+		],
+		["a future confirmation", { ...v2, confirmedAt: iso(nowSeconds + 120) }, /future/],
+		[
+			"a confirmation over an hour old",
+			{ ...v2, confirmedAt: iso(nowSeconds - 2 * 3600) },
+			/one hour/,
+		],
+		[
+			"an expired confirmation",
+			{ ...v2, sourceDate: iso(nowSeconds - 30 * day), confirmedAt: iso(nowSeconds - 30 * day) },
+			/expired/,
+		],
+		[
+			"changed rates at the same revision",
+			{ ...v2, rates: { ...v2.rates, "seedream-5.5": { kind: "unavailable" } } },
+			/changed/,
+		],
+		[
+			"an unknown model in a required one's place",
+			{ ...v2, rates: { "z-image": v2.rates["z-image"], extra: { kind: "unavailable" } } },
+			/Invalid/,
+		],
+		["a v1 feed", bundledV1, /Invalid/],
+	])("rejects %s without moving the branch", (_, candidate, reason) => {
+		const published = seedV2(v2);
+		const result = publish(candidate);
+		expect(result.success).toBe(false);
+		expect(result.err).toMatch(reason);
+		expect(head()).toBe(published);
+	});
+
+	test("rejects a revised license without moving the branch", () => {
+		const published = seedV2(v2);
 		const reviewedLicense = resolve(sandbox, "reviewed-license");
 		writeFileSync(reviewedLicense, "Synthetic revised upstream notice\n");
 		expect(publish(v2, reviewedLicense).err).toMatch(/license/);
