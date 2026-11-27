@@ -184,7 +184,6 @@ test("a back/forward-cache restore with a destination loads it and checks nothin
 	// The control: a restore with nothing pending revalidates the session.
 	const plain = harness();
 	await bound(plain);
-	plain.requests.length = 0;
 	plain.client.pageshow(true);
 	// Wait for the whole check, through its renewal, so a navigation it caused would show.
 	await until(() => count(plain.answered, "/owner/resume") === 2);

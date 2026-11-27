@@ -8,6 +8,7 @@ const drainPollMs = 20;
  * request, until the client closes it or Bun's idle timeout. Firefox keeps a spare
  * connection open for several seconds, so a stop with Firefox open waited that long.
  * Once a stop has no request in flight, close the connections that remain.
+ *
  * Returns the hook's way to name the server, which only a request can reach. Known limits: a
  * stop before any request reaches the hook (only static assets or bare preconnects) keeps
  * Bun's wait; a request whose headers are still arriving when the last one ends is reset, not

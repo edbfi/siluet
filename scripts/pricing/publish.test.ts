@@ -64,7 +64,7 @@ afterEach(() => {
  * The sandbox's git: without the background `maintenance` that each fetch and push would
  * otherwise start, which a run's throwaway repositories never need.
  */
-const sandboxGit = () => ({
+const sandboxGitEnv = () => ({
 	PATH: process.env.PATH,
 	HOME: sandbox,
 	GIT_CONFIG_COUNT: "1",
@@ -75,7 +75,7 @@ const sandboxGit = () => ({
 function git(cwd: string, ...args: string[]) {
 	const result = Bun.spawnSync(["git", ...args], {
 		cwd,
-		env: sandboxGit(),
+		env: sandboxGitEnv(),
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -89,7 +89,7 @@ function publish(value: unknown, licensePath = license) {
 	writeFileSync(input, typeof value === "string" ? value : JSON.stringify(value));
 	const result = Bun.spawnSync(["bash", script, "poyo", licensePath], {
 		cwd: local,
-		env: { ...sandboxGit(), GITHUB_STEP_SUMMARY: summary },
+		env: { ...sandboxGitEnv(), GITHUB_STEP_SUMMARY: summary },
 		stdin: Bun.file(input),
 		stdout: "pipe",
 		stderr: "pipe",
@@ -112,7 +112,7 @@ function show(path: string, at = ref) {
 /** Write a data branch commit as an earlier publisher would have left it. */
 function seed(files: Record<string, string>) {
 	const index = resolve(sandbox, "seed-index");
-	const env = { ...sandboxGit(), GIT_INDEX_FILE: index };
+	const env = { ...sandboxGitEnv(), GIT_INDEX_FILE: index };
 	const run = (args: string[], stdin?: string) => {
 		const result = Bun.spawnSync(["git", ...args], {
 			cwd: remote,
