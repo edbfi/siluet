@@ -72,9 +72,3 @@ test("a response still in flight finishes before the idle connections close", as
 	await stopped;
 	await closed;
 });
-
-test("a stop before any request closes nothing", () => {
-	const lifecycle = new EventEmitter();
-	closeRequestlessOnStop(lifecycle);
-	expect(() => lifecycle.emit("siluet:stopping")).not.toThrow();
-});

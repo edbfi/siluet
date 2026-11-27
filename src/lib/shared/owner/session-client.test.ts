@@ -186,7 +186,8 @@ test("a back/forward-cache restore with a destination loads it and checks nothin
 	await bound(plain);
 	plain.requests.length = 0;
 	plain.client.pageshow(true);
-	await until(() => plain.requests.includes("/owner/session"));
+	// Wait for the whole check, through its renewal, so a navigation it caused would show.
+	await until(() => count(plain.answered, "/owner/resume") === 2);
 	expect(plain.navigations).toEqual([]);
 });
 

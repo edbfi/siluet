@@ -284,6 +284,7 @@ describe("concurrent requests and studio errors", () => {
 		const firstRenewal = Promise.withResolvers<void>();
 		const secondRenewal = Promise.withResolvers<void>();
 		const bResent = Promise.withResolvers<void>();
+		const aResent = Promise.withResolvers<void>();
 		const resume = (body: { previous?: string }) => {
 			if (body.previous) valid.delete(body.previous);
 			const bearer = `bearer-${++issued}`;
@@ -305,11 +306,12 @@ describe("concurrent requests and studio errors", () => {
 			// B's refusal arrives after A's renewal and before A's resend is answered.
 			async (request) => {
 				await firstRenewal.promise;
-				await Bun.sleep(5);
+				await aResent.promise;
 				return checked(request);
 			},
 			// A's resend is answered once B has either renewed again or resent.
 			async (request) => {
+				aResent.resolve();
 				await Promise.race([secondRenewal.promise, bResent.promise]);
 				return checked(request);
 			},
@@ -373,14 +375,14 @@ describe("concurrent requests and studio errors", () => {
 		h.resumes.push(session("s1"));
 		await h.fetch("/jobs/__data.json");
 		const body = Promise.withResolvers<void>();
-		let reading = false;
+		let answering = false;
 		const recovery = { ...access, retry: false, recoveryRequired: true };
 		h.routes.push(
 			() =>
 				new Response(
 					new ReadableStream({
 						async pull(controller) {
-							reading = true;
+							answering = true;
 							await body.promise;
 							controller.enqueue(new TextEncoder().encode(JSON.stringify(recovery)));
 							controller.close();
@@ -390,7 +392,7 @@ describe("concurrent requests and studio errors", () => {
 				),
 		);
 		const load = h.fetch("/gallery/__data.json");
-		await until(() => reading);
+		await until(() => answering);
 		// A sibling request's recovery answer remounts the studio while this body is read.
 		h.client.dropDrafts();
 		body.resolve();
