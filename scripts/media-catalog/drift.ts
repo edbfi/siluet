@@ -688,17 +688,22 @@ const fieldLimit = 200;
 const listLimit = 100;
 // Control, format (bidi, zero-width), unpaired surrogate and line or paragraph separator characters.
 const invisible = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu;
+// The runner also reads its legacy `##[command]` form anywhere in a line, so no `##[` survives.
+const legacyCommand = /##\[/g;
 
 /**
  * Untrusted text as one inline code span on the current line. Invisible and line-breaking
  * characters become visible `\uXXXX` escapes, so no untrusted text starts a line (nor a workflow
- * command), long text is cut, and the fence is longer than any backtick run inside.
+ * command) or forms the runner's `##[` command, long text is cut, and the fence is longer than
+ * any backtick run inside.
  */
 export function untrusted(text: string) {
-	let inner = text.replace(
-		invisible,
-		(char) => `\\u${(char.codePointAt(0) as number).toString(16).toUpperCase().padStart(4, "0")}`,
-	);
+	let inner = text
+		.replace(
+			invisible,
+			(char) => `\\u${(char.codePointAt(0) as number).toString(16).toUpperCase().padStart(4, "0")}`,
+		)
+		.replace(legacyCommand, "#\\u0023[");
 	if (inner.length > fieldLimit) {
 		const end = /[\uD800-\uDBFF]/.test(inner[fieldLimit - 1]) ? fieldLimit - 1 : fieldLimit;
 		inner = `${inner.slice(0, end)}…`;

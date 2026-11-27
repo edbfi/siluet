@@ -14,6 +14,7 @@ import {
 	readMirror,
 	renderReport,
 	repinCheck,
+	untrusted,
 	type WatchedPage,
 } from "./drift";
 import { projectCatalog, projectOpenApi, sha256 } from "./project";
@@ -747,6 +748,19 @@ test("a hostile docs index line and error text are escaped and kept on one line"
 	expect(report).toContain("- `/a\\u000A::warning::x`: `HTTP 500\\u000A::error::spoofed`");
 	for (const each of reportLines(report)) expect(each).toMatch(ownLine);
 	expect(reportLines(report).some((each) => each.trimStart().startsWith("::"))).toBe(false);
+});
+
+test("hostile text cannot form the runner's legacy ##[ command anywhere in a line", () => {
+	for (const hostile of ["x ##[error]spoofed", "##[add-mask]Drift", "###[warning]x"]) {
+		const files = {
+			...upstreamFiles(),
+			"capability-catalog.json": catalogText([...items, entry(hostile, "text2img")]),
+		};
+		const report = renderReport(drift(fixtureBaseline(), reader(files)));
+		expect(report).toContain("Poyo.ai catalog added");
+		expect(report).not.toContain("##[");
+	}
+	expect(untrusted("a ##[error]b")).toBe("`a #\\u0023[error]b`");
 });
 
 test("a 4 MiB malformed catalog entry and a flood of findings keep the report small", () => {
