@@ -157,7 +157,10 @@ export function createSignInAttempts(owner: {
 		return (await owner.keys.read(installation()).catch(() => null))?.spki ?? null;
 	}
 
-	async function send(step: "primary" | "factor" | "cancel"): Promise<Answer> {
+	async function send(
+		step: "primary" | "factor" | "cancel",
+		alive: () => boolean,
+	): Promise<Answer> {
 		const current = attempt;
 		if (!current) return { kind: "lost" };
 		const purpose: KeyPurpose = step === "primary" ? current.kind : "factor";
@@ -194,6 +197,8 @@ export function createSignInAttempts(owner: {
 				key: current.base.spki,
 				signature: await signWith(current.base, message(`replaces:${current.candidate.spki}`)),
 			};
+		// A `pagehide` since the step began: its credentials go nowhere.
+		if (!alive()) return { kind: "lost" };
 		return answerOf(await owner.post(path, body).catch(() => null));
 	}
 
@@ -339,7 +344,7 @@ export function createSignInAttempts(owner: {
 		if (resumed?.kind !== "gone")
 			return offerRetry(resumed?.kind === "retry" ? resumed.message : failed);
 		const step = current.proof ? "factor" : "primary";
-		return settle(current, await send(step), true, alive);
+		return settle(current, await send(step, alive), true, alive);
 	}
 
 	/** Run one step of this tab's own request; stored-key changes wait until it settles. */
@@ -435,7 +440,7 @@ export function createSignInAttempts(owner: {
 				};
 				attempt = current;
 				changed({ retry: false });
-				return settle(current, await send("primary"), false, alive);
+				return settle(current, await send("primary", alive), false, alive);
 			});
 		},
 		/** The factor step for the pending proof, on the sign-in's candidate and base. */
@@ -450,14 +455,14 @@ export function createSignInAttempts(owner: {
 				if (!alive()) return null;
 				if (another) return joinStored(current, alive);
 				current.fields = { code };
-				return settle(current, await send("factor"), false, alive);
+				return settle(current, await send("factor", alive), false, alive);
 			});
 		},
 		/** Cancel the pending proof: no `replaces`, nothing retired, both dropped. */
 		cancel() {
 			return run(async (alive) => {
 				const current = attempt;
-				if (current?.proof) await send("cancel");
+				if (current?.proof) await send("cancel", alive);
 				if (!alive()) return null;
 				drop();
 				changed({ factor: false, retry: false, message: null });

@@ -79,6 +79,12 @@ async function harness({
 		/** Reads of the stored record begun so far. */
 		reads: 0,
 	};
+	const studio = {
+		/** Holds each challenge request while set. */
+		challengeHold: null as Promise<void> | null,
+		/** Challenge requests the hold has caught. */
+		challengesHeld: 0,
+	};
 	const scripts = new Map<string, Script[]>();
 	const sent: { path: string; body: Record<string, unknown> }[] = [];
 	const navigations: string[] = [];
@@ -87,8 +93,14 @@ async function harness({
 	const native = (async (input: RequestInfo | URL, init?: RequestInit) => {
 		const path = new URL(String(input), origin).pathname;
 		const body = init?.body ? JSON.parse(String(init.body)) : {};
-		if (path === "/owner/challenge")
+		if (path === "/owner/challenge") {
+			const hold = studio.challengeHold;
+			if (hold) {
+				studio.challengesHeld++;
+				await hold;
+			}
 			return new Response(JSON.stringify({ nonce: `nonce-${sent.length}` }));
+		}
 		sent.push({ path, body });
 		const queued = scripts.get(path)?.shift();
 		const answer = await (typeof queued === "function"
@@ -136,7 +148,7 @@ async function harness({
 		scripts.set(path, [...(scripts.get(path) ?? []), ...answers]);
 	const to = (path: string) => sent.filter((request) => request.path === path);
 	const view = () => views.at(-1) as Record<string, unknown>;
-	return { client, store, queue, sent, to, navigations, events, candidates, view };
+	return { client, store, studio, queue, sent, to, navigations, events, candidates, view };
 }
 /** Wait for the scripted studio to reach a state, as the awaits in between settle. */
 async function until(reached: () => boolean, timeoutMs = 5000) {
@@ -507,6 +519,38 @@ test("pagehide stops every later step; a cache return restarts only a pending fa
 			factor: false,
 			message: step === "factor" ? restartedMessage : null,
 		});
+	}
+});
+
+test("pagehide while a step fetches its challenge sends no credential request", async () => {
+	for (const step of ["sign-in", "factor", "resend", "cancel"] as const) {
+		const h = await harness({ stored: await newKey() });
+		if (step === "factor" || step === "cancel") {
+			h.queue("/owner/sign-in", proof());
+			await h.client.attempts.submit("sign-in", signIn);
+		}
+		const challenge = Promise.withResolvers<void>();
+		if (step === "resend") {
+			// The lost answer's resume finds no session: the held fields go again after a challenge.
+			h.queue("/owner/sign-in", "network");
+			h.queue("/owner/resume", () => {
+				h.studio.challengeHold = challenge.promise;
+				return gone;
+			});
+		} else h.studio.challengeHold = challenge.promise;
+		const pending =
+			step === "factor"
+				? h.client.attempts.factor("123456")
+				: step === "cancel"
+					? h.client.attempts.cancel()
+					: h.client.attempts.submit("sign-in", signIn);
+		await until(() => h.studio.challengesHeld === 1);
+		const sent = h.sent.length;
+		h.client.pagehide();
+		challenge.resolve();
+		expect(await pending).toBeNull();
+		expect(h.sent).toHaveLength(sent);
+		expect(h.events).toEqual([]);
 	}
 });
 
