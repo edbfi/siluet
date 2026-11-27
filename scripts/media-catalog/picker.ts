@@ -17,16 +17,27 @@ const slices: Record<string, string> = {
 	G8b: "Poyo.ai image references are",
 };
 
-const d4Reasons: Record<string, string> = {
-	"D4 contradiction": "Poyo.ai's schemas disagree on the filtering field",
-	"D4 unknown": "the filtering field is not derived yet",
-	"D4 refused": "Poyo.ai refuses the filtering field",
-};
+// One plain sentence for each kind of pending reason the deriver records. poyo-rows.json keeps
+// the technical detail.
+const pendingReasons: [kind: RegExp, reason: string][] = [
+	[/^not in the pinned catalog\b/, "Siluet's copy of Poyo.ai's catalog does not list it yet (G2c)"],
+	[/^service /, "Poyo.ai runs it as a service Siluet does not call yet"],
+	[/^schema uses /, "Poyo.ai's input schema uses forms Siluet does not read yet"],
+	[/^required input uses /, "a required input takes a form Siluet does not read yet"],
+	[/^D4 contradiction$/, "Poyo.ai's schemas disagree on the filtering field"],
+	[/^D4 unknown$/, "the filtering field is not derived yet"],
+	[/^D4 refused$/, "Poyo.ai refuses the filtering field"],
+	[/^no valid minimal request\b/, "Siluet cannot build a valid request from Poyo.ai's schemas yet"],
+];
 
 /** The first reason a derived row cannot queue yet, in plain words from its own data. */
 export function reviewOnlyReason(row: DerivedRow) {
 	const [pending] = row.pending;
-	if (pending) return d4Reasons[pending] ?? pending;
+	if (pending) {
+		const plain = pendingReasons.find(([kind]) => kind.test(pending));
+		if (!plain) throw new Error(`No plain reason for ${row.model} (${pending}).`);
+		return plain[1];
+	}
 	const [operation] = row.operations;
 	const label = assignment({ provider: "poyo", model: row.model, route: row.route, operation });
 	if (label.startsWith("P3 · ")) return `planned for Phase 3: ${label.slice(5)}`;

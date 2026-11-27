@@ -41,11 +41,14 @@ test("every derived row is listed once, unless a shipped Poyo.ai operation alrea
 });
 
 test("each reason names the row's first blocker: its schema, its D4 state or its slice", () => {
-	// Row-level pending reasons come first, as the deriver recorded them.
-	expect(reason("kling-4.0")).toBe(
-		"schema uses oneOf in allOf, items in allOf, x-server-validation",
+	// A row-level pending kind comes first, in one plain sentence; poyo-rows.json keeps its detail.
+	expect(reason("kling-4.0")).toBe("Poyo.ai's input schema uses forms Siluet does not read yet");
+	expect(reason("ideogram-v4.6")).toBe(
+		"Siluet's copy of Poyo.ai's catalog does not list it yet (G2c)",
 	);
-	expect(reason("ideogram-v4.6")).toBe("not in the pinned catalog: G2c re-pins");
+	expect(reason("flux-3-max/keyframes-to-video")).toBe(
+		"a required input takes a form Siluet does not read yet",
+	);
 	// Otherwise the slice that holds the row's first operation, as catalog:coverage assigns it.
 	expect(reason("flux-dev")).toBe("Poyo.ai text-to-image is not verified yet (G4)");
 	expect(reason("wan2.5-text-to-video")).toBe("Poyo.ai text-to-video is not verified yet (G7)");
@@ -59,6 +62,19 @@ test("each reason names the row's first blocker: its schema, its D4 state or its
 	expect(reason("create-music-video")).toBe(
 		"planned for Phase 3: music and parent-task prerequisites",
 	);
+});
+
+test("every pending kind reads as one plain sentence, and an unknown kind is refused", () => {
+	const row = rows.find(({ model }) => model === "flux-dev");
+	if (!row) throw new Error("flux-dev has no derived row.");
+	const plain = (pending: string) => reviewOnlyReason({ ...row, pending: [pending] });
+	expect(plain("service chat/sync")).toBe("Poyo.ai runs it as a service Siluet does not call yet");
+	expect(plain("no valid minimal request: /input/prompt must be string")).toBe(
+		"Siluet cannot build a valid request from Poyo.ai's schemas yet",
+	);
+	expect(() => plain("schema drifted")).toThrow("No plain reason for flux-dev (schema drifted).");
+	for (const { reason } of picker)
+		expect(reason).not.toMatch(/allOf|oneOf|x-server|pattern|nested|pinned|re-pins|D4|service /);
 });
 
 test("a blocking D4 state reads plainly", () => {
