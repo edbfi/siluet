@@ -332,6 +332,33 @@ test("Retry keeps the credential inputs disabled, and Cancel still leaves its fa
 	expect(await storedSpki(page)).toBe(stored);
 });
 
+test("the form stays disabled while a committed sign-in opens its destination", async ({
+	page,
+	studio,
+}) => {
+	const { origin, password } = studio;
+	await signOut(page, origin);
+	const submit = page.getByRole("button", { name: "Sign in" });
+	await expect(submit).toBeEnabled();
+	const bodies = ownerBodies(page);
+	// Hold the destination's data load: the client navigation stays under way.
+	const loading = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	await page.route("**/__data.json*", async (route) => {
+		loading.resolve();
+		await release.promise;
+		await route.continue().catch(() => {});
+	});
+	await fillSignIn(page, password);
+	await loading.promise;
+	await expect(submit).toBeDisabled();
+	// A second click would start another rotation that retires the session being opened.
+	await submit.click({ force: true });
+	release.resolve();
+	await expect(page).toHaveURL(`${origin}/`);
+	expect(bodies("/owner/sign-in")).toHaveLength(1);
+});
+
 test("lost claim, sign-in and factor answers reach the new session without re-entry", async ({
 	context,
 }) => {

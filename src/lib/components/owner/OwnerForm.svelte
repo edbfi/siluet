@@ -43,6 +43,9 @@ let { claim = false }: { claim?: boolean } = $props();
 // The candidate key, its base and a pending proof live only in this tab's memory.
 let view = $state<AttemptView>({ factor: false, busy: false, retry: false, message: null });
 let form = $state<HTMLFormElement>();
+/** A committed attempt's destination is loading: the form sends nothing more. */
+let navigating = $state(false);
+const locked = $derived(view.busy || navigating);
 const pending = $derived(view.factor);
 const title = $derived(
 	claim ? "Claim your studio" : pending ? "Verify your sign-in" : "Welcome back",
@@ -70,7 +73,7 @@ async function submit(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
 	};
 	// While Retry is offered only Cancel submits: the held fields go through Retry.
 	const cancel = pending && field("action") === "cancel";
-	if (view.busy || (view.retry && !cancel)) return;
+	if (locked || (view.retry && !cancel)) return;
 	const { attempts } = sessionClient();
 	const destination = claim
 		? await attempts.submit("claim", {
@@ -86,11 +89,20 @@ async function submit(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
 					username: field("username"),
 					password: field("password"),
 				});
-	if (destination) await goto(destination, { replaceState: true });
+	await open(destination);
 }
 async function retry() {
-	const destination = await sessionClient().attempts.retry();
-	if (destination) await goto(destination, { replaceState: true });
+	if (locked) return;
+	await open(await sessionClient().attempts.retry());
+}
+async function open(destination: string | null) {
+	if (!destination) return;
+	navigating = true;
+	try {
+		await goto(destination, { replaceState: true });
+	} finally {
+		navigating = false;
+	}
 }
 </script>
 
@@ -100,13 +112,7 @@ async function retry() {
 		<Brand />
 	</div>
 	<div class={content}>
-		<form
-			method="POST"
-			class={credentials}
-			onsubmit={submit}
-			aria-busy={view.busy}
-			bind:this={form}
-		>
+		<form method="POST" class={credentials} onsubmit={submit} aria-busy={locked} bind:this={form}>
 			<h1
 				tabindex="-1"
 				{@attach (node) => {
@@ -185,7 +191,7 @@ async function retry() {
 				</p>
 			{/if}
 			{#if view.retry}
-				<button class={css({ width: "100%" })} type="button" onclick={retry} disabled={view.busy}>
+				<button class={css({ width: "100%" })} type="button" onclick={retry} disabled={locked}>
 					Retry
 				</button>
 			{:else}
@@ -194,13 +200,13 @@ async function retry() {
 					type="submit"
 					name="action"
 					value={pending ? "factor" : "primary"}
-					disabled={view.busy}
+					disabled={locked}
 				>
 					{claim ? "Claim studio" : pending ? "Verify code" : "Sign in"}
 				</button>
 			{/if}
 			{#if pending}
-				<button type="submit" name="action" value="cancel" formnovalidate disabled={view.busy}>
+				<button type="submit" name="action" value="cancel" formnovalidate disabled={locked}>
 					Cancel
 				</button>
 			{/if}
