@@ -1,3 +1,4 @@
+import { expectedImageType } from "../media-catalog/formats";
 import type { PricingProvider } from "../pricing/feeds";
 import type { ReviewPricingInput } from "./review-price";
 import type { SeedreamOperation } from "./seedream";
@@ -12,6 +13,8 @@ type ReviewInput = Readonly<{
 	provider: PricingProvider;
 	operation: ReviewOperation;
 	references: readonly ReviewReference[];
+	/** The output format the request sends verbatim, when the model has the option. */
+	outputFormat?: string;
 }>;
 
 type ImageFields = Readonly<
@@ -98,7 +101,7 @@ function redactLink(token: string): string {
 
 /** Build the presentation from the validated wire request before it receives any credentials. */
 export function createImageReview(
-	{ provider, operation, references }: ReviewInput,
+	{ provider, operation, references, outputFormat }: ReviewInput,
 	request: WireRequest,
 ) {
 	const { model } = request.body;
@@ -138,6 +141,8 @@ export function createImageReview(
 		pricing,
 		sources,
 		outgoing: { method: request.method, url: request.url, body },
+		/** The type Gallery expects to verify, or null when the provider chooses it. */
+		expected: expectedImageType(outputFormat),
 	};
 }
 

@@ -10,6 +10,8 @@ import {
 	zImageDisclosure,
 	zImageEligible,
 } from "../../../shared/image-studio/z-image";
+import { poyoOutputFormats } from "../../../shared/media-catalog/formats";
+import { zImageModel } from "../../../shared/media-catalog/registry";
 import { decodePricingFeeds } from "../../../shared/pricing/feeds";
 import { decodePoyoV2Feed, poyoFeedExpiryMs } from "../../../shared/pricing/poyo-feed";
 import { checkPoyoConnection } from "./connection";
@@ -229,5 +231,14 @@ test("Z-Image polls only the accepted task and offers exactly one completed imag
 		expect(reads).toEqual(
 			[taskId, "different"].map((id) => `https://api.poyo.ai/api/generate/status/${id}`),
 		);
+	}
+});
+
+test("Z-Image's row documents no output format, so it sends none and Review expects any type", () => {
+	expect(poyoOutputFormats(zImageModel.id)).toBeNull();
+	for (const draft of [create, edit]) {
+		const { request, review } = reviewed(draft);
+		expect(request.body.input).not.toHaveProperty("output_format");
+		expect(review.expected).toBeNull();
 	}
 });

@@ -646,6 +646,22 @@ $effect(() => {
 					</dd>
 				</div>
 				<div class={styles.fact}>
+					<dt class={styles.term}>Expected type</dt>
+					<dd class={styles.detail} data-studio-expected-type>
+						{#if review?.expected}
+							<p>{review.expected.name}, requested as <code>{review.expected.format}</code></p>
+						{:else if review}
+							<p>The provider's choice. This model has no output format option.</p>
+						{:else}
+							<p>Complete the request to see the expected type.</p>
+						{/if}
+						<p class={styles.note}>
+							Save records the type Gallery verifies: PNG, JPEG or still WebP. Any other type stays
+							in Jobs.
+						</p>
+					</dd>
+				</div>
+				<div class={styles.fact}>
 					<dt class={styles.term}>Price</dt>
 					<dd class={styles.detail} data-studio-price aria-live="polite">
 						{#if request?.files}

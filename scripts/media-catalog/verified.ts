@@ -6,7 +6,7 @@ import {
 	poyoAspectRatios,
 	poyoPromptLimits,
 	seedreamBackgrounds,
-	seedreamOutputFormats,
+	seedreamFormats,
 	seedreamResolutions,
 } from "../../src/lib/shared/image-studio/seedream";
 import { zImagePromptCharacters, zImageSizes } from "../../src/lib/shared/image-studio/z-image";
@@ -27,7 +27,7 @@ const seedream = (edit: boolean): Record<string, Offered> => ({
 	size: { values: edit ? [...poyoAspectRatios, "auto"] : poyoAspectRatios },
 	resolution: { values: seedreamResolutions },
 	background: { values: seedreamBackgrounds },
-	output_format: { values: seedreamOutputFormats },
+	output_format: { values: seedreamFormats("poyo").values },
 });
 const { fields } = h3MaxOperation.descriptor;
 

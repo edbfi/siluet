@@ -204,3 +204,20 @@ test("live Review accepts the maximum batch and preserves its explicit extra-att
 		retryLimit: 3,
 	});
 });
+
+test.each(["poyo", "toapis"] as const)(
+	"a %s Review or Queue takes only an offered output format and sends it verbatim",
+	(provider) => {
+		const base = { ...createSeedreamDraft(provider), prompt: draft.prompt };
+		const parse = (outputFormat: unknown) =>
+			parseQueueRequest({
+				...request,
+				draft: { ...base, options: { ...base.options, outputFormat } },
+			});
+		for (const format of ["gif", "webp", "jpg", "JPEG", 1, null]) expect(parse(format)).toBeNull();
+		const body = parse("jpeg")?.request.body;
+		expect(body && ("input" in body ? body.input : body.metadata)).toMatchObject({
+			output_format: "jpeg",
+		});
+	},
+);

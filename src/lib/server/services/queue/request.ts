@@ -8,7 +8,6 @@ import {
 	buildSeedreamRequest,
 	poyoAspectRatios,
 	seedreamBackgrounds,
-	seedreamOutputFormats,
 	seedreamResolutions,
 	validateSeedreamDraft,
 } from "../../../shared/image-studio/seedream";
@@ -106,7 +105,8 @@ export function parseQueueRequest(
 		!member(options.aspectRatio, [...poyoAspectRatios, "auto"] as const) ||
 		!member(options.background, seedreamBackgrounds) ||
 		!member(options.resolution, seedreamResolutions) ||
-		!member(options.outputFormat, seedreamOutputFormats) ||
+		// The draft validation below checks it against the provider's offered formats.
+		typeof options.outputFormat !== "string" ||
 		!member(options.sizeMode, ["tier", "pixels"] as const) ||
 		typeof options.watermark !== "boolean"
 	)

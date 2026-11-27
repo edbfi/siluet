@@ -499,4 +499,8 @@ if (import.meta.main) {
 	const picker = renderPicker();
 	writeFileSync(pickerPath, picker);
 	console.log(`poyo-picker.json ${sha256(picker)} (${picker.length} bytes)`);
+	const { formatsPath, renderFormats } = await import("./formats");
+	const formats = renderFormats();
+	writeFileSync(formatsPath, formats);
+	console.log(`poyo-formats.json ${sha256(formats)} (${formats.length} bytes)`);
 }

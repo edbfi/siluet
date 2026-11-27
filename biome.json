@@ -12,7 +12,8 @@
 			"!!skills-lock.json",
 			"!!scripts/media-catalog/sources/poyo-*.json",
 			"!!src/lib/shared/media-catalog/poyo-rows.json",
-			"!!src/lib/shared/media-catalog/poyo-picker.json"
+			"!!src/lib/shared/media-catalog/poyo-picker.json",
+			"!!src/lib/shared/media-catalog/poyo-formats.json"
 		]
 	},
 	"formatter": { "enabled": true, "lineWidth": 100 },
