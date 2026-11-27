@@ -23,7 +23,6 @@ const test = base.extend<{ studio: { server: Studio; origin: string; password: s
 	},
 });
 
-/** The SPKI of this origin's stored browser key, or null. */
 /**
  * Fires `focus` on a bound tab. The commit notice may already have had the tab check and load
  * the new session, which destroys the page's context mid-call; only that is tolerated.
@@ -35,6 +34,7 @@ const focusBoundTab = (page: Page) =>
 			if (!error.message.includes("Execution context was destroyed")) throw error;
 		});
 
+/** The SPKI of this origin's stored browser key, or null. */
 const storedSpki = (page: Page) =>
 	page.evaluate(async () => {
 		const installation =
