@@ -106,6 +106,23 @@ test("the picker lists every derived Poyo.ai row as Review-only with its reason,
 			),
 		).toBeVisible();
 		await expect(page.getByText(/fixed filtering setting/)).toHaveCount(0);
+
+		// A Review-only round trip keeps a non-default operation, its frames and its settings.
+		await page.getByRole("radio", { name: "First and last frame" }).check();
+		const start = page.getByRole("textbox", { name: "Starting frame" });
+		const end = page.getByRole("textbox", { name: "Ending frame" });
+		await start.fill("https://frames.example.test/start.png");
+		await end.fill("https://frames.example.test/end.png");
+		await page.getByLabel("Duration (seconds)").selectOption("7");
+		await picker.selectOption("seedance-2.5");
+		await expect(start).toBeHidden();
+		await picker.selectOption("seedance-2-5");
+		await expect(page.getByRole("radio", { name: "First and last frame" })).toBeChecked();
+		await expect(start).toHaveValue("https://frames.example.test/start.png");
+		await expect(end).toHaveValue("https://frames.example.test/end.png");
+		await expect(page.getByLabel("Duration (seconds)")).toHaveValue("7");
+		await expect(videoPrompt).toHaveValue("A lantern drifts down a canal");
+		await page.getByRole("radio", { name: "Create video" }).check();
 		await picker.selectOption("seedance-2.5");
 		const videoReview = page.getByRole("region", { name: "Review", exact: true });
 		await expect(videoReview.getByRole("status")).toHaveText(

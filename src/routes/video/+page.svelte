@@ -145,7 +145,8 @@ function switchModel(id: string) {
 	reviewOnly = reviewOnlyVideoRows.find((row) => row.model === id) ?? null;
 	if (reviewOnly) return edit();
 	const target = find(id);
-	if (!target || target === operation) return;
+	// The current model, back from a Review-only row, keeps its operation, frames and settings.
+	if (!target || target.key.model === operation.key.model) return;
 	operation = target;
 	frames = noFrames();
 	const next = controls(target);
