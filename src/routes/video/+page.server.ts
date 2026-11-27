@@ -1,4 +1,4 @@
-import { seedreamProviderNames } from "#lib/shared/image-studio/seedream.ts";
+import { seedreamProviderNames } from "#lib/shared/image-studio/seedream-options.ts";
 import { reviewOnlyVideoRows } from "#lib/shared/media-catalog/picker.ts";
 import { releasedVideoOperations, seedanceOperation } from "#lib/shared/media-catalog/registry.ts";
 import ledger from "../../../docs/media-catalog.v1.json";

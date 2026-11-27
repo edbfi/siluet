@@ -4,13 +4,12 @@ import {
 	parseReferenceUrl,
 	type RemoteReference,
 } from "../../../shared/image-studio/references";
+import { buildSeedreamRequest, validateSeedreamDraft } from "../../../shared/image-studio/seedream";
 import {
-	buildSeedreamRequest,
 	poyoAspectRatios,
 	seedreamBackgrounds,
 	seedreamResolutions,
-	validateSeedreamDraft,
-} from "../../../shared/image-studio/seedream";
+} from "../../../shared/image-studio/seedream-options";
 import { buildZImageRequest, validateZImageDraft } from "../../../shared/image-studio/z-image";
 import {
 	type ReleasedImageOperation,

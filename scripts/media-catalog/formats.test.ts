@@ -24,15 +24,15 @@ test("every derived image row is listed once with its schema's output formats an
 			expect(entry).toEqual({ model: row.model });
 			continue;
 		}
-		expect(entry?.output_format?.values).toEqual(option.domain.values as string[]);
-		expect(entry?.output_format?.default).toBe(
-			option.default.state === "resolved" ? (option.default.value as string) : undefined,
-		);
+		expect(entry?.output_format).toEqual({
+			values: option.domain.values as string[],
+			...(option.default.state === "resolved" && { default: option.default.value as string }),
+		});
 	}
 	expect(projected.filter((entry) => entry.output_format)).toHaveLength(35);
 });
 
-test("an output format with a gap or no enum domain is not projected as offerable", () => {
+test("an output format with a gap is recorded as pending with its reason, never thrown", () => {
 	const [row] = rows.filter((candidate) => candidate.model === "seedream-5.5");
 	const gapped = {
 		...row,
@@ -42,7 +42,7 @@ test("an output format with a gap or no enum domain is not projected as offerabl
 				: option,
 		),
 	};
-	expect(() => formatRows([gapped])).toThrow(
-		"seedream-5.5 output_format has no typed enum domain.",
-	);
+	expect(formatRows([gapped])).toEqual([
+		{ model: "seedream-5.5", output_format: { pending: "fixture" } },
+	]);
 });

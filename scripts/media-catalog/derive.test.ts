@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import { d4States } from "../../src/lib/shared/media-catalog/filtering";
@@ -16,10 +18,98 @@ import {
 	rowsPath,
 } from "./derive";
 import { sha256 } from "./project";
-import { verifiedOptions } from "./verified";
+import { verifiedOptions as optionsOf } from "./verified";
 
 const committed = readFileSync(rowsPath, "utf8");
 const rows = deriveRows();
+const root = resolve(import.meta.dir, "../..");
+
+/** Every file one module reaches through static imports and re-exports, type-only included. */
+function staticImports(entry: string) {
+	const reached = new Map<string, string[]>([[entry, [entry]]]);
+	const queue = [entry];
+	const resolveSpecifier = (from: string, specifier: string) => {
+		const base = specifier.startsWith(".")
+			? resolve(dirname(from), specifier)
+			: specifier.startsWith("#lib/") || specifier.startsWith("$lib/")
+				? join(root, "src/lib", specifier.slice(5))
+				: null;
+		if (!base) return null;
+		for (const candidate of [base, `${base}.ts`, `${base}.js`, join(base, "index.ts")])
+			if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+		throw new Error(`${relative(root, from)} imports ${specifier}, which does not resolve.`);
+	};
+	while (queue.length) {
+		const file = queue.shift() as string;
+		if (file.endsWith(".json")) continue;
+		const source = readFileSync(file, "utf8")
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.replace(/^\s*\/\/.*$/gm, "");
+		for (const [, specifier] of source.matchAll(
+			/(?:^|[;\s])(?:import|export)\s+(?:type\s+)?(?:[^"'`;]*?\sfrom\s+)?["']([^"']+)["']/g,
+		)) {
+			const target = resolveSpecifier(file, specifier);
+			if (!target || reached.has(target)) continue;
+			reached.set(target, [...(reached.get(file) as string[]), target]);
+			queue.push(target);
+		}
+	}
+	return reached;
+}
+
+// Generated projections, matched by pattern so projections added later are covered too.
+const generated = [
+	/^src\/lib\/shared\/media-catalog\/poyo-[^/]*\.json$/,
+	/^src\/lib\/server\/providers\/poyo\/queue-schemas\.json$/,
+];
+const projections = (entry: string) =>
+	[...staticImports(join(root, entry)).entries()]
+		.filter(([file]) => generated.some((pattern) => pattern.test(relative(root, file))))
+		.map(([, chain]) => chain.map((file) => relative(root, file)).join(" → "));
+
+test("neither the deriver nor the verified options reach a generated projection", () => {
+	// The walker sees through re-exports and type-only edges: the browser's formats reader
+	// does reach its projection.
+	expect(projections("src/lib/shared/media-catalog/poyo-formats.ts")).toEqual([
+		"src/lib/shared/media-catalog/poyo-formats.ts → src/lib/shared/media-catalog/poyo-formats.json",
+	]);
+	expect(projections("scripts/media-catalog/derive.ts")).toEqual([]);
+	expect(projections("scripts/media-catalog/verified.ts")).toEqual([]);
+});
+
+test("the rows derive whether the formats projection is missing or stale", () => {
+	const run = (contents: string | null) => {
+		const directory = mkdtempSync(join(tmpdir(), "siluet-derive-"));
+		const plugin = join(directory, "formats-plugin.ts");
+		writeFileSync(
+			plugin,
+			`Bun.plugin({ name: "formats", setup(build) { build.onLoad({ filter: /poyo-formats\\.json$/ }, () => { ${
+				contents === null
+					? 'throw new Error("poyo-formats.json is missing");'
+					: `return { contents: ${JSON.stringify(contents)}, loader: "json" };`
+			} }); } });`,
+		);
+		try {
+			return Bun.spawnSync(
+				[
+					process.execPath,
+					"--preload",
+					plugin,
+					"-e",
+					'import { renderRows } from "./scripts/media-catalog/derive"; process.stdout.write(renderRows());',
+				],
+				{ cwd: root },
+			);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	};
+	for (const contents of [null, '{"rows":[]}']) {
+		const { exitCode, stdout } = run(contents);
+		expect(exitCode).toBe(0);
+		expect(stdout.toString()).toBe(committed);
+	}
+});
 
 test("derivation reproduces the committed rows byte for byte, canonical and under 500 KB", () => {
 	expect(renderRows()).toBe(committed);
@@ -129,7 +219,7 @@ test("a documented ID the pinned catalog lacks is pending and takes the REST sta
 
 test("verified representatives are cross-checked and never rewritten", () => {
 	expect(() => crossCheck(rows)).not.toThrow();
-	const tampered = verifiedOptions.map((entry) =>
+	const tampered = optionsOf(rows).map((entry) =>
 		entry.key.model === "seedream-5.5"
 			? { ...entry, offered: { ...entry.offered, resolution: { values: ["1K", "4K"] } } }
 			: entry,
@@ -367,6 +457,24 @@ describe("fixture rows", () => {
 		expect(() => counted("Number of images, from 1 to 10.")).toThrow(
 			"The kling-4.0-image n count note no longer matches its description",
 		);
+	});
+	test("an output format Gallery cannot save, or one without a typed enum, is pending with its reason", () => {
+		const formatted = (output_format: Schema) =>
+			deriveRow(
+				ledgerRow,
+				"fixture",
+				entry({ ...declared, properties: { ...declared.properties, output_format } }),
+				none,
+			).options.find((option) => option.field === "output_format")?.gap;
+		expect(formatted({ type: "string", enum: ["gif"] })).toEqual({
+			state: "pending",
+			reason: "Gallery saves none of its output formats",
+		});
+		expect(formatted({ type: "integer", enum: [1, 2] })).toEqual({
+			state: "pending",
+			reason: "output format is not a typed enum",
+		});
+		expect(formatted({ type: "string", enum: ["png", "gif"] })).toBeUndefined();
 	});
 	test("a field only one source owns is never found on the other's prototype", () => {
 		const closed = { ...declared, additionalProperties: false };

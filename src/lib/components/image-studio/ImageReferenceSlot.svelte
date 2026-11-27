@@ -7,7 +7,7 @@ import {
 	referenceFileAccept,
 	type SeedreamReference,
 } from "#lib/shared/image-studio/references.ts";
-import type { SeedreamProvider } from "#lib/shared/image-studio/seedream.ts";
+import type { SeedreamProvider } from "#lib/shared/image-studio/seedream-options.ts";
 import { css } from "#styled-system/css";
 import { type ReferenceSlotDraft, referenceLabel } from "./draft-context.ts";
 import type { LocalCopy } from "./local-copy.svelte.ts";

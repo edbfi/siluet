@@ -17,12 +17,14 @@ The 6 verified ToAPIs operations each add one placeholder item until their page 
 <!-- catalog:coverage operations -->
 | Assigned to | Provider | Operation | Keys | Verified |
 | --- | --- | --- | ---: | ---: |
-| G4 | Poyo.ai | `text-to-image` | 50 | 2 |
+| G4 | Poyo.ai | `text-to-image` | 32 | 2 |
 | G4 after G13 · Q: documented output bound | Poyo.ai | `text-to-long-image` | 1 |  |
-| G5 | Poyo.ai | `reference-image-edit` | 49 | 2 |
-| G5 | Poyo.ai | `image-background-removal` | 1 |  |
+| G5 | Poyo.ai | `reference-image-edit` | 34 | 2 |
 | G5 · Q: target-language option | Poyo.ai | `image-translation` | 1 |  |
 | G5 after G13 · Q: documented output bound | Poyo.ai | `reference-guided-long-image-generation` | 1 |  |
+| G6 | Poyo.ai | `text-to-image` | 18 |  |
+| G6 | Poyo.ai | `reference-image-edit` | 15 |  |
+| G6 | Poyo.ai | `image-background-removal` | 1 |  |
 | G7 | Poyo.ai | `text-to-video` | 52 | 1 |
 | G8 | Poyo.ai | `first-frame-to-video` | 54 |  |
 | G8 | Poyo.ai | `first-and-last-frame-to-video` | 36 |  |

@@ -3,6 +3,7 @@
 // `--write` regenerates the generated sections of docs/catalog-engine-inventory.md.
 import { readFileSync, writeFileSync } from "node:fs";
 import ledger from "../../docs/media-catalog.v1.json";
+import type { D4State } from "../../src/lib/shared/media-catalog/filtering";
 import { reviewedOverrides } from "../../src/lib/shared/media-catalog/rules";
 import { type DerivedOption, type DerivedRow, type Domain, deriveRows } from "./derive";
 import { type Offered, type VerifiedOptions, verifiedOptions } from "./verified";
@@ -154,8 +155,11 @@ const assignments: Record<Provider, Record<string, string>> = {
 	},
 };
 
-/** The slice, Phase 3 family or evidence question that holds one key. */
-export function assignment({ provider, route, operation }: Key) {
+/**
+ * The slice, Phase 3 family or evidence question that holds one key. A closed-absent Poyo.ai
+ * image row queues only after the acknowledgement, which lands with G6.
+ */
+export function assignment({ provider, route, operation }: Key, d4?: D4State) {
 	if (provider === "toapis" && route.startsWith("POST /v1/midjourney/"))
 		return p3("Midjourney actions");
 	if (
@@ -166,7 +170,7 @@ export function assignment({ provider, route, operation }: Key) {
 		return p3("ToAPIs /v1/videos envelope, remix and extend");
 	const label = assignments[provider][operation];
 	if (!label) throw new Error(`No assignment for ${provider} ${operation}.`);
-	return label;
+	return provider === "poyo" && d4 === "closed-absent" && /^G[45]$/.test(label) ? "G6" : label;
 }
 
 export const coverageStates = [
@@ -178,6 +182,8 @@ export const coverageStates = [
 ] as const;
 export type CoverageState = (typeof coverageStates)[number];
 export type CoverageItem = Key & {
+	/** The slice, Phase 3 family or question that holds the item's key. */
+	slice: string;
 	/** The option, and the values this item covers, or none for the key itself. */
 	option?: string;
 	values?: string;
@@ -294,7 +300,7 @@ export function optionObligations(
 	offered: Record<string, Offered> | undefined,
 	slice: string,
 ): CoverageItem[] {
-	const base = { ...key, option: option.field };
+	const base = { ...key, slice, option: option.field };
 	const domain = documented(row, option, key.operation);
 	const disputed: CoverageItem[] = disputedTails(option).map(({ values }) => ({
 		...base,
@@ -361,7 +367,7 @@ export function optionObligations(
 
 export function coverage({
 	rows = deriveRows(),
-	offered = verifiedOptions,
+	offered = verifiedOptions(rows),
 }: {
 	rows?: DerivedRow[];
 	offered?: readonly VerifiedOptions[];
@@ -369,14 +375,15 @@ export function coverage({
 	const derived = new Map(rows.map((row) => [row.model, row]));
 	const items: CoverageItem[] = [];
 	for (const key of expandKeys()) {
-		const slice = assignment(key);
 		const row = key.provider === "poyo" ? derived.get(key.model) : undefined;
-		if (key.verified) items.push({ ...key, state: "verified", reason: "shipped operation" });
+		const slice = assignment(key, row?.d4.d4);
+		if (key.verified) items.push({ ...key, slice, state: "verified", reason: "shipped operation" });
 		else if (slice.startsWith("Q ·"))
-			items.push({ ...key, state: "unknown", reason: slice, question: slice.slice(4) });
+			items.push({ ...key, slice, state: "unknown", reason: slice, question: slice.slice(4) });
 		else
 			items.push({
 				...key,
+				slice,
 				state: "pending",
 				reason: row?.pending.length ? `${slice}; ${row.pending.join("; ")}` : slice,
 			});
@@ -392,6 +399,7 @@ export function coverage({
 		} else if (key.verified)
 			items.push({
 				...key,
+				slice,
 				option: "*",
 				state: "pending",
 				reason: "page options not yet typed in a descriptor (G10a, G11a)",
@@ -435,9 +443,9 @@ export function summary(items: readonly CoverageItem[]) {
 	const placeholders = items.filter((item) => item.option === "*");
 	const byProvider = (provider: Provider) => keys.filter((key) => key.provider === provider);
 	const verified = (list: CoverageItem[]) => count(list, ({ state }) => state === "verified");
-	const engine = count(keys, (key) => /^G\d/.test(assignment(key)));
-	const phase3 = count(keys, (key) => assignment(key).startsWith("P3"));
-	const questions = count(keys, (key) => assignment(key).startsWith("Q"));
+	const engine = count(keys, (key) => /^G\d/.test(key.slice));
+	const phase3 = count(keys, (key) => key.slice.startsWith("P3"));
+	const questions = count(keys, (key) => key.slice.startsWith("Q"));
 	const { blocking, tagBlocking } = tally(items);
 	const states = (list: CoverageItem[]) =>
 		coverageStates
@@ -461,7 +469,7 @@ function operationsTable(items: readonly CoverageItem[]) {
 	>();
 	for (const item of items) {
 		if (item.option !== undefined) continue;
-		const label = assignment(item);
+		const label = item.slice;
 		const id = `${label}\n${item.provider}\n${item.operation}`;
 		const group = groups.get(id) ?? {
 			reason: label,
@@ -504,7 +512,7 @@ function optionGaps(items: readonly CoverageItem[]) {
 	for (const item of items) {
 		if (item.provider !== "poyo" || item.option === undefined || item.state === "verified")
 			continue;
-		if (item.state === "pending" && item.reason === assignment(item)) continue;
+		if (item.state === "pending" && item.reason === item.slice) continue;
 		const reasons = byModel.get(item.model) ?? new Map<string, Set<string>>();
 		const reason =
 			item.state === "unknown" ? `question ${item.question}: ${item.reason}` : item.reason;

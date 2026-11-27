@@ -10,7 +10,7 @@ import {
 	zImageDisclosure,
 	zImageEligible,
 } from "../../../shared/image-studio/z-image";
-import { poyoOutputFormats } from "../../../shared/media-catalog/formats";
+import { poyoOutputFormats } from "../../../shared/media-catalog/poyo-formats";
 import { zImageModel } from "../../../shared/media-catalog/registry";
 import { decodePricingFeeds } from "../../../shared/pricing/feeds";
 import { decodePoyoV2Feed, poyoFeedExpiryMs } from "../../../shared/pricing/poyo-feed";
@@ -235,7 +235,8 @@ test("Z-Image polls only the accepted task and offers exactly one completed imag
 });
 
 test("Z-Image's row documents no output format, so it sends none and Review expects any type", () => {
-	expect(poyoOutputFormats(zImageModel.id)).toBeNull();
+	// Review's expected type comes from Z-Image's own row, which has no format option.
+	expect(poyoOutputFormats(zImageModel.id)).toEqual({ state: "none" });
 	for (const draft of [create, edit]) {
 		const { request, review } = reviewed(draft);
 		expect(request.body.input).not.toHaveProperty("output_format");

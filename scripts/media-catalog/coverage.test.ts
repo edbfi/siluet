@@ -16,9 +16,10 @@ import {
 	tally,
 } from "./coverage";
 import { type DerivedOption, type DerivedRow, deriveRows } from "./derive";
-import { verifiedOptions } from "./verified";
+import { verifiedOptions as optionsOf } from "./verified";
 
 const rows = deriveRows();
+const verifiedOptions = optionsOf(rows);
 const result = coverage({ rows });
 const keyOf = (item: CoverageItem) =>
 	JSON.stringify([item.provider, item.model, item.route, item.operation, item.option, item.values]);
@@ -83,7 +84,13 @@ test("the tag-blocking count matches the ledger", () => {
 });
 
 test("the buckets count unsupported pairs with evidence as unblocked", () => {
-	const key = { provider: "poyo", model: "m", route: "POST /x", operation: "o" } as const;
+	const key = {
+		provider: "poyo",
+		model: "m",
+		route: "POST /x",
+		operation: "o",
+		slice: "G4",
+	} as const;
 	expect(
 		tally([
 			{ ...key, state: "unsupported", reason: "refused", evidence: "https://docs.example/x" },
@@ -174,6 +181,36 @@ test("each key has an assignment and the inventory regenerates unchanged", () =>
 	const inventory = readFileSync(inventoryPath, "utf8");
 	expect(renderInventory(inventory, result.items)).toBe(inventory);
 	expect(inventory.match(/<!-- catalog:coverage \S+ -->/g)).toHaveLength(4);
+});
+
+test("closed-absent image keys are assigned to G6, where their acknowledgement lands", () => {
+	const closed = rows.filter((row) => row.media === "image" && row.d4.d4 === "closed-absent");
+	expect(closed.length).toBeGreaterThan(0);
+	for (const row of closed)
+		for (const item of result.items.filter((candidate) => candidate.model === row.model))
+			if (/^G[45]$/.test(assignment(item))) expect(item.slice).toBe("G6");
+	const key = (model: string, operation: string) =>
+		result.items.find(
+			(item) => item.model === model && item.operation === operation && !item.option,
+		);
+	expect(key("gpt-image-2.6-fixed", "text-to-image")).toMatchObject({ slice: "G6", reason: "G6" });
+	expect(key("bria-rmbg-3.0", "image-background-removal")).toMatchObject({ slice: "G6" });
+	expect(key("flux-dev", "text-to-image")).toMatchObject({ slice: "G4" });
+	expect(
+		assignment(key("gpt-image-2.6-fixed", "text-to-image") as CoverageItem, "closed-absent"),
+	).toBe("G6");
+	// Video and non-engine assignments keep their labels whatever the D4 state.
+	expect(
+		assignment(
+			{
+				provider: "poyo",
+				model: "m",
+				route: "POST /api/generate/submit",
+				operation: "text-to-video",
+			},
+			"closed-absent",
+		),
+	).toBe("G7");
 });
 
 const itemsOf = (model: string, option: string, operation?: string) =>

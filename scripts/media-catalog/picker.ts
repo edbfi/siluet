@@ -39,17 +39,17 @@ export function reviewOnlyReason(row: DerivedRow) {
 		return plain[1];
 	}
 	const [operation] = row.operations;
-	const label = assignment({ provider: "poyo", model: row.model, route: row.route, operation });
+	const label = assignment(
+		{ provider: "poyo", model: row.model, route: row.route, operation },
+		row.d4.d4,
+	);
 	if (label.startsWith("P3 · ")) return `planned for Phase 3: ${label.slice(5)}`;
 	if (label.startsWith("Q · ")) return `open question: ${label.slice(4)}`;
 	const question = label.split(" · Q: ")[1];
 	if (question) return `open question: ${question}`;
-	// Closed-schema image rows queue only after the acknowledgement, which lands with G6.
-	const slice =
-		row.d4.d4 === "closed-absent" && row.media === "image" && /^G[45]$/.test(label) ? "G6" : label;
-	if (!Object.hasOwn(slices, slice))
+	if (!Object.hasOwn(slices, label))
 		throw new Error(`No picker reason for ${row.model} (${label}).`);
-	return `${slices[slice]} not verified yet (${slice})`;
+	return `${slices[label]} not verified yet (${label})`;
 }
 
 /** Every derived row the picker lists. A model with a shipped Poyo.ai operation keeps its own entry. */

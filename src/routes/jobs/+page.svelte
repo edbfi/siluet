@@ -1,7 +1,7 @@
 <script lang="ts">
 import { tick } from "svelte";
 import { reviewPriceReason } from "#lib/shared/image-studio/review-price.ts";
-import { seedreamProviderNames } from "#lib/shared/image-studio/seedream.ts";
+import { seedreamProviderNames } from "#lib/shared/image-studio/seedream-options.ts";
 import { releasedModels, releasedOperations } from "#lib/shared/media-catalog/registry.ts";
 import { enhance, type SubmitFunction } from "$app/forms";
 import { invalidate } from "$app/navigation";

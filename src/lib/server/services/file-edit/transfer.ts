@@ -3,7 +3,7 @@ import {
 	neutralFilename,
 	type StageDescriptor,
 } from "../../../shared/image-studio/file-edit";
-import type { SeedreamProvider } from "../../../shared/image-studio/seedream";
+import type { SeedreamProvider } from "../../../shared/image-studio/seedream-options";
 import type { CheckFetch } from "../../providers/connection-check";
 import { filePost } from "../../providers/file-post";
 import { type UploadOutcome, uncertainUpload } from "../../providers/file-upload";

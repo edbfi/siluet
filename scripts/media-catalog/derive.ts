@@ -11,6 +11,7 @@ import {
 	type FilteringEvidence,
 	type RestSide,
 } from "../../src/lib/shared/media-catalog/filtering";
+import { offeredFormats } from "../../src/lib/shared/media-catalog/formats";
 import {
 	type ReviewedOverride,
 	reviewedOverrides,
@@ -378,7 +379,20 @@ export function deriveRow(
 			option.gap = silentPages.has(`${model} ${field}`)
 				? { state: "unknown", reason: "prompt limit not documented", question: 10 }
 				: { state: "pending", reason: "no documented limit: read the model page" };
-		else if (kind === "prose") {
+		else if (field === "output_format") {
+			// Formats are offered only from a typed enum that Gallery can save (G3).
+			const values = domain.values;
+			const typed =
+				kind === "enum" &&
+				!!values?.every((value) => typeof value === "string") &&
+				(resolved.state !== "resolved" || typeof resolved.value === "string");
+			const reason = !typed
+				? "output format is not a typed enum"
+				: offeredFormats({ values: values as string[] }).state === "unsavable"
+					? "Gallery saves none of its output formats"
+					: null;
+			if (reason) option.gap = { state: "pending", reason };
+		} else if (kind === "prose") {
 			const route = Object.hasOwn(proseDomains, `${model} ${field}`)
 				? proseDomains[`${model} ${field}`]
 				: undefined;
@@ -443,7 +457,7 @@ export function deriveRows(
 }
 
 /** Each verified representative's reviewed choices must lie within its derived row. */
-export function crossCheck(rows: DerivedRow[], verified = verifiedOptions) {
+export function crossCheck(rows: DerivedRow[], verified = verifiedOptions(rows)) {
 	for (const { key, offered } of verified) {
 		if (key.provider !== "poyo") continue;
 		const row = rows.find(({ model }) => model === key.model);

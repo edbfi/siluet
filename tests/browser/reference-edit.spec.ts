@@ -2,10 +2,8 @@ import { type APIResponse, expect, type Page } from "@playwright/test";
 import poyoBundle from "../../pricing/v2/poyo.json";
 import toapisBundle from "../../pricing/v2/toapis.json";
 import { pricingCachePath } from "../../src/lib/server/services/pricing/local-feed";
-import {
-	createSeedreamDraft,
-	type SeedreamProvider,
-} from "../../src/lib/shared/image-studio/seedream";
+import { createSeedreamDraft } from "../../src/lib/shared/image-studio/seedream";
+import type { SeedreamProvider } from "../../src/lib/shared/image-studio/seedream-options";
 import { decodePoyoV2Feed, poyoFeedExpiryMs } from "../../src/lib/shared/pricing/poyo-feed";
 import {
 	decodeToapisPricingFeed,

@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { SeedreamProvider } from "#lib/shared/image-studio/seedream.ts";
+import type { SeedreamProvider } from "#lib/shared/image-studio/seedream-options.ts";
 import { css } from "#styled-system/css";
 import { requestHelp } from "./request-styles.ts";
 

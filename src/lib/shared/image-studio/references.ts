@@ -5,7 +5,7 @@ import {
 } from "../media-staging/limits";
 import { hasCompleteGifStream } from "./gif";
 import { isPublicIpv6 } from "./ipv6";
-import type { SeedreamProvider } from "./seedream";
+import type { SeedreamProvider } from "./seedream-options";
 
 export type LocalReference = { kind: "file"; file: File };
 export type RemoteReference = { kind: "url"; url: string; hostname: string };
