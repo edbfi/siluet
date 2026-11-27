@@ -101,6 +101,11 @@ function harness({ stored = key as BrowserKey | null } = {}) {
 		navigations,
 	};
 }
+async function until(reached: () => boolean, timeoutMs = 5000) {
+	const deadline = performance.now() + timeoutMs;
+	while (!reached() && performance.now() < deadline) await Bun.sleep(1);
+	expect(reached()).toBe(true);
+}
 const settled = <T>(promise: Promise<T>) =>
 	Promise.race([
 		promise.then(
@@ -368,12 +373,14 @@ describe("concurrent requests and studio errors", () => {
 		h.resumes.push(session("s1"));
 		await h.fetch("/jobs/__data.json");
 		const body = Promise.withResolvers<void>();
+		let reading = false;
 		const recovery = { ...access, retry: false, recoveryRequired: true };
 		h.routes.push(
 			() =>
 				new Response(
 					new ReadableStream({
 						async pull(controller) {
+							reading = true;
 							await body.promise;
 							controller.enqueue(new TextEncoder().encode(JSON.stringify(recovery)));
 							controller.close();
@@ -383,7 +390,7 @@ describe("concurrent requests and studio errors", () => {
 				),
 		);
 		const load = h.fetch("/gallery/__data.json");
-		await Bun.sleep(1);
+		await until(() => reading);
 		// A sibling request's recovery answer remounts the studio while this body is read.
 		h.client.dropDrafts();
 		body.resolve();
@@ -409,8 +416,9 @@ describe("concurrent requests and studio errors", () => {
 				await headers.promise;
 				return answer;
 			});
+			const sent = h.sent.length;
 			const load = h.fetch("/gallery/__data.json");
-			await Bun.sleep(1);
+			await until(() => h.sent.length > sent);
 			// A sibling request's answer remounts the studio before this one's headers arrive.
 			h.client.dropDrafts();
 			headers.resolve();

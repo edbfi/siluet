@@ -35,6 +35,8 @@ function harness() {
 	const checks: Promise<Answer>[] = [];
 	const navigations: string[] = [];
 	const requests: string[] = [];
+	/** Paths whose answer the client has read. What follows the read runs without a timer. */
+	const answered: string[] = [];
 	const native = (async (input: RequestInfo | URL) => {
 		const path = new URL(String(input), origin).pathname;
 		requests.push(path);
@@ -45,7 +47,14 @@ function harness() {
 				: path === "/owner/session"
 					? (checks.shift() ?? { status: 200, body: {} })
 					: { status: 200, body: {} });
-		return new Response(JSON.stringify(answer.body ?? null), { status: answer.status });
+		const response = new Response(JSON.stringify(answer.body ?? null), { status: answer.status });
+		const json = response.json.bind(response);
+		response.json = async () => {
+			const value = await json();
+			answered.push(path);
+			return value;
+		};
+		return response;
 	}) as typeof fetch;
 	const client = createSessionClient(
 		"7d4f3f0e-2a1b-4c5d-8e9f-0a1b2c3d4e5f",
@@ -68,7 +77,14 @@ function harness() {
 		status: 200,
 		body: { bearer: `bearer-${sessionId}`, sessionId, loginId },
 	});
-	return { client, resumes, checks, navigations, requests, states, session };
+	return { client, resumes, checks, navigations, requests, answered, states, session };
+}
+const count = (paths: string[], path: string) => paths.filter((p) => p === path).length;
+/** Wait for observable state; a timer drains every promise step the client queued first. */
+async function until(reached: () => boolean, timeoutMs = 5000) {
+	const deadline = performance.now() + timeoutMs;
+	while (!reached() && performance.now() < deadline) await Bun.sleep(1);
+	expect(reached()).toBe(true);
 }
 async function bound(h: ReturnType<typeof harness>, sessionId = "s1") {
 	h.resumes.push(h.session(sessionId));
@@ -103,7 +119,8 @@ test("a check meeting another session while Security is pending waits, then the 
 	h.client.beginSecurity();
 	h.resumes.push(h.session("other", "login-2"));
 	const check = h.client.check();
-	await Bun.sleep(5);
+	// The renewal names another session and waits on the pending change.
+	await until(() => count(h.answered, "/owner/resume") === 2);
 	expect(h.navigations).toEqual([]);
 	h.client.stashSecurityBearer("successor");
 	// The waited result names another session: no adoption, the codes are held for Done.
@@ -169,9 +186,8 @@ test("a back/forward-cache restore with a destination loads it and checks nothin
 	await bound(plain);
 	plain.requests.length = 0;
 	plain.client.pageshow(true);
-	await Bun.sleep(5);
+	await until(() => plain.requests.includes("/owner/session"));
 	expect(plain.navigations).toEqual([]);
-	expect(plain.requests).toContain("/owner/session");
 });
 
 test("a tab restored after leaving for another session reloads, and no check runs while it loads", async () => {
@@ -212,7 +228,11 @@ test("a check answered for the session the tab just left by its own Security cha
 			h.resumes.push(answer.promise);
 		}
 		const check = h.client.check();
-		await Bun.sleep(5);
+		await until(() =>
+			via === "session"
+				? count(h.requests, "/owner/session") === 1
+				: count(h.requests, "/owner/resume") === 2,
+		);
 		h.client.beginSecurity();
 		h.client.stashSecurityBearer("successor");
 		h.client.settleSecurity({ sessionId: "s2", codes: ["a"] }, true, page.href);
@@ -238,7 +258,7 @@ test("a check queued behind one that starts a document load sends nothing more",
 	h.checks.push(answer.promise);
 	const first = h.client.check();
 	void h.client.check();
-	await Bun.sleep(1);
+	await until(() => h.requests.includes("/owner/session"));
 	answer.resolve({ status: 200, body: { sessionId: "s2", loginId: "login-2" } });
 	await first;
 	expect(h.navigations).toEqual(["reload"]);
@@ -251,7 +271,7 @@ test("an access error answered after a Security adoption drops nothing and asks 
 	const answer = Promise.withResolvers<Answer>();
 	h.checks.push(answer.promise);
 	const check = h.client.check();
-	await Bun.sleep(1);
+	await until(() => h.requests.includes("/owner/session"));
 	h.client.beginSecurity();
 	h.client.stashSecurityBearer("successor");
 	h.client.settleSecurity({ sessionId: "s2", codes: [] }, true, page.href);
@@ -302,10 +322,11 @@ test("a notice reaching a hidden tab mid-check waits for the tab to come back", 
 		const answer = Promise.withResolvers<Answer>();
 		h.checks.push(answer.promise);
 		const first = h.client.check();
-		await Bun.sleep(1);
+		await until(() => h.requests.includes("/owner/session"));
 		view.visibilityState = "hidden";
 		channel.postMessage({ id: crypto.randomUUID(), kind: "sign-in", sessionId: "s2" });
-		await Bun.sleep(5);
+		// The hidden tab drops its bearer when the notice arrives.
+		await until(() => h.client.liveBearer() === null);
 		answer.resolve({ status: 200, body: { sessionId: "s1", loginId: "login-1" } });
 		await first;
 		// Hidden, the tab dropped its bearer and asked nothing more.
@@ -325,12 +346,12 @@ test("a second Security change releases what waited on the first", async () => {
 	await bound(h);
 	h.client.beginSecurity();
 	h.resumes.push(h.session("other", "login-2"));
-	const check = h.client.check();
-	await Bun.sleep(5);
+	let settled = false;
+	const check = h.client.check().then(() => {
+		settled = true;
+	});
+	await until(() => count(h.answered, "/owner/resume") === 2);
 	h.client.beginSecurity();
-	const outcome = await Promise.race([
-		check.then(() => "settled"),
-		Bun.sleep(50).then(() => "pending"),
-	]);
-	expect(outcome).toBe("settled");
+	await until(() => settled);
+	await check;
 });
