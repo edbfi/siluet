@@ -72,6 +72,8 @@ async function harness({
 		failCommit: false,
 		/** Holds the write once it began, as a transaction under way. */
 		hold: null as Promise<void> | null,
+		/** Holds a read of the stored record. */
+		readHold: null as Promise<void> | null,
 	};
 	const scripts = new Map<string, Script[]>();
 	const sent: { path: string; body: Record<string, unknown> }[] = [];
@@ -100,7 +102,10 @@ async function harness({
 			replace: (url) => navigations.push(`replace ${url}`),
 		},
 		{
-			read: async () => store.record,
+			async read() {
+				await store.readHold;
+				return store.record;
+			},
 			base: async () => ({ expected: store.record?.spki ?? null, base: store.record }),
 			async candidate() {
 				const key = await newKey();
@@ -124,6 +129,11 @@ async function harness({
 	const to = (path: string) => sent.filter((request) => request.path === path);
 	const view = () => views.at(-1) as Record<string, unknown>;
 	return { client, store, queue, sent, to, navigations, events, candidates, view };
+}
+/** Wait for the scripted studio to reach a state, as the awaits in between settle. */
+async function until(reached: () => boolean) {
+	for (let i = 0; i < 500 && !reached(); i++) await Bun.sleep(1);
+	expect(reached()).toBe(true);
 }
 const signIn = { username: "owner", password: "correct horse battery staple" };
 const claimFields = { token: "claim-token", ...signIn };
@@ -463,6 +473,65 @@ test("pagehide stops every later step; a cache return restarts only a pending fa
 			message:
 				step === "factor" ? "Sign-in restarted. Enter your username and password again." : null,
 		});
+	}
+});
+
+test("pagehide during a refused or failed commit's sign-out shows and loads nothing", async () => {
+	for (const outcome of ["refused", "write failure"] as const) {
+		const h = await harness({ stored: await newKey() });
+		const other = await newKey();
+		h.store.failCommit = outcome === "write failure";
+		h.queue("/owner/sign-in", () => {
+			if (outcome === "refused") h.store.record = other;
+			return session("s1", "login-1");
+		});
+		const signedOut = Promise.withResolvers<Answer>();
+		h.queue("/owner/sign-out", signedOut.promise);
+		const submitted = h.client.attempts.submit("sign-in", signIn);
+		await until(() => h.to("/owner/sign-out").length === 1);
+		h.client.pagehide();
+		signedOut.resolve({ status: 200, body: { signedOut: true } });
+		await submitted;
+		expect(h.navigations).toEqual([]);
+		expect(h.view()).toMatchObject({ message: null });
+	}
+});
+
+test("pagehide while a factor step or Retry reads the stored key or resumes the candidate does nothing more", async () => {
+	// During the stored-key read before the step.
+	for (const step of ["factor", "retry"] as const) {
+		const h = await harness({ stored: await newKey() });
+		if (step === "factor") h.queue("/owner/sign-in", proof());
+		else h.queue("/owner/sign-in", "network", "network");
+		await h.client.attempts.submit("sign-in", signIn);
+		const read = Promise.withResolvers<void>();
+		h.store.readHold = read.promise;
+		h.store.record = await newKey();
+		const pending =
+			step === "factor" ? h.client.attempts.factor("123456") : h.client.attempts.retry();
+		await Bun.sleep(5);
+		h.client.pagehide();
+		read.resolve();
+		await pending;
+		expect(h.navigations).toEqual([]);
+		expect(h.to("/owner/resume")).toHaveLength(step === "retry" ? 1 : 0);
+	}
+	// During the lost candidate's resume or sign-out before joining the stored key.
+	for (const held of ["/owner/resume", "/owner/sign-out"] as const) {
+		const l = await harness({ stored: await newKey() });
+		l.queue("/owner/sign-in", "network", "network");
+		await l.client.attempts.submit("sign-in", signIn);
+		l.store.record = await newKey();
+		const answer = Promise.withResolvers<Answer>();
+		l.queue("/owner/resume", held === "/owner/resume" ? answer.promise : session("s9", "login-9"));
+		if (held === "/owner/sign-out") l.queue(held, answer.promise);
+		const retried = l.client.attempts.retry();
+		await until(() => l.to(held).length === (held === "/owner/resume" ? 2 : 1));
+		l.client.pagehide();
+		answer.resolve(held === "/owner/resume" ? session("s9", "login-9") : { status: 200 });
+		await retried;
+		expect(l.to("/owner/sign-out")).toHaveLength(held === "/owner/resume" ? 0 : 1);
+		expect(l.navigations).toEqual([]);
 	}
 });
 

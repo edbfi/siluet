@@ -215,11 +215,13 @@ export function createSignInAttempts(owner: {
 	}
 
 	/** Another tab stored a key: drop both and load `/`, which joins a live session if any. */
-	async function joinStored(current: Attempt) {
+	async function joinStored(current: Attempt, alive: () => boolean) {
 		attempt = null;
 		if (current.lost) {
 			const resumed = await owner.resume(current.candidate).catch(() => null);
+			if (!alive()) return null;
 			if (resumed?.kind === "session") await abandon(current.candidate, resumed.issued.loginId);
+			if (!alive()) return null;
 		}
 		// The pending marker stays, so `/sign-in` says "Sign-in restarted" if no session is joined.
 		owner.open("/");
@@ -238,12 +240,14 @@ export function createSignInAttempts(owner: {
 		if (!alive()) return null;
 		if (stored === null) {
 			await abandon(current.candidate, issued.loginId);
+			if (!alive()) return null;
 			drop();
 			changed({ factor: false, retry: false, message: new KeyUnavailable().message });
 			return null;
 		}
 		if (!stored) {
 			await abandon(current.candidate, issued.loginId);
+			if (!alive()) return null;
 			attempt = null;
 			owner.open("/");
 			return null;
@@ -371,9 +375,10 @@ export function createSignInAttempts(owner: {
 			deferred = true;
 			return;
 		}
-		await run(async () => {
+		await run(async (alive) => {
 			const current = attempt;
-			if (current && (await moved(current)) && attempt === current) await joinStored(current);
+			if (current && (await moved(current)) && alive() && attempt === current)
+				await joinStored(current, alive);
 			return null;
 		}, true);
 	}
@@ -440,8 +445,9 @@ export function createSignInAttempts(owner: {
 					changed({ factor: false, message: restarted });
 					return null;
 				}
-				if (await moved(current)) return joinStored(current);
+				const another = await moved(current);
 				if (!alive()) return null;
+				if (another) return joinStored(current, alive);
 				current.fields = { code };
 				return settle(current, await send("factor"), false, alive);
 			});
@@ -465,8 +471,9 @@ export function createSignInAttempts(owner: {
 					changed({ retry: false, factor: false });
 					return null;
 				}
-				if (await moved(current)) return joinStored(current);
+				const another = await moved(current);
 				if (!alive()) return null;
+				if (another) return joinStored(current, alive);
 				changed({ retry: false });
 				return recover(current, alive);
 			});
