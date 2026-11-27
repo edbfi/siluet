@@ -136,8 +136,9 @@ async function harness({
 	return { client, store, queue, sent, to, navigations, events, candidates, view };
 }
 /** Wait for the scripted studio to reach a state, as the awaits in between settle. */
-async function until(reached: () => boolean) {
-	for (let i = 0; i < 500 && !reached(); i++) await Bun.sleep(1);
+async function until(reached: () => boolean, timeoutMs = 5000) {
+	const deadline = performance.now() + timeoutMs;
+	while (!reached() && performance.now() < deadline) await Bun.sleep(1);
 	expect(reached()).toBe(true);
 }
 const signIn = { username: "owner", password: "correct horse battery staple" };
@@ -560,6 +561,26 @@ test("pagehide while a factor step or Retry reads the stored key or resumes the 
 		expect(l.to("/owner/sign-out")).toHaveLength(held === "/owner/resume" ? 0 : 1);
 		expect(l.navigations).toEqual([]);
 	}
+});
+
+test("pagehide while joining another tab's key after a lost factor answer keeps the pending proof for the cache return", async () => {
+	const h = await harness({ stored: await newKey() });
+	h.queue("/owner/sign-in", proof());
+	await h.client.attempts.submit("sign-in", signIn);
+	h.queue("/owner/factor", "network", "network");
+	await h.client.attempts.factor("123456");
+	expect(h.view()).toMatchObject({ retry: true });
+	h.store.record = await newKey();
+	const answer = Promise.withResolvers<Answer>();
+	h.queue("/owner/resume", answer.promise);
+	const retried = h.client.attempts.retry();
+	await until(() => h.to("/owner/resume").length === 2);
+	h.client.pagehide();
+	answer.resolve(gone);
+	await retried;
+	expect(h.navigations).toEqual([]);
+	// The proof was pending: the cache return says "Sign-in restarted" unless a session is joined.
+	expect(h.client.attempts.pageshow()).toBe(true);
 });
 
 test("a cache return after pagehide interrupted a commit re-reads the stored key", async () => {

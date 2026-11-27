@@ -216,13 +216,14 @@ export function createSignInAttempts(owner: {
 
 	/** Another tab stored a key: drop both and load `/`, which joins a live session if any. */
 	async function joinStored(current: Attempt, alive: () => boolean) {
-		attempt = null;
+		// The attempt stays held through the awaits, so a `pagehide` there still records its proof.
 		if (current.lost) {
 			const resumed = await owner.resume(current.candidate).catch(() => null);
 			if (!alive()) return null;
 			if (resumed?.kind === "session") await abandon(current.candidate, resumed.issued.loginId);
 			if (!alive()) return null;
 		}
+		attempt = null;
 		// The pending marker stays, so `/sign-in` says "Sign-in restarted" if no session is joined.
 		owner.open("/");
 		return null;
