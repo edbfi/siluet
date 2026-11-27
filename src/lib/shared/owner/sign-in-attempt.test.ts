@@ -61,6 +61,8 @@ const gone: Answer = { status: 401, body: { message: "Gone.", location: "/sign-i
 
 async function harness({
 	stored = null as BrowserKey | null,
+	/** False stores a record that cannot sign a test message: no base. */
+	signing = true,
 	path = "/sign-in",
 	/** Keep sessionStorage, as the next document of the same tab does. */
 	reload = false,
@@ -106,7 +108,10 @@ async function harness({
 				await store.readHold;
 				return store.record;
 			},
-			base: async () => ({ expected: store.record?.spki ?? null, base: store.record }),
+			base: async () => ({
+				expected: store.record?.spki ?? null,
+				base: signing ? store.record : null,
+			}),
 			async candidate() {
 				const key = await newKey();
 				candidates.push(key);
@@ -157,12 +162,14 @@ test("claim and a sign-in without a signing base send no replaces", async () => 
 	h.queue("/owner/claim", session("s1"));
 	expect(await h.client.attempts.submit("claim", claimFields)).toBe("/settings/security?offer");
 	expect("replaces" in h.to("/owner/claim")[0].body).toBe(false);
-	// A stored record that cannot sign is no base, but the commit still expects its SPKI.
-	const unusable = await newKey();
-	const k = await harness({ stored: unusable });
-	k.queue("/owner/sign-in", session("s2"));
-	await k.client.attempts.submit("sign-in", signIn);
-	expect(k.store.record).toBe(k.candidates[0]);
+	// No stored record, or one that cannot sign: no base. The commit still expects its SPKI.
+	for (const stored of [null, await newKey()]) {
+		const k = await harness({ stored, signing: false });
+		k.queue("/owner/sign-in", session("s2"));
+		expect(await k.client.attempts.submit("sign-in", signIn)).toBe("/");
+		expect("replaces" in k.to("/owner/sign-in")[0].body).toBe(false);
+		expect(k.store.record).toBe(k.candidates[0]);
+	}
 });
 
 test("the factor step and its retries reuse the sign-in's candidate and base", async () => {
@@ -404,6 +411,26 @@ test("a commit notice during the tab's own request waits; the commit is then ref
 	expect(l.navigations).toEqual(["assign /"]);
 });
 
+test("a stored-key change found behind a pending proof or a refusal applies once it settles", async () => {
+	for (const outcome of ["proof", "refused"] as const) {
+		const h = await harness({ stored: await newKey() });
+		await h.client.prepare();
+		const answer = Promise.withResolvers<Answer>();
+		h.queue("/owner/sign-in", answer.promise);
+		const submitted = h.client.attempts.submit("sign-in", signIn);
+		await until(() => h.to("/owner/sign-in").length === 1);
+		h.store.record = await newKey();
+		await h.client.check(true);
+		expect(h.navigations).toEqual([]);
+		// A refusal drops the candidate: the tab then resumes the new key like any `/sign-in` tab.
+		h.queue("/owner/resume", session("s1"));
+		answer.resolve(outcome === "proof" ? proof() : refused("invalid-login"));
+		await submitted;
+		await until(() => h.navigations.length > 0);
+		expect(h.navigations).toEqual(["assign /"]);
+	}
+});
+
 test("a failing put shows the key message, signs the candidate out and clears a factor proof", async () => {
 	const base = await newKey();
 	const h = await harness({ stored: base });
@@ -626,20 +653,23 @@ test("the codes hold checks a new key while a destination waits: changed, and Do
 		h.client.beginSecurity();
 		h.client.stashSecurityBearer("successor");
 		h.client.settleSecurity({ sessionId: "s2", codes: ["a"] }, true, page.href);
+		h.client.refused("successor");
 		if (rotation === "replaced") {
 			// A later Security change from this login marks the codes "do not keep these".
 			h.queue("/owner/resume", session("s3", "login-s1"));
-			h.client.refused("successor");
+			await h.client.check();
+		} else {
+			// The old key's session ends before the new key is stored: signed out to `/sign-in`.
+			h.queue("/owner/resume", gone);
 			await h.client.check();
 		}
-		// The old key's session ends before the new key is stored: signed out to `/sign-in`.
-		h.queue("/owner/resume", gone);
-		h.client.refused("successor");
-		await h.client.check();
 		expect(h.client.mode).toBe("held");
+		// The new key's resume joins its live session; "replaced" sticks.
 		h.store.record = await newKey();
 		h.queue("/owner/resume", session("s4", "login-new"));
 		await h.client.check(true);
+		expect(h.to("/owner/resume")).toHaveLength(3);
+		expect(h.to("/owner/resume").at(-1)?.body.key).toBe(h.store.record.spki);
 		const views = [] as unknown[];
 		h.client.subscribe((state) => views.push(state));
 		expect(views.at(-1)).toMatchObject({ codes: { notice } });
