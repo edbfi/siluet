@@ -50,7 +50,7 @@ test("the frozen discovery scope accounts for snapshot, regional and documentati
 	const discovery = poyo.discovery;
 	expect(poyo.sources.catalog).toContain(discovery.snapshot.revision);
 	expect(discovery.snapshot.sha256).toBe(
-		"eebbc67cb1f6cc25d75f93518b0b390c5fb6c0b9abfb12241d7219d9215cd945",
+		"844ed1d55102837c156cb470c15f2fcf8ec98eb110fe524a5fc5ecf11b3b114c",
 	);
 	expect(
 		poyo.rows
@@ -92,7 +92,7 @@ test.each(providers)(
 		// Counts alone miss a case change or one ID silently replacing another.
 		expect(createHash("sha256").update(JSON.stringify(ids)).digest("hex")).toBe(
 			provider === "poyo"
-				? "801466ef7dca8a95dc463b19c472e89b051e5b9c9c92901f43172dfafebbb779"
+				? "ed83beba96046223cd293bf66dd8cefa3d0c0e6c6ae39efb8975eae918033daf"
 				: "33fd724ca6b90ecc7657b8c2cb895fe82cb63bcb92561fd903d5f84930a0bdb9",
 		);
 		const sources = [
@@ -211,7 +211,7 @@ test.each(providers)("%s documents each route, alias and operation once", (provi
 	}
 	const expanded = expandKeys().filter((key) => key.provider === provider);
 	expect(expanded).toHaveLength(keys.size);
-	expect(keys.size).toBe(provider === "poyo" ? 317 : 330);
+	expect(keys.size).toBe(provider === "poyo" ? 333 : 330);
 });
 
 test.each(providers)(
@@ -242,9 +242,9 @@ test.each(providers)(
 				.map(({ key, profile, evidence }) => ({ key, profile, evidence })),
 		);
 		expect(catalogCoverage(provider)).toEqual({
-			discoveredIds: provider === "poyo" ? 164 : 119,
+			discoveredIds: provider === "poyo" ? 173 : 119,
 			unresolvedIds: provider === "poyo" ? 5 : 21,
-			documentedOperations: provider === "poyo" ? 317 : 330,
+			documentedOperations: provider === "poyo" ? 333 : 330,
 			prerequisiteBound: provider === "poyo" ? 2 : 17,
 			review: provider === "poyo" ? 5 : 6,
 			queue: provider === "poyo" ? 5 : 6,

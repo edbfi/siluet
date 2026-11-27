@@ -1,9 +1,9 @@
 {
 	"version": 2,
 	"provider": "poyo",
-	"revision": "c89a6a49d0df3290ec92ba39d32d579d91714b83",
-	"sourceDate": "2026-11-23T10:22:28Z",
-	"confirmedAt": "2026-11-24T16:04:23Z",
+	"revision": "ec7320720913a55f955e1bf6a651e9c38bd356c5",
+	"sourceDate": "2026-11-26T01:13:22Z",
+	"confirmedAt": "2026-11-27T04:52:41Z",
 	"rates": {
 		"z-image": {
 			"kind": "per-request",

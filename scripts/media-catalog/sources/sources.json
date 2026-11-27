@@ -1,21 +1,21 @@
 {
 	"catalog": {
-		"file": "poyo-747e5d7.json",
-		"revision": "747e5d75319585d66396a3c05bd1b97d9390ce74",
-		"publishedAt": "2026-11-19T13:42:30Z",
-		"upstream": "https://raw.githubusercontent.com/PoyoAPI/poyo-devtools/747e5d75319585d66396a3c05bd1b97d9390ce74/artifacts/capability-catalog.json",
-		"upstreamSha256": "eebbc67cb1f6cc25d75f93518b0b390c5fb6c0b9abfb12241d7219d9215cd945",
-		"projectionSha256": "6ae13aa086923197f2e2d2d94478fe5c28af3e3cdfa5c14667e3bd308cd134d7",
+		"file": "poyo-ec73207.json",
+		"revision": "ec7320720913a55f955e1bf6a651e9c38bd356c5",
+		"publishedAt": "2026-11-26T01:13:22Z",
+		"upstream": "https://raw.githubusercontent.com/PoyoAPI/poyo-devtools/ec7320720913a55f955e1bf6a651e9c38bd356c5/artifacts/capability-catalog.json",
+		"upstreamSha256": "844ed1d55102837c156cb470c15f2fcf8ec98eb110fe524a5fc5ecf11b3b114c",
+		"projectionSha256": "e5cd45deed035c901a7d39b2c1d2de3adee569d8d385ceebe3f519521808436f",
 		"license": "LICENSE.poyo"
 	},
 	"openapi": {
 		"file": "poyo-openapi-2026-11-26.json",
 		"date": "2026-11-26",
 		"index": "https://docs.poyo.ai/llms.txt",
-		"projectionSha256": "e08c7925cf22270b3a6f9fd30939416c058cb81a7de6059000a7a63627f338e1",
+		"projectionSha256": "6ee22ffbf8c4e1d4a012d7b9e2551eff053fb36c3d1e7c6bf979f5e042acad9a",
 		"extraIds": {
-			"ids": ["ideogram-v4.6", "ideogram-v4.6-edit"],
-			"reason": "Documented ledger IDs that the pinned catalog lacks; projected so they keep a REST state until G2c re-pins."
+			"ids": [],
+			"reason": "Documented ledger IDs that the pinned catalog lacks; projected so they keep a REST state until a re-pin lists them. None at ec73207."
 		},
 		"noModelSpecs": {
 			"paths": [

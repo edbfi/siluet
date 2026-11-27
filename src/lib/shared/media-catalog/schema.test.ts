@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import catalog from "../../../../scripts/media-catalog/sources/poyo-747e5d7.json";
+import catalog from "../../../../scripts/media-catalog/sources/poyo-ec73207.json";
 import openapi from "../../../../scripts/media-catalog/sources/poyo-openapi-2026-11-26.json";
 import { canonicalJson } from "./canonical";
 import { reviewedRules } from "./rules";

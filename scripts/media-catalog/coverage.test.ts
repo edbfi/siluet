@@ -34,7 +34,7 @@ test("every expanded key and option has exactly one state", () => {
 	}
 	const keys = result.items.filter((item) => item.option === undefined);
 	expect(keys).toHaveLength(expandKeys().length);
-	expect(keys).toHaveLength(647);
+	expect(keys).toHaveLength(663);
 });
 
 test("a route alias adds no key", () => {
@@ -314,7 +314,7 @@ test("a count passes through its option's gap and its row's pending reasons firs
 		result.items
 			.filter((item) => item.model === model && item.option === "n")
 			.map(({ reason }) => reason);
-	expect(reasons("ideogram-v4.6")).toEqual(["not in the pinned catalog: G2c re-pins"]);
+	expect(reasons("ideogram-v4.6")).toEqual(["P3 · multi-output and image sets"]);
 	for (const model of ["ideogram-v4.5-edit", "ideogram-v4.6-edit"])
 		for (const reason of reasons(model))
 			expect(reason).toStartWith(
