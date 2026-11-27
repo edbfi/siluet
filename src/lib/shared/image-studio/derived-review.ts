@@ -1,6 +1,8 @@
 // What a derived Poyo.ai text-to-image Review states and binds (catalog engine spec, "Families
 // and admission", "Gallery size limits" and condition 5). Review shows each part, and the
 // Review terms bind them, so a change to any of them makes an unclaimed Review stale.
+
+import { derivedVerifiedOperations } from "../media-catalog/derived-verified";
 import { poyoAccessNote } from "../media-catalog/eligibility";
 import { d4Wording } from "../media-catalog/filtering";
 import { queueRevision } from "../media-catalog/image-queue";
@@ -10,8 +12,20 @@ import type { PriceEstimate } from "../pricing/estimate";
 /** Gallery's image limit today: 16,000,000 pixels (G13 raises it). */
 export const galleryMegapixels = 16;
 
-/** The family's verified representative, named on every derived Review. */
-export const samePathSentence = `Same request path as verified Seedream 5.5 on Poyo.ai. Options from Poyo.ai's schema dated 2026-11-26 (\`${queueRevision.slice(0, 7)}\`). This model was not tested individually.`;
+const schemaSentence = `Options from Poyo.ai's schema dated 2026-11-26 (\`${queueRevision.slice(0, 7)}\`).`;
+
+/** The family's verified representative, named on every derived Review of an untested row. */
+export const samePathSentence = `Same request path as verified Seedream 5.5 on Poyo.ai. ${schemaSentence} This model was not tested individually.`;
+
+/** A verified representative's own sentence: the classes it was verified for. */
+function verifiedSentence(row: QueueRow) {
+	const verified = derivedVerifiedOperations.find(
+		({ key }) => key.model === row.key.model && key.operation === row.key.operation,
+	);
+	if (!verified) return null;
+	const classes = verified.classes.join(" and ");
+	return `${row.key.model} is verified on Poyo.ai for ${classes} options. ${schemaSentence}`;
+}
 
 /** No derived request bounds its output, so Review always states Gallery's limit. */
 export const galleryStatement = `Gallery saves images up to ${galleryMegapixels} megapixels. A completed billable image over that stays with the provider.`;
@@ -27,7 +41,7 @@ export type DerivedWording = {
 /** Everything a derived Review shows and binds besides the request and its price. */
 export function derivedWording(row: QueueRow): DerivedWording {
 	return {
-		samePath: samePathSentence,
+		samePath: verifiedSentence(row) ?? samePathSentence,
 		d4: d4Wording("poyo", row.d4) ?? [],
 		gallery: galleryStatement,
 		access: poyoAccessNote,

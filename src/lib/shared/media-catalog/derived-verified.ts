@@ -7,6 +7,8 @@ import type { QueueKey } from "./queue-row";
 
 export const derivedVerifiedOperations: readonly {
 	readonly key: QueueKey;
+	/** The option classes this representative is verified for, as its Review names them. */
+	readonly classes: readonly string[];
 	readonly profile: string;
 	readonly evidence: FilteringEvidence;
 }[] = [
@@ -18,6 +20,7 @@ export const derivedVerifiedOperations: readonly {
 			route: "POST /api/generate/submit",
 			operation: "text-to-image",
 		},
+		classes: ["boolean", "integer"],
 		profile: "qwen-image-2.1-generate",
 		evidence: { d4: "declared" },
 	},
