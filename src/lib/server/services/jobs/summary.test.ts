@@ -56,6 +56,7 @@ const h3: ImageJob = {
 	wallet_before_at: null,
 	wallet_after: null,
 	wallet_after_at: null,
+	contract: null,
 };
 
 test("permission rejection message", () => {

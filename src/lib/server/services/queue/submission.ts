@@ -12,6 +12,7 @@ import { nextProviderStart } from "../../db/provider-gate";
 import type { providerStore } from "../../db/provider-store";
 import { loadStudioPricingFeeds } from "../pricing/studio-feeds";
 import type { BatchAuthorization } from "./batch-dispatch";
+import { imageJobContract } from "./contract";
 import type { LiveRequest } from "./request";
 import { batchDisclosureVersion, reviewBinding } from "./review-binding";
 import { reviewSigner, tokenFormat } from "./review-signature";
@@ -115,8 +116,17 @@ export async function createSubmissionQueue(
 						} else {
 							const until = await nextProviderStart(tx, provider, "submit", time);
 							if (until > time) return { error: "cooldown" as const, until };
-							await tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,accepted_unknown,state,created_at,model,operation,poll_deadline)
-					VALUES(${id},${binding},${provider},${saved.revision},${JSON.stringify(reviewed.quote)},${Number(live.acceptUnknown)},'submitting',${time},${live.input.model},${live.entry.key.operation},${time + imageJobPollingWindowMs})`);
+							// A Poyo.ai image job recovers from its stored contract; ToAPIs keeps the shipped path.
+							const contract =
+								provider === "poyo"
+									? imageJobContract(
+											live.entry.key,
+											null,
+											"outputFormat" in live.input ? live.input.outputFormat : undefined,
+										)
+									: null;
+							await tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,accepted_unknown,state,created_at,model,operation,poll_deadline,contract)
+					VALUES(${id},${binding},${provider},${saved.revision},${JSON.stringify(reviewed.quote)},${Number(live.acceptUnknown)},'submitting',${time},${live.input.model},${live.entry.key.operation},${time + imageJobPollingWindowMs},${contract})`);
 						}
 						return { key: saved.key, revision: saved.revision, deadline: time + 120_000 };
 					},

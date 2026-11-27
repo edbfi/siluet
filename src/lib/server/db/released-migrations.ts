@@ -64,6 +64,10 @@ const released = [
 		"ce5954cd7ac767ce936e63d860ac71ab55e82927f4db58e2c72cc8d333eab887",
 		"20261128120000_gallery_webp",
 	],
+	[
+		"50eff2fff603417bbc2c0180a9bd881e04411fc5bf54e78145dc76ef1911a5e0",
+		"20261129120000_image_contract",
+	],
 ] as const;
 
 /** Released migration name → SQL digest. */

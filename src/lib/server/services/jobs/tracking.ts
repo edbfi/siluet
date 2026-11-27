@@ -17,12 +17,17 @@ import type { Installation } from "../../db/installation";
 import { retryTime } from "../../db/provider-gate";
 import type { providerStore } from "../../db/provider-store";
 import type { CheckFetch } from "../../providers/connection-check";
-import { type ReviewedImageRequest, statusTimeoutMs } from "../../providers/image-job";
+import {
+	type ReviewedImageRequest,
+	statusTimeoutMs,
+	type TaskObservation,
+} from "../../providers/image-job";
 import { createPoyoImage } from "../../providers/poyo/image";
 import { createPoyoVideo } from "../../providers/poyo/video";
 import { createToapisImage } from "../../providers/toapis/image";
 import { createToapisVideo } from "../../providers/toapis/video";
 import { type BatchAuthorization, dispatchBatch } from "../queue/batch-dispatch";
+import { contractReader } from "../queue/contract";
 import { createSubmitGate } from "../queue/submit-gate";
 import type { VideoTarget } from "../queue/video";
 import type { VideoDelivery } from "../video-media/download";
@@ -198,12 +203,15 @@ export function createJobTracking(
 			reserved.provider === "toapis" && isVideoJob(reserved) ? reserved.business_id : null;
 		const videoRead =
 			correlation === null ? null : await video.status(key, correlation, reserved.task_id);
-		const observation =
-			videoRead ??
-			(await (isVideoJob(reserved) ? poyoVideo : adapters[job.provider]).status(
-				key,
-				reserved.task_id ?? "",
-			));
+		// A contract written by a newer adapter version is held rather than read as this one.
+		const held = !isVideoJob(reserved) && contractReader(reserved.contract) === "held";
+		const observation: TaskObservation = held
+			? { kind: "paused", reason: "unknown-status", retryAfter: null }
+			: (videoRead ??
+				(await (isVideoJob(reserved) ? poyoVideo : adapters[job.provider]).status(
+					key,
+					reserved.task_id ?? "",
+				)));
 		const finished = now();
 		const interval =
 			initialWait[job.provider] + Math.floor(random() * (intervalJitter[job.provider] + 1));

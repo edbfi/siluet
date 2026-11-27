@@ -388,6 +388,48 @@ test("unknown status and authorization pause reads while keeping the last provid
 	expect(await jobs.needsCredential("toapis")).toBe(false);
 });
 
+test("a stored contract selects its adapter; an unknown adapter version is held with no read", async () => {
+	const statusReads: string[] = [];
+	const jobs = makeTracking(async (url, request) => {
+		if (request.method === "POST") return Response.json({ code: 200, data: { task_id: taskId } });
+		if (String(url).includes("/api/user/balance"))
+			return Response.json({ code: 200, data: { credits_amount: 10 } });
+		statusReads.push(String(url));
+		return Response.json({ code: 200, data: { task_id: taskId, status: "running" } });
+	});
+	await jobs.resume();
+	const contract = (adapter: string) =>
+		JSON.stringify({
+			v: 1,
+			adapter,
+			statusRoute: "GET /api/generate/status/{task_id}",
+		});
+	for (const [id, stored] of [
+		["shipped", null],
+		["current", contract("poyo-image-v1")],
+		["newer", contract("poyo-image-v9")],
+	] as const) {
+		await insert(id, "poyo");
+		await installation.use((db) =>
+			db.run(sql`UPDATE image_job SET contract=${stored} WHERE id=${id}`),
+		);
+		await dispatch("poyo", id);
+	}
+	// Poyo.ai reads are spaced, so each refresh waits out the one before.
+	for (const id of ["shipped", "current", "newer"]) {
+		now += 10_000;
+		await jobs.refresh(id);
+	}
+	// A NULL contract keeps the shipped path; the current version reads the same status route.
+	expect(statusReads).toEqual([
+		`https://api.poyo.ai/api/generate/status/${taskId}`,
+		`https://api.poyo.ai/api/generate/status/${taskId}`,
+	]);
+	expect(await latest("shipped")).toMatchObject({ state: "running" });
+	expect(await latest("current")).toMatchObject({ state: "running" });
+	expect(await latest("newer")).toMatchObject({ tracking: "paused", state: "waiting" });
+});
+
 test("Poyo wallet comparison stays separate from task credits and omits account details", async () => {
 	let balances = 0;
 	const jobs = makeTracking(async (url, request) => {

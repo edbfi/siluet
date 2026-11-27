@@ -96,6 +96,8 @@ export type ImageJob = {
 	wallet_before_at: number | null;
 	wallet_after: string | null;
 	wallet_after_at: number | null;
+	/** The claimed Poyo.ai image job's recoverable contract (JSON), or NULL for shipped paths. */
+	contract: string | null;
 };
 
 type JobKind = Partial<Pick<ImageJob, "business_id" | "video_terms">>;

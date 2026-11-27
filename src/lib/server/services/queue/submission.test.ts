@@ -73,6 +73,44 @@ afterEach(async () => {
 	await rm(dir, { recursive: true, force: true });
 });
 
+test("a claimed Poyo.ai image job stores its recoverable contract; a ToAPIs job keeps the shipped path", async () => {
+	const api = await queue();
+	const contracts: Record<string, unknown> = {};
+	for (const provider of ["poyo", "toapis"] as const) {
+		const input = makeInput(provider);
+		const reviewed = await api.review("owner", input);
+		if (!("token" in reviewed)) throw new Error("Expected Review");
+		const claimed = await api.submit("owner", {
+			...input,
+			token: reviewed.token,
+			acceptUnknown: true,
+		});
+		if (!("jobId" in claimed)) throw new Error(`Expected a ${provider} claim`);
+		const row = await db.use((conn) =>
+			conn.get<{ contract: string | null }>(
+				sql`SELECT contract FROM image_job WHERE id=${claimed.jobId}`,
+			),
+		);
+		contracts[provider] = row?.contract === null ? null : JSON.parse(row?.contract ?? "");
+	}
+	expect(contracts.toapis).toBeNull();
+	expect(contracts.poyo).toEqual({
+		v: 1,
+		operationKey: {
+			provider: "poyo",
+			model: "seedream-5.5",
+			route: "POST /api/generate/submit",
+			operation: "text-to-image",
+		},
+		revision: "ec7320720913a55f955e1bf6a651e9c38bd356c5",
+		rowDigest: null,
+		adapter: "poyo-image-v1",
+		statusRoute: "GET /api/generate/status/{task_id}",
+		result: { envelope: "poyo-image-v1", responseModel: "none" },
+		formats: { sent: "png", expected: "image/png" },
+	});
+});
+
 test("a legacy generation body with ignored fields can replay only an authenticated existing claim", async () => {
 	const api = await queue();
 	const input = makeInput();
