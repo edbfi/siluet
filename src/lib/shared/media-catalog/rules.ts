@@ -8,10 +8,10 @@ const tier = (longEdge: number) => (longEdge <= 1024 ? "1K" : longEdge <= 2048 ?
 
 /**
  * flux-3-klein `size`: exactly `oneOf` [an enum of seven ratios, `pattern: ^\d+x\d+$`]. Siluet
- * sends canonical `WxH`. Catalog `747e5d7`: "Custom dimensions must each be 256-4096,
- * divisible by 16, and accompanied by an explicit matching resolution"; `resolution`: "For
- * custom dimensions, the long edge selects the tier: at most 1024 = 1K, above 1024 through
- * 2048 = 2K, above 2048 through 4096 = 4K."
+ * sends canonical `WxH`. Catalog `ec73207`, unchanged since `747e5d7`: "Custom dimensions must
+ * each be 256-4096, divisible by 16, and accompanied by an explicit matching resolution";
+ * `resolution`: "For custom dimensions, the long edge selects the tier: at most 1024 = 1K,
+ * above 1024 through 2048 = 2K, above 2048 through 4096 = 4K."
  */
 function fluxKleinSize(value: unknown, body: Body) {
 	if (typeof value !== "string") return "must be a string";

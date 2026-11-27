@@ -128,24 +128,24 @@
 			"discovery": {
 				"snapshot": {
 					"source": "catalog",
-					"revision": "747e5d75319585d66396a3c05bd1b97d9390ce74",
-					"publishedAt": "2026-11-19T13:42:30Z",
-					"schemaVersion": "v1-c89a8585107f",
-					"sha256": "eebbc67cb1f6cc25d75f93518b0b390c5fb6c0b9abfb12241d7219d9215cd945",
-					"rows": 252
+					"revision": "ec7320720913a55f955e1bf6a651e9c38bd356c5",
+					"publishedAt": "2026-11-26T01:13:22Z",
+					"schemaVersion": "v1-6f54a97c3c63",
+					"sha256": "844ed1d55102837c156cb470c15f2fcf8ec98eb110fe524a5fc5ecf11b3b114c",
+					"rows": 266
 				},
 				"index": "index",
 				"keyContract": null,
 				"license": "../pricing/v1/LICENSE.poyo",
 				"excludedCatalogRowsByCategory": {
 					"3d": 15,
-					"audio": 10,
+					"audio": 12,
 					"audio2audio": 11,
-					"chat": 42,
+					"chat": 43,
 					"moderation": 1,
 					"text2audio": 11
 				},
-				"docsOnlyIds": ["ideogram-v4.6", "ideogram-v4.6-edit"],
+				"docsOnlyIds": [],
 				"catalogDocs": "capability"
 			},
 			"lifecycleSources": [
@@ -184,8 +184,9 @@
 				}
 			],
 			"sources": {
+				"bria-rmbg-3-0": "https://docs.poyo.ai/api-manual/image-series/bria-rmbg-3-0.md",
 				"capability": "https://docs.poyo.ai/integrations/catalog",
-				"catalog": "https://raw.githubusercontent.com/PoyoAPI/poyo-devtools/747e5d75319585d66396a3c05bd1b97d9390ce74/artifacts/capability-catalog.json",
+				"catalog": "https://raw.githubusercontent.com/PoyoAPI/poyo-devtools/ec7320720913a55f955e1bf6a651e9c38bd356c5/artifacts/capability-catalog.json",
 				"flux-2": "https://docs.poyo.ai/api-manual/image-series/flux-2.md",
 				"flux-3": "https://docs.poyo.ai/api-manual/video-series/flux-3.md",
 				"flux-3-klein": "https://docs.poyo.ai/api-manual/image-series/flux-3-klein.md",
@@ -307,6 +308,16 @@
 				"z-image": "https://docs.poyo.ai/api-manual/image-series/z-image.md"
 			},
 			"rows": [
+				{
+					"ids": ["bria-rmbg-3.0"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["image-background-removal"],
+					"contract": "documented",
+					"sources": ["bria-rmbg-3-0"],
+					"catalogCategory": "image",
+					"d4": "closed-absent"
+				},
 				{
 					"ids": ["flux-2-flex", "flux-2-pro"],
 					"media": "image",
@@ -634,6 +645,7 @@
 					"operations": ["text-to-image"],
 					"contract": "documented",
 					"sources": ["ideogram-v4-6"],
+					"catalogCategory": "image",
 					"d4": "closed-absent"
 				},
 				{
@@ -643,6 +655,7 @@
 					"operations": ["reference-image-edit", "mask-image-edit", "localized-mask-image-edit"],
 					"contract": "documented",
 					"sources": ["ideogram-v4-6-edit"],
+					"catalogCategory": "image",
 					"d4": "closed-absent",
 					"variant": "Localized mode requires edit_precision: high, context_window: auto and mask_url."
 				},
@@ -926,6 +939,28 @@
 					"sources": ["qwen-image-3"],
 					"catalogCategory": "image",
 					"d4": "declared"
+				},
+				{
+					"ids": ["recraft-v4.1", "recraft-v4.1-flash", "recraft-v4.1-pro"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-image"],
+					"contract": "documented",
+					"sources": ["catalog"],
+					"catalogCategory": "image",
+					"d4": "closed-absent",
+					"variant": "No docs page or OpenAPI spec at ec73207: the catalog entry is the only contract."
+				},
+				{
+					"ids": ["recraft-v4.1-pro-vector", "recraft-v4.1-vector"],
+					"media": "image",
+					"route": "POST /api/generate/submit",
+					"operations": ["text-to-svg"],
+					"contract": "documented",
+					"sources": ["catalog"],
+					"catalogCategory": "image",
+					"d4": "closed-absent",
+					"variant": "No docs page or OpenAPI spec at ec73207: the catalog entry is the only contract."
 				},
 				{
 					"ids": ["seedream-4"],
@@ -1538,6 +1573,22 @@
 					"d4": "open-absent"
 				},
 				{
+					"ids": ["ltx-2.5-fast", "ltx-2.5-pro"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"text-to-video",
+						"first-frame-to-video",
+						"first-and-last-frame-to-video",
+						"driving-audio-to-video"
+					],
+					"contract": "documented",
+					"sources": ["catalog"],
+					"catalogCategory": "video",
+					"d4": "closed-absent",
+					"variant": "No docs page or OpenAPI spec at ec73207: the catalog entry is the only contract. Mode priority is audio_url, then image_urls, then text; image_urls holds the start frame and an optional end frame."
+				},
+				{
 					"ids": ["omni-flash"],
 					"media": "video",
 					"route": "POST /api/generate/submit",
@@ -1692,6 +1743,20 @@
 					"sources": ["seedance-2-5-flash"],
 					"catalogCategory": "video",
 					"d4": "closed-absent"
+				},
+				{
+					"ids": ["sync-lipsync-3"],
+					"media": "video",
+					"route": "POST /api/generate/submit",
+					"operations": [
+						"character-video-and-driving-audio-to-avatar-video",
+						"image-and-driving-audio-to-avatar-video"
+					],
+					"contract": "documented",
+					"sources": ["catalog"],
+					"catalogCategory": "video",
+					"d4": "closed-absent",
+					"variant": "No docs page or OpenAPI spec at ec73207: the catalog entry is the only contract. video_url selects video mode and image_urls image mode; exactly one is required."
 				},
 				{
 					"ids": ["veo3.1-extend"],

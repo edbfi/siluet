@@ -1,15 +1,15 @@
 # Catalog engine · remaining-work inventory
 
-Generated on 2026-11-26 from the [ledger](media-catalog.v1.json) (observed 2026-11-22) by expanding each documented row into its `(provider, ID, route, operation)` keys. It is a snapshot for [the catalog engine spec](SPEC-catalog-engine.md): from G2a, `bun run catalog:coverage` regenerates this inventory, with option gaps per derived row, and CI fails on any difference. **G*n*** is an engine slice, **P3** is bespoke Phase 3 work, and **Q** is an evidence question. Every item lands before the v0.1.0 tag ([D11](decisions.md#d11--v010-waits-for-full-d2-coverage)).
+Generated on 2026-11-27 from the [ledger](media-catalog.v1.json) (observed 2026-11-22, with the Poyo.ai catalog re-pinned to `ec73207` on 2026-11-27) by expanding each documented row into its `(provider, ID, route, operation)` keys. It is a snapshot for [the catalog engine spec](SPEC-catalog-engine.md): from G2a, `bun run catalog:coverage` regenerates this inventory, with option gaps per derived row, and CI fails on any difference. **G*n*** is an engine slice, **P3** is bespoke Phase 3 work, and **Q** is an evidence question. Every item lands before the v0.1.0 tag ([D11](decisions.md#d11--v010-waits-for-full-d2-coverage)).
 
 <!-- catalog:coverage summary -->
-Expanded keys: 647, of which Poyo.ai 317 (5 verified) and ToAPIs 330 (6 verified). Engine slices hold 496, Phase 3 147 and evidence questions 4. A route alias adds no key: Midjourney `imagine` counts once, on its primary route. `catalog:coverage` names each pending key's reason.
+Expanded keys: 663, of which Poyo.ai 333 (5 verified) and ToAPIs 330 (6 verified). Engine slices hold 506, Phase 3 153 and evidence questions 4. A route alias adds no key: Midjourney `imagine` counts once, on its primary route. `catalog:coverage` names each pending key's reason.
 
-Keys: verified 11, contract-covered 0, pending 632, unsupported 0, unknown 4. Option obligations of the derived Poyo.ai rows: 1498; verified 15, contract-covered 0, pending 1375, unsupported 0, unknown 108. Fixed values (the D4 `false`, a pinned `n: 1`, a fixed sentinel) add none.
+Keys: verified 11, contract-covered 0, pending 648, unsupported 0, unknown 4. Option obligations of the derived Poyo.ai rows: 1567; verified 15, contract-covered 0, pending 1460, unsupported 0, unknown 92. Fixed values (the D4 `false`, a pinned `n: 1`, a fixed sentinel) add none.
 
 The 6 verified ToAPIs operations each add one placeholder item until their page descriptors type their options (G10a, G11a). Each is pending and counts as tag-blocking.
 
-**Tag-blocking count: 2125.** Pending pairs and options 2012; documented values a Siluet envelope excludes 1; options or pairs without a covered path, each with its question, 112; provider-unsupported pairs without evidence 0; unknown pairs or options without a question 0.
+**Tag-blocking count: 2210.** Pending pairs and options 2113; documented values a Siluet envelope excludes 1; options or pairs without a covered path, each with its question, 96; provider-unsupported pairs without evidence 0; unknown pairs or options without a question 0.
 <!-- /catalog:coverage -->
 
 ## Documented operations
@@ -17,14 +17,15 @@ The 6 verified ToAPIs operations each add one placeholder item until their page 
 <!-- catalog:coverage operations -->
 | Assigned to | Provider | Operation | Keys | Verified |
 | --- | --- | --- | ---: | ---: |
-| G4 | Poyo.ai | `text-to-image` | 47 | 2 |
+| G4 | Poyo.ai | `text-to-image` | 50 | 2 |
 | G4 after G13 · Q: documented output bound | Poyo.ai | `text-to-long-image` | 1 |  |
 | G5 | Poyo.ai | `reference-image-edit` | 49 | 2 |
+| G5 | Poyo.ai | `image-background-removal` | 1 |  |
 | G5 · Q: target-language option | Poyo.ai | `image-translation` | 1 |  |
 | G5 after G13 · Q: documented output bound | Poyo.ai | `reference-guided-long-image-generation` | 1 |  |
-| G7 | Poyo.ai | `text-to-video` | 50 | 1 |
-| G8 | Poyo.ai | `first-frame-to-video` | 52 |  |
-| G8 | Poyo.ai | `first-and-last-frame-to-video` | 34 |  |
+| G7 | Poyo.ai | `text-to-video` | 52 | 1 |
+| G8 | Poyo.ai | `first-frame-to-video` | 54 |  |
+| G8 | Poyo.ai | `first-and-last-frame-to-video` | 36 |  |
 | G8b | Poyo.ai | `reference-to-video` | 23 |  |
 | G8b | Poyo.ai | `image-reference-to-video` | 2 |  |
 | G10a | ToAPIs | `text-to-image` | 41 | 1 |
@@ -42,10 +43,10 @@ The 6 verified ToAPIs operations each add one placeholder item until their page 
 | G11d | ToAPIs | `video-edit` | 9 | 1 |
 | Q · file and webpage references (accepted types, who fetches) | ToAPIs | `file-reference-to-video` | 2 |  |
 | Q · file and webpage references (accepted types, who fetches) | ToAPIs | `webpage-reference-to-video` | 2 |  |
+| P3 · GIF and SVG output | Poyo.ai | `text-to-svg` | 3 |  |
 | P3 · GIF and SVG output | Poyo.ai | `text-to-gif` | 2 |  |
 | P3 · GIF and SVG output | Poyo.ai | `image-to-svg` | 1 |  |
 | P3 · GIF and SVG output | Poyo.ai | `reference-guided-text-to-svg` | 1 |  |
-| P3 · GIF and SVG output | Poyo.ai | `text-to-svg` | 1 |  |
 | P3 · GIF and SVG output | ToAPIs | `image-to-gif` | 4 |  |
 | P3 · GIF and SVG output | ToAPIs | `text-to-gif` | 4 |  |
 | P3 · GIF and SVG output | ToAPIs | `text-to-svg` | 4 |  |
@@ -71,8 +72,9 @@ The 6 verified ToAPIs operations each add one placeholder item until their page 
 | P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `video-remix` | 3 |  |
 | P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `first-and-last-frame-to-video` | 2 |  |
 | P3 · ToAPIs /v1/videos envelope, remix and extend | ToAPIs | `video-reference-to-video` | 1 |  |
-| P3 · audio and avatar inputs | Poyo.ai | `image-and-driving-audio-to-avatar-video` | 5 |  |
-| P3 · audio and avatar inputs | Poyo.ai | `character-video-and-driving-audio-to-avatar-video` | 2 |  |
+| P3 · audio and avatar inputs | Poyo.ai | `image-and-driving-audio-to-avatar-video` | 6 |  |
+| P3 · audio and avatar inputs | Poyo.ai | `character-video-and-driving-audio-to-avatar-video` | 3 |  |
+| P3 · audio and avatar inputs | Poyo.ai | `driving-audio-to-video` | 2 |  |
 | P3 · audio and avatar inputs | Poyo.ai | `public-avatar-and-driving-audio-to-video` | 2 |  |
 | P3 · audio and avatar inputs | Poyo.ai | `public-avatar-and-text-to-video` | 2 |  |
 | P3 · draft and draft-to-final chain | ToAPIs | `draft-to-final-video` | 1 |  |
@@ -139,13 +141,24 @@ Listed without an exact route or operation, so they add nothing to the documente
 | ToAPIs | `seedance-2-mini-global` | text-to-video, image-to-video, video-reference-to-video, video-edit |
 | ToAPIs | `sora-2-official`, `veo3.1-quality` | none stated |
 
-## Upstream since the pin
+## Re-pin to `ec73207`
 
-Between `747e5d7` and the current head `ec73207` (checked 2026-11-26). G2c re-pins and places these.
+G2c moved both projections, the ledger and the v2 price feed from `747e5d7` (2026-11-19) to [`ec73207`](https://github.com/PoyoAPI/poyo-devtools/blob/ec7320720913a55f955e1bf6a651e9c38bd356c5/artifacts/capability-catalog.json) (2026-11-26, sha256 `844ed1d…`), the upstream head on 2026-11-27. The catalog grew from 252 to 266 entries and its in-scope entries from 162 to 173. The docs index and all 175 OpenAPI specs it lists were fetched again on 2026-11-27 and match the 2026-11-26 digests, so the OpenAPI projection keeps its date and only adds `bria-rmbg-3.0`'s input.
 
-- Added (11): `bria-rmbg-3.0`, `ideogram-v4.6`, `ideogram-v4.6-edit`, `ltx-2.5-fast`, `ltx-2.5-pro`, `recraft-v4.1`, `recraft-v4.1-flash`, `recraft-v4.1-pro`, `recraft-v4.1-pro-vector`, `recraft-v4.1-vector`, `sync-lipsync-3`
+- Added in scope (11), placed in the ledger:
+  - `ideogram-v4.6`, `ideogram-v4.6-edit`: already documented from their pages, now pinned (closed-absent, closed by both schemas)
+  - `bria-rmbg-3.0`: `image-background-removal`, G5 ("Remove the background from one image and return a transparent PNG", one public URL and an optional prompt)
+  - `recraft-v4.1`, `-flash`, `-pro`: `text-to-image`, G4 ("One image per request")
+  - `recraft-v4.1-vector`, `-pro-vector`: `text-to-svg`, P3 GIF and SVG output ("One SVG per request")
+  - `ltx-2.5-fast`, `ltx-2.5-pro`: `text-to-video` (G7), `first-frame-to-video` and `first-and-last-frame-to-video` (G8), and `driving-audio-to-video` (P3 audio and avatar inputs)
+  - `sync-lipsync-3`: `character-video-and-driving-audio-to-avatar-video` and `image-and-driving-audio-to-avatar-video`, P3 audio and avatar inputs
+- Added out of scope (3): `elevenlabs-scribe-v2` and `seed-tts-3.0` (audio), `gemini-4-neon` (chat)
 - Removed (0): none
-- Schema or billing changed (2): `kling-4.0`, `seedance-2.5`
+- Schema and billing changed (2):
+  - `kling-4.0`: adds `dynamic_range` (`sdr`, `hdr`, with `hdr` only at 1080p or 4k through a `const` branch), `4k` resolution, 4k rates and an HDR surcharge
+  - `seedance-2.5`: adds `4k` resolution and its rates
+
+The eight added IDs without a docs page or OpenAPI spec (the LTX, Recraft and Sync IDs) take the catalog's D4 state alone, closed-absent, with the unreviewed-page sentence. No reviewed rule, override, count note, prose route or page review was bound to a changed schema, so each keeps its hash: the four `flux-3-klein` size rules, the `seedream-5.5` and `h3-max` overrides, the two count notes and the question-10 page reviews.
 
 ## Option classes in the pinned schemas
 
@@ -187,19 +200,21 @@ Generated by `catalog:coverage` from the derived rows (`poyo-rows.json`). Each P
 | `heygen-avatar-6-turbo` | `aspect_ratio`, `prompt`, `resolution`, `text`: schema uses oneOf in allOf, x-server-validation; `avatar`, `voice`: domain only in prose: Phase 3 audio and avatars |
 | `ideogram-v4.5` | `n`: P3 · multi-output and image sets |
 | `ideogram-v4.5-edit` | `edit_precision`, `n`, `prompt`, `quality`: schema uses const in allOf; required input uses image_urls pattern "^(https?://\\S+\|data:image/\\S+)$"; `size`: uses pattern "^(auto\|1:1\|1:1 HD\|4:3\|3:4\|16:9\|9:16\|[0-9]+x[0-9]+)$" |
-| `ideogram-v4.6` | `background`, `n`, `prompt`, `quality`, `seed`: not in the pinned catalog: G2c re-pins; `size`: uses pattern "^(auto\|1:1\|1:1 HD\|4:3\|3:4\|16:9\|9:16\|[0-9]+x[0-9]+)$" |
-| `ideogram-v4.6-edit` | `background`, `context_window`, `edit_precision`, `n`, `prompt`, `quality`, `seed`: not in the pinned catalog: G2c re-pins; schema uses const in allOf; required input uses image_urls pattern "^(https?://\\S+\|data:image/[A-Za-z0-9.+-]+;base64,\\S+)$"; `size`: uses pattern "^(auto\|1:1\|1:1 HD\|4:3\|3:4\|16:9\|9:16\|[0-9]+x[0-9]+)$" |
+| `ideogram-v4.6` | `n`: P3 · multi-output and image sets; `size`: uses pattern "^(auto\|1:1\|1:1 HD\|4:3\|3:4\|16:9\|9:16\|[0-9]+x[0-9]+)$" |
+| `ideogram-v4.6-edit` | `background`, `context_window`, `edit_precision`, `n`, `prompt`, `quality`, `seed`: schema uses const in allOf; required input uses image_urls pattern "^(https?://\\S+\|data:image/[A-Za-z0-9.+-]+;base64,\\S+)$"; `size`: uses pattern "^(auto\|1:1\|1:1 HD\|4:3\|3:4\|16:9\|9:16\|[0-9]+x[0-9]+)$" |
 | `ideogram-vector-1.0/image-to-vector` | `mode`: required input uses image_urls oneOf |
 | `ideogram-vector-1.0/text-to-vector` | `n`: P3 · multi-output and image sets |
 | `kling-2.1/pro` | `negative_prompt`: question 10: prompt limit not documented |
 | `kling-2.1/standard` | `negative_prompt`: question 10: prompt limit not documented |
 | `kling-2.5-turbo-pro` | `aspect_ratio`: question 11: domain not documented; `negative_prompt`: question 10: prompt limit not documented |
-| `kling-4.0` | `aspect_ratio`, `duration`, `prompt`, `resolution`: schema uses oneOf in allOf, items in allOf, x-server-validation; `dynamic_range`: question 7: only the API schema lists it, and the other is closed; `resolution`: question 8: the catalog and the API schema disagree |
+| `kling-4.0` | `aspect_ratio`, `duration`, `dynamic_range`, `prompt`, `resolution`: schema uses oneOf in allOf, items in allOf, const in allOf, x-server-validation |
 | `kling-4.0-flash` | `aspect_ratio`, `duration`, `prompt`, `resolution`: schema uses x-server-validation |
 | `kling-4.0-image` | `n`: P3 · multi-output and image sets |
 | `kling-o1-image-edit` | `n`: P3 · multi-output and image sets |
 | `kling-o3-image` | `n`: P3 · multi-output and image sets |
 | `kling-o3-image-edit` | `n`: P3 · multi-output and image sets |
+| `ltx-2.5-fast` | `aspect_ratio`, `camera_motion`, `duration`, `fps`, `generate_audio`, `prompt`, `resolution`: schema uses x-server-validation |
+| `ltx-2.5-pro` | `aspect_ratio`, `camera_motion`, `duration`, `fps`, `generate_audio`, `prompt`, `resolution`: schema uses x-server-validation |
 | `mai-image-2.6` | `size`: uses pattern "^(?:1:1\|4:3\|3:4\|3:2\|2:3\|16:9\|9:16\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
 | `mai-image-2.6-flash` | `size`: uses pattern "^(?:1:1\|4:3\|3:4\|3:2\|2:3\|16:9\|9:16\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
 | `mai-image-2.7` | `size`: uses pattern "^(?:1:1\|4:3\|3:4\|3:2\|2:3\|16:9\|9:16\|\\s*\\d+\\s*[xX]\\s*\\d+\\s*)$" |
@@ -210,7 +225,12 @@ Generated by `catalog:coverage` from the derived rows (`poyo-rows.json`). Each P
 | `omnihuman-2.0` | `prompt`: question 10: prompt limit not documented |
 | `poyo-ai/image-translator` | `protect_text`, `synthesis_on_image`, `translate_on_image`: question 7: only the catalog lists it, and the other is closed; `source_language`, `target_language`: question 6: domain only in prose |
 | `poyo-ai/video-translator` | `remove_bg_audio`, `voice_role_id`, `wy_need_text`: question 7: only the catalog lists it, and the other is closed; `source_language`, `target_language`: domain only in prose: Phase 3 source-video work |
-| `seedance-2.5` | `prompt`: question 10: prompt limit not documented; `resolution`: question 8: the catalog and the API schema disagree |
+| `recraft-v4.1` | `background_color`: uses anyOf; `colors`: uses nested object |
+| `recraft-v4.1-flash` | `background_color`: uses anyOf; `colors`: uses nested object |
+| `recraft-v4.1-pro` | `background_color`: uses anyOf; `colors`: uses nested object |
+| `recraft-v4.1-pro-vector` | `background_color`: uses anyOf; `colors`: uses nested object |
+| `recraft-v4.1-vector` | `background_color`: uses anyOf; `colors`: uses nested object |
+| `seedance-2.5` | `prompt`: question 10: prompt limit not documented |
 | `seedance-2.5-flash` | `prompt`: question 10: prompt limit not documented |
 | `seedream-4` | `n`: P3 · multi-output and image sets |
 | `seedream-4-edit` | `n`: P3 · multi-output and image sets |
@@ -220,6 +240,7 @@ Generated by `catalog:coverage` from the derived rows (`poyo-rows.json`). Each P
 | `seedream-5.0-lite-edit` | `n`: P3 · multi-output and image sets; `size`: uses oneOf |
 | `seedream-5.0-pro` | `prompt`: question 10: prompt limit not documented |
 | `seedream-5.0-pro-edit` | `prompt`: question 10: prompt limit not documented |
+| `sync-lipsync-3` | `sync_mode`: schema uses oneOf, x-server-validation; required input uses audio_url x-audio-duration-seconds |
 | `veo3.1-fast` | `prompt`: question 10: prompt limit not documented |
 | `veo3.1-fast-official` | `prompt`: question 10: prompt limit not documented |
 | `veo3.1-lite` | `prompt`: question 10: prompt limit not documented |
@@ -236,22 +257,24 @@ Generated by `catalog:coverage` from the derived rows (`poyo-rows.json`). Each P
 | `wan2.7-text-to-video` | `audio_setting`: question 11: domain not documented |
 <!-- /catalog:coverage -->
 
-Constructs outside the validator, each until a reviewed rule covers it. G2a binds the `flux-3-klein` and `flux-3-klein-edit` `size` rule to both schemas:
+Constructs outside the validator at `ec73207`, each until a reviewed rule covers it. G2a binds the `flux-3-klein` and `flux-3-klein-edit` `size` rule to both schemas:
 
-- `const` (1): `ideogram-v4.5-edit`
+- `anyOf` whose branches are not `required` lists (5): `background_color`, an RGB object or null, on `recraft-v4.1`, `recraft-v4.1-flash`, `recraft-v4.1-pro`, `recraft-v4.1-pro-vector`, `recraft-v4.1-vector`
+- `const` (3): `ideogram-v4.5-edit`, `ideogram-v4.6-edit` (each in its top-level `allOf`), `kling-4.0` (`dynamic_range: hdr`)
 - `contains` (2): `kling-4.0`, `kling-4.0-flash`
 - `maxContains` (2): `kling-4.0`, `kling-4.0-flash`
 - `minContains` (2): `kling-4.0`, `kling-4.0-flash`
+- nested objects in an option (5): `colors`, a palette of RGB objects, on the same five Recraft IDs
 - `pattern` outside the allowlist, each with its family's typing rule ([spec](SPEC-catalog-engine.md#deriving-and-validating-rows)):
   - `size` on `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2.6-flare`, `gpt-image-2.6-sunburst`: G6
   - `size` on `mai-image-2.6`, `mai-image-2.6-flash`, `mai-image-2.7`, `mai-image-2.7-flash`: G6
   - `size`, and the `data:image` alternative on `image_urls`, `reference_image_urls` and `mask_url`, on `ideogram-v4.5-edit`: G6
+  - `size` on `ideogram-v4.6` and `ideogram-v4.6-edit`, and the `data:image/<type>;base64,` alternative on `ideogram-v4.6-edit`'s `image_urls`, `reference_image_urls` and `mask_url`: G6, recorded here as data by G2c
   - `WIDTHxHEIGHT` branch of the `size` `oneOf` on `seedream-4.5`, `seedream-4.5-edit`, `seedream-5.0-lite`, `seedream-5.0-lite-edit`: G4 and G5, custom sizes unknown with question 11
-- `oneOf` (14): `flux-3-klein`, `flux-3-klein-edit`, `flux-dev`, `flux-schnell`, `seedream-4.5`, `seedream-4.5-edit`, `seedream-5.0-lite`, `seedream-5.0-lite-edit`, `wan-2.7-image`, `wan-2.7-image-pro`, `heygen-avatar-6`, `heygen-avatar-6-turbo`, `kling-4.0`, `kling-4.0-flash`
-- `x-server-validation` (5): `gemini-omni-1.2-flash`, `heygen-avatar-6`, `heygen-avatar-6-turbo`, `kling-4.0`, `kling-4.0-flash`
-- `x-video-duration-seconds` (4): `gemini-omni-1.1-flash`, `gemini-omni-1.2-flash`, `kling-4.0`, `kling-4.0-flash`
-
-At `ec73207`, G2c adds the `size` pattern on `ideogram-v4.6` and `ideogram-v4.6-edit`, and the `data:image/<type>;base64,` alternative and top-level `allOf` on `ideogram-v4.6-edit`, to this list as data. Their rules land with G6.
+- `oneOf` (15): `flux-3-klein`, `flux-3-klein-edit`, `flux-dev`, `flux-schnell`, `seedream-4.5`, `seedream-4.5-edit`, `seedream-5.0-lite`, `seedream-5.0-lite-edit`, `wan-2.7-image`, `wan-2.7-image-pro`, `heygen-avatar-6`, `heygen-avatar-6-turbo`, `kling-4.0`, `kling-4.0-flash`, `sync-lipsync-3`
+- `x-server-validation` (8): `gemini-omni-1.2-flash`, `heygen-avatar-6`, `heygen-avatar-6-turbo`, `kling-4.0`, `kling-4.0-flash`, `ltx-2.5-fast`, `ltx-2.5-pro`, `sync-lipsync-3`
+- `x-video-duration-seconds` (5): `gemini-omni-1.1-flash`, `gemini-omni-1.2-flash`, `kling-4.0`, `kling-4.0-flash`, `sync-lipsync-3`
+- `x-audio-duration-seconds` (3): `ltx-2.5-fast`, `ltx-2.5-pro`, `sync-lipsync-3`
 
 ## Poyo.ai OpenAPI specs
 
@@ -272,7 +295,7 @@ Fields one source lists while the other is closed, here catalog fields that a cl
 - `poyo-ai/image-translator`: `protect_text`, `synthesis_on_image`, `translate_on_image`
 - `poyo-ai/video-translator`: `wy_need_text`, `voice_role_id`, `remove_bg_audio`
 
-The dated OpenAPI projection also lists `dynamic_range` on `kling-4.0`, whose pinned catalog entry is closed without it. The stricter schema wins, so it is never offered, and it is unknown with question 7 until G2c re-pins.
+`kling-4.0`'s `dynamic_range` was on this list while the pinned `747e5d7` entry was closed without it. At `ec73207` the catalog lists it too, so it leaves question 7 and waits on the `const` and other constructs of its schema.
 
 ## Disputed domains
 
@@ -284,14 +307,11 @@ Fields that both the pinned catalog and the model's OpenAPI input list with diff
 | `gpt-image-2.6-flare`, `gpt-image-2.6-sunburst` | `output_format` | gif, jpeg, png, webp | jpeg, png, webp | gif (never offered) |
 | `ideogram-vector-1.0/text-to-vector` (multi) | `image_urls` | 1–5 items | no item limits | more than 5 |
 | `ideogram-vector-1.0/image-to-vector` (multi) | `image_urls` | 1 item | no item limits | more than 1 |
-| `kling-4.0` | `resolution` | 1080p, 720p | adds `4k` | `4k` at `747e5d7`; agreed at `ec73207` |
-| `seedance-2.5` | `resolution` | 1080p, 480p, 720p | adds `4k` | `4k` at `747e5d7`; agreed at `ec73207` |
-
-At `ec73207` the list also gains `ideogram-v4.6-edit` `reference_image_urls`, which G2c records with the re-pin.
+The re-pin to `ec73207` settled two rows: the catalog now lists `4k` for `kling-4.0` and `seedance-2.5` `resolution`, as their OpenAPI inputs do. `ideogram-v4.6-edit` `reference_image_urls` differs only in the OpenAPI input's explicit `minItems: 0`, which is the JSON Schema default, so both sources accept 0–4 items and it adds no disputed value.
 
 ## Prose-only domains
 
-String options that are not free text and whose domain appears only in a description, with no `enum`, `pattern` or `format` in either source at `747e5d7`. Each is offered only through a hash-bound reviewed rule that types it; otherwise it has no covered path and Siluet omits it. A row marked "omitted until documented" is unknown with [question 11](SPEC-catalog-engine.md#open-questions).
+String options that are not free text and whose domain appears only in a description, with no `enum`, `pattern` or `format` in either source at `ec73207`. The IDs added at `ec73207` add none. Each is offered only through a hash-bound reviewed rule that types it; otherwise it has no covered path and Siluet omits it. A row marked "omitted until documented" is unknown with [question 11](SPEC-catalog-engine.md#open-questions).
 
 | IDs | Field | Domain in prose | Path |
 | --- | --- | --- | --- |
@@ -318,11 +338,11 @@ Free-text fields (`prompt`, `negative_prompt`, `text` and similar) whose catalog
 | 4,000 UTF-8 bytes | `kling-2.1/pro`, `kling-2.1/standard`, `kling-2.5-turbo-pro`, `wan2.5-image-to-video`, `wan2.5-text-to-video` | `negative_prompt` |
 <!-- /catalog:coverage -->
 
-Rows that stay byte-limited: the 4,000-byte video rows above, and every ToAPIs video row, including verified `seedance-2-5`, until its descriptor records its page's limit (G11a). Every other video row is checked at its documented limit L in code points and at 4L UTF-8 bytes, which never refuses text within L. `h3-max` and `h3-max-turbo` (50,000) rise with G7. At `ec73207` the added IDs all state a limit.
+Rows that stay byte-limited: the 4,000-byte video rows above, and every ToAPIs video row, including verified `seedance-2-5`, until its descriptor records its page's limit (G11a). Every other video row is checked at its documented limit L in code points and at 4L UTF-8 bytes, which never refuses text within L. `h3-max` and `h3-max-turbo` (50,000) rise with G7. The IDs added at `ec73207` all state a limit: `bria-rmbg-3.0` 2,000, the LTX IDs 5,000, the Recraft IDs and the Ideogram v4.6 IDs 10,000 characters. `sync-lipsync-3` has no free text.
 
 ## D4 states after the ledger migration
 
-Counted by exact model ID, because D4 applies per model. The ledger's 146 documented Poyo.ai rows hold 159 IDs. This query gives the fields as `d4/catalogD4`:
+Counted by exact model ID, because D4 applies per model. The ledger's 151 documented Poyo.ai rows hold 168 IDs at `ec73207` (146 and 159 before G2c). This query gives the fields as `d4/catalogD4`:
 
 ```sh
 jq '[.providers.poyo.rows[] | select(.contract == "documented") | . as $r | .ids[]
@@ -332,7 +352,9 @@ jq '[.providers.poyo.rows[] | select(.contract == "documented") | . as $r | .ids
 
 Before G2a it returned `-/-` 89, `-/conflict` 2, `conflict/-` 33, `conflict/unknown` 4, `declared/-` 30, `declared/declared` 1. So 39 IDs carried `conflict`, 31 were declared and 89 had neither.
 
-G2a migrated the ledger, and the same query now returns `closed-absent/-` 39, `declared/-` 31 and `open-absent/-` 89, which the deriver reproduces from the projections. Every `conflict` ID becomes closed-absent, and no ID is a contradiction or a refusal. Over the 162 in-scope catalog entries the split is 37, 31 and 94: the entries add the five open discovery-only IDs and lack the two closed `ideogram-v4.6` IDs, which are not pinned. ToAPIs rows keep `declared`; each descriptor review sets `open-absent` or `refused` in place of the default `unknown`.
+G2a migrated the ledger, and the same query now returns `closed-absent/-` 39, `declared/-` 31 and `open-absent/-` 89, which the deriver reproduces from the projections. Every `conflict` ID becomes closed-absent, and no ID is a contradiction or a refusal. Over the 162 in-scope catalog entries the split was 37, 31 and 94: the entries add the five open discovery-only IDs and lacked the two closed `ideogram-v4.6` IDs, which were not pinned.
+
+After G2c re-pinned to `ec73207`, the query returns `closed-absent/-` 48, `declared/-` 31 and `open-absent/-` 89. The nine IDs added to the ledger are all closed-absent: `bria-rmbg-3.0` is closed by both schemas, and the eight without an OpenAPI spec by the catalog alone. Over the 173 in-scope entries the split is 48, 31 and 94. ToAPIs rows keep `declared`; each descriptor review sets `open-absent` or `refused` in place of the default `unknown`.
 
 | IDs | Ledger `d4` / `catalogD4` | Pinned catalog | REST input (OpenAPI) | New state |
 | --- | --- | --- | --- | --- |
@@ -344,8 +366,8 @@ G2a migrated the ledger, and the same query now returns `closed-absent/-` 39, `d
 | `gpt-image-2.6-sunburst` | conflict / – | closed | closed without it | closed-absent |
 | `ideogram-v4.5` | conflict / – | closed | closed without it | closed-absent |
 | `ideogram-v4.5-edit` | conflict / – | closed | closed without it | closed-absent |
-| `ideogram-v4.6` | conflict / – | not pinned | closed without it | closed-absent |
-| `ideogram-v4.6-edit` | conflict / – | not pinned | closed without it | closed-absent |
+| `ideogram-v4.6` | conflict / – | not pinned (closed at `ec73207`) | closed without it | closed-absent |
+| `ideogram-v4.6-edit` | conflict / – | not pinned (closed at `ec73207`) | closed without it | closed-absent |
 | `ideogram-vector-1.0/image-to-vector` | conflict / – | closed | closed without it | closed-absent |
 | `ideogram-vector-1.0/text-to-vector` | conflict / – | closed | closed without it | closed-absent |
 | `kling-4.0-image` | conflict / – | closed | closed without it | closed-absent |

@@ -39,7 +39,7 @@ test("each documented Poyo.ai ID has one row whose D4 state is the ledger's", ()
 			);
 });
 
-test("the migrated ledger matches the inventory query: 39 closed-absent, 31 declared, 89 open-absent", () => {
+test("the migrated ledger matches the inventory query: 48 closed-absent, 31 declared, 89 open-absent", () => {
 	// jq '[.providers.poyo.rows[] | select(.contract == "documented") | . as $r | .ids[]
 	//   | "\($r.d4 // "-")/\($r.catalogD4 // "-")"] | group_by(.) | map({(.[0]): length}) | add'
 	const groups: Record<string, number> = {};
@@ -48,7 +48,7 @@ test("the migrated ledger matches the inventory query: 39 closed-absent, 31 decl
 			const key = `${row.d4 ?? "-"}/${("catalogD4" in row && row.catalogD4) || "-"}`;
 			groups[key] = (groups[key] ?? 0) + 1;
 		}
-	expect(groups).toEqual({ "closed-absent/-": 39, "declared/-": 31, "open-absent/-": 89 });
+	expect(groups).toEqual({ "closed-absent/-": 48, "declared/-": 31, "open-absent/-": 89 });
 	for (const provider of ["poyo", "toapis"] as const)
 		for (const row of ledger.providers[provider].rows) {
 			const fields = row as { d4?: string; catalogD4?: string };
@@ -70,11 +70,60 @@ test("the Gemini Omni Flash rows close in the catalog and stay open in the API s
 		d4: "closed-absent",
 		closedBy: "api",
 	});
-	expect(rows.find((row) => row.model === "ideogram-v4.6")).toMatchObject({
+	// Pinned at ec73207, both Ideogram v4.6 IDs close in the catalog and the API schema.
+	for (const model of ["ideogram-v4.6", "ideogram-v4.6-edit"]) {
+		const row = rows.find((derived) => derived.model === model);
+		expect(row?.d4).toEqual({ d4: "closed-absent", closedBy: "both" });
+		expect(row?.catalog).toMatch(/^[0-9a-f]{64}$/);
+		expect(row?.pending.join()).not.toContain("not in the pinned catalog");
+	}
+});
+
+test("the eight IDs added at ec73207 without an OpenAPI spec take the catalog's state alone", () => {
+	const catalogOnly = rows.filter((row) => row.d4.catalogOnly).map((row) => row.model);
+	expect(catalogOnly).toEqual([
+		"ltx-2.5-fast",
+		"ltx-2.5-pro",
+		"recraft-v4.1",
+		"recraft-v4.1-flash",
+		"recraft-v4.1-pro",
+		"recraft-v4.1-pro-vector",
+		"recraft-v4.1-vector",
+		"sync-lipsync-3",
+	]);
+	for (const model of catalogOnly)
+		expect(rows.find((row) => row.model === model)).toMatchObject({
+			d4: { d4: "closed-absent", closedBy: "catalog", catalogOnly: true },
+			rest: null,
+			spec: null,
+		});
+	// Recraft's colour palette is a creator option, not a media input: an array of RGB objects
+	// is a nested object outside the validator, so it has no covered path yet.
+	const recraft = rows.find((row) => row.model === "recraft-v4.1");
+	expect(recraft?.inputs).toEqual([]);
+	expect(recraft?.options.find((option) => option.field === "colors")).toMatchObject({
+		kind: "construct",
+		gap: { state: "pending" },
+	});
+	// Bria RMBG 3.0 has a spec, and both sources close its input.
+	expect(rows.find((row) => row.model === "bria-rmbg-3.0")?.d4).toEqual({
+		d4: "closed-absent",
+		closedBy: "both",
+	});
+});
+
+test("a documented ID the pinned catalog lacks is pending and takes the REST state alone", () => {
+	const row = deriveRow(
+		{ media: "image", route: "POST /api/generate/submit", operations: ["text-to-image"] },
+		"ideogram-v4.6",
+		undefined,
+	);
+	expect(row).toMatchObject({
 		d4: { d4: "closed-absent", closedBy: "api" },
 		catalog: null,
-		pending: ["not in the pinned catalog: G2c re-pins"],
+		basis: null,
 	});
+	expect(row.pending[0]).toBe("not in the pinned catalog");
 });
 
 test("verified representatives are cross-checked and never rewritten", () => {
@@ -116,8 +165,13 @@ test("derived rows record constructs, contradictions and unknowns, and nothing q
 	);
 	expect(option("kling-2.5-turbo-pro", "aspect_ratio")?.gap?.question).toBe(11);
 	expect(option("seedance-2.5", "prompt")?.gap).toMatchObject({ question: 10 });
+	// At ec73207 the catalog lists kling-4.0's dynamic_range and both sources agree on 4k.
+	expect(option("kling-4.0", "dynamic_range")?.gap?.question).not.toBe(7);
+	for (const model of ["kling-4.0", "seedance-2.5"])
+		expect(option(model, "resolution")?.disputed).toBeUndefined();
 	expect(rows.find((row) => row.model === "kling-4.0")?.pending).toEqual([
-		"schema uses oneOf in allOf, items in allOf, x-server-validation",
+		// ec73207 adds `dynamic_range: const hdr` in an `allOf` branch.
+		"schema uses oneOf in allOf, items in allOf, const in allOf, x-server-validation",
 	]);
 	expect(rows.find((row) => row.model === "vidu-q4")?.pending).toEqual([]);
 	expect(JSON.stringify(rows)).not.toMatch(/"queue"|"eligible"/);

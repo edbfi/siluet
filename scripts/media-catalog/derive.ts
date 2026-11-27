@@ -27,7 +27,7 @@ import {
 } from "../../src/lib/shared/media-catalog/schema";
 import { sha256 } from "./project";
 import pageReviews from "./sources/page-reviews.json";
-import catalog from "./sources/poyo-747e5d7.json";
+import catalog from "./sources/poyo-ec73207.json";
 import openapi from "./sources/poyo-openapi-2026-11-26.json";
 import record from "./sources/sources.json";
 import { verifiedOptions } from "./verified";
@@ -176,8 +176,9 @@ function shared(a: Domain, b: Domain | undefined) {
 	return { domain, disputed: canonicalJson(a) !== canonicalJson(b) };
 }
 
+// A media or subject input, never a creator option. An array of other values, such as Recraft's
+// `colors` palette of RGB objects, is an option.
 const isMedia = (field: string, declaration: Schema) =>
-	declaration.type === "array" ||
 	declaration.format === "uri" ||
 	/_urls?$/.test(field) ||
 	/^(elements|keyframes|kling_elements|multi_prompt)$/.test(field);
@@ -234,7 +235,7 @@ const constructNames = (found: Construct[]) => [
 
 function filtering(catalogSide: CatalogSide | null, restSide: RestSide): FilteringEvidence {
 	if (catalogSide) return d4Cell(catalogSide, restSide);
-	// Not in the pinned catalog: the REST input alone, until G2c pins the entry.
+	// Not in the pinned catalog: the REST input alone, until a re-pin lists the entry.
 	if (restSide === "declared") return { d4: "declared" };
 	if (restSide === "closed") return { d4: "closed-absent", closedBy: "api" };
 	if (restSide === "open") return { d4: "open-absent" };
@@ -306,7 +307,7 @@ export function deriveRow(
 		),
 	] as string[];
 	const pending: string[] = [];
-	if (!entry) pending.push("not in the pinned catalog: G2c re-pins");
+	if (!entry) pending.push("not in the pinned catalog");
 	if (entry && (entry.service_type !== "generate" || entry.execution_mode !== "async"))
 		pending.push(`service ${entry.service_type}/${entry.execution_mode}`);
 	const whole = unsupported.filter(({ field }) => field === null);

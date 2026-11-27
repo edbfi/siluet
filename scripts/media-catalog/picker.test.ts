@@ -43,9 +43,10 @@ test("every derived row is listed once, unless a shipped Poyo.ai operation alrea
 test("each reason names the row's first blocker: its schema, its D4 state or its slice", () => {
 	// A row-level pending kind comes first, in one plain sentence; poyo-rows.json keeps its detail.
 	expect(reason("kling-4.0")).toBe("Poyo.ai's input schema uses forms Siluet does not read yet");
-	expect(reason("ideogram-v4.6")).toBe(
-		"Siluet's copy of Poyo.ai's catalog does not list it yet (G2c)",
-	);
+	expect(reason("ideogram-v4.6")).toBe("closed-schema Poyo.ai images are not verified yet (G6)");
+	expect(reason("ltx-2.5-fast")).toBe("Poyo.ai's input schema uses forms Siluet does not read yet");
+	expect(reason("bria-rmbg-3.0")).toBe("closed-schema Poyo.ai images are not verified yet (G6)");
+	expect(reason("recraft-v4.1-vector")).toBe("planned for Phase 3: GIF and SVG output");
 	expect(reason("flux-3-max/keyframes-to-video")).toBe(
 		"a required input takes a form Siluet does not read yet",
 	);
@@ -69,6 +70,9 @@ test("every pending kind reads as one plain sentence, and an unknown kind is ref
 	if (!row) throw new Error("flux-dev has no derived row.");
 	const plain = (pending: string) => reviewOnlyReason({ ...row, pending: [pending] });
 	expect(plain("service chat/sync")).toBe("Poyo.ai runs it as a service Siluet does not call yet");
+	expect(plain("not in the pinned catalog")).toBe(
+		"Siluet's copy of Poyo.ai's catalog does not list it",
+	);
 	expect(plain("no valid minimal request: /input/prompt must be string")).toBe(
 		"Siluet cannot build a valid request from Poyo.ai's schemas yet",
 	);

@@ -20,7 +20,7 @@ const slices: Record<string, string> = {
 // One plain sentence for each kind of pending reason the deriver records. poyo-rows.json keeps
 // the technical detail.
 const pendingReasons: [kind: RegExp, reason: string][] = [
-	[/^not in the pinned catalog\b/, "Siluet's copy of Poyo.ai's catalog does not list it yet (G2c)"],
+	[/^not in the pinned catalog$/, "Siluet's copy of Poyo.ai's catalog does not list it"],
 	[/^service /, "Poyo.ai runs it as a service Siluet does not call yet"],
 	[/^schema uses /, "Poyo.ai's input schema uses forms Siluet does not read yet"],
 	[/^required input uses /, "a required input takes a form Siluet does not read yet"],

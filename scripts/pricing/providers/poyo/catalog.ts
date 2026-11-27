@@ -48,7 +48,7 @@ function credits(value: unknown): string {
 }
 
 // Reviewed inputs and billing at the pinned catalog revision:
-// https://github.com/PoyoAPI/poyo-devtools/blob/747e5d75319585d66396a3c05bd1b97d9390ce74/artifacts/capability-catalog.json
+// https://github.com/PoyoAPI/poyo-devtools/blob/ec7320720913a55f955e1bf6a651e9c38bd356c5/artifacts/capability-catalog.json
 const modelFields = [
 	"billing",
 	"category",
@@ -250,7 +250,7 @@ function catalogRows(text: string): Map<string, Record<string, unknown>> {
 		throw new Error("PoYo catalog contains invalid JSON.");
 	}
 
-	// The pinned artifact has 252 unique model IDs. A drop below 200 needs review
+	// The pinned artifact has 266 unique model IDs. A drop below 200 needs review
 	// even if the new file still claims to contain a complete, unpaginated catalog.
 	if (
 		!hasKeys(catalog, ["schema_version", "has_more", "next_cursor", "items"]) ||

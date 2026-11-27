@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import ledger from "../../docs/media-catalog.v1.json";
+import poyoFeed from "../../pricing/v2/poyo.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import {
 	indexedSpecs,
@@ -34,10 +35,26 @@ test("both projections are canonical compact JSON under the 500 KB hook with the
 	expect(read(record.catalog.license)).toContain("MIT License");
 });
 
-test("the catalog projection holds the 162 in-scope entries with only the projected fields", () => {
+test("the catalog is pinned to Poyo.ai's ec73207, and every documented ID is in it", () => {
+	expect(record.catalog.revision).toBe("ec7320720913a55f955e1bf6a651e9c38bd356c5");
+	expect(record.catalog.publishedAt).toBe("2026-11-26T01:13:22Z");
+	expect(record.catalog.upstreamSha256).toBe(
+		"844ed1d55102837c156cb470c15f2fcf8ec98eb110fe524a5fc5ecf11b3b114c",
+	);
+	expect(record.catalog.upstream).toContain(record.catalog.revision);
+	expect(record.catalog.file).toBe("poyo-ec73207.json");
+	expect(record.openapi.extraIds.ids).toEqual([]);
+});
+
+test("a re-pin moves the bundled v2 Poyo.ai price feed to the pinned revision", () => {
+	expect(poyoFeed.revision).toBe(record.catalog.revision);
+	expect(poyoFeed.sourceDate).toBe(record.catalog.publishedAt);
+});
+
+test("the catalog projection holds the 173 in-scope entries with only the projected fields", () => {
 	const { entries, revision } = JSON.parse(catalogFile);
 	expect(revision).toBe(record.catalog.revision);
-	expect(entries).toHaveLength(162);
+	expect(entries).toHaveLength(173);
 	for (const entry of entries)
 		expect(Object.keys(entry).sort()).toEqual([
 			"billing",
@@ -67,8 +84,24 @@ test("the OpenAPI projection holds the full manifest and only in-scope inputs", 
 	const scope = openApiScope(catalogFile);
 	const models = Object.keys(projection.models);
 	expect(models.every((id) => scope.has(id))).toBe(true);
-	// 157 of the 162 catalog entries have a spec, and so do the two unpinned Ideogram v4.6 IDs.
-	expect(models).toHaveLength(159);
+	// 160 of the 173 catalog entries have a spec. The five discovery-only IDs and the eight IDs
+	// added at ec73207 without a docs page have none.
+	expect(models).toHaveLength(160);
+	expect([...scope].filter((id) => !models.includes(id)).sort()).toEqual([
+		"gpt-image-1-edit-official",
+		"gpt-image-1-official",
+		"gpt-image-1.5-edit-official",
+		"gpt-image-1.5-official",
+		"ltx-2.5-fast",
+		"ltx-2.5-pro",
+		"recraft-v4.1",
+		"recraft-v4.1-flash",
+		"recraft-v4.1-pro",
+		"recraft-v4.1-pro-vector",
+		"recraft-v4.1-vector",
+		"sync-lipsync-3",
+		"veo3.1-extend",
+	]);
 	const used = new Set(Object.values(projection.models).map((m) => (m as { input: string }).input));
 	expect(Object.keys(projection.schemas).sort()).toEqual([...used].sort());
 	for (const [digest, schema] of Object.entries(projection.schemas))
@@ -268,11 +301,11 @@ test("the OpenAPI scope adds only the recorded documented IDs the pinned catalog
 	const documented = ledger.providers.poyo.rows
 		.filter((row) => row.contract === "documented")
 		.flatMap((row) => row.ids);
-	expect(record.openapi.extraIds.ids).toEqual(documented.filter((id) => !pinned.has(id)).sort());
+	// None at ec73207, so the recorded list's JSON type is `never[]`.
+	const extra: string[] = record.openapi.extraIds.ids;
+	expect(extra).toEqual(documented.filter((id) => !pinned.has(id)).sort());
 	expect(record.openapi.extraIds.reason).toBeTruthy();
-	expect([...openApiScope(catalogFile)].sort()).toEqual(
-		[...pinned, ...record.openapi.extraIds.ids].sort(),
-	);
+	expect([...openApiScope(catalogFile)].sort()).toEqual([...pinned, ...extra].sort());
 });
 
 test("a discriminator or an allOf branch selects each model's own input", () => {
