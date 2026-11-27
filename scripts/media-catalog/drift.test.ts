@@ -4,11 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	type Baseline,
+	changedPaths,
 	committedBaseline,
 	drift,
 	fetchMirror,
 	headRevision,
 	mirrorPath,
+	parseArgs,
 	readMirror,
 	renderReport,
 	repinCheck,
@@ -408,8 +410,39 @@ test("mirror paths stay inside the mirror and on the expected hosts", () => {
 		"https://docs.poyo.ai/a/%2e%2e/b.md",
 		"https://docs.poyo.ai/a.md?x=1",
 		"https://docs.poyo.ai/",
+		"https://user@docs.poyo.ai/a.md",
+		"https://user:secret@docs.poyo.ai/a.md",
 	])
 		expect(() => mirrorPath(url)).toThrow();
+});
+
+test("changed paths compare own keys only, so a prototype-named key still counts", () => {
+	expect(changedPaths({}, JSON.parse('{"__proto__":{}}'))).toEqual(["__proto__"]);
+	expect(changedPaths({ a: 1 }, { a: 1, constructor: 1 })).toEqual(["constructor"]);
+	expect(changedPaths(JSON.parse('{"toString":{}}'), {})).toEqual(["toString"]);
+});
+
+test("the command line is parsed in order and refuses a missing or flag-like mirror", () => {
+	expect(parseArgs([])).toEqual({ repin: false });
+	expect(parseArgs(["--repin", "--mirror", "dir"])).toEqual({ repin: true, mirror: "dir" });
+	expect(parseArgs(["--mirror", "dir", "--repin"])).toEqual({ repin: true, mirror: "dir" });
+	for (const args of [
+		["--mirror"],
+		["--mirror", "--repin"],
+		["--mirror", "-x"],
+		["dir", "--mirror", "dir"],
+		["--mirror", "a", "--mirror", "b"],
+		["--repin", "--repin"],
+		["--other"],
+	])
+		expect(parseArgs(args)).toBeUndefined();
+	const run = Bun.spawnSync([
+		process.execPath,
+		new URL("./drift.ts", import.meta.url).pathname,
+		"--mirror",
+	]);
+	expect(run.exitCode).toBe(2);
+	expect(run.stderr.toString()).toContain("Usage:");
 });
 
 test("a mirror reader refuses absolute paths, traversal, links that leave the mirror and oversized files", () => {
@@ -503,12 +536,14 @@ test("an online run fetches anonymously into a fresh mirror and passes on an unc
 		const result = drift(baseline, readMirror(dir));
 		expect(result.findings).toEqual([]);
 		expect(result.head).toBe(pinned);
-		// A re-pin fetch reads the pinned revision without asking for the head.
+		// A re-pin fetch reads the pinned revision without asking for the head or the pages.
 		const repinDir = mkdtempSync(join(tmpdir(), "siluet-drift-test-"));
 		try {
 			const before = requests.length;
 			expect(await fetchMirror(repinDir, baseline, { revision: "pinned", fetcher })).toEqual([]);
-			expect(requests.slice(before).some(({ url }) => url.includes("info/refs"))).toBe(false);
+			const repinUrls = requests.slice(before).map(({ url }) => url);
+			expect(repinUrls.some((url) => url.includes("info/refs"))).toBe(false);
+			for (const page of baseline.pages) expect(repinUrls).not.toContain(page.url);
 			expect(repinCheck(baseline, readMirror(repinDir))).toEqual([]);
 		} finally {
 			rmSync(repinDir, { recursive: true });
@@ -569,6 +604,71 @@ test("a docs index that repeats a spec path or lists over 500 fails closed befor
 		} finally {
 			rmSync(dir, { recursive: true });
 		}
+	}
+});
+
+/** A response body that counts reads and records whether it was cancelled. */
+function trackedBody() {
+	const state = { pulls: 0, cancelled: false };
+	const body = new ReadableStream<Uint8Array>({
+		pull(controller) {
+			state.pulls += 1;
+			controller.enqueue(new Uint8Array(64 * 1024));
+		},
+		cancel() {
+			state.cancelled = true;
+		},
+	});
+	return { body, state };
+}
+
+test("an online run refuses a declared oversized body before reading it and cancels a failed one", async () => {
+	const files = upstreamFiles();
+	const baseline = fixtureBaseline(files);
+	for (const [status, headers, reason] of [
+		[200, { "content-length": String(2 ** 20 + 1) }, "over the size limit"],
+		[503, {}, "HTTP 503"],
+	] as const) {
+		const { fetcher } = fakeUpstream(files);
+		const { body, state } = trackedBody();
+		const patched = async (url: string, init: RequestInit) =>
+			url === pages.rest ? new Response(body, { status, headers }) : fetcher(url, init);
+		const dir = mkdtempSync(join(tmpdir(), "siluet-drift-test-"));
+		try {
+			const failures = await fetchMirror(dir, baseline, { revision: "head", fetcher: patched });
+			expect(failures).toEqual([{ url: pages.rest, reason }]);
+			expect(state.cancelled).toBe(true);
+			expect(state.pulls).toBeLessThanOrEqual(1);
+		} finally {
+			rmSync(dir, { recursive: true });
+		}
+	}
+});
+
+test("an online run stops at its overall deadline and reports every source it did not fetch", async () => {
+	const baseline = fixtureBaseline();
+	const hanging = (_url: string, init: RequestInit) =>
+		new Promise<Response>((_, reject) =>
+			init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+		);
+	const dir = mkdtempSync(join(tmpdir(), "siluet-drift-test-"));
+	try {
+		const started = Date.now();
+		const failures = await fetchMirror(dir, baseline, {
+			revision: "head",
+			fetcher: hanging,
+			deadlineMs: 50,
+		});
+		expect(Date.now() - started).toBeLessThan(5_000);
+		expect(failures.map(({ url }) => url)).toEqual([
+			"https://github.com/PoyoAPI/poyo-devtools.git/info/refs?service=git-upload-pack",
+			"https://docs.poyo.ai/llms.txt",
+			...baseline.pages.map((page) => page.url),
+		]);
+		for (const { reason } of failures) expect(reason).toContain("overall fetch deadline");
+		expect(renderReport(drift(baseline, readMirror(dir)), failures)).toContain("### Not fetched");
+	} finally {
+		rmSync(dir, { recursive: true });
 	}
 });
 

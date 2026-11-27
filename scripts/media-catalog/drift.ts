@@ -7,9 +7,10 @@
 //                                             it reproduces the committed projections byte for byte
 //   ... --mirror <dir>                        compare a mirror fetched earlier, offline
 //
-// Every fetch is an anonymous public GET with a size limit, a timeout and no redirects, into a
-// directory outside the repository. Fetched files are untrusted data: they are hashed and parsed
-// as JSON or text, never executed. Nothing here calls a provider API or reads a credential.
+// Every fetch is an anonymous public GET with a size limit, a timeout and no redirects, within an
+// overall deadline, into a directory outside the repository. Fetched files are untrusted data:
+// they are hashed and parsed as JSON or text, never executed. Nothing here calls a provider API
+// or reads a credential.
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -125,11 +126,16 @@ const safePath = (path: string) =>
 		.split("/")
 		.every((part) => segment.test(part));
 
-/** The mirror path of a watched page. Only plain HTTPS paths on the docs hosts are accepted. */
+/**
+ * The mirror path of a watched page. Only plain HTTPS paths on the docs hosts, without userinfo,
+ * a query or a fragment, are accepted.
+ */
 export function mirrorPath(url: string) {
 	const parsed = new URL(url);
 	if (
 		parsed.protocol !== "https:" ||
+		parsed.username ||
+		parsed.password ||
 		!pageHosts.has(parsed.host) ||
 		parsed.search ||
 		parsed.hash ||
@@ -174,13 +180,15 @@ export function readMirror(dir: string): Mirror {
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 const isObject = (value: Json | undefined): value is { [key: string]: Json } =>
 	!!value && typeof value === "object" && !Array.isArray(value);
+const own = (value: { [key: string]: Json }, key: string) =>
+	Object.hasOwn(value, key) ? value[key] : undefined;
 
 /** The dotted paths at which two values differ. Arrays compare whole, so an enum is one path. */
 export function changedPaths(before: Json | undefined, after: Json | undefined, at = ""): string[] {
 	if (isObject(before) && isObject(after))
 		return [...new Set([...Object.keys(before), ...Object.keys(after)])]
 			.sort()
-			.flatMap((key) => changedPaths(before[key], after[key], at ? `${at}.${key}` : key));
+			.flatMap((key) => changedPaths(own(before, key), own(after, key), at ? `${at}.${key}` : key));
 	return canonicalJson(before) === canonicalJson(after) ? [] : [at || "(whole value)"];
 }
 
@@ -544,10 +552,20 @@ const limits = {
 	page: 2 ** 20,
 };
 
+/** The whole fetch stays well under the workflow job's 10 minutes. */
+const fetchDeadlineMs = 5 * 60_000;
+const pastDeadline = "not fetched: the overall fetch deadline passed";
+
 /** One anonymous GET, bounded in size and time, decoded as strict UTF-8. */
-async function getText(fetcher: Fetcher, url: string, maxBytes: number) {
-	const response = await fetcher(url, { redirect: "error", signal: AbortSignal.timeout(30_000) });
-	if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+async function getText(fetcher: Fetcher, url: string, maxBytes: number, deadline: AbortSignal) {
+	const response = await fetcher(url, {
+		redirect: "error",
+		signal: AbortSignal.any([AbortSignal.timeout(30_000), deadline]),
+	});
+	if (!response.ok || !response.body) {
+		await response.body?.cancel().catch(() => {});
+		throw new Error(`HTTP ${response.status}`);
+	}
 	const declared = Number(response.headers.get("content-length"));
 	if (declared > maxBytes) {
 		await response.body.cancel();
@@ -573,31 +591,42 @@ async function getText(fetcher: Fetcher, url: string, maxBytes: number) {
 
 /**
  * Fetches the upstream into an empty directory in the mirror layout `drift` and `repinCheck`
- * read. A file that cannot be fetched is left out and returned as a failure, so the comparison
- * reports it rather than passing.
+ * read: at the head, the catalog, the docs index, its specs and every watched page; at the pin,
+ * only what a re-pin projects. A file that cannot be fetched, including every one still pending
+ * at the overall deadline, is left out and returned as a failure, so the comparison reports it
+ * rather than passing.
  */
 export async function fetchMirror(
 	dir: string,
 	baseline: Baseline,
-	{ revision, fetcher }: { revision: "head" | "pinned"; fetcher: Fetcher },
+	{
+		revision,
+		fetcher,
+		deadlineMs = fetchDeadlineMs,
+	}: { revision: "head" | "pinned"; fetcher: Fetcher; deadlineMs?: number },
 ) {
 	if (readdirSync(dir).length) throw new Error(`The mirror directory ${dir} must be empty.`);
 	const { record } = baseline;
+	const deadline = AbortSignal.timeout(deadlineMs);
 	const failures: { url: string; reason: string }[] = [];
 	const save = (path: string, text: string) => {
 		const file = join(dir, path);
 		mkdirSync(dirname(file), { recursive: true });
 		writeFileSync(file, text);
 	};
-	const fetchTo = async (url: string, path: string, maxBytes: number) => {
+	const get = async (url: string, maxBytes: number) => {
 		try {
-			const text = await getText(fetcher, url, maxBytes);
-			save(path, text);
-			return text;
+			if (deadline.aborted) throw new Error(pastDeadline);
+			return await getText(fetcher, url, maxBytes, deadline);
 		} catch (error) {
-			failures.push({ url, reason: errorText(error) });
+			failures.push({ url, reason: deadline.aborted ? pastDeadline : errorText(error) });
 			return undefined;
 		}
+	};
+	const fetchTo = async (url: string, path: string, maxBytes: number) => {
+		const text = await get(url, maxBytes);
+		if (text !== undefined) save(path, text);
+		return text;
 	};
 
 	// The pinned upstream URL names the repository and the artifact path around the revision.
@@ -607,8 +636,9 @@ export async function fetchMirror(
 	let rev: string | undefined = record.catalog.revision;
 	if (revision === "head") {
 		const refsUrl = `https://github.com/${repository}.git/info/refs?service=git-upload-pack`;
+		const refs = await get(refsUrl, limits.refs);
 		try {
-			rev = headRevision(await getText(fetcher, refsUrl, limits.refs));
+			rev = refs === undefined ? undefined : headRevision(refs);
 		} catch (error) {
 			failures.push({ url: refsUrl, reason: errorText(error) });
 			rev = undefined;
@@ -643,7 +673,10 @@ export async function fetchMirror(
 			}
 			return fetchTo(`${origin}${path}`, target, limits.spec);
 		}),
-		...baseline.pages.map((page) => () => fetchTo(page.url, mirrorPath(page.url), limits.page)),
+		// A re-pin projects only the catalog and the specs, so it reads no watched page.
+		...(revision === "head" ? baseline.pages : []).map(
+			(page) => () => fetchTo(page.url, mirrorPath(page.url), limits.page),
+		),
 	];
 	// A few requests at a time, so one run stays polite to the docs host.
 	for (let at = 0; at < jobs.length; at += 6)
@@ -752,16 +785,28 @@ export function renderReport(
 	return `${lines.join("\n")}\n`;
 }
 
+/** The options in order, or undefined for any argument that is not one, repeated or incomplete. */
+export function parseArgs(args: string[]) {
+	const options: { repin: boolean; mirror?: string } = { repin: false };
+	for (let at = 0; at < args.length; at += 1) {
+		if (args[at] === "--repin" && !options.repin) options.repin = true;
+		else if (args[at] === "--mirror" && options.mirror === undefined) {
+			const value = args[at + 1];
+			if (!value || value.startsWith("-")) return undefined;
+			options.mirror = value;
+			at += 1;
+		} else return undefined;
+	}
+	return options;
+}
+
 if (import.meta.main) {
-	const args = process.argv.slice(2);
-	const repinMode = args.includes("--repin");
-	const mirrorAt = args.indexOf("--mirror");
-	const mirror = mirrorAt === -1 ? undefined : args[mirrorAt + 1];
-	const known = new Set(["--repin", "--mirror", ...(mirror ? [mirror] : [])]);
-	if ((mirrorAt !== -1 && !mirror) || args.some((arg) => !known.has(arg))) {
+	const options = parseArgs(process.argv.slice(2));
+	if (!options) {
 		console.error("Usage: bun scripts/media-catalog/drift.ts [--repin] [--mirror <dir>]");
 		process.exit(2);
 	}
+	const { repin: repinMode, mirror } = options;
 	const baseline = committedBaseline();
 	let dir = mirror;
 	let failures: { url: string; reason: string }[] = [];
