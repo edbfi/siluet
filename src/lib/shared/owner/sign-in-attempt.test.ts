@@ -76,6 +76,8 @@ async function harness({
 		hold: null as Promise<void> | null,
 		/** Holds a read of the stored record. */
 		readHold: null as Promise<void> | null,
+		/** Reads of the stored record begun so far. */
+		reads: 0,
 	};
 	const scripts = new Map<string, Script[]>();
 	const sent: { path: string; body: Record<string, unknown> }[] = [];
@@ -105,6 +107,7 @@ async function harness({
 		},
 		{
 			async read() {
+				store.reads++;
 				await store.readHold;
 				return store.record;
 			},
@@ -141,6 +144,7 @@ async function until(reached: () => boolean, timeoutMs = 5000) {
 	while (!reached() && performance.now() < deadline) await Bun.sleep(1);
 	expect(reached()).toBe(true);
 }
+const restartedMessage = "Sign-in restarted. Enter your username and password again.";
 const signIn = { username: "owner", password: "correct horse battery staple" };
 const claimFields = { token: "claim-token", ...signIn };
 
@@ -386,7 +390,7 @@ test("a commit notice during the tab's own request waits; the commit is then ref
 	h.queue("/owner/sign-in", answer.promise);
 	h.queue("/owner/sign-out", { status: 200, body: { signedOut: true } });
 	const submitted = h.client.attempts.submit("sign-in", signIn);
-	await Bun.sleep(5);
+	await until(() => h.to("/owner/sign-in").length === 1);
 	// Another tab commits; this tab's focus check finds its key while the request is in flight.
 	h.store.record = await newKey();
 	await h.client.check(true);
@@ -403,7 +407,7 @@ test("a commit notice during the tab's own request waits; the commit is then ref
 	l.queue("/owner/sign-in", "network");
 	l.queue("/owner/resume", resumed.promise);
 	const pending = l.client.attempts.submit("sign-in", signIn);
-	await Bun.sleep(5);
+	await until(() => l.to("/owner/resume").length === 1);
 	l.store.record = await newKey();
 	await l.client.check(true);
 	expect(l.to("/owner/resume")).toHaveLength(1);
@@ -473,7 +477,8 @@ test("pagehide stops every later step; a cache return restarts only a pending fa
 	await submitted;
 	expect(g.sent).toEqual([]);
 	g.client.pageshow(true);
-	await Bun.sleep(5);
+	// The return's own check settles first: no "Sign-in restarted" follows it.
+	await g.client.check(true);
 	expect(g.view()).toMatchObject({ factor: false, message: null });
 	// During the answer: nothing is stored or bound.
 	for (const step of ["sign-in", "factor"] as const) {
@@ -488,18 +493,19 @@ test("pagehide stops every later step; a cache return restarts only a pending fa
 			step === "factor"
 				? h.client.attempts.factor("123456")
 				: h.client.attempts.submit(step, signIn);
-		await Bun.sleep(5);
+		await until(() => h.to(`/owner/${step}`).length === 1);
 		h.client.pagehide();
 		answer.resolve(session("s1"));
 		await sent;
 		expect(h.events).toEqual([]);
 		expect(h.client.attempts.held).toBeNull();
 		h.client.pageshow(true);
-		await Bun.sleep(5);
+		if (step === "factor") await until(() => h.view().message === restartedMessage);
+		// The return's own check settles first: no "Sign-in restarted" follows it.
+		else await h.client.check(true);
 		expect(h.view()).toMatchObject({
 			factor: false,
-			message:
-				step === "factor" ? "Sign-in restarted. Enter your username and password again." : null,
+			message: step === "factor" ? restartedMessage : null,
 		});
 	}
 });
@@ -535,9 +541,10 @@ test("pagehide while a factor step or Retry reads the stored key or resumes the 
 		const read = Promise.withResolvers<void>();
 		h.store.readHold = read.promise;
 		h.store.record = await newKey();
+		const reads = h.store.reads;
 		const pending =
 			step === "factor" ? h.client.attempts.factor("123456") : h.client.attempts.retry();
-		await Bun.sleep(5);
+		await until(() => h.store.reads > reads);
 		h.client.pagehide();
 		read.resolve();
 		await pending;
@@ -592,7 +599,7 @@ test("a cache return after pagehide interrupted a commit re-reads the stored key
 		h.store.hold = write.promise;
 		h.queue("/owner/factor", session("s1"));
 		const factor = h.client.attempts.factor("123456");
-		await Bun.sleep(5);
+		await until(() => h.events.length === 1);
 		expect(h.events).toEqual(["commit"]);
 		h.client.pagehide();
 		write.resolve();
@@ -602,15 +609,14 @@ test("a cache return after pagehide interrupted a commit re-reads the stored key
 		expect(h.client.mode === "bound").toBe(false);
 		h.queue("/owner/resume", outcome === "joined" ? session("s1") : gone);
 		h.client.pageshow(true);
-		await Bun.sleep(5);
 		if (outcome === "joined") {
+			await until(() => h.navigations.length === 1);
 			expect(h.navigations).toEqual(["assign /"]);
 			expect(h.view()).toMatchObject({ message: null });
 		} else {
+			// The restart shows only once the return's resume settled.
+			await until(() => h.view().message === restartedMessage);
 			expect(h.navigations).toEqual([]);
-			expect(h.view()).toMatchObject({
-				message: "Sign-in restarted. Enter your username and password again.",
-			});
 		}
 	}
 });
@@ -711,7 +717,7 @@ test("sign-out applies against its start; a key stored since resumes and joins w
 	const answer = Promise.withResolvers<Answer>();
 	h.queue("/owner/sign-out", answer.promise);
 	const out = h.client.signOut();
-	await Bun.sleep(5);
+	await until(() => h.to("/owner/sign-out").length === 1);
 	h.store.record = await newKey();
 	h.queue("/owner/resume", session("s2", "login-2"));
 	answer.resolve({ status: 200, body: { signedOut: true } });
@@ -750,7 +756,7 @@ test("a 409 sign-out checks and carries the offer across the document load it st
 	h.queue("/owner/sign-out", { status: 409, body: { message: "Signed in again since." } });
 	h.queue("/owner/resume", session("s2", "login-2"));
 	expect(await h.client.signOut()).toBe("other");
-	await Bun.sleep(5);
+	await until(() => h.navigations.length === 1);
 	expect(h.navigations).toEqual(["reload"]);
 	expect(storage.get("siluet-sign-out-offer")).toBe("s2");
 	// A back/forward-cache restore clears it.
@@ -768,7 +774,7 @@ test("a bound tab whose key was rotated while it resumed tries the stored key on
 	const answer = Promise.withResolvers<Answer>();
 	h.queue("/owner/resume", answer.promise, session("s2", "login-2"));
 	const check = h.client.check();
-	await Bun.sleep(5);
+	await until(() => h.to("/owner/resume").length === 2);
 	h.store.record = await newKey();
 	answer.resolve(gone);
 	await check;
@@ -791,15 +797,12 @@ test("a write that fails after pagehide does nothing more; the return restarts t
 	h.store.failCommit = true;
 	h.queue("/owner/factor", session("s1"));
 	const factor = h.client.attempts.factor("123456");
-	await Bun.sleep(5);
+	await until(() => h.events.length === 1);
 	h.client.pagehide();
 	write.resolve();
 	await factor;
 	expect(h.to("/owner/sign-out")).toHaveLength(0);
 	expect(h.view()).toMatchObject({ message: null });
 	h.client.pageshow(true);
-	await Bun.sleep(5);
-	expect(h.view()).toMatchObject({
-		message: "Sign-in restarted. Enter your username and password again.",
-	});
+	await until(() => h.view().message === restartedMessage);
 });
