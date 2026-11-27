@@ -176,10 +176,12 @@ function shared(a: Domain, b: Domain | undefined) {
 	return { domain, disputed: canonicalJson(a) !== canonicalJson(b) };
 }
 
-// A media or subject input, never a creator option. An array of other values, such as Recraft's
-// `colors` palette of RGB objects, is an option.
-const isMedia = (field: string, declaration: Schema) =>
+// A media or subject input, never a creator option: a URI, an array of URIs, or a media or
+// subject name. An array of other values, such as Recraft's `colors` palette of RGB objects, is
+// an option.
+export const isMedia = (field: string, declaration: Schema) =>
 	declaration.format === "uri" ||
+	(isSchema(declaration.items) && declaration.items.format === "uri") ||
 	/_urls?$/.test(field) ||
 	/^(elements|keyframes|kling_elements|multi_prompt)$/.test(field);
 

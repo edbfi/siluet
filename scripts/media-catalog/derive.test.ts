@@ -10,6 +10,7 @@ import {
 	crossCheck,
 	deriveRow,
 	deriveRows,
+	isMedia,
 	type RowSources,
 	renderRows,
 	rowsPath,
@@ -405,4 +406,11 @@ test("an ID documented in two ledger rows fails the derivation", () => {
 	expect(() => deriveRows([...documented, documented[0]])).toThrow(
 		`${documented[0].ids[0]} is documented in more than one ledger row.`,
 	);
+});
+
+test("an array of URIs is a media input whatever its name; an array of other values is an option", () => {
+	const uris = { type: "array", items: { type: "string", format: "uri" } };
+	expect(isMedia("images", uris)).toBe(true);
+	expect(isMedia("image_urls", { type: "array", items: { type: "string" } })).toBe(true);
+	expect(isMedia("colors", { type: "array", items: { type: "object" } })).toBe(false);
 });
