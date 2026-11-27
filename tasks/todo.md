@@ -13,7 +13,7 @@
 
 Order and gates: [plan](plan.md), [D11](../docs/decisions.md#d11--v010-waits-for-full-d2-coverage). The owner moved the release to full D2 coverage on 2026-11-26.
 
-- [ ] The #71 follow-ups are merged: the Download link's pending state and read-slot wait, `send()` across an early remount and with a `Request` body, key rotation on sign-in, and Gallery's can't-play note in WebKit. In Firefox, the forty-tab restore journey passes, and so does the Image Studio mobile-menu journey under parallel load.
+- [x] The #71 follow-ups are merged: the Download link's pending state and read-slot wait, `send()` across an early remount and with a `Request` body, key rotation on sign-in, and Gallery's can't-play note in WebKit. In Firefox, the forty-tab restore journey passes, and so does the Image Studio mobile-menu journey under parallel load.
 - [ ] The council confirms the catalog engine spec, and its slices merge with green checks.
 - [ ] Each Phase 3 module has a council-confirmed spec and merges with verified Save in the built app.
 - [ ] Every ledger pair is verified, contract-covered, provider unsupported, or unknown with its open question, and none stays documented and pending. Each in-scope operation and option has a verified or contract-covered path, unless the owner approves a scope change; a D4 exception does not stop a row from counting.
