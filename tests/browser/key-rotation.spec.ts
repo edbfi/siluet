@@ -295,6 +295,43 @@ test("a refused sign-in, a reload and a cache return mid-factor keep the stored 
 	expect(await storedSpki(page)).toBe(stored);
 });
 
+test("Retry keeps the credential inputs disabled, and Cancel still leaves its factor step", async ({
+	page,
+	studio,
+}) => {
+	const { origin, password } = studio;
+	const { codes } = await enableFactor(page, origin, password);
+	await signOut(page, origin);
+	const stored = await storedSpki(page);
+	const lose = (route: Route) => route.abort("failed");
+	const retry = page.getByRole("button", { name: "Retry" });
+	// The sign-in's answer and the candidate's resume are both lost: Retry is offered.
+	await page.route("**/owner/sign-in", lose);
+	await page.route("**/owner/resume", lose);
+	await fillSignIn(page, password);
+	await expect(retry).toBeVisible();
+	await expect(page.getByLabel("Username")).toBeDisabled();
+	await expect(page.getByLabel("Password", { exact: true })).toBeDisabled();
+	await page.unroute("**/owner/sign-in", lose);
+	await page.unroute("**/owner/resume", lose);
+	await retry.click();
+	await expect(page.getByRole("heading", { name: "Verify your sign-in" })).toBeVisible();
+	// The same for the code's answer, then Cancel ends the factor step.
+	const code = page.getByLabel("Authenticator or recovery code");
+	await page.route("**/owner/factor", lose);
+	await page.route("**/owner/resume", lose);
+	await code.fill(codes[0]);
+	await page.getByRole("button", { name: "Verify code" }).click();
+	await expect(retry).toBeVisible();
+	await expect(code).toBeDisabled();
+	await page.unroute("**/owner/factor", lose);
+	await page.unroute("**/owner/resume", lose);
+	await page.getByRole("button", { name: "Cancel" }).click();
+	await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+	await expect(page.getByRole("alert")).toHaveCount(0);
+	expect(await storedSpki(page)).toBe(stored);
+});
+
 test("lost claim, sign-in and factor answers reach the new session without re-entry", async ({
 	context,
 }) => {

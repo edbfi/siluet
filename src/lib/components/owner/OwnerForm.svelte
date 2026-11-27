@@ -63,12 +63,14 @@ onMount(() => {
 });
 async function submit(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
 	event.preventDefault();
-	if (view.busy || view.retry) return;
 	const data = new FormData(event.currentTarget, event.submitter);
 	const field = (name: string) => {
 		const value = data.get(name);
 		return typeof value === "string" ? value : "";
 	};
+	// While Retry is offered only Cancel submits: the held fields go through Retry.
+	const cancel = pending && field("action") === "cancel";
+	if (view.busy || (view.retry && !cancel)) return;
 	const { attempts } = sessionClient();
 	const destination = claim
 		? await attempts.submit("claim", {
@@ -77,7 +79,7 @@ async function submit(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
 				password: field("password"),
 			})
 		: pending
-			? field("action") === "cancel"
+			? cancel
 				? await attempts.cancel()
 				: await attempts.factor(field("code"))
 			: await attempts.submit("sign-in", {
