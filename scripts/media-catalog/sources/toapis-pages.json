@@ -1,0 +1,14 @@
+{
+	"accessed": "2026-11-27",
+	"note": "Markdown digests of the ToAPIs model list and public catalog the ledger records as sources.keyList and sources.snapshot, read anonymously on the access date. They are the drift baseline from that date only: changes between the catalog's 2026-11-10 snapshot and this date are not verified by them, and G9 and G10a re-read both pages.",
+	"pages": [
+		{
+			"sha256": "79dcc852d162a98b5a7b55624acdb8336490bc6775cb3334270ace083a20a8d0",
+			"note": "the model-key inventory endpoint (sources.keyList)"
+		},
+		{
+			"sha256": "99fa2168afd97926ed4e0dcf2d313c6310ec9a55faeb6c60647dde2c56337002",
+			"note": "the public catalog snapshot dated 2026-11-10 (sources.snapshot)"
+		}
+	]
+}

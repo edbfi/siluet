@@ -42,7 +42,8 @@ const projectedFields = [
 	"billing",
 ] as const;
 
-function inScope(item: CatalogItem) {
+/** Whether a catalog entry belongs to the projection: by its category or as a music prerequisite. */
+export function inScope(item: { model_id: string; category: string }) {
 	return (
 		(inScopeCategories as readonly string[]).includes(item.category) ||
 		(musicPrerequisites as readonly string[]).includes(item.model_id)
@@ -87,21 +88,30 @@ export function projectCatalog(upstream: string, revision: string) {
 	return `${canonicalJson({ entries, revision })}\n`;
 }
 
+/** The most specs one docs index may list before it fails closed (175 at 2026-11-26). */
+export const specLimit = 500;
+
 /**
  * The paths the docs index lists under "OpenAPI Specs", in index order. A bullet that is not a
- * local `.json` spec link fails, so no spec drops out of the manifest unseen.
+ * local `.json` spec link fails, so no spec drops out of the manifest unseen, and so does a
+ * repeated path or a list over `specLimit`, before anything is fetched.
  */
 export function indexedSpecs(index: string) {
 	const section = index.split(/^## OpenAPI Specs$/m)[1]?.split(/^## /m)[0];
 	if (!section) throw new Error("The docs index has no OpenAPI Specs section.");
-	return section
-		.split("\n")
-		.filter((line) => line.startsWith("- "))
-		.map((line) => {
-			const path = /^- \[[^\]]*\]\((\/[^)\s]+\.json)\)$/.exec(line)?.[1];
-			if (!path) throw new Error(`The OpenAPI Specs section lists an unrecognised entry: ${line}`);
-			return path;
-		});
+	const lines = section.split("\n").filter((line) => line.startsWith("- "));
+	if (lines.length > specLimit)
+		throw new Error(
+			`The OpenAPI Specs section lists ${lines.length} specs, over the limit of ${specLimit}.`,
+		);
+	const paths = lines.map((line) => {
+		const path = /^- \[[^\]]*\]\((\/[^)\s]+\.json)\)$/.exec(line)?.[1];
+		if (!path) throw new Error(`The OpenAPI Specs section lists an unrecognised entry: ${line}`);
+		return path;
+	});
+	const repeated = paths.find((path, at) => paths.indexOf(path) !== at);
+	if (repeated !== undefined) throw new Error(`The OpenAPI Specs section repeats ${repeated}.`);
+	return paths;
 }
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
