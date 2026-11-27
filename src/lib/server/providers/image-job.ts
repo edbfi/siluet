@@ -1,9 +1,10 @@
+import type { buildDerivedRequest } from "../../shared/image-studio/derived";
 import type { buildSeedreamRequest } from "../../shared/image-studio/seedream";
 import type { buildZImageRequest } from "../../shared/image-studio/z-image";
 import type { CheckFetch } from "./connection-check";
 
 export type ReviewedImageRequest = ReturnType<
-	typeof buildSeedreamRequest | typeof buildZImageRequest
+	typeof buildSeedreamRequest | typeof buildZImageRequest | typeof buildDerivedRequest
 >;
 
 export type Rejection =

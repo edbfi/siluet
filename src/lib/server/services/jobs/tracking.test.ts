@@ -430,6 +430,60 @@ test("a stored contract selects its adapter; an unknown adapter version is held 
 	expect(await latest("newer")).toMatchObject({ tracking: "paused", state: "waiting" });
 });
 
+test("a derived job whose row a re-pin removed dispatches, recovers and delivers from its contract", async () => {
+	const posts: unknown[] = [];
+	const jobs = makeTracking(async (url, request) => {
+		if (request.method === "POST") {
+			posts.push(JSON.parse(String(request.body)));
+			return Response.json({ code: 200, data: { task_id: taskId } });
+		}
+		if (String(url).includes("/api/user/balance"))
+			return Response.json({ code: 200, data: { credits_amount: 10 } });
+		return Response.json({
+			code: 200,
+			data: {
+				task_id: taskId,
+				status: "finished",
+				files: [{ file_type: "image", file_url: signedUrl }],
+			},
+		});
+	});
+	// A balance-verified Poyo.ai key without the Seedream check serves every derived row.
+	expect(await providerStore(installation).save("poyo", credential, now, false, 1)).toBe(true);
+	await jobs.resume();
+	// No projection lists this model: the claim's stored contract is all recovery needs.
+	await insert("retired", "poyo", "retired-derived-model", 2);
+	await installation.use((db) =>
+		db.run(
+			sql`UPDATE image_job SET contract=${JSON.stringify({
+				v: 1,
+				adapter: "poyo-image-v1",
+				statusRoute: "GET /api/generate/status/{task_id}",
+			})} WHERE id='retired'`,
+		),
+	);
+	const request = {
+		method: "POST",
+		url: "https://api.poyo.ai/api/generate/submit",
+		body: {
+			model: "retired-derived-model",
+			input: { prompt, n: 1, enable_safety_checker: false },
+		},
+	} as const;
+	if (!tracker) throw new Error("No tracker.");
+	await tracker.dispatch("retired", "poyo", credential, request);
+	expect(posts).toEqual([request.body]);
+	now += 10_000;
+	await jobs.refresh("retired");
+	expect(await latest("retired")).toMatchObject({ state: "completed" });
+	now += 10_000;
+	expect(await jobs.readForSave("retired")).toEqual({
+		kind: "delivered",
+		delivery: { url: signedUrl, fallback: null },
+	});
+	expect(posts).toHaveLength(1);
+});
+
 test("Poyo wallet comparison stays separate from task credits and omits account details", async () => {
 	let balances = 0;
 	const jobs = makeTracking(async (url, request) => {

@@ -1,8 +1,11 @@
+import type { DerivedWording } from "../../../shared/image-studio/derived-review";
 import type { editDisclosure } from "../../../shared/image-studio/edit-disclosure";
 import { createImageReview } from "../../../shared/image-studio/review";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import { zImageDisclosure } from "../../../shared/image-studio/z-image";
+import type { PriceEstimate } from "../../../shared/pricing/estimate";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
+import type { DerivedLiveRequest, DerivedRequest } from "./derived";
 import type { LiveRequest } from "./request";
 import type { reviewSigner } from "./review-signature";
 
@@ -92,5 +95,33 @@ export function reviewBinding(
 		}
 		return { quote, requiresConsent, terms: digest("review-terms-v1", ...priceTerms) };
 	}
-	return { digest, signature, reviewTerms };
+	/**
+	 * derived-review-v1 signs what a submit carries, so a claimed Review replays without its row:
+	 * the operation key and the draft exactly as submitted, at one request and zero retries.
+	 */
+	function derivedSignature(id: string, terms: string, owner: string, live: DerivedLiveRequest) {
+		return digest("derived-review-v1", id, terms, owner, live.key, live.draft, 1, 0);
+	}
+	/**
+	 * derived-terms-v1 binds the exact wire body, the row's contract digest and every bound
+	 * statement. It is computed at Review and at a new claim, while the row exists. Every derived
+	 * row's price is unknown until its rate basis is published (G4b), so Review asks for consent.
+	 */
+	function derivedTerms(
+		live: DerivedLiveRequest & { row: NonNullable<DerivedLiveRequest["row"]> },
+		request: DerivedRequest,
+		wording: DerivedWording,
+		feeds: PricingFeeds,
+		revision: number,
+	) {
+		const quote: PriceEstimate = { status: "unknown", reason: "rate-unavailable", maxAttempts: 1 };
+		const priceTerms = [revision, quote, true, feeds.poyo ?? null];
+		return {
+			quote,
+			requiresConsent: true,
+			wording,
+			terms: digest("derived-terms-v1", ...priceTerms, request.body, live.row.contract, wording),
+		};
+	}
+	return { digest, signature, reviewTerms, derivedSignature, derivedTerms };
 }

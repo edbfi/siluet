@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
+import { parseDerivedRequest } from "./derived";
 import { parseQueueRequest } from "./request";
 
 const draft = { ...createSeedreamDraft("poyo"), prompt: "a folding screen" };
@@ -221,3 +222,81 @@ test.each(["poyo", "toapis"] as const)(
 		});
 	},
 );
+
+describe("derived text-to-image requests", () => {
+	const key = {
+		provider: "poyo",
+		model: "flux-dev",
+		route: "POST /api/generate/submit",
+		operation: "text-to-image",
+	} as const;
+	const derivedDraft = {
+		model: "flux-dev",
+		operation: "text-to-image",
+		prompt: "A paper crane on a windowsill",
+		options: { output_format: "png" },
+	};
+	const body = (change: Record<string, unknown> = {}) => ({
+		draft: derivedDraft,
+		operationKey: key,
+		count: 1,
+		retryLimit: 0,
+		acceptUnknown: false,
+		...change,
+	});
+
+	test("Review resolves the row in the current projection and builds the exact request", () => {
+		const parsed = parseDerivedRequest(body(), "review");
+		expect(parsed?.row?.key).toEqual(key);
+		expect(parsed?.request?.body).toEqual({
+			model: "flux-dev",
+			input: {
+				prompt: derivedDraft.prompt,
+				output_format: "png",
+				n: 1,
+				enable_safety_checker: false,
+			},
+		});
+		expect(parseQueueRequest(body())).toBeNull();
+	});
+
+	test("submit parses structurally and never looks the row up", () => {
+		const retired = {
+			...body(),
+			operationKey: { ...key, model: "retired-model" },
+			draft: { ...derivedDraft, model: "retired-model", options: { size: "1:1" } },
+			token: "id.terms.signature",
+		};
+		expect(parseDerivedRequest(retired, "review")).toBeNull();
+		const parsed = parseDerivedRequest(retired, "submit");
+		expect(parsed).toMatchObject({ key: retired.operationKey, draft: retired.draft, count: 1 });
+		expect(parsed?.row).toBeUndefined();
+		// A draft the current row would refuse still parses for replay.
+		const narrowed = body({ draft: { ...derivedDraft, options: { output_format: "gif" } } });
+		expect(parseDerivedRequest(narrowed, "review")).toBeNull();
+		expect(parseDerivedRequest(narrowed, "submit")).not.toBeNull();
+	});
+
+	test("a released operation key, another count or a malformed request is refused", () => {
+		const seedream = { ...key, model: "seedream-5.5" };
+		for (const action of ["review", "submit"] as const) {
+			for (const value of [
+				body({ operationKey: seedream, draft: { ...derivedDraft, model: "seedream-5.5" } }),
+				body({ count: 2 }),
+				body({ retryLimit: 1 }),
+				body({ acceptUnknown: "yes" }),
+				body({ extra: true }),
+				body({ operationKey: { ...key, route: "POST /v1/images/generations" } }),
+				body({ operationKey: { ...key, operation: "reference-image-edit" } }),
+				body({ operationKey: { ...key, extra: 1 } }),
+				body({ operationKey: { ...key, model: "../flux-dev" } }),
+				body({ draft: { ...derivedDraft, model: "flux-schnell" } }),
+				body({ draft: { ...derivedDraft, extra: 1 } }),
+				body({ draft: { ...derivedDraft, options: { output_format: { nested: true } } } }),
+				body({ draft: { ...derivedDraft, prompt: 42 } }),
+				body({ draft: [] }),
+			])
+				expect([action, parseDerivedRequest(value, action)]).toEqual([action, null]);
+		}
+	});
+});
