@@ -18,8 +18,8 @@ const slices: Record<string, string> = {
 	G8b: "Poyo.ai image references are",
 };
 
-// One plain sentence for each kind of pending reason the deriver records. poyo-rows.json keeps
-// the technical detail.
+// One plain sentence for each kind of pending reason the deriver or the Queue projection records.
+// poyo-rows.json keeps the technical detail.
 const pendingReasons: [kind: RegExp, reason: string][] = [
 	[/^not in the pinned catalog$/, "Siluet's copy of Poyo.ai's catalog does not list it"],
 	[/^service /, "Poyo.ai runs it as a service Siluet does not call yet"],
@@ -30,13 +30,31 @@ const pendingReasons: [kind: RegExp, reason: string][] = [
 	[/^D4 refused$/, "Poyo.ai refuses the filtering field"],
 	[/^no valid minimal request\b/, "Siluet cannot build a valid request from Poyo.ai's schemas yet"],
 	[/^no evidence of one output\b/, "Poyo.ai does not document that it returns one image"],
+	[
+		/^Gallery saves none of its output formats$/,
+		"Gallery cannot save the image types this model offers",
+	],
+	[
+		/^output format is not a typed enum$/,
+		"Siluet cannot read this model's output format option yet",
+	],
+	[/^no prompt field$/, "Poyo.ai's schema has no prompt field for it"],
+	[
+		/^it offers no \S+ value Siluet can send$/,
+		"Siluet cannot send any value of one of its options yet",
+	],
+	[
+		/^the preselected request does not validate\b/,
+		"Siluet cannot build a valid request from Poyo.ai's schemas yet",
+	],
 ];
 
 /** The first reason a derived row cannot queue yet, in plain words from its own data. */
 export function reviewOnlyReason(row: DerivedRow, queue?: PendingQueueRow) {
 	const unqualified = queue?.reason.match(/^class not yet qualified: (.+)$/)?.[1];
 	if (unqualified) return `its ${unqualified} options are not qualified yet (G4)`;
-	const [pending] = row.pending;
+	// A Queue refusal starts with the row's own first pending reason, when it has one.
+	const pending = queue?.reason ?? row.pending[0];
 	if (pending) {
 		const plain = pendingReasons.find(([kind]) => kind.test(pending));
 		if (!plain) throw new Error(`No plain reason for ${row.model} (${pending}).`);

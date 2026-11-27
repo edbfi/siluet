@@ -201,3 +201,31 @@ test("the picker separates Queue-eligible operations from Review-only rows", () 
 	);
 	expect(picker.find(({ model }) => model === "nano-banana-pro")?.queue).toEqual(["text-to-image"]);
 });
+
+test("an output format Siluet cannot offer refuses the row with its reason, never drops the format", () => {
+	const flux = rows.find((row) => row.model === "flux-dev") as DerivedRow;
+	for (const [reason, plain] of [
+		[
+			"Gallery saves none of its output formats",
+			"Gallery cannot save the image types this model offers",
+		],
+		[
+			"output format is not a typed enum",
+			"Siluet cannot read this model's output format option yet",
+		],
+	]) {
+		const unsavable: DerivedRow = {
+			...flux,
+			options: flux.options.map((option) =>
+				option.field === "output_format"
+					? { ...option, gap: { state: "pending", reason } }
+					: option,
+			),
+		};
+		expect(queueRow(unsavable)).toBe(reason);
+		// The picker names the format, not the slice.
+		const listed = pickerRows([unsavable]).find(({ model }) => model === "flux-dev");
+		expect(listed?.queue).toBeUndefined();
+		expect(listed?.reason).toBe(plain);
+	}
+});

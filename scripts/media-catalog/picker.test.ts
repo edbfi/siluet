@@ -98,3 +98,30 @@ test("a blocking D4 state reads plainly", () => {
 		"Poyo.ai refuses the filtering field",
 	);
 });
+
+test("every reason a Queue row is refused reads plainly, and an unknown one is refused", () => {
+	const row = rows.find(({ model }) => model === "flux-dev");
+	if (!row) throw new Error("flux-dev has no derived row.");
+	const queued = (reason: string) =>
+		reviewOnlyReason(row, { model: "flux-dev", operation: "text-to-image", reason });
+	expect(queued("class not yet qualified: number")).toBe(
+		"its number options are not qualified yet (G4)",
+	);
+	expect(queued("Gallery saves none of its output formats")).toBe(
+		"Gallery cannot save the image types this model offers",
+	);
+	expect(queued("output format is not a typed enum")).toBe(
+		"Siluet cannot read this model's output format option yet",
+	);
+	expect(queued("no evidence of one output")).toBe(
+		"Poyo.ai does not document that it returns one image",
+	);
+	expect(queued("no prompt field")).toBe("Poyo.ai's schema has no prompt field for it");
+	expect(queued("it offers no size value Siluet can send")).toBe(
+		"Siluet cannot send any value of one of its options yet",
+	);
+	expect(queued("the preselected request does not validate: /input/size must be string")).toBe(
+		"Siluet cannot build a valid request from Poyo.ai's schemas yet",
+	);
+	expect(() => queued("schema drifted")).toThrow("No plain reason for flux-dev (schema drifted).");
+});

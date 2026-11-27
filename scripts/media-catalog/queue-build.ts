@@ -92,7 +92,10 @@ export function queueRow(row: DerivedRow): QueueRow | string {
 	const schemas = rowSchemas(row);
 	const prompt = row.options.find((option) => option.field === "prompt");
 	if (prompt?.kind !== "free-text") return "no prompt field";
-	// Options with a gap have no covered path and are not sent; a fixed count is no option.
+	// A format Siluet cannot offer refuses the row: dropping it would leave the type to Poyo.ai.
+	const format = row.options.find((option) => option.field === "output_format")?.gap;
+	if (format) return format.reason;
+	// Other options with a gap have no covered path and are not sent; a fixed count is no option.
 	const sent = row.options.filter(
 		(option) => option.field !== "prompt" && option.kind !== "count" && !option.gap,
 	);
