@@ -1,9 +1,8 @@
-import type { DerivedWording } from "../../../shared/image-studio/derived-review";
+import { type DerivedWording, derivedQuote } from "../../../shared/image-studio/derived-review";
 import type { editDisclosure } from "../../../shared/image-studio/edit-disclosure";
 import { createImageReview } from "../../../shared/image-studio/review";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import { zImageDisclosure } from "../../../shared/image-studio/z-image";
-import type { PriceEstimate } from "../../../shared/pricing/estimate";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
 import type { DerivedLiveRequest, DerivedRequest } from "./derived";
 import type { LiveRequest } from "./request";
@@ -114,7 +113,7 @@ export function reviewBinding(
 		feeds: PricingFeeds,
 		revision: number,
 	) {
-		const quote: PriceEstimate = { status: "unknown", reason: "rate-unavailable", maxAttempts: 1 };
+		const quote = derivedQuote;
 		const priceTerms = [revision, quote, true, feeds.poyo ?? null];
 		return {
 			quote,

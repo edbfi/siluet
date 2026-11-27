@@ -9,10 +9,20 @@ import { prompt, withEditStudio } from "./edit-studio-fixture";
 import { claimOwner, ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
+const rows = projection.rows as {
+	model: string;
+	media: string;
+	reason: string;
+	queue?: string[];
+}[];
 const expected = (media: string) =>
-	projection.rows
-		.filter((row) => row.media === media)
+	rows
+		.filter((row) => row.media === media && !row.queue)
 		.map((row) => ({ value: row.model, text: `${row.model} (Review only: ${row.reason})` }));
+// Derived image rows whose text-to-image operation can Queue get their own group.
+const queueable = rows
+	.filter((row) => row.media === "image" && row.queue?.includes("text-to-image"))
+	.map((row) => ({ value: row.model, text: row.model, disabled: false }));
 
 /** Each option in a family group, as the picker lists it. */
 function listed(picker: Locator, family: string) {
@@ -63,23 +73,25 @@ test("the picker lists every derived Poyo.ai row as Review-only with its reason,
 		const model = page.getByLabel("Model", { exact: true });
 		const imageRows = await listed(model, "Poyo.ai image");
 		expect(imageRows).toEqual(expected("image").map((row) => ({ ...row, disabled: false })));
-		expect(imageRows.length).toBeGreaterThan(70);
+		expect(imageRows.length).toBeGreaterThan(55);
+		expect(await listed(model, "Poyo.ai image · Queue")).toEqual(queueable);
+		expect(queueable.length).toBeGreaterThan(10);
 		await expect(model.locator("option").first()).toHaveText("Seedream 5.5");
 		await expect(model).toHaveValue("seedream-5.5");
 		const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
 		await prompt.fill("Fog over a quiet harbour");
 		await expect(page.getByRole("button", { name: "Queue 1 request" })).toBeVisible();
 
-		await model.selectOption("flux-dev");
+		await model.selectOption("flux-2-pro");
 		const review = page.getByRole("region", { name: "Review request" });
 		await expect(review.getByRole("status")).toHaveText(
-			"Review only. Poyo.ai text-to-image is not verified yet (G4). Siluet sends nothing for this model.",
+			"Review only. Poyo.ai does not document that it returns one image. Siluet sends nothing for this model.",
 		);
 		await expect(page.getByText("Poyo.ai image", { exact: true })).toBeVisible();
 		await expect(review.getByRole("definition")).toHaveText([
 			"Poyo.ai",
-			"flux-dev",
-			"Text to image, Reference image edit",
+			"flux-2-pro",
+			"Text to image",
 		]);
 		await expect(page.getByRole("button", { name: /^Queue/ })).toHaveCount(0);
 		await expect(page.getByRole("button", { name: "Review request" })).toHaveCount(0);
@@ -194,7 +206,7 @@ test("a lost Queue keeps its Retry across a Review-only row, and the Model picke
 		await expect(status).toContainText("Queue confirmation is unavailable");
 		await expect(model).toBeEnabled();
 
-		await model.selectOption("flux-dev");
+		await model.selectOption("flux-2-pro");
 		await expect(review.getByRole("status")).toContainText("Review only.");
 		await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
 		await model.selectOption("seedream-5.5");
@@ -224,7 +236,7 @@ test("a local reference file survives a Review-only round trip, even while Silue
 		});
 		await file.setInputFiles(await markedFile("png"));
 		await expect(file).toHaveAccessibleDescription(/Checking file…/);
-		await model.selectOption("flux-dev");
+		await model.selectOption("flux-2-pro");
 		await expect(file).toBeHidden();
 		await model.selectOption("seedream-5.5");
 		await page.evaluate(() => (window as unknown as { releaseDecode: () => void }).releaseDecode());
@@ -232,7 +244,7 @@ test("a local reference file survives a Review-only round trip, even while Silue
 		await expect(file).toHaveAccessibleDescription(new RegExp(`${localFilenameMarker}\\.png`));
 
 		// Once checked, the file stays attached across another round trip.
-		await model.selectOption("flux-dev");
+		await model.selectOption("flux-2-pro");
 		await model.selectOption("seedream-5.5");
 		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
 		await inspect.press("Enter");

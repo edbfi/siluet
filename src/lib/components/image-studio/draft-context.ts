@@ -1,4 +1,5 @@
 import { createContext } from "svelte";
+import type { DerivedDraft } from "#lib/shared/image-studio/derived.ts";
 import type { SeedreamDraft } from "#lib/shared/image-studio/seedream.ts";
 
 import type { ZImageDraft } from "#lib/shared/image-studio/z-image.ts";
@@ -8,7 +9,9 @@ export type ReferenceDraft = { slots: ReferenceSlotDraft[]; nextIdentity: number
 
 export type ComposerDraft =
 	| { model: "seedream-5.5"; request: SeedreamDraft; references: ReferenceDraft }
-	| { model: "z-image"; request: ZImageDraft; privateName: string };
+	| { model: "z-image"; request: ZImageDraft; privateName: string }
+	/** A Queue-eligible derived row; `request.model` names its exact ID. */
+	| { model: "derived"; request: DerivedDraft };
 
 export type ImageDraftMemory = {
 	draft?: ComposerDraft;

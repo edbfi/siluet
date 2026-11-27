@@ -1073,7 +1073,10 @@ describe("derived text-to-image rows", () => {
 		for (const [owner, value] of [
 			["owner", tampered],
 			["other", click(input, review.token)],
-			["owner", click(input, `${id}.${terms}.${signed.slice(0, -1)}0`)],
+			[
+				"owner",
+				click(input, `${id}.${terms}.${signed.slice(0, -1)}${signed.endsWith("0") ? "1" : "0"}`),
+			],
 		] as const)
 			expect(await api.submit(owner, value)).toEqual({ error: "invalid" });
 		expect(sent).toHaveLength(1);

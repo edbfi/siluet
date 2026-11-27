@@ -5,6 +5,7 @@ import { poyoAccessNote } from "../media-catalog/eligibility";
 import { d4Wording } from "../media-catalog/filtering";
 import { queueRevision } from "../media-catalog/image-queue";
 import type { QueueRow } from "../media-catalog/queue-row";
+import type { PriceEstimate } from "../pricing/estimate";
 
 /** Gallery's image limit today: 16,000,000 pixels (G13 raises it). */
 export const galleryMegapixels = 16;
@@ -31,4 +32,29 @@ export function derivedWording(row: QueueRow): DerivedWording {
 		gallery: galleryStatement,
 		access: poyoAccessNote,
 	};
+}
+
+/**
+ * A derived row's price in this release: no derived rate basis is published yet (G4b), so the
+ * price is unknown and Queue needs the creator's acceptance (spec, condition 3).
+ */
+export const derivedQuote: PriceEstimate = {
+	status: "unknown",
+	reason: "rate-unavailable",
+	maxAttempts: 1,
+};
+
+/** Review's note for a refusal Poyo.ai confirmed for this key; it never blocks Queue. */
+export const refusalNote = (refusedAt: number) =>
+	`Poyo.ai refused this model for this key on ${new Date(refusedAt).toISOString().slice(0, 10)}.`;
+
+/** The values each field cannot take with the others chosen, under the row's combinations. */
+export function refusedValues(row: QueueRow, options: Readonly<Record<string, unknown>>) {
+	const refused: Record<string, unknown[]> = {};
+	for (const { when, refuses } of row.combinations) {
+		if (!Object.entries(when).every(([wire, value]) => options[wire] === value)) continue;
+		for (const [wire, values] of Object.entries(refuses))
+			refused[wire] = [...new Set([...(refused[wire] ?? []), ...values])];
+	}
+	return refused;
 }

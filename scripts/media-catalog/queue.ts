@@ -107,7 +107,7 @@ export function queueRow(row: DerivedRow): QueueRow | string {
 	if (row.count === undefined) return "no evidence of one output";
 	const schemas = rowSchemas(row);
 	const prompt = row.options.find((option) => option.field === "prompt");
-	if (!prompt || prompt.kind !== "free-text") return "no prompt field";
+	if (prompt?.kind !== "free-text") return "no prompt field";
 	// Options with a gap have no covered path and are not sent; a fixed count is no option.
 	const sent = row.options.filter(
 		(option) => option.field !== "prompt" && option.kind !== "count" && !option.gap,

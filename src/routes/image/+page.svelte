@@ -1,5 +1,6 @@
 <script lang="ts">
 import { untrack } from "svelte";
+import DerivedImageFields from "#lib/components/image-studio/DerivedImageFields.svelte";
 import {
 	type ComposerDraft,
 	createReferenceDraft,
@@ -13,6 +14,11 @@ import { setAside } from "#lib/components/image-studio/request-styles.ts";
 import SeedreamFields from "#lib/components/image-studio/SeedreamFields.svelte";
 import ZImageFields from "#lib/components/image-studio/ZImageFields.svelte";
 import ReviewOnlyPanel from "#lib/components/media-catalog/ReviewOnlyPanel.svelte";
+import {
+	buildDerivedRequest,
+	createDerivedDraft,
+	validateDerivedDraft,
+} from "#lib/shared/image-studio/derived.ts";
 import {
 	duplicateReferenceSlots,
 	stageableReferences,
@@ -28,6 +34,7 @@ import {
 	createZImageDraft,
 	validateZImageDraft,
 } from "#lib/shared/image-studio/z-image.ts";
+import { queueRowFor } from "#lib/shared/media-catalog/image-queue.ts";
 import { reviewOnlyFamily, reviewOnlyImageRows } from "#lib/shared/media-catalog/picker.ts";
 import {
 	releasedImageOperations,
@@ -69,13 +76,27 @@ let previewIndex = $state(0);
 // Its fields and Review stay mounted, hidden, so a lost Queue's Retry and any file check survive.
 let reviewOnly = $state.raw<(typeof reviewOnlyImageRows)[number] | null>(null);
 let pending = $state<"review" | "queue" | null>(null);
+// A Queue-eligible derived row's text-to-image operation, by its exact model ID.
+const queueRow = (model: string) =>
+	queueRowFor({
+		provider: "poyo",
+		model,
+		route: "POST /api/generate/submit",
+		operation: "text-to-image",
+	});
+const composerModel = $derived(
+	composer.model === "derived" ? composer.request.model : composer.model,
+);
 function switchModel(id: string) {
 	reviewOnly = reviewOnlyImageRows.find((row) => row.model === id) ?? null;
 	if (reviewOnly) return;
-	const { prompt, operation } = composer.request;
-	if (id === composer.model) return;
-	composer =
-		id === zImageModel.id
+	const { prompt } = composer.request;
+	const operation = composer.request.operation === "edit" ? "edit" : "generate";
+	if (id === composerModel) return;
+	const eligible = queueRow(id);
+	composer = eligible
+		? { model: "derived", request: createDerivedDraft(eligible, prompt) }
+		: id === zImageModel.id
 			? { model: id, request: createZImageDraft(operation, prompt), privateName: "" }
 			: {
 					model: seedreamModel.id,
@@ -84,6 +105,15 @@ function switchModel(id: string) {
 				};
 	previewIndex = 0;
 }
+const derivedRow = $derived(composer.model === "derived" ? queueRow(composer.request.model) : null);
+const derivedCheck = $derived(
+	composer.model === "derived" && derivedRow
+		? validateDerivedDraft(derivedRow, composer.request)
+		: null,
+);
+const refusedAt = $derived(
+	data.refusals.find((refusal) => refusal.model === derivedRow?.key.model)?.refusedAt ?? null,
+);
 const duplicateWarning = $derived.by(() => {
 	if (composer.model !== "seedream-5.5") return null;
 	const positions = duplicateReferenceSlots(composer.request.references);
@@ -105,6 +135,22 @@ const zImage = $derived(
 	composer.model === "z-image" ? validateZImageDraft(composer.request) : null,
 );
 const active = $derived.by(() => {
+	if (derivedCheck?.ok && derivedRow) {
+		const request = buildDerivedRequest(derivedRow, derivedCheck.draft);
+		const format = derivedCheck.draft.options.output_format;
+		return {
+			entry: { key: derivedRow.key, evidence: derivedRow.d4 },
+			review: createImageReview(
+				{
+					provider: "poyo",
+					operation: "generate",
+					references: [],
+					...(typeof format === "string" && { outputFormat: format }),
+				},
+				request,
+			),
+		};
+	}
 	if (zImage?.ok) {
 		const { input } = zImage;
 		return {
@@ -136,17 +182,17 @@ $effect(() => {
 <svelte:head><title>Image Studio · Siluet</title></svelte:head>
 <ImageComposer
 	bind:this={shell}
-	modelId={reviewOnly?.model ?? composer.model}
-	family={reviewOnly
-		? reviewOnlyFamily(reviewOnly.media)
+	modelId={reviewOnly?.model ?? composerModel}
+	family={reviewOnly || composer.model === "derived"
+		? reviewOnlyFamily("image")
 		: (composer.model === "z-image" ? zImageModel : seedreamModel).family}
 	reviewOnly={!!reviewOnly}
 	locked={!!pending}
 	onModel={switchModel}
 	reviewHref={`#${reviewOnly ? reviewOnlyHeadingId : headingId}`}
-	operation={composer.request.operation}
+	operation={composer.request.operation === "edit" ? "edit" : "generate"}
 	{previewIndex}
-	reference={composer.request.references[previewIndex]}
+	reference={composer.model === "derived" ? undefined : composer.request.references[previewIndex]}
 >
 	{#snippet fields()}
 		<div class={setAside} hidden={!!reviewOnly}>
@@ -161,6 +207,13 @@ $effect(() => {
 					{localCopies}
 					bind:previewIndex
 					focusPreview={() => shell.focusPreview()}
+				/>
+			{:else if composer.model === "derived" && derivedRow}
+				<DerivedImageFields
+					bind:draft={composer.request}
+					row={derivedRow}
+					connected={data.zImageConnected}
+					errors={derivedCheck && !derivedCheck.ok ? derivedCheck.errors : {}}
 				/>
 			{:else if composer.model === "z-image"}
 				<ZImageFields
@@ -178,10 +231,10 @@ $effect(() => {
 		{/if}
 		<div class={setAside} hidden={!!reviewOnly}>
 			<ImageReview
-				modelId={composer.model}
-				connected={composer.model === "z-image"
-					? data.zImageConnected
-					: !!composer.request.provider}
+				modelId={composerModel}
+				connected={composer.model === "seedream-5.5"
+					? !!composer.request.provider
+					: data.zImageConnected}
 				entry={active?.entry ?? null}
 				review={active?.review ?? null}
 				draft={composer.request}
@@ -192,8 +245,11 @@ $effect(() => {
 				{headingId}
 				feeds={data.pricingFeeds}
 				nowMs={data.pricingNowMs}
-				provider={composer.request.provider ?? undefined}
-				operation={composer.request.operation}
+				provider={composer.model === "seedream-5.5"
+					? (composer.request.provider ?? undefined)
+					: "poyo"}
+				operation={composer.request.operation === "edit" ? "edit" : "generate"}
+				catalogRow={derivedRow ? { row: derivedRow, refusedAt } : null}
 				{localCopies}
 				bind:pending
 			/>

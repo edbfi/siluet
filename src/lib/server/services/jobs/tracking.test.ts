@@ -486,7 +486,7 @@ test("a derived job whose row a re-pin removed dispatches, recovers and delivers
 
 test("a Poyo.ai permission refusal rejects one job, keeps the key and records the refusal", async () => {
 	let posts = 0;
-	const jobs = makeTracking(async (url, request) => {
+	const jobs = makeTracking(async (_url, request) => {
 		if (request.method === "POST") {
 			posts++;
 			return Response.json(
