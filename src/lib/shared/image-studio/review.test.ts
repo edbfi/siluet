@@ -359,3 +359,17 @@ test("Review names the per-reference charge included in a ToAPIs edit", () => {
 	);
 	expect(reviewReferenceCharge(undefined)).toBeUndefined();
 });
+
+test("Review shows the type the request's output format asks for, or none when it sends no format", () => {
+	expect(createImageReview({ ...input, outputFormat: "jpeg" }, poyoWire).expected).toEqual({
+		format: "jpeg",
+		type: "image/jpeg",
+		name: "JPEG",
+	});
+	expect(createImageReview({ ...toapisInput, outputFormat: "png" }, toapisWire).expected).toEqual({
+		format: "png",
+		type: "image/png",
+		name: "PNG",
+	});
+	expect(createImageReview(toapisInput, toapisWire).expected).toBeNull();
+});
