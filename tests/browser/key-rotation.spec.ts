@@ -642,12 +642,15 @@ test("tabs that met the old key's 401 before the commit follow the new key once 
 	await page.getByLabel("Current password").fill(password);
 	await page.getByLabel("Authenticator or recovery code").fill(codes[0]);
 	await page.getByLabel("Security action").selectOption("regenerate");
+	// The regeneration replaces the sibling's session: its notice, or a focus check, has the
+	// sibling load the successor. Waiting for that load avoids racing it with a reload of our own.
+	const successor = sibling.waitForEvent("load");
 	await page.getByRole("button", { name: "Continue" }).click();
 	const dialog = page.getByRole("dialog");
 	await expect(dialog.locator("li")).toHaveCount(10);
 	const fresh = (await dialog.locator("li").allTextContents()).map((code) => code.trim());
-	// The regeneration replaced the sibling's session; it loads the successor.
-	await sibling.reload();
+	await focusBoundTab(sibling);
+	await successor;
 	await expect(sibling.getByRole("heading", { name: "No jobs yet" })).toBeVisible();
 	const siblingDocuments: string[] = [];
 	sibling.on("request", (request) => {
