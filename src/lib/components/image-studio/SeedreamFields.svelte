@@ -11,7 +11,7 @@ import {
 	type SeedreamOperation,
 	type SeedreamProvider,
 	seedreamBackgrounds,
-	seedreamOutputFormats,
+	seedreamFormats,
 	seedreamProviderNames,
 	switchSeedreamDraft,
 	type validateSeedreamDraft,
@@ -378,10 +378,10 @@ function setBackground(background: SeedreamDraft["options"]["background"]) {
 			<div class={[requestField, requestLabel]}>
 				<label for={`${id}-format`}>Output format</label>
 				<select class={requestControl} id={`${id}-format`} bind:value={draft.options.outputFormat}>
-					{#each seedreamOutputFormats as format (format)}
+					{#each seedreamFormats(draft.provider).values as format (format)}
 						<option
 							value={format}
-							disabled={format === "jpeg" && draft.options.background === "transparent"}
+							disabled={format !== "png" && draft.options.background === "transparent"}
 						>
 							{format.toUpperCase()}
 						</option>

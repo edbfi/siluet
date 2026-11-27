@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
+import { offeredFormats, poyoOutputFormats } from "../media-catalog/formats";
+import { seedream55Page } from "../media-catalog/toapis/seedream-5.5";
 import { parseReferenceUrl, referenceFileError } from "./references";
 import {
 	buildSeedreamRequest,
 	createSeedreamDraft,
+	seedreamFormats,
 	switchSeedreamDraft,
 	validateSeedreamDraft,
 } from "./seedream";
@@ -336,3 +339,30 @@ test("reference file validation applies each provider’s formats and decimal by
 	expect(referenceFileError("toapis", { ...webp, type: "image/svg+xml" })).not.toBeNull();
 	expect(referenceFileError("poyo", { ...webp, size: 0 })).not.toBeNull();
 });
+
+test.each(["poyo", "toapis"] as const)(
+	"%s Seedream offers and preselects the formats its row data documents, and refuses any other",
+	(provider) => {
+		const formats = seedreamFormats(provider);
+		expect<unknown>(formats).toEqual(
+			provider === "poyo"
+				? poyoOutputFormats("seedream-5.5")
+				: offeredFormats(seedream55Page.outputFormat),
+		);
+		expect(formats).toEqual({ values: ["png", "jpeg"], preselected: "png" });
+		const draft = { ...createSeedreamDraft(provider), prompt };
+		expect(draft.options.outputFormat).toBe(formats.preselected as string);
+		for (const format of ["jpg", "webp", "gif", "PNG"]) {
+			draft.options.outputFormat = format;
+			expect(validateSeedreamDraft(draft)).toMatchObject({
+				ok: false,
+				errors: { outputFormat: "Choose an output format this model offers." },
+			});
+		}
+		draft.options.outputFormat = "jpeg";
+		const result = validateSeedreamDraft(draft);
+		if (!result.ok) throw new Error("Expected a valid request");
+		const { body } = buildSeedreamRequest(result.input, () => "[reference]");
+		expect("input" in body ? body.input : body.metadata).toMatchObject({ output_format: "jpeg" });
+	},
+);

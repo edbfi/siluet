@@ -1,3 +1,4 @@
+import { offeredFormats, poyoOutputFormats } from "../media-catalog/formats";
 import {
 	type ReleasedImageOperation,
 	releasedProviders,
@@ -5,6 +6,7 @@ import {
 	seedreamOperation,
 	seedreamRoutes,
 } from "../media-catalog/registry";
+import { seedream55Page } from "../media-catalog/toapis/seedream-5.5";
 import type { ProviderId } from "../providers/connections";
 import {
 	maxSeedreamReferences,
@@ -31,14 +33,12 @@ export const poyoAspectRatios = [
 ] as const;
 export const seedreamResolutions = ["1K", "1.5K", "2K"] as const;
 export const seedreamBackgrounds = ["auto", "opaque", "transparent"] as const;
-export const seedreamOutputFormats = ["png", "jpeg"] as const;
 export const toapisPixelLimits = { minArea: 921_600, maxArea: 4_624_220, maxRatio: 16 } as const;
 export const poyoPromptLimits = { min: 5, max: 5000 } as const;
 
 type AspectRatio = (typeof poyoAspectRatios)[number] | "auto";
 type Resolution = (typeof seedreamResolutions)[number];
 type Background = (typeof seedreamBackgrounds)[number];
-type OutputFormat = (typeof seedreamOutputFormats)[number];
 type PixelSize = `${number}x${number}`;
 
 export type SeedreamDraft = {
@@ -53,7 +53,8 @@ export type SeedreamDraft = {
 		width: number | undefined;
 		height: number | undefined;
 		background: Background;
-		outputFormat: OutputFormat;
+		/** One of the provider's offered formats, sent verbatim. */
+		outputFormat: string;
 		watermark: boolean;
 	};
 };
@@ -63,7 +64,7 @@ type CommonReviewInput = {
 	prompt: string;
 	references: readonly SeedreamReference[];
 	background: Background;
-	outputFormat: OutputFormat;
+	outputFormat: string;
 };
 
 export type SeedreamReviewInput = CommonReviewInput &
@@ -76,6 +77,20 @@ export type SeedreamReviewInput = CommonReviewInput &
 				watermark: boolean;
 		  }
 	);
+
+// Each provider's offered formats come from its own row data: Poyo.ai's derived row and the
+// formats ToAPIs' page documents.
+const formats = {
+	poyo: poyoOutputFormats(seedreamRoutes.poyo.model),
+	toapis: offeredFormats(seedream55Page.outputFormat),
+};
+
+/** The output formats Seedream offers on a provider, with the one the composer preselects. */
+export function seedreamFormats(provider: SeedreamProvider) {
+	const { values, preselected } = formats[provider] ?? {};
+	if (!values || !preselected) throw new Error(`Seedream on ${provider} offers no output format.`);
+	return { values, preselected };
+}
 
 type DraftErrors = Partial<
 	Record<"provider" | "prompt" | "size" | "outputFormat" | "references", string>
@@ -100,7 +115,7 @@ export function createSeedreamDraft(
 			width: 2048,
 			height: 2048,
 			background: "auto",
-			outputFormat: "png",
+			outputFormat: seedreamFormats(provider ?? releasedProviders[0]).preselected,
 			watermark: false,
 		},
 	};
@@ -175,7 +190,9 @@ export function validateSeedreamDraft(
 	}
 
 	const { aspectRatio, resolution, background, outputFormat, watermark } = options;
-	if (background === "transparent" && outputFormat !== "png") {
+	if (!seedreamFormats(provider).values.includes(outputFormat)) {
+		errors.outputFormat = "Choose an output format this model offers.";
+	} else if (background === "transparent" && outputFormat !== "png") {
 		errors.outputFormat = "Choose PNG for a transparent background.";
 	}
 	if (provider === "poyo" && operation === "generate" && aspectRatio === "auto") {
