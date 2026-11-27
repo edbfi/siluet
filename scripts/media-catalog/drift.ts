@@ -223,6 +223,8 @@ function entryChanges(source: string, before: string, after: string): Finding[] 
  * byte-identical. An added or changed entry passes as a notice only when its category is outside
  * the in-scope set and was already present at the pin; any other could be a new media category,
  * so it fails. Removed entries are notices. Null when a model ID repeats, so nothing is compared.
+ * An in-scope entry fails on any change, even to a field the projection ignores (a description):
+ * that is deliberate, so the weekly job also goes red for such an edit and a review decides it.
  */
 function outOfScopeChanges(source: string, pinnedText: string, headText: string) {
 	const list = (text: string) => (JSON.parse(text) as { items: Entry[] }).items;
