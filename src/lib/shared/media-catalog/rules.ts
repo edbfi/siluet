@@ -101,3 +101,48 @@ export const reviewedOverrides: readonly ReviewedOverride[] = [
 		quote: "Text mode defaults to 16:9 and does not accept adaptive.",
 	},
 ];
+
+/** Where a one-output quote stands, bound to the digest of the source it was read from. */
+export type OutputSource =
+	/** The model's OpenAPI spec's `info.description`, at the spec's manifest SHA-256. */
+	| { readonly kind: "openapi-info"; readonly spec: string; readonly sha256: string }
+	/** A model page recorded in page-reviews.json, at its Markdown SHA-256. */
+	| { readonly kind: "page"; readonly url: string; readonly sha256: string };
+
+/**
+ * Evidence that one mode of a row without a count field returns one output (spec, "One output
+ * per request"). The quote must stand in its bound source; a changed digest makes the note stale.
+ */
+export type OutputNote = {
+	readonly model: string;
+	readonly operation: string;
+	readonly quote: string;
+	readonly source: OutputSource;
+};
+
+const openapiInfo = (path: string, sha256: string) =>
+	({ kind: "openapi-info", spec: `/api-manual/image-series/${path}.json`, sha256 }) as const;
+
+// The eleven rows the G4 plan lists as conditional on their model page stay without a note:
+// the two pinned pages (seedream-5.0-pro, nano-banana-2-lite) state no output count, and the
+// other nine pages are not pinned (page-reviews.json).
+export const outputNotes: readonly OutputNote[] = [
+	{
+		model: "qwen-image-2.1",
+		operation: "text-to-image",
+		quote: "The Qwen Image 2.1 API generates one image from text",
+		source: openapiInfo(
+			"qwen-image-2-1",
+			"93a072aed810078eac0fc927c7a81298bacfdeaaeaba51e512dff6380d6919aa",
+		),
+	},
+	{
+		model: "seedream-5.0-flash",
+		operation: "text-to-image",
+		quote: "The Seedream 5.0 Flash API generates one image from text",
+		source: openapiInfo(
+			"seedream-5-0-flash",
+			"767b459336c42f30a351e70ec65fbb3a0e0536f4bc147e953416b48dabab2e1b",
+		),
+	},
+];

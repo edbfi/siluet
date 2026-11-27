@@ -353,6 +353,18 @@ test("the committed baseline watches every reviewed REST page and both ToAPIs mo
 		reviews.pages.map(({ url, sha256 }: WatchedPage) => ({ url, sha256 })),
 	);
 	expect(rest[0].note).toBe("question 10: flux-3-klein prompt, flux-3-klein-edit prompt");
+	// A page reviewed for one-output evidence names that review, so a change to it fails drift
+	// with what it was reviewed for.
+	const pro = rest.find((page) => page.url.endsWith("/seedream-5-0-pro.md"));
+	expect(pro?.note).toBe(
+		"question 10: seedream-5.0-pro prompt, seedream-5.0-pro-edit prompt; one output: seedream-5.0-pro silent",
+	);
+	const changed = drift(baseline, (path) =>
+		pro && path === mirrorPath(pro.url) ? "changed page" : undefined,
+	);
+	expect(changed.findings.find((finding) => finding.subject === pro?.url)?.detail).toContain(
+		"one output: seedream-5.0-pro silent",
+	);
 	// The ledger's ToAPIs model list and public catalog, as Markdown, at the digests read on the
 	// baseline date.
 	const ledger = read("../../docs/media-catalog.v1.json").providers.toapis.sources;

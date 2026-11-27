@@ -50,6 +50,9 @@ test("each reason names the row's first blocker: its schema, its D4 state or its
 	expect(reason("flux-3-max/keyframes-to-video")).toBe(
 		"a required input takes a form Siluet does not read yet",
 	);
+	// A text-to-image row with no documented count and no evidence of one output.
+	expect(reason("flux-2-pro")).toBe("Poyo.ai does not document that it returns one image");
+	expect(reason("qwen-image-3")).toBe("Poyo.ai does not document that it returns one image");
 	// Otherwise the slice that holds the row's first operation, as catalog:coverage assigns it.
 	expect(reason("flux-dev")).toBe("Poyo.ai text-to-image is not verified yet (G4)");
 	expect(reason("wan2.5-text-to-video")).toBe("Poyo.ai text-to-video is not verified yet (G7)");

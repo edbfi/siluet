@@ -12,7 +12,10 @@ import {
 	type RestSide,
 } from "../../src/lib/shared/media-catalog/filtering";
 import { offeredFormats } from "../../src/lib/shared/media-catalog/formats";
+import { releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import {
+	type OutputNote,
+	outputNotes,
 	type ReviewedOverride,
 	reviewedOverrides,
 	reviewedRules,
@@ -61,7 +64,8 @@ const silentPages = new Set(
  */
 const proseDomains: Record<string, string> = {
 	"minimax-h3-image size": "typing rule with G6",
-	"gpt-image-2 size": "typing rule with G4",
+	// Its page is not pinned, so no reviewed source documents the domain (G4 plan, A2).
+	"gpt-image-2 size": "question 11",
 	"gpt-image-2-edit size": "typing rule with G5",
 	"poyo-ai/image-translator source_language": "question 6",
 	"poyo-ai/image-translator target_language": "question 6",
@@ -119,6 +123,11 @@ export type DerivedRow = {
 	d4: FilteringEvidence;
 	/** Reasons the whole row is pending, whatever its slice. */
 	pending: string[];
+	/**
+	 * How a text-to-image row sends one output: `1` where a documented count field accepts 1,
+	 * `null` where a reviewed note shows its mode returns one output. Absent when not evaluated.
+	 */
+	count?: 1 | null;
 	inputs: string[];
 	options: DerivedOption[];
 };
@@ -251,13 +260,63 @@ export type RowSources = {
 	readonly schemas: Readonly<Record<string, Schema>>;
 	readonly rules: readonly ReviewedRule[];
 	readonly overrides?: readonly ReviewedOverride[];
+	/** Each in-scope spec's `info.description`, by spec path. */
+	readonly descriptions?: Readonly<Record<string, string>>;
+	/** Each listed spec's SHA-256, by path. */
+	readonly manifest?: Readonly<Record<string, string>>;
+	/** Reviewed model pages: their SHA-256 and recorded one-output quotes, by URL. */
+	readonly pages?: Readonly<
+		Record<string, { sha256: string; outputs: Readonly<Record<string, string>> }>
+	>;
+	readonly outputNotes?: readonly OutputNote[];
 };
 const pinned: RowSources = {
 	models: openapi.models as RowSources["models"],
 	schemas: openapi.schemas as RowSources["schemas"],
 	rules: reviewedRules,
 	overrides: reviewedOverrides,
+	descriptions: openapi.descriptions,
+	manifest: Object.fromEntries(openapi.manifest.map(({ path, sha256 }) => [path, sha256])),
+	pages: Object.fromEntries(
+		pageReviews.pages.map((page) => [
+			page.url,
+			{ sha256: page.sha256, outputs: ("outputs" in page && page.outputs) || {} },
+		]),
+	),
+	outputNotes,
 };
+
+// Verified representatives keep their reviewed descriptors (spec, "Families and admission").
+const verifiedModels = new Set<string>(
+	releasedOperations.filter(({ key }) => key.provider === "poyo").map(({ key }) => key.model),
+);
+// Rows whose sources state no output count, held by an open question (spec, question 6).
+const outputQuestions: Record<string, number> = { "qwen-image-3": 6, "qwen-image-3-pro": 6 };
+const queueing = new Set(["declared", "open-absent", "open-absent-fixed"]);
+
+/**
+ * Whether a reviewed note shows this mode returns one output: its quote stands in the bound
+ * source at the bound digest. A quote missing from a source at its digest fails derivation; a
+ * changed digest makes the note stale.
+ */
+function noted(
+	model: string,
+	operation: string,
+	{ outputNotes: notes = [], descriptions = {}, manifest = {}, pages = {} }: RowSources,
+) {
+	return notes.some((note) => {
+		if (note.model !== model || note.operation !== operation) return false;
+		const { source } = note;
+		const [digest, text] =
+			source.kind === "openapi-info"
+				? [manifest[source.spec], descriptions[source.spec]]
+				: [pages[source.url]?.sha256, pages[source.url]?.outputs[model]];
+		if (digest !== source.sha256) return false;
+		if (typeof text !== "string" || !text.includes(note.quote) || !note.quote)
+			throw new Error(`The ${model} ${operation} output note quotes text its source lacks.`);
+		return true;
+	});
+}
 
 /** A ledger row's fields a derived row keeps. */
 export type LedgerRow = { media: string; route: string | null; operations: string[] };
@@ -272,12 +331,13 @@ export function deriveRow(
 	row: LedgerRow,
 	model: string,
 	entry: CatalogEntry | undefined,
-	{ models, schemas, rules: allRules, overrides = [] }: RowSources = pinned,
+	sources: RowSources = pinned,
 ): DerivedRow {
+	const { models, schemas, rules: allRules, overrides = [] } = sources;
 	const api = Object.hasOwn(models, model) ? models[model] : undefined;
 	const apiSchema = api && Object.hasOwn(schemas, api.input) ? schemas[api.input] : null;
 	const catalogSchema = entry ? entry.input_schema : null;
-	const sources = [catalogSchema, apiSchema].filter((schema): schema is Schema => !!schema);
+	const schemaSources = [catalogSchema, apiSchema].filter((schema): schema is Schema => !!schema);
 	const catalogSha = catalogSchema && sha256(canonicalJson(catalogSchema));
 	const bindings = [
 		...(catalogSchema
@@ -306,7 +366,7 @@ export function deriveRow(
 	const unsupported = bindings.flatMap(({ schema, ...binding }) => uncovered(schema, binding));
 	const required = [
 		...new Set(
-			sources.flatMap((schema) => (Array.isArray(schema.required) ? schema.required : [])),
+			schemaSources.flatMap((schema) => (Array.isArray(schema.required) ? schema.required : [])),
 		),
 	] as string[];
 	const pending: string[] = [];
@@ -350,7 +410,7 @@ export function deriveRow(
 		const a = domainOf(declaration);
 		const b = inCatalog && inApi ? domainOf(inApi) : undefined;
 		const { domain, disputed } = shared(a, b);
-		const resolved = effectiveDefault(sources, field);
+		const resolved = effectiveDefault(schemaSources, field);
 		const option: DerivedOption = {
 			field,
 			kind,
@@ -420,6 +480,32 @@ export function deriveRow(
 			pending.push(`no valid minimal request: ${attempts[0][0]}`);
 	}
 
+	// One output per request (spec): text-to-image rows this slice can queue send `n: 1` where a
+	// documented count field accepts 1, or need a note that the mode returns one output. Edits
+	// and closed-schema rows are evaluated by the slices that own them (G5, G6).
+	let count: 1 | null | undefined;
+	if (
+		row.media === "image" &&
+		row.operations.includes("text-to-image") &&
+		queueing.has(d4.d4) &&
+		!verifiedModels.has(model)
+	) {
+		const field = options.find((option) => option.kind === "count");
+		const accepts =
+			field &&
+			(field.domain.values
+				? field.domain.values.includes(1)
+				: (field.domain.minimum ?? 1) <= 1 && (field.domain.maximum ?? 1) >= 1);
+		if (accepts) count = 1;
+		else if (noted(model, "text-to-image", sources)) count = null;
+		else
+			pending.push(
+				Object.hasOwn(outputQuestions, model)
+					? `no evidence of one output: question ${outputQuestions[model]}`
+					: "no evidence of one output",
+			);
+	}
+
 	return {
 		model,
 		media: row.media,
@@ -434,6 +520,7 @@ export function deriveRow(
 			: null,
 		d4,
 		pending,
+		...(count !== undefined && { count }),
 		inputs,
 		options,
 	};

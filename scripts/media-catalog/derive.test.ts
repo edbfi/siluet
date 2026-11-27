@@ -289,6 +289,8 @@ describe("fixture rows", () => {
 		route: "POST /api/generate/submit",
 		operations: ["text-to-image"],
 	};
+	// A video row needs no one-output evidence, so its pending reasons are the schema's alone.
+	const videoRow = { ...ledgerRow, media: "video", operations: ["text-to-video"] };
 	const entry = (input_schema: Schema, extra: Partial<CatalogEntry> = {}): CatalogEntry => ({
 		model_id: "fixture",
 		category: "text2img",
@@ -313,7 +315,7 @@ describe("fixture rows", () => {
 	});
 
 	test("a declared fixture with a valid minimal request has nothing pending", () => {
-		expect(deriveRow(ledgerRow, "fixture", entry(declared), none)).toMatchObject({
+		expect(deriveRow(videoRow, "fixture", entry(declared), none)).toMatchObject({
 			d4: { d4: "declared", catalogOnly: true },
 			pending: [],
 		});
@@ -326,7 +328,7 @@ describe("fixture rows", () => {
 				prompt: { type: "string", minLength: 5, maxLength: 2 },
 			},
 		};
-		expect(deriveRow(ledgerRow, "fixture", entry(impossible), none).pending).toEqual([
+		expect(deriveRow(videoRow, "fixture", entry(impossible), none).pending).toEqual([
 			"no valid minimal request: catalog: prompt is longer than 2 characters",
 		]);
 	});
@@ -335,16 +337,16 @@ describe("fixture rows", () => {
 			...declared,
 			properties: { ...declared.properties, prompt: { type: "string", const: "x" } },
 		};
-		expect(deriveRow(ledgerRow, "fixture", entry(constant), none).pending).toEqual([
+		expect(deriveRow(videoRow, "fixture", entry(constant), none).pending).toEqual([
 			"required input uses prompt const",
 		]);
 	});
 	test("a route other than generate/async keeps the row pending", () => {
 		expect(
-			deriveRow(ledgerRow, "fixture", entry(declared, { execution_mode: "sync" }), none).pending,
+			deriveRow(videoRow, "fixture", entry(declared, { execution_mode: "sync" }), none).pending,
 		).toEqual(["service generate/sync"]);
 		expect(
-			deriveRow(ledgerRow, "fixture", entry(declared, { service_type: "chat" }), none).pending,
+			deriveRow(videoRow, "fixture", entry(declared, { service_type: "chat" }), none).pending,
 		).toEqual(["service chat/async"]);
 	});
 	test("a D4 contradiction keeps the row pending", () => {
@@ -354,7 +356,7 @@ describe("fixture rows", () => {
 			properties: { prompt },
 			additionalProperties: false,
 		};
-		const row = deriveRow(ledgerRow, "fixture", entry(declared), withApi(closedApi));
+		const row = deriveRow(videoRow, "fixture", entry(declared), withApi(closedApi));
 		expect(row.d4).toEqual({ d4: "contradiction" });
 		expect(row.pending).toEqual(["D4 contradiction"]);
 	});
@@ -476,6 +478,93 @@ describe("fixture rows", () => {
 		});
 		expect(formatted({ type: "string", enum: ["png", "gif"] })).toBeUndefined();
 	});
+	describe("one output per request", () => {
+		const counted = {
+			...declared,
+			properties: {
+				...declared.properties,
+				n: { type: "integer", minimum: 1, maximum: 4, description: "Number of output images." },
+			},
+		};
+		const info = "The Fixture API generates one image from text.";
+		const sources = (outputNotes: RowSources["outputNotes"], extra: Partial<RowSources> = {}) => ({
+			...withApi(declared),
+			descriptions: { "/fixture.json": info },
+			manifest: { "/fixture.json": "a".repeat(64) },
+			pages: { "https://docs.poyo.ai/fixture.md": { sha256: "b".repeat(64), outputs: {} } },
+			outputNotes,
+			...extra,
+		});
+		const infoNote = (quote = "generates one image from text", sha256 = "a".repeat(64)) => ({
+			model: "fixture",
+			operation: "text-to-image",
+			quote,
+			source: { kind: "openapi-info" as const, spec: "/fixture.json", sha256 },
+		});
+		test("a count field that accepts 1 sends n: 1", () => {
+			const row = deriveRow(ledgerRow, "fixture", entry(counted), withApi(counted));
+			expect(row.count).toBe(1);
+			expect(row.pending).toEqual([]);
+		});
+		test("a one-output quote in the spec's info.description gives count null", () => {
+			const row = deriveRow(ledgerRow, "fixture", entry(declared), sources([infoNote()]));
+			expect(row.count).toBeNull();
+			expect(row.pending).toEqual([]);
+		});
+		test("a quote the bound description lacks fails; a changed spec digest makes it stale", () => {
+			expect(() =>
+				deriveRow(ledgerRow, "fixture", entry(declared), sources([infoNote("one output")])),
+			).toThrow("The fixture text-to-image output note quotes text its source lacks");
+			const stale = deriveRow(
+				ledgerRow,
+				"fixture",
+				entry(declared),
+				sources([infoNote(undefined, "c".repeat(64))]),
+			);
+			expect(stale.count).toBeUndefined();
+			expect(stale.pending).toEqual(["no evidence of one output"]);
+		});
+		test("a page note counts only while the page review records its quote at the bound digest", () => {
+			const pageNote = (sha256: string) => ({
+				model: "fixture",
+				operation: "text-to-image",
+				quote: "Each request returns a single image.",
+				source: { kind: "page" as const, url: "https://docs.poyo.ai/fixture.md", sha256 },
+			});
+			const reviewed = {
+				"https://docs.poyo.ai/fixture.md": {
+					sha256: "b".repeat(64),
+					outputs: { fixture: "Each request returns a single image." },
+				},
+			};
+			expect(
+				deriveRow(
+					ledgerRow,
+					"fixture",
+					entry(declared),
+					sources([pageNote("b".repeat(64))], { pages: reviewed }),
+				).count,
+			).toBeNull();
+			expect(
+				deriveRow(
+					ledgerRow,
+					"fixture",
+					entry(declared),
+					sources([pageNote("d".repeat(64))], { pages: reviewed }),
+				).pending,
+			).toEqual(["no evidence of one output"]);
+			expect(() =>
+				deriveRow(ledgerRow, "fixture", entry(declared), sources([pageNote("b".repeat(64))])),
+			).toThrow("The fixture text-to-image output note quotes text its source lacks");
+		});
+		test("a text-to-image row without either is pending, and a video row is never asked", () => {
+			expect(deriveRow(ledgerRow, "fixture", entry(declared), none).pending).toEqual([
+				"no evidence of one output",
+			]);
+			const video = { ...ledgerRow, media: "video", operations: ["text-to-video"] };
+			expect(deriveRow(video, "fixture", entry(declared), none).pending).toEqual([]);
+		});
+	});
 	test("a field only one source owns is never found on the other's prototype", () => {
 		const closed = { ...declared, additionalProperties: false };
 		const own = (properties: string) =>
@@ -507,6 +596,42 @@ describe("fixture rows", () => {
 			kind: "enum",
 			gap: { state: "unknown", question: 7 },
 		});
+	});
+});
+
+test("the pinned rows' one-output evidence: count fields, info quotes, and none on the conditional pages", () => {
+	const row = (model: string) => rows.find((candidate) => candidate.model === model);
+	for (const model of ["flux-dev", "nano-banana-2", "seedream-4.5", "wan-2.7-image"])
+		expect(row(model)?.count).toBe(1);
+	for (const model of ["qwen-image-2.1", "seedream-5.0-flash"]) {
+		expect(row(model)?.count).toBeNull();
+		expect(row(model)?.pending).toEqual([]);
+	}
+	for (const model of [
+		"flux-2-flex",
+		"flux-2-pro",
+		"flux-kontext-max",
+		"flux-kontext-pro",
+		"gpt-image-2",
+		"grok-imagine-image",
+		"nano-banana",
+		"nano-banana-2-lite",
+		"nano-banana-2-new",
+		"nano-banana-2-official",
+		"seedream-5.0-pro",
+	])
+		expect(row(model)?.pending).toEqual(["no evidence of one output"]);
+	for (const model of ["qwen-image-3", "qwen-image-3-pro"])
+		expect(row(model)?.pending).toEqual(["no evidence of one output: question 6"]);
+	// Verified representatives keep their reviewed descriptors; closed-schema and edit-only rows
+	// wait for the slices that own them (G5, G6).
+	for (const model of ["z-image", "seedream-5.5", "mai-image-2.7", "flux-2-flex-edit"])
+		expect(row(model)?.pending.join()).not.toContain("one output");
+	// gpt-image-2's page is not pinned, so its prose size has no documented domain.
+	expect(row("gpt-image-2")?.options.find((option) => option.field === "size")?.gap).toEqual({
+		state: "unknown",
+		reason: "domain only in prose",
+		question: 11,
 	});
 });
 

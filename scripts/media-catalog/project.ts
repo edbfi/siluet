@@ -246,7 +246,8 @@ export function modelInputs(document: JsonObject, path = "The spec") {
 
 /**
  * The docs index digest, a manifest of every listed spec and, for in-scope IDs only, each
- * model's resolved `input` schema, stored once per distinct schema under its SHA-256. A spec
+ * model's resolved `input` schema, stored once per distinct schema under its SHA-256, and the
+ * `info.description` of each spec that lists one, so reviewed quotes are checked offline. A spec
  * recorded as listing no in-scope model (non-model endpoints; out-of-scope music and voice
  * `Request` specs) is only digested, and fails once it names an in-scope ID outside an
  * example; any other spec without a usable model enum fails the projection.
@@ -262,6 +263,7 @@ export function projectOpenApi(
 	const manifest = paths.map((path) => ({ path, sha256: sha256(read(path)) }));
 	const models: Record<string, { input: string; spec: string; shared?: true }> = {};
 	const schemas: Record<string, Json> = {};
+	const descriptions: Record<string, string> = {};
 	for (const path of paths) {
 		// The Chinese specs are digested in the manifest but not projected.
 		if (path.startsWith("/zh/")) continue;
@@ -280,10 +282,13 @@ export function projectOpenApi(
 			const digest = sha256(canonicalJson(input));
 			schemas[digest] = input;
 			models[id] = { input: digest, spec: path, ...(shared && { shared: true as const }) };
+			const description = ownAt(ownAt(document, "info"), "description");
+			if (typeof description === "string") descriptions[path] = description;
 		}
 	}
 	return `${canonicalJson({
 		date,
+		descriptions,
 		index: { sha256: sha256(index), url: record.openapi.index },
 		manifest,
 		manifestSha256: sha256(manifest.map((file) => `${file.sha256}  ${file.path}\n`).join("")),

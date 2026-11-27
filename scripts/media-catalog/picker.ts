@@ -28,6 +28,7 @@ const pendingReasons: [kind: RegExp, reason: string][] = [
 	[/^D4 unknown$/, "the filtering field is not derived yet"],
 	[/^D4 refused$/, "Poyo.ai refuses the filtering field"],
 	[/^no valid minimal request\b/, "Siluet cannot build a valid request from Poyo.ai's schemas yet"],
+	[/^no evidence of one output\b/, "Poyo.ai does not document that it returns one image"],
 ];
 
 /** The first reason a derived row cannot queue yet, in plain words from its own data. */

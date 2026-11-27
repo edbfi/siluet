@@ -1,6 +1,6 @@
 {
 	"accessed": "2026-11-26",
-	"note": "Model pages read before assigning question 10. Each states no limit for the listed fields.",
+	"note": "Model pages read before assigning question 10, each silent on the listed fields' limits. `outputs` records, per text-to-image ID, the page's one-output quote or that it is silent on the output count.",
 	"pages": [
 		{
 			"url": "https://docs.poyo.ai/api-manual/image-series/flux-3-klein.md",
@@ -37,6 +37,9 @@
 			"silent": {
 				"nano-banana-2-lite": ["prompt"],
 				"nano-banana-2-lite-edit": ["prompt"]
+			},
+			"outputs": {
+				"nano-banana-2-lite": "silent"
 			}
 		},
 		{
@@ -45,6 +48,9 @@
 			"silent": {
 				"seedream-5.0-pro": ["prompt"],
 				"seedream-5.0-pro-edit": ["prompt"]
+			},
+			"outputs": {
+				"seedream-5.0-pro": "silent"
 			}
 		},
 		{

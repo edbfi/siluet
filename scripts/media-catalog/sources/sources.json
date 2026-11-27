@@ -12,7 +12,7 @@
 		"file": "poyo-openapi-2026-11-26.json",
 		"date": "2026-11-26",
 		"index": "https://docs.poyo.ai/llms.txt",
-		"projectionSha256": "6ee22ffbf8c4e1d4a012d7b9e2551eff053fb36c3d1e7c6bf979f5e042acad9a",
+		"projectionSha256": "4d93ff38fcf53a72557bb2159f01b10afdaa9914fd3bb26a7e35dafc53fee300",
 		"extraIds": {
 			"ids": [],
 			"reason": "Documented ledger IDs that the pinned catalog lacks; projected so they keep a REST state until a re-pin lists them. None at ec73207."
