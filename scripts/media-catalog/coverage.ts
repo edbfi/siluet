@@ -4,11 +4,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import ledger from "../../docs/media-catalog.v1.json";
 import type { D4State } from "../../src/lib/shared/media-catalog/filtering";
+import { galleryEnvelope } from "../../src/lib/shared/media-catalog/rules";
 import {
 	type DerivedOption,
 	type DerivedRow,
 	type Domain,
 	deriveRows,
+	envelopeValues,
 	narrowedDomain,
 } from "./derive";
 import { type Offered, type VerifiedOptions, verifiedOptions } from "./verified";
@@ -336,18 +338,33 @@ export function optionObligations(
 		return items;
 	}
 	if (key.verified) {
+		// A covered option leaves its envelope values and custom branch to their own items.
+		const withheld = envelopeValues(row, option, domain);
+		if (withheld.length)
+			items.push({
+				...base,
+				values: range({ values: withheld }),
+				state: "pending",
+				reason: galleryEnvelope.reason,
+				envelope: true,
+			});
+		if (option.custom) items.push({ ...base, values: "custom sizes", ...option.custom });
+		const covered = withheld.length
+			? { ...domain, values: domain.values?.filter((value) => !withheld.includes(value)) }
+			: domain;
+		const listed = range(covered);
 		const choice = offered?.[option.field];
-		const gap = offerGap(domain, choice);
+		const gap = offerGap(covered, choice);
 		items.push(
 			gap
 				? {
 						...base,
-						values,
+						values: listed,
 						state: "pending",
 						reason: gap,
 						...(choice && "maxBytes" in choice && { envelope: true as const }),
 					}
-				: { ...base, values, state: "verified", reason: "offered in full" },
+				: { ...base, values: listed, state: "verified", reason: "offered in full" },
 		);
 		return items;
 	}

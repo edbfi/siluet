@@ -213,6 +213,62 @@ test("closed-absent image keys are assigned to G6, where their acknowledgement l
 	).toBe("G7");
 });
 
+test("a covered option leaves its 4K tier to G13 and its custom sizes to their own state", () => {
+	const key = (model: string) => ({
+		provider: "poyo" as const,
+		model,
+		route: "POST /api/generate/submit",
+		operation: "text-to-image",
+		verified: true,
+	});
+	const items = (model: string, values: readonly unknown[]) => {
+		const row = rows.find((candidate) => candidate.model === model) as DerivedRow;
+		const option = row.options.find(({ field }) => field === "size") as DerivedOption;
+		return optionObligations(key(model), row, option, { size: { values } }, "G4").map(
+			({ values, state, reason, question, envelope }) => [
+				values,
+				state,
+				reason,
+				question,
+				envelope,
+			],
+		);
+	};
+	const listed = ["2K", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"];
+	expect(items("seedream-4.5", listed)).toEqual([
+		['"4K"', "pending", "G13: over Gallery's image limits", undefined, true],
+		["custom sizes", "unknown", "custom sizes: no documented range or tier", 11, undefined],
+		[
+			listed.map((value) => JSON.stringify(value)).join(", "),
+			"verified",
+			"offered in full",
+			undefined,
+			undefined,
+		],
+	]);
+	expect(items("flux-3-klein", ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"])).toEqual([
+		["custom sizes", "pending", "class not yet qualified: custom size", undefined, undefined],
+		[
+			'"1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"',
+			"verified",
+			"offered in full",
+			undefined,
+			undefined,
+		],
+	]);
+	// A row still in its slice keeps one item for the whole option.
+	const pending = rows.find((candidate) => candidate.model === "seedream-4.5") as DerivedRow;
+	expect(
+		optionObligations(
+			{ ...key("seedream-4.5"), verified: false },
+			pending,
+			pending.options.find(({ field }) => field === "size") as DerivedOption,
+			undefined,
+			"G4",
+		),
+	).toHaveLength(1);
+});
+
 const itemsOf = (model: string, option: string, operation?: string) =>
 	result.items
 		.filter(

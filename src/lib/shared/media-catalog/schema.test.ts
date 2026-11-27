@@ -563,6 +563,53 @@ describe("reviewed rules", () => {
 	});
 });
 
+describe("Seedream 4.5 and 5.0 Lite listed sizes", () => {
+	const cases = [
+		["seedream-4.5", "4K"],
+		["seedream-4.5-edit", "4K"],
+		["seedream-5.0-lite", "3K"],
+		["seedream-5.0-lite-edit", "3K"],
+	] as const;
+	test.each(cases)("%s: a hash-bound rule replaces the size oneOf in both schemas", (model) => {
+		const schemas = row(model);
+		const rules = reviewedRules.filter(
+			(rule) =>
+				rule.schemaSha256 === schemas.catalog.sha256 || rule.schemaSha256 === schemas.rest?.sha256,
+		);
+		expect(rules.map(({ source }) => source).sort()).toEqual(["catalog", "rest"]);
+		for (const rule of rules) {
+			expect(rule.field).toBe("size");
+			expect(rule.custom).toEqual({
+				state: "unknown",
+				reason: "custom sizes: no documented range or tier",
+				question: 11,
+			});
+		}
+		expect(
+			uncovered(schemas.catalog.schema, { ...schemas.catalog, source: "catalog", rules }),
+		).toEqual([]);
+	});
+	test.each(cases)(
+		"%s: a listed value passes; unlisted, WIDTHxHEIGHT and the object form are refused",
+		(model, tier) => {
+			const schemas = row(model);
+			const body = (size: unknown) => ({ prompt: "A heron at dawn", size });
+			for (const size of ["2K", tier, "16:9", "21:9"])
+				expect(validateBody(schemas, body(size), reviewedRules)).toEqual([]);
+			const both = (error: string) => [`catalog: size ${error}`, `API: size ${error}`];
+			expect(validateBody(schemas, body("5:4"), reviewedRules)).toEqual(
+				both("is not a listed size"),
+			);
+			expect(validateBody(schemas, body("2304x1728"), reviewedRules)).toEqual(
+				both("is a custom size, which Siluet does not send (question 11)"),
+			);
+			expect(validateBody(schemas, body({ width: 2304, height: 1728 }), reviewedRules)).toEqual(
+				both("is not a listed size"),
+			);
+		},
+	);
+});
+
 describe("both schemas", () => {
 	test("gpt-image-2.6-fixed with resolution fails the closed API input and passes without it", () => {
 		const fixed = row("gpt-image-2.6-fixed");

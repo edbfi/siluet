@@ -47,7 +47,45 @@ const fluxKlein = (
 	constructs: ["oneOf"],
 	quote: fluxKleinQuote,
 	check: fluxKleinSize,
+	values: ratios,
+	custom: { state: "pending", reason: "class not yet qualified: custom size" },
 });
+
+/**
+ * seedream-4.5 and seedream-5.0-lite `size` (and their edit IDs, on the same schemas): `oneOf`
+ * [an enum of tiers and ratios, a `WIDTHxHEIGHT` string, an object of width and height]. Neither
+ * source documents a range or tier for custom sizes (question 11), and the object is a nested
+ * object, so only the listed values are accepted.
+ */
+function seedreamSize(listed: readonly string[]) {
+	return (value: unknown) =>
+		typeof value === "string" && listed.includes(value)
+			? null
+			: typeof value === "string" && /^\s*\d+\s*[xX]\s*\d+\s*$/.test(value)
+				? "is a custom size, which Siluet does not send (question 11)"
+				: "is not a listed size";
+}
+const seedreamRatios = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"];
+const seedream = (
+	model: string,
+	source: "catalog" | "rest",
+	schemaSha256: string,
+	tiers: readonly string[],
+): ReviewedRule => {
+	const values = [...tiers, ...seedreamRatios];
+	return {
+		id: `${model}-size-${source}`,
+		model,
+		source,
+		schemaSha256,
+		field: "size",
+		constructs: ["oneOf"],
+		quote: "Ratio preset: `1:1`, `4:3`, `3:4`, `16:9`, `9:16`, `3:2`, `2:3`, `21:9`",
+		check: seedreamSize(values),
+		values,
+		custom: { state: "unknown", reason: "custom sizes: no documented range or tier", question: 11 },
+	};
+};
 
 export const reviewedRules: readonly ReviewedRule[] = [
 	fluxKlein(
@@ -70,7 +108,43 @@ export const reviewedRules: readonly ReviewedRule[] = [
 		"rest",
 		"100d9e6596b34decbca5f04ef3481b341841fef3ca946b2aabbcd3b5a3f9c2c4",
 	),
+	// Each schema is shared with the model's edit ID, which the same rule covers.
+	seedream(
+		"seedream-4.5",
+		"catalog",
+		"a778b9f61f26a069c815332f5874503f0c8cfa6e4bbf1174bc2aa7cba78d6f7d",
+		["2K", "4K"],
+	),
+	seedream(
+		"seedream-4.5",
+		"rest",
+		"742546b92103ec7b6acbc08073ba674e3690cd9bd63138b911d5567e9029ad8a",
+		["2K", "4K"],
+	),
+	seedream(
+		"seedream-5.0-lite",
+		"catalog",
+		"31e20ce1083a35a8976ee32724c7c6347b3cc3c31ba284db218dd1342a9175b8",
+		["2K", "3K"],
+	),
+	seedream(
+		"seedream-5.0-lite",
+		"rest",
+		"e25a91ea03ff2feca87b6c7b1ff3922cdd11e5f2304ab1ba7a0e93791f5be06b",
+		["2K", "3K"],
+	),
 ];
+
+/**
+ * Option values over Gallery's image limits until G13 raises them (spec, "Gallery size limits"):
+ * a 4K tier's output (4096×4096) is over 16,000,000 pixels, and 8K more so. On image rows they
+ * are never offered and stay tag-blocking envelope items.
+ */
+export const galleryEnvelope = {
+	fields: ["resolution", "size"],
+	values: ["4K", "8K"],
+	reason: "G13: over Gallery's image limits",
+} as const;
 
 /** A reviewed narrowing of one option's documented domain on one operation. */
 export type ReviewedOverride = {

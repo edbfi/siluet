@@ -14,6 +14,7 @@ import {
 import { offeredFormats } from "../../src/lib/shared/media-catalog/formats";
 import { releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import {
+	galleryEnvelope,
 	type OutputNote,
 	outputNotes,
 	type QualifierDisposition,
@@ -112,6 +113,8 @@ export type DerivedOption = {
 	default: { state: "resolved"; value: Json } | { state: "unresolved"; reason: string };
 	/** Why the option has no covered path beyond its row's slice, if any. */
 	gap?: { state: "pending" | "unknown"; reason: string; question?: number };
+	/** The state of values beyond a reviewed rule's listed set, such as custom sizes. */
+	custom?: { state: "pending" | "unknown"; reason: string; question?: number };
 };
 /** A pair of values a schema refuses together: `when` one field has a value, `refuses` others. */
 export type Combination = {
@@ -362,6 +365,34 @@ export function narrowedDomain(
 	};
 }
 
+/** Values of one option that a Siluet envelope withholds until a later slice raises it. */
+export function envelopeValues(
+	row: Pick<DerivedRow, "media">,
+	option: DerivedOption,
+	domain: Domain,
+) {
+	if (
+		row.media !== "image" ||
+		!(galleryEnvelope.fields as readonly string[]).includes(option.field)
+	)
+		return [];
+	return (domain.values ?? []).filter((value) =>
+		(galleryEnvelope.values as readonly Json[]).includes(value),
+	);
+}
+
+/** What the composer may offer on one operation: the narrowed domain, less envelope values. */
+export function offeredDomain(
+	row: Pick<DerivedRow, "model" | "catalog" | "media">,
+	option: DerivedOption,
+	operation: string,
+): Domain {
+	const domain = narrowedDomain(row, option, operation);
+	const withheld = envelopeValues(row, option, domain);
+	if (!withheld.length) return domain;
+	return { ...domain, values: domain.values?.filter((value) => !withheld.includes(value)) };
+}
+
 /**
  * Whether a reviewed note shows this mode returns one output: its quote stands in the bound
  * source at the bound digest. A quote missing from a source at its digest fails derivation; a
@@ -500,6 +531,13 @@ export function deriveRow(
 		const a = domainOf(declaration);
 		const b = inCatalog && inApi ? domainOf(inApi) : undefined;
 		const { domain, disputed } = shared(a, b);
+		// A reviewed rule whose domain is a listed set projects as an enum of those values.
+		const fieldRules = kind === "rule" ? rules.filter((rule) => rule.field === field) : [];
+		if (fieldRules.length && fieldRules.every((rule) => rule.values))
+			domain.values = (fieldRules[0].values as string[]).filter((value) =>
+				fieldRules.every((rule) => rule.values?.includes(value)),
+			);
+		const custom = fieldRules.find((rule) => rule.custom)?.custom;
 		const resolved = effectiveDefault(schemaSources, field);
 		const option: DerivedOption = {
 			field,
@@ -511,6 +549,7 @@ export function deriveRow(
 					: { state: "unresolved", reason: resolved.reason },
 		};
 		if (disputed && b) option.disputed = { catalog: a, api: b };
+		if (custom) option.custom = { ...custom };
 		const other = inCatalog ? apiSchema : catalogSchema;
 		if (
 			(!inCatalog || !inApi) &&

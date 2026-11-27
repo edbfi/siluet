@@ -15,6 +15,7 @@ import {
 	deriveRows,
 	isMedia,
 	narrowedDomain,
+	offeredDomain,
 	qualifierProblems,
 	type RowSources,
 	renderRows,
@@ -695,6 +696,76 @@ describe("model-scoped narrowings", () => {
 	});
 	test("every only or also-supports description in a shared schema has its disposition", () => {
 		expect(qualifierProblems()).toEqual([]);
+	});
+});
+
+describe("listed sizes and the Gallery envelope", () => {
+	const row = (model: string) => {
+		const found = rows.find((candidate) => candidate.model === model);
+		if (!found) throw new Error(`${model} has no derived row.`);
+		return found;
+	};
+	const option = (model: string, field: string) => {
+		const found = row(model).options.find((candidate) => candidate.field === field);
+		if (!found) throw new Error(`${model} has no ${field}.`);
+		return found;
+	};
+	const offered = (model: string, field: string) =>
+		offeredDomain(row(model), option(model, field), row(model).operations[0]).values;
+	test("Seedream 4.5 and 5.0 Lite offer their listed sizes, without a 4K tier", () => {
+		expect(option("seedream-4.5", "size")).toMatchObject({ kind: "rule" });
+		expect(option("seedream-4.5", "size").gap).toBeUndefined();
+		expect(offered("seedream-4.5", "size")).toEqual([
+			"2K",
+			"1:1",
+			"4:3",
+			"3:4",
+			"16:9",
+			"9:16",
+			"3:2",
+			"2:3",
+			"21:9",
+		]);
+		expect(offered("seedream-5.0-lite", "size")).toEqual([
+			"2K",
+			"3K",
+			"1:1",
+			"4:3",
+			"3:4",
+			"16:9",
+			"9:16",
+			"3:2",
+			"2:3",
+			"21:9",
+		]);
+	});
+	test("no 4K or 8K tier is offered on an image row until G13", () => {
+		for (const candidate of rows.filter((item) => item.media === "image"))
+			for (const item of candidate.options)
+				for (const operation of candidate.operations)
+					expect(
+						(offeredDomain(candidate, item, operation).values ?? []).filter(
+							(value) => value === "4K" || value === "8K",
+						),
+					).toEqual([]);
+		expect(
+			narrowedDomain(row("seedream-4"), option("seedream-4", "resolution"), "text-to-image").values,
+		).toContain("4K");
+	});
+	test("flux-3-klein offers its seven ratios and no custom WIDTHxHEIGHT", () => {
+		expect(offered("flux-3-klein", "size")).toEqual([
+			"1:1",
+			"4:3",
+			"3:4",
+			"16:9",
+			"9:16",
+			"3:2",
+			"2:3",
+		]);
+		expect(option("flux-3-klein", "size").custom).toEqual({
+			state: "pending",
+			reason: "class not yet qualified: custom size",
+		});
 	});
 });
 

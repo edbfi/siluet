@@ -243,6 +243,14 @@ export type ReviewedRule = {
 	readonly quote: string;
 	/** Checks the field's value, or the whole body for a schema-level rule. */
 	readonly check: (value: unknown, body: Body) => string | null;
+	/** The listed values the rule accepts, when its domain is a listed set (an enum class). */
+	readonly values?: readonly string[];
+	/** The state of the values beyond the listed set, such as custom sizes, until qualified. */
+	readonly custom?: {
+		readonly state: "pending" | "unknown";
+		readonly reason: string;
+		readonly question?: number;
+	};
 };
 
 /** The combinators a schema-level rule may replace; `then` and `else` go with their `if`. */
