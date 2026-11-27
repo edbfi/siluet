@@ -555,6 +555,8 @@ test("a stored key that cannot sign is overwritten; one another tab replaced sen
 		db.close();
 		return spki;
 	});
+	// The reset happened before this document read the key; a change since sends a submit to `/`.
+	await page.reload();
 	const bodies = ownerBodies(page);
 	await fillSignIn(page, password);
 	await expect(page).toHaveURL(`${origin}/`);
