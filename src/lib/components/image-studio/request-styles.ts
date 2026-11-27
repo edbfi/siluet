@@ -1,5 +1,7 @@
 import { css } from "#styled-system/css";
 
+/** Keeps a part mounted, with its state, while `hidden` takes it out of the layout. */
+export const setAside = css({ display: "contents", _hidden: { display: "none" } });
 export const requestFieldset = css({ minWidth: 0, margin: 0, padding: 0, border: 0 });
 export const requestLegend = css({
 	padding: 0,

@@ -1,9 +1,11 @@
 import { rm } from "node:fs/promises";
 import { expect, type Locator, type Page } from "@playwright/test";
 import projection from "../../src/lib/shared/media-catalog/poyo-picker.json";
+import { localFilenameMarker, markedFile } from "../fixtures/local-image";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
 import { startStudio } from "./built-studio";
+import { prompt, withEditStudio } from "./edit-studio-fixture";
 import { claimOwner, ownerRequest } from "./owner-session";
 import { test } from "./studio-test";
 
@@ -142,4 +144,93 @@ test("the picker lists every derived Poyo.ai row as Review-only with its reason,
 		await fixture.stop();
 		await rm(directory, { recursive: true, force: true });
 	}
+});
+
+async function openEdit(page: Page, origin: string) {
+	await page.goto(`${origin}/image`);
+	await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(prompt);
+	await page.getByLabel("Operation", { exact: true }).selectOption("edit");
+	const review = page.getByRole("region", { name: "Review request", exact: true });
+	return {
+		model: page.getByLabel("Model", { exact: true }),
+		file: page.getByLabel("Reference image 1", { exact: true }),
+		review,
+		inspect: review.getByRole("button", { name: "Review request", exact: true }),
+		queue: review.getByRole("button", { name: "Queue 1 request" }),
+		consent: review.getByRole("checkbox", { name: /unknown total cost/ }),
+	};
+}
+
+test("a lost Queue keeps its Retry across a Review-only row, and the Model picker waits for the Queue", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin, fixtures }) => {
+		const { model, file, review, inspect, consent, queue } = await openEdit(page, origin);
+		await file.setInputFiles(await markedFile("png"));
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+		await inspect.press("Enter");
+		await consent.press("Space");
+		const bodies: string[] = [];
+		const answer = Promise.withResolvers<void>();
+		let lost = true;
+		await page.route("**/image/file-queue", async (route) => {
+			bodies.push(route.request().postData() ?? "");
+			const response = await route.fetch();
+			if (!lost) return route.fulfill({ response });
+			lost = false;
+			await answer.promise;
+			return route.abort();
+		});
+		await queue.press("Enter");
+		await expect.poll(() => bodies.length).toBe(1);
+		await expect(model).toBeDisabled();
+		answer.resolve();
+		const status = review.getByRole("status");
+		await expect(status).toContainText("Queue confirmation is unavailable");
+		await expect(model).toBeEnabled();
+
+		await model.selectOption("flux-dev");
+		await expect(review.getByRole("status")).toContainText("Review only.");
+		await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
+		await model.selectOption("seedream-5.5");
+		await expect(status).toContainText("Queue confirmation is unavailable");
+		await review.getByRole("button", { name: "Retry", exact: true }).press("Enter");
+		await expect(page).toHaveURL(/\/jobs/);
+		expect(bodies).toHaveLength(2);
+		expect(bodies[1]).toBe(bodies[0]);
+		await expect.poll(() => fixtures.uploads.length, { timeout: 20_000 }).toBe(1);
+	});
+});
+
+test("a local reference file survives a Review-only round trip, even while Siluet is still checking it", async ({
+	page,
+}) => {
+	await withEditStudio(page, "toapis", "completed", async ({ origin }) => {
+		const { model, file, review, inspect } = await openEdit(page, origin);
+		// Hold the slot's own decode check until the round trip is done.
+		await page.evaluate(() => {
+			const decode = window.createImageBitmap.bind(window);
+			const gate = Promise.withResolvers<void>();
+			Object.assign(window, { releaseDecode: gate.resolve });
+			window.createImageBitmap = (async (...args: Parameters<typeof decode>) => {
+				await gate.promise;
+				return decode(...args);
+			}) as typeof window.createImageBitmap;
+		});
+		await file.setInputFiles(await markedFile("png"));
+		await expect(file).toHaveAccessibleDescription(/Checking file…/);
+		await model.selectOption("flux-dev");
+		await expect(file).toBeHidden();
+		await model.selectOption("seedream-5.5");
+		await page.evaluate(() => (window as unknown as { releaseDecode: () => void }).releaseDecode());
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+		await expect(file).toHaveAccessibleDescription(new RegExp(`${localFilenameMarker}\\.png`));
+
+		// Once checked, the file stays attached across another round trip.
+		await model.selectOption("flux-dev");
+		await model.selectOption("seedream-5.5");
+		await expect(file).toHaveAccessibleDescription(/Cleaned copy ready\./);
+		await inspect.press("Enter");
+		await expect(review.getByRole("button", { name: "Queue 1 request" })).toBeVisible();
+	});
 });

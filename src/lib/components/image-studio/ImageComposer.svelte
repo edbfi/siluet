@@ -13,6 +13,7 @@ import {
 	requestField,
 	requestLabel,
 	requestLink,
+	setAside,
 } from "./request-styles.ts";
 
 const id = $props.id();
@@ -20,6 +21,7 @@ let {
 	modelId,
 	family,
 	reviewOnly,
+	locked,
 	onModel,
 	fields,
 	reviewPanel,
@@ -33,6 +35,8 @@ let {
 	family: string;
 	/** A derived row is selected: it has no request to preview. */
 	reviewOnly: boolean;
+	/** A Review or Queue is in flight, so the model stays put. */
+	locked: boolean;
 	onModel: (model: string) => void;
 	fields: Snippet;
 	reviewPanel: Snippet;
@@ -41,9 +45,9 @@ let {
 	reference: SeedreamReference | undefined;
 	previewIndex: number;
 } = $props();
-let preview = $state<ReturnType<typeof ImageReferencePreview>>();
+let preview: ReturnType<typeof ImageReferencePreview>;
 export function focusPreview() {
-	preview?.focus();
+	preview.focus();
 }
 </script>
 
@@ -119,6 +123,7 @@ export function focusPreview() {
 					id={`${id}-model`}
 					aria-describedby={`${id}-family`}
 					value={modelId}
+					disabled={locked}
 					onchange={(event) => onModel(event.currentTarget.value)}
 				>
 					{#each releasedImageModels as choice (choice.id)}
@@ -137,7 +142,7 @@ export function focusPreview() {
 			{@render fields()}
 		</section>
 		<div class={css({ display: "grid", minWidth: 0, gap: "1rem" })}>
-			{#if !reviewOnly}
+			<div class={setAside} hidden={reviewOnly}>
 				<ImageReferencePreview
 					bind:this={preview}
 					urlOnly={modelId === zImageModel.id}
@@ -145,7 +150,7 @@ export function focusPreview() {
 					index={previewIndex}
 					{reference}
 				/>
-			{/if}
+			</div>
 			{@render reviewPanel()}
 		</div>
 	</div>
