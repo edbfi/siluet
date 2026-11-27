@@ -5,6 +5,9 @@ export type ReviewOnlyRow = {
 	model: string;
 	media: "image" | "video";
 	operations: string[];
+	/** The operations that can Queue, when any can. */
+	queue?: string[];
+	/** Why the row, or its operations outside `queue`, are Review-only. */
 	reason: string;
 };
 

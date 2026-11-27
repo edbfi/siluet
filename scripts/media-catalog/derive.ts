@@ -834,4 +834,12 @@ if (import.meta.main) {
 	const formats = renderFormats();
 	writeFileSync(formatsPath, formats);
 	console.log(`poyo-formats.json ${sha256(formats)} (${formats.length} bytes)`);
+	const { queuePath, queueSchemasPath, renderQueue, renderQueueSchemas } = await import("./queue");
+	for (const [path, text, name] of [
+		[queuePath, renderQueue(), "poyo-queue.json"],
+		[queueSchemasPath, renderQueueSchemas(), "queue-schemas.json"],
+	] as const) {
+		writeFileSync(path, text);
+		console.log(`${name} ${sha256(text)} (${text.length} bytes)`);
+	}
 }

@@ -6,6 +6,7 @@ import type { ReviewOnlyRow } from "../../src/lib/shared/media-catalog/picker";
 import { releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import { assignment } from "./coverage";
 import { type DerivedRow, deriveRows } from "./derive";
+import { type PendingQueueRow, queueProjection } from "./queue";
 
 // What each engine slice admits, from the spec's slice table.
 const slices: Record<string, string> = {
@@ -32,7 +33,9 @@ const pendingReasons: [kind: RegExp, reason: string][] = [
 ];
 
 /** The first reason a derived row cannot queue yet, in plain words from its own data. */
-export function reviewOnlyReason(row: DerivedRow) {
+export function reviewOnlyReason(row: DerivedRow, queue?: PendingQueueRow) {
+	const unqualified = queue?.reason.match(/^class not yet qualified: (.+)$/)?.[1];
+	if (unqualified) return `its ${unqualified} options are not qualified yet (G4)`;
 	const [pending] = row.pending;
 	if (pending) {
 		const plain = pendingReasons.find(([kind]) => kind.test(pending));
@@ -53,19 +56,32 @@ export function reviewOnlyReason(row: DerivedRow) {
 	return `${slices[label]} not verified yet (${label})`;
 }
 
-/** Every derived row the picker lists. A model with a shipped Poyo.ai operation keeps its own entry. */
+/**
+ * Every derived row the picker lists, with its Queue-eligible operations apart from the reason
+ * the rest are Review-only. A model with a shipped Poyo.ai operation keeps its own entry.
+ */
 export function pickerRows(rows = deriveRows()): ReviewOnlyRow[] {
 	const shipped = new Set<string>(
 		releasedOperations.filter(({ key }) => key.provider === "poyo").map(({ key }) => key.model),
 	);
+	const { rows: eligible, pending } = queueProjection(rows);
 	return rows
 		.filter(({ model }) => !shipped.has(model))
-		.map((row) => ({
-			model: row.model,
-			media: row.media as ReviewOnlyRow["media"],
-			operations: row.operations,
-			reason: reviewOnlyReason(row),
-		}));
+		.map((row) => {
+			const queue = eligible
+				.filter(({ key }) => key.model === row.model)
+				.map(({ key }) => key.operation);
+			return {
+				model: row.model,
+				media: row.media as ReviewOnlyRow["media"],
+				operations: row.operations,
+				...(queue.length && { queue }),
+				reason: reviewOnlyReason(
+					row,
+					pending.find(({ model }) => model === row.model),
+				),
+			};
+		});
 }
 
 /** Canonical compact JSON, with the one final newline the repository's hooks expect. */

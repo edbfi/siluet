@@ -33,6 +33,7 @@ test("every derived row is listed once, unless a shipped Poyo.ai operation alrea
 			model: row.model,
 			media: derived?.media as "image" | "video",
 			operations: derived?.operations as string[],
+			...(row.queue && { queue: ["text-to-image"] }),
 			reason: expect.any(String),
 		});
 		expect(row.reason.length).toBeGreaterThan(0);

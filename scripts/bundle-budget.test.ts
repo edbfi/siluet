@@ -13,7 +13,7 @@ test("only JavaScript and CSS count toward the client budget", () => {
 	expect(clientBytes(bundle)).toBe(500);
 });
 
-function run(budget: number, environment: string) {
+function run(budget: number, environment: string, output: object = bundle) {
 	const plugin = clientBudget(budget);
 	const errors: string[] = [];
 	const hook = plugin.generateBundle as (this: unknown, options: unknown, bundle: unknown) => void;
@@ -26,7 +26,7 @@ function run(budget: number, environment: string) {
 			},
 		},
 		{},
-		bundle,
+		output,
 	);
 	return errors;
 }
@@ -48,4 +48,28 @@ test("the derived rows would exceed the client budget, which the build enforces"
 	expect(readFileSync(new URL("../vite.config.ts", import.meta.url), "utf8")).toContain(
 		"clientBudget()",
 	);
+});
+
+test("a client chunk that bundles a server-only projection fails the build", () => {
+	const leaked = {
+		...bundle,
+		"_app/immutable/chunks/queue.js": {
+			type: "chunk",
+			code: "x",
+			moduleIds: ["/repo/src/lib/server/providers/poyo/queue-schemas.json"],
+		},
+	};
+	expect(() => run(10_000, "client", leaked)).toThrow(
+		"The client bundle includes the server-only src/lib/server/providers/poyo/queue-schemas.json.",
+	);
+	expect(run(10_000, "ssr", leaked)).toEqual([]);
+	const browser = {
+		...bundle,
+		"_app/immutable/chunks/queue.js": {
+			type: "chunk",
+			code: "x",
+			moduleIds: ["/repo/src/lib/shared/media-catalog/poyo-queue.json"],
+		},
+	};
+	expect(run(10_000, "client", browser)).toEqual([]);
 });
