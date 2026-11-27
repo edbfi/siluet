@@ -20,6 +20,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
+import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import {
 	indexedSpecs,
@@ -31,13 +32,14 @@ import {
 } from "./project";
 import pageReviews from "./sources/page-reviews.json";
 import sourceRecord from "./sources/sources.json";
+import toapisPages from "./sources/toapis-pages.json";
 
 const short = (digest: string) => `${digest.slice(0, 12)}…`;
 
 type SourceRecord = typeof sourceRecord;
 /** A page whose digest a reviewed state depends on. */
 export type WatchedPage = {
-	kind: "rest" | "toapis-descriptor" | "toapis-model-list";
+	kind: "rest" | "toapis-descriptor" | "toapis-model-list" | "toapis-catalog";
 	url: string;
 	sha256: string;
 	note: string;
@@ -70,13 +72,13 @@ const pageSources: Record<WatchedPage["kind"], string> = {
 	rest: "Poyo.ai REST page",
 	"toapis-descriptor": "ToAPIs descriptor page",
 	"toapis-model-list": "ToAPIs model list",
+	"toapis-catalog": "ToAPIs public catalog",
 };
 const notCoveredKinds: [WatchedPage["kind"], string][] = [
 	[
 		"toapis-descriptor",
 		"ToAPIs descriptor pages: no descriptor is recorded yet. Each descriptor that a later slice adds records its page digest.",
 	],
-	["toapis-model-list", "ToAPIs model list: no digest is recorded yet."],
 ];
 
 /** The baseline the repository records today. */
@@ -93,13 +95,20 @@ export function committedBaseline(): Baseline {
 				.join(", ")}`,
 		}),
 	);
-	// ToAPIs descriptors (G10a, G11a) and the ToAPIs model list record no page digest yet, so
-	// none is watched, and the report says so.
+	// The ledger's ToAPIs model list and public catalog, as Markdown, at their recorded digests.
+	const { keyList, snapshot } = ledger.providers.toapis.sources;
+	const [list, catalog] = toapisPages.pages;
+	const toapis: WatchedPage[] = [
+		{ ...list, kind: "toapis-model-list", url: `${keyList}.md` },
+		{ ...catalog, kind: "toapis-catalog", url: `${snapshot}.md` },
+	];
+	// ToAPIs descriptors (G10a, G11a) record no page digest yet, so none is watched, and the
+	// report says so.
 	return {
 		record: sourceRecord,
 		catalog: read(sourceRecord.catalog.file),
 		openapi: read(sourceRecord.openapi.file),
-		pages: rest,
+		pages: [...rest, ...toapis],
 	};
 }
 
@@ -597,7 +606,7 @@ export function renderReport(
 		lines.push(
 			mode === "repin"
 				? `Pinned: Poyo.ai catalog \`${result.pinned}\`.`
-				: `Pinned: Poyo.ai catalog \`${result.pinned.slice(0, 7)}\`. Checked the catalog, the docs index, ${result.specs ?? 0} OpenAPI specs it lists and ${result.pages ?? 0} reviewed pages.`,
+				: `Pinned: Poyo.ai catalog \`${result.pinned.slice(0, 7)}\`. Checked the catalog, the docs index, ${result.specs ?? 0} OpenAPI specs it lists and ${result.pages ?? 0} watched pages.`,
 		);
 	if (result.head) lines.push(`Upstream head: \`${result.head}\`.`);
 	lines.push("");

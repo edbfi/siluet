@@ -18,7 +18,7 @@ import { projectCatalog, projectOpenApi, sha256 } from "./project";
 import record from "./sources/sources.json";
 
 // Fresh fixtures: a three-entry catalog, a docs index with two specs, two reviewed REST pages,
-// one ToAPIs descriptor page and the ToAPIs model list.
+// one ToAPIs descriptor page, the ToAPIs model list and the ToAPIs public catalog.
 const entry = (model_id: string, category: string, extra: object = {}) => ({
 	model_id,
 	category,
@@ -60,7 +60,8 @@ const head = "e".repeat(40);
 const pages = {
 	rest: "https://docs.poyo.ai/api-manual/image-series/fixture-image.md",
 	descriptor: "https://docs.toapis.com/docs/en/api-reference/images/fixture/generation.md",
-	list: "https://docs.toapis.com/docs/en/api-reference/models.md",
+	list: "https://docs.toapis.com/docs/en/api-reference/chat/list-models.md",
+	catalog: "https://docs.toapis.com/docs/en/api-reference/models.md",
 };
 type Files = Record<string, string>;
 const upstreamFiles = (): Files => ({
@@ -73,7 +74,8 @@ const upstreamFiles = (): Files => ({
 	"openapi/api-manual/two.json": spec(["fixture-video"], { prompt: { type: "string" } }),
 	[mirrorPath(pages.rest)]: "# Fixture image\n\nNo prompt limit is stated.\n",
 	[mirrorPath(pages.descriptor)]: "# Fixture ToAPIs image\n",
-	[mirrorPath(pages.list)]: "# Models\n\n- fixture\n",
+	[mirrorPath(pages.list)]: "# List Models\n",
+	[mirrorPath(pages.catalog)]: "# Public Model Catalog\n\n- fixture\n",
 });
 
 /** A baseline pinned to the fixture upstream as it stands, the way a re-pin records it. */
@@ -114,6 +116,12 @@ function fixtureBaseline(files = upstreamFiles()): Baseline {
 			url: pages.list,
 			sha256: sha256(files[mirrorPath(pages.list)]),
 			note: "model list",
+		},
+		{
+			kind: "toapis-catalog",
+			url: pages.catalog,
+			sha256: sha256(files[mirrorPath(pages.catalog)]),
+			note: "public catalog",
 		},
 	];
 	return { record: fixtureRecord, catalog, openapi, pages: watched };
@@ -233,11 +241,12 @@ test("a changed docs index fails and lists the specs it adds and removes", () =>
 	expect(result.findings[3].detail).toBe("spec /api-manual/two.json → /api-manual/three.json");
 });
 
-test("a changed REST page, ToAPIs descriptor page or ToAPIs model list fails the same way", () => {
+test("a changed REST page, ToAPIs descriptor page, ToAPIs model list or ToAPIs public catalog fails the same way", () => {
 	for (const [kind, url] of [
 		["rest", pages.rest],
 		["toapis-descriptor", pages.descriptor],
 		["toapis-model-list", pages.list],
+		["toapis-catalog", pages.catalog],
 	] as const) {
 		const files = upstreamFiles();
 		const baseline = fixtureBaseline(files);
@@ -250,6 +259,7 @@ test("a changed REST page, ToAPIs descriptor page or ToAPIs model list fails the
 				rest: "Poyo.ai REST page",
 				"toapis-descriptor": "ToAPIs descriptor page",
 				"toapis-model-list": "ToAPIs model list",
+				"toapis-catalog": "ToAPIs public catalog",
 			}[kind],
 		);
 		expect(result.findings[0].detail).toContain(
@@ -264,6 +274,7 @@ test("a source that could not be fetched fails rather than passing unseen", () =
 		"llms.txt",
 		"openapi/api-manual/two.json",
 		mirrorPath(pages.list),
+		mirrorPath(pages.catalog),
 	]) {
 		const files = upstreamFiles();
 		const baseline = fixtureBaseline(files);
@@ -273,22 +284,30 @@ test("a source that could not be fetched fails rather than passing unseen", () =
 	}
 });
 
-test("the committed baseline watches every reviewed REST page and says what it does not cover yet", () => {
+test("the committed baseline watches every reviewed REST page and both ToAPIs model pages", () => {
 	const baseline = committedBaseline();
-	const reviews = JSON.parse(
-		readFileSync(new URL("./sources/page-reviews.json", import.meta.url), "utf8"),
-	);
-	expect(baseline.pages.map(({ url, sha256 }) => ({ url, sha256 }))).toEqual(
+	const read = (file: string) => JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8"));
+	const reviews = read("./sources/page-reviews.json");
+	const rest = baseline.pages.filter((page) => page.kind === "rest");
+	expect(rest.map(({ url, sha256 }) => ({ url, sha256 }))).toEqual(
 		reviews.pages.map(({ url, sha256 }: WatchedPage) => ({ url, sha256 })),
 	);
-	expect(baseline.pages.every((page) => page.kind === "rest")).toBe(true);
-	expect(baseline.pages[0].note).toBe("question 10: flux-3-klein prompt, flux-3-klein-edit prompt");
+	expect(rest[0].note).toBe("question 10: flux-3-klein prompt, flux-3-klein-edit prompt");
+	// The ledger's ToAPIs model list and public catalog, as Markdown, at the digests read on the
+	// baseline date.
+	const ledger = read("../../docs/media-catalog.v1.json").providers.toapis.sources;
+	const toapis = read("./sources/toapis-pages.json");
+	expect(toapis.accessed).toBe("2026-11-27");
+	expect(baseline.pages.filter((page) => page.kind !== "rest")).toEqual([
+		{ ...toapis.pages[0], kind: "toapis-model-list", url: `${ledger.keyList}.md` },
+		{ ...toapis.pages[1], kind: "toapis-catalog", url: `${ledger.snapshot}.md` },
+	]);
+	for (const page of baseline.pages) expect(page.sha256).toMatch(/^[0-9a-f]{64}$/);
 	expect(sha256(baseline.catalog)).toBe(record.catalog.projectionSha256);
 	expect(sha256(baseline.openapi)).toBe(record.openapi.projectionSha256);
 	const result = drift(baseline, () => undefined);
 	expect(result.notCovered).toEqual([
 		"ToAPIs descriptor pages: no descriptor is recorded yet. Each descriptor that a later slice adds records its page digest.",
-		"ToAPIs model list: no digest is recorded yet.",
 	]);
 	for (const line of result.notCovered) expect(renderReport(result)).toContain(line);
 });
@@ -364,6 +383,7 @@ function fakeUpstream(files: Files, revision = pinned) {
 		[pages.rest, files[mirrorPath(pages.rest)]],
 		[pages.descriptor, files[mirrorPath(pages.descriptor)]],
 		[pages.list, files[mirrorPath(pages.list)]],
+		[pages.catalog, files[mirrorPath(pages.catalog)]],
 	]);
 	const requests: { url: string; init: RequestInit }[] = [];
 	const fetcher = async (url: string, init: RequestInit) => {
