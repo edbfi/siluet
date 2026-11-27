@@ -158,7 +158,7 @@ G2c moved both projections, the ledger and the v2 price feed from `747e5d7` (202
   - `kling-4.0`: adds `dynamic_range` (`sdr`, `hdr`, with `hdr` only at 1080p or 4k through a `const` branch), `4k` resolution, 4k rates and an HDR surcharge
   - `seedance-2.5`: adds `4k` resolution and its rates
 
-The eight added IDs without a docs page or OpenAPI spec (the LTX, Recraft and Sync IDs) take the catalog's D4 state alone, closed-absent, with the unreviewed-page sentence. No reviewed rule, override, count note or prose route was bound to a changed schema, so each keeps its hash: the four `flux-3-klein` size rules, the `seedream-5.5` and `h3-max` overrides and the two count notes. The question-10 page reviews are bound to REST page digests that this re-pin did not re-fetch; they were not re-checked, and the G2d drift job covers them.
+The eight added IDs without a docs page or OpenAPI spec (the LTX, Recraft and Sync IDs) take the catalog's D4 state alone, closed-absent, with the unreviewed-page sentence. No reviewed rule, override, count note or prose route was bound to a changed schema, so each keeps its hash: the four `flux-3-klein` size rules, the `seedream-5.5` and `h3-max` overrides and the two count notes. The question-10 page reviews are bound to REST page digests that this re-pin did not re-fetch. G2d's `catalog:drift` re-fetched all 17 pages on 2026-11-27, with the docs index, the 175 specs and the catalog at the upstream head (`ec73207`), and each matches its recorded digest. No ToAPIs descriptor or model-list digest is recorded yet, so the drift check reports both as not yet covered; each descriptor added from G10a records its page digest.
 
 ## Option classes in the pinned schemas
 

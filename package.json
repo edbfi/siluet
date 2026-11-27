@@ -18,7 +18,8 @@
 		"pricing:refresh": "bun scripts/pricing/refresh.ts",
 		"owner:recover": "bun scripts/owner-recover.ts",
 		"catalog:derive": "bun scripts/media-catalog/derive.ts",
-		"catalog:coverage": "bun scripts/media-catalog/coverage.ts"
+		"catalog:coverage": "bun scripts/media-catalog/coverage.ts",
+		"catalog:drift": "bun scripts/media-catalog/drift.ts"
 	},
 	"imports": {
 		"#studio-manifest": "./package.json",
