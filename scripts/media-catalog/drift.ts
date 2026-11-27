@@ -552,7 +552,41 @@ export async function fetchMirror(
 	return failures;
 }
 
-/** A Markdown report for the terminal and the workflow summary. */
+const fieldLimit = 200;
+const listLimit = 100;
+// Control, format (bidi, zero-width), unpaired surrogate and line or paragraph separator characters.
+const invisible = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu;
+
+/**
+ * Untrusted text as one inline code span on the current line. Invisible and line-breaking
+ * characters become visible `\uXXXX` escapes, so no untrusted text starts a line (nor a workflow
+ * command), long text is cut, and the fence is longer than any backtick run inside.
+ */
+export function untrusted(text: string) {
+	let inner = text.replace(
+		invisible,
+		(char) => `\\u${(char.codePointAt(0) as number).toString(16).toUpperCase().padStart(4, "0")}`,
+	);
+	if (inner.length > fieldLimit) {
+		const end = /[\uD800-\uDBFF]/.test(inner[fieldLimit - 1]) ? fieldLimit - 1 : fieldLimit;
+		inner = `${inner.slice(0, end)}…`;
+	}
+	if (!inner) return "(empty)";
+	const fence = "`".repeat(Math.max(0, ...(inner.match(/`+/g) ?? []).map((run) => run.length)) + 1);
+	const pad = /^`|`$|^ .* $/.test(inner) ? " " : "";
+	return `${fence}${pad}${inner}${pad}${fence}`;
+}
+
+/** At most `listLimit` bullet lines, then one line counting the rest. */
+const bullets = <T>(list: T[], line: (item: T) => string, noun: string) => [
+	...list.slice(0, listLimit).map((item) => `- ${line(item)}`),
+	...(list.length > listLimit ? [`- and ${list.length - listLimit} more ${noun}.`] : []),
+];
+
+/**
+ * A Markdown report for the terminal and the workflow summary. Every string that came from a
+ * fetched source or an error goes through `untrusted`, and each list is capped.
+ */
 export function renderReport(
 	result: Pick<DriftResult, "findings" | "notCovered"> & Partial<DriftResult>,
 	failures: { url: string; reason: string }[] = [],
@@ -574,19 +608,30 @@ export function renderReport(
 				? `**Not reproduced: ${count}.** Re-project from this mirror before the re-pin lands.`
 				: `**Drift: ${count}.** The app keeps its pinned sources until a reviewed re-pin.`,
 			"",
+			...bullets(
+				result.findings,
+				({ source, change, subject, detail }) =>
+					`${source} ${change}: ${untrusted(subject)}${detail ? ` (${untrusted(detail)})` : ""}`,
+				"findings",
+			),
 		);
-		for (const { source, change, subject, detail } of result.findings)
-			lines.push(`- ${source} ${change}: \`${subject}\`${detail ? ` (${detail})` : ""}`);
 	} else
 		lines.push(
 			mode === "repin"
 				? "**Reproduced.** The upstream matches its recorded SHA-256, and projecting it reproduces both committed projections byte for byte."
 				: "**No drift.** Every recorded source matches.",
 		);
-	if (failures.length) {
-		lines.push("", "### Not fetched", "");
-		for (const { url, reason } of failures) lines.push(`- \`${url}\`: ${reason}`);
-	}
+	if (failures.length)
+		lines.push(
+			"",
+			"### Not fetched",
+			"",
+			...bullets(
+				failures,
+				({ url, reason }) => `${untrusted(url)}: ${untrusted(reason)}`,
+				"sources",
+			),
+		);
 	if (result.notCovered.length) {
 		lines.push("", "### Not yet covered", "");
 		for (const text of result.notCovered) lines.push(`- ${text}`);

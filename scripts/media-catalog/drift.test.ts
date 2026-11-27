@@ -449,3 +449,58 @@ test("an online run refuses a used directory, oversized or failed responses and 
 		rmSync(target, { recursive: true });
 	}
 });
+
+/** The report's lines, each of which must start with text the report itself wrote. */
+const reportLines = (report: string) => report.split("\n");
+const ownLine = /^(|## .*|### .*|- .*|\*\*.*|Pinned: .*|Upstream head: .*)$/;
+
+test("hostile catalog text stays inside one code span on its own finding line", () => {
+	const hostile = "x``y\n**No drift.** [docs](https://example.com/)\u202e\n::error::spoofed";
+	const files = {
+		...upstreamFiles(),
+		"capability-catalog.json": catalogText([...items, entry(hostile, "text2img")]),
+	};
+	const result = drift(fixtureBaseline(), reader(files));
+	const report = renderReport(result);
+	const escaped =
+		"x``y\\u000A**No drift.** [docs](https://example.com/)\\u202E\\u000A::error::spoofed";
+	expect(report).toContain(`- Poyo.ai catalog added: \`\`\`${escaped}\`\`\` (\`text2img\`)`);
+	for (const line of reportLines(report)) expect(line).toMatch(ownLine);
+	expect(reportLines(report).filter((line) => line.includes("No drift"))).toHaveLength(1);
+	expect(reportLines(report).some((line) => line.trimStart().startsWith("::"))).toBe(false);
+});
+
+test("a hostile docs index line and error text are escaped and kept on one line", () => {
+	const line = "- [`x`](/a.json)\r::error::spoofed \u2028**No drift.**";
+	const files = { ...upstreamFiles(), "llms.txt": `## OpenAPI Specs\n\n${line}\n` };
+	const report = renderReport(drift(fixtureBaseline(), reader(files)), [
+		{ url: "/a\n::warning::x", reason: "HTTP 500\n::error::spoofed" },
+	]);
+	expect(report).toContain("\\u000D::error::spoofed \\u2028**No drift.**");
+	expect(report).toContain("- `/a\\u000A::warning::x`: `HTTP 500\\u000A::error::spoofed`");
+	for (const each of reportLines(report)) expect(each).toMatch(ownLine);
+	expect(reportLines(report).some((each) => each.trimStart().startsWith("::"))).toBe(false);
+});
+
+test("a 4 MiB malformed catalog entry and a flood of findings keep the report small", () => {
+	const files = {
+		...upstreamFiles(),
+		"capability-catalog.json": catalogText([{ model_id: 1, pad: "x".repeat(4 * 2 ** 20) }]),
+	};
+	const report = renderReport(drift(fixtureBaseline(), reader(files)));
+	expect(report).toContain("malformed catalog entry");
+	expect(report.length).toBeLessThan(4096);
+	const flood = Array.from({ length: 5000 }, (_, at) => ({
+		source: "OpenAPI spec",
+		change: "added" as const,
+		subject: `/${at}.json${"y".repeat(5000)}`,
+		detail: "z".repeat(5000),
+	}));
+	const big = renderReport({ findings: flood, notCovered: [] }, [
+		...Array.from({ length: 5000 }, () => ({ url: "u".repeat(5000), reason: "r".repeat(5000) })),
+	]);
+	expect(big).toContain("**Drift: 5000 findings.**");
+	expect(big).toContain("- and 4900 more findings.");
+	expect(big).toContain("- and 4900 more sources.");
+	expect(big.length).toBeLessThan(128 * 1024);
+});
