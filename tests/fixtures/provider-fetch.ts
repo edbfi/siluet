@@ -72,8 +72,9 @@ globalThis.fetch = new Proxy(globalThis.fetch, {
 		}
 		if (url.origin === "https://93.184.216.34" && url.pathname === "/result/video")
 			path = "/media/video";
+		// The query reaches the fixture, so one fixture can serve each job its own image.
 		if (url.origin === "https://93.184.216.34" && url.pathname === "/result/image")
-			path = "/media/image";
+			path = `/media/image${url.search}`;
 		if (url.origin === "https://93.184.216.34" && url.pathname === "/result/reference-edit.png")
 			path = `/media/reference-edit.png${url.search}`;
 		if (path) {
