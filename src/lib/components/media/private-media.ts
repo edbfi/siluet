@@ -1,4 +1,5 @@
 import type { Attachment } from "svelte/attachments";
+import { galleryImageLimits } from "#lib/shared/gallery/limits.ts";
 import type { SessionInit } from "#lib/shared/owner/authenticated-fetch.ts";
 import { sessionClient } from "#lib/shared/owner/session-client.ts";
 
@@ -7,7 +8,11 @@ import { sessionClient } from "#lib/shared/owner/session-client.ts";
  * could open ([browser key sessions](../../../../docs/SPEC-browser-key.md#media)).
  */
 const MiB = 1024 * 1024;
-export const mediaLimits = { video: 64 * MiB, image: 32 * MiB, staged: 32_000_000 } as const;
+export const mediaLimits = {
+	video: 64 * MiB,
+	image: galleryImageLimits.bytes,
+	staged: 32_000_000,
+} as const;
 export type MediaKind = keyof typeof mediaLimits;
 /** Per tab: reads in flight and bytes held. */
 const maxReads = 4;

@@ -1,5 +1,6 @@
 import { crc32 } from "node:zlib";
 import sharp from "sharp";
+import { galleryImageLimits } from "../../../shared/gallery/limits";
 import { hasCompleteGifStream } from "../../../shared/image-studio/gif";
 import { walkWebp } from "./webp";
 
@@ -8,8 +9,7 @@ import { walkWebp } from "./webp";
 // https://sharp.pixelplumbing.com/api-utility/#cache
 sharp.cache(false);
 
-const maxPixels = 16_000_000;
-const maxEdge = 16_384;
+const { pixels: maxPixels, edge: maxEdge } = galleryImageLimits;
 // Allow a bounded decode beyond the publication profile to classify complete results.
 const verificationPixels = 20_000_000;
 const verificationEdge = 32_768;
