@@ -31,6 +31,10 @@ const pendingReasons: [kind: RegExp, reason: string][] = [
 	[/^no valid minimal request\b/, "Siluet cannot build a valid request from Poyo.ai's schemas yet"],
 	[/^no evidence of one output\b/, "Poyo.ai does not document that it returns one image"],
 	[
+		/^no documented limit: read the model page$/,
+		"Siluet has not reviewed this model's prompt limit yet",
+	],
+	[
 		/^one output held: size not typed\b/,
 		"Poyo.ai ignores resolution unless size is sent, which Siluet cannot send yet",
 	],

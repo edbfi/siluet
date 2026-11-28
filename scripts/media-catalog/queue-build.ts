@@ -92,6 +92,8 @@ export function queueRow(row: DerivedRow): QueueRow | string {
 	const schemas = rowSchemas(row);
 	const prompt = row.options.find((option) => option.field === "prompt");
 	if (prompt?.kind !== "free-text") return "no prompt field";
+	// An unreviewed prompt limit keeps the row Review-only, rather than queueing on the envelope.
+	if (prompt.gap?.state === "pending") return prompt.gap.reason;
 	// A format Siluet cannot offer refuses the row: dropping it would leave the type to Poyo.ai.
 	const format = row.options.find((option) => option.field === "output_format")?.gap;
 	if (format) return format.reason;

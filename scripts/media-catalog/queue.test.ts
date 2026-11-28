@@ -240,3 +240,19 @@ test("only D4 states the server accepts can queue: an open-absent-fixed row stay
 	expect(queueProjection([row]).rows).toHaveLength(1);
 	expect(queueProjection([fixed]).rows).toEqual([]);
 });
+
+test("a prompt whose limit still needs its model page read keeps the row pending", () => {
+	const row = deriveRows().find((candidate) => candidate.model === "flux-dev") as DerivedRow;
+	const unread = {
+		...row,
+		options: row.options.map((option) =>
+			option.field === "prompt"
+				? {
+						...option,
+						gap: { state: "pending" as const, reason: "no documented limit: read the model page" },
+					}
+				: option,
+		),
+	};
+	expect(queueRow(unread)).toBe("no documented limit: read the model page");
+});

@@ -5,7 +5,10 @@ import { dirname, join, relative, resolve } from "node:path";
 import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import { d4States } from "../../src/lib/shared/media-catalog/filtering";
-import type { QualifierDisposition } from "../../src/lib/shared/media-catalog/rules";
+import {
+	type QualifierDisposition,
+	reviewedOverrides,
+} from "../../src/lib/shared/media-catalog/rules";
 import type { ReviewedRule, Schema } from "../../src/lib/shared/media-catalog/schema";
 import {
 	type CatalogEntry,
@@ -20,6 +23,7 @@ import {
 	type RowSources,
 	renderRows,
 	rowsPath,
+	staleBindings,
 } from "./derive";
 import { sha256 } from "./project";
 import { verifiedOptions as optionsOf } from "./verified";
@@ -952,4 +956,15 @@ test("an array of URIs is a media input whatever its name; an array of other val
 	expect(isMedia("images", uris)).toBe(true);
 	expect(isMedia("image_urls", { type: "array", items: { type: "string" } })).toBe(true);
 	expect(isMedia("colors", { type: "array", items: { type: "object" } })).toBe(false);
+});
+
+test("a reviewed override or field exclusion that binds to no row's catalog hash fails derivation", () => {
+	const rows = deriveRows();
+	expect(staleBindings(rows)).toEqual([]);
+	const [first] = reviewedOverrides;
+	const stale = { ...first, schemaSha256: "0".repeat(64) };
+	expect(staleBindings(rows, [stale])).toEqual([`${first.model} ${first.field}`]);
+	expect(staleBindings(rows, [{ ...first, model: "no-such-model" }])).toEqual([
+		`no-such-model ${first.field}`,
+	]);
 });

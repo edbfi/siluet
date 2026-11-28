@@ -724,10 +724,37 @@ export function deriveRows(
 	const repeated = rows.find((row, index) => index > 0 && rows[index - 1].model === row.model);
 	if (repeated) throw new Error(`${repeated.model} is documented in more than one ledger row.`);
 	crossCheck(rows);
+	if (ledgerRows === ledger.providers.poyo.rows) {
+		const stale = staleBindings(rows);
+		if (stale.length)
+			throw new Error(
+				`Reviewed overrides or exclusions bind to no row's catalog hash (re-review them): ${stale.join(", ")}`,
+			);
+	}
 	const problems = qualifierProblems();
 	if (problems.length)
 		throw new Error(`Unreviewed qualifiers in shared schemas:\n${problems.join("\n")}`);
 	return rows;
+}
+
+/**
+ * Reviewed overrides and field exclusions that match no derived row on their recorded catalog
+ * hash. After a re-pin changes a schema, such an entry would silently stop narrowing, so
+ * derivation fails until it is re-reviewed.
+ */
+export function staleBindings(
+	rows: readonly DerivedRow[],
+	bound: readonly { model: string; field: string; schemaSha256: string }[] = [
+		...reviewedOverrides,
+		...reviewedFieldExclusions,
+	],
+) {
+	return bound
+		.filter(
+			(entry) =>
+				!rows.some((row) => row.model === entry.model && row.catalog === entry.schemaSha256),
+		)
+		.map((entry) => `${entry.model} ${entry.field}`);
 }
 
 /** Each verified representative's reviewed choices must lie within its derived row. */
