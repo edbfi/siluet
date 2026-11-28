@@ -602,6 +602,47 @@ describe("PoYo price basis publication", () => {
 		expect(JSON.parse(show(basisPath))).toEqual(basisFor(v2));
 	});
 
+	test("the same revision may drop a derived rate that main no longer queues, never a shipped one", () => {
+		const derived = { kind: "per-request", credits: "4" } as const;
+		const withDerived = { ...v2, rates: { ...v2.rates, "gpt-4o-image": derived } };
+		const both = { "z-image": "0".repeat(64), "gpt-4o-image": "1".repeat(64) };
+		const seeded = seed({
+			[v1Path]: `${JSON.stringify(bundledV1)}\n`,
+			[v1LicensePath]: licenseText,
+			[v2Path]: `${JSON.stringify({ ...withDerived, confirmedAt: yesterday })}\n`,
+			[v2LicensePath]: licenseText,
+			[basisPath]: `${canonicalJson(basisFor({ ...withDerived, confirmedAt: yesterday }, both))}\n`,
+		});
+		// A queue row on main went back to pending, so the collector no longer derives its rate.
+		const result = publish(v2);
+		if (!result.success) throw new Error(result.err);
+		expect(git(remote, "rev-parse", `${ref}^`).trim()).toBe(seeded);
+		expect(Object.keys(JSON.parse(show(v2Path)).rates)).not.toContain("gpt-4o-image");
+		// A rate the basis does not bind is a shipped rate, and removing it still fails.
+		const published = head();
+		const withoutZImage = { ...v2, rates: { "seedream-5.5": v2.rates["seedream-5.5"] } };
+		const refused = publish(withoutZImage, license, basisFor(withoutZImage, {}));
+		expect(refused.success).toBe(false);
+		expect(head()).toBe(published);
+	});
+
+	test("a dropped rate stays refused when the published basis pairs with another revision", () => {
+		const derived = { kind: "per-request", credits: "4" } as const;
+		const withDerived = { ...v2, rates: { ...v2.rates, "gpt-4o-image": derived } };
+		const published = seed({
+			[v1Path]: `${JSON.stringify(bundledV1)}\n`,
+			[v1LicensePath]: licenseText,
+			[v2Path]: `${JSON.stringify({ ...withDerived, confirmedAt: yesterday })}\n`,
+			[v2LicensePath]: licenseText,
+			[basisPath]: `${canonicalJson({
+				...basisFor(withDerived, { "gpt-4o-image": "1".repeat(64) }),
+				revision: newRevision,
+			})}\n`,
+		});
+		expect(publish(v2).err).toMatch(/removed a published rate/);
+		expect(head()).toBe(published);
+	});
+
 	test("an invalid published basis stops the publisher", () => {
 		const published = seed({
 			[v1Path]: `${JSON.stringify(bundledV1)}\n`,

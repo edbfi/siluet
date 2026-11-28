@@ -206,7 +206,10 @@ if [[ $provider == poyo ]]; then
     fi
     license_state=same
     [[ $license_blob == "$old_license" ]] || license_state=changed
-    update=$(jq -r --slurpfile previous "$previous" --arg license "$license_state" \
+    previous_basis="$work/previous-basis.json"
+    [[ -n $old_basis ]] || : >"$previous_basis"
+    update=$(jq -r --slurpfile previous "$previous" --slurpfile previous_basis "$previous_basis" \
+      --arg license "$license_state" \
       -L "$script_dir" -f "$script_dir/providers/poyo/order.jq" "$work/candidate.json") ||
       fail "PoYo pricing ordering validation failed."
     # Publish at most one confirmation-only update per UTC day.
