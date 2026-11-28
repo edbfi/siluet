@@ -144,10 +144,8 @@ export function createInventory(
 			const current = await access(key, scope);
 			if (current.state !== "stale") return { access: current, skipped: false };
 			const checked = await check(scope, "automatic");
-			return {
-				access: checked.outcome === "recorded" ? await access(key, scope) : current,
-				skipped: checked.outcome === "skipped",
-			};
+			// A newer check or a key change may have answered first, so read what is saved now.
+			return { access: await access(key, scope), skipped: checked.outcome === "skipped" };
 		},
 	};
 }
