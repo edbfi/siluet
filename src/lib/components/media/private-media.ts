@@ -207,6 +207,17 @@ async function reserve(size: number, keep: Holder | null, signal: AbortSignal) {
 		await roomFreed(signal);
 	}
 }
+/**
+ * The byte length a response declares: `X-Siluet-Length` when present, which the Gallery's
+ * streamed image GET sends because Bun drops a streamed body's `Content-Length`, else
+ * `Content-Length`. A malformed value declares nothing, and a malformed Siluet value never
+ * falls back to `Content-Length`.
+ */
+function declaredLength(headers: Headers) {
+	const value = (headers.get("x-siluet-length") ?? headers.get("content-length"))?.trim();
+	return value && /^\d+$/.test(value) ? Number(value) : Number.NaN;
+}
+
 /** The session a read belongs to, captured before it waits for a read. */
 const currentSession = () => sessionClient().bound()?.sessionId;
 
@@ -235,8 +246,7 @@ async function read(
 		if (!response.ok || !response.body) throw new TypeError("The file could not be read.");
 		const body = response.body;
 		const limit = mediaLimits[kind];
-		const length = response.headers.get("content-length")?.trim();
-		const declared = length && /^\d+$/.test(length) ? Number(length) : Number.NaN;
+		const declared = declaredLength(response.headers);
 		if (declared > limit) {
 			await body.cancel().catch(() => {});
 			throw new MediaUnavailable();
@@ -263,12 +273,17 @@ async function read(
 			const { done, value } = await reader.read();
 			if (done) break;
 			size += value.byteLength;
-			if (size > limit) {
+			if (size > expected) {
 				await reader.cancel();
+				// A body longer than its declared length is a failed read, as a shorter one is; an
+				// undeclared one past the kind's limit is unavailable.
+				if (Number.isFinite(declared)) throw new TypeError("The file could not be read.");
 				throw new MediaUnavailable();
 			}
 			chunks.push(value);
 		}
+		if (Number.isFinite(declared) && size !== declared)
+			throw new TypeError("The file could not be read.");
 		const blob = new Blob(chunks, { type: mime });
 		if (!signal.aborted) {
 			if (Array.isArray(owner)) owner.push(blob);

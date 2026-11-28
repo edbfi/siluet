@@ -4,6 +4,7 @@ import {
 	downloadCap,
 	downloadPrivate,
 	type MediaKind,
+	MediaUnavailable,
 	mediaLimits,
 	privateSource,
 	readCap,
@@ -47,6 +48,10 @@ const sizes = new Map<string, number>();
 const bodies = new Map<string, () => void>();
 /** Sources whose answer declares no length. */
 const undeclared = new Set<string>();
+/** Sources whose answer sends these headers instead of a `Content-Length` of its size. */
+const declared = new Map<string, Record<string, string>>();
+/** Sources whose body stays open after its bytes until the reader cancels it. */
+const unending = new Set<string>();
 /** Sources whose body the reader cancelled. */
 const cancelled = new Set<string>();
 // Bun shares globals across test files; the originals come back after this one.
@@ -66,19 +71,21 @@ globalThis.fetch = ((input: RequestInfo | URL, init: Call["init"] = {}) => {
 		const streamed = Promise.withResolvers<void>();
 		bodies.set(src, streamed.resolve);
 		if (!sizes.has(src)) streamed.resolve();
+		let sent = false;
 		const body = new ReadableStream<Uint8Array>({
 			async pull(controller) {
+				if (sent) return new Promise<void>(() => {});
 				await streamed.promise;
-				controller.enqueue(bytes.subarray(0, size));
-				controller.close();
+				sent = true;
+				controller.enqueue(size > bytes.length ? new Uint8Array(size) : bytes.subarray(0, size));
+				if (!unending.has(src)) controller.close();
 			},
 			cancel() {
 				cancelled.add(src);
 			},
 		});
-		const headers: Record<string, string> = undeclared.has(src)
-			? {}
-			: { "content-length": String(size) };
+		const headers: Record<string, string> =
+			declared.get(src) ?? (undeclared.has(src) ? {} : { "content-length": String(size) });
 		return new Response(body, { headers });
 	});
 }) as typeof fetch;
@@ -122,6 +129,8 @@ afterEach(async () => {
 	sizes.clear();
 	bodies.clear();
 	undeclared.clear();
+	declared.clear();
+	unending.clear();
 	cancelled.clear();
 	session = "s1";
 	remountKey = 0;
@@ -318,6 +327,131 @@ test("a read that declares no length reserves its kind's whole limit", async () 
 	// The next 80 MiB evicts the least recently visible shown file.
 	expect(u1.src).toBe("");
 	expect(u2.src).not.toBe("");
+});
+
+// The Gallery's image GET streams its body, and Bun then drops a set `Content-Length`; it
+// declares the verified length as `X-Siluet-Length` instead, which the tab prefers.
+const siluet = (length: number | string, extra: Record<string, string> = {}) => ({
+	"x-siluet-length": String(length),
+	...extra,
+});
+
+test("twelve 2 MiB tiles declared only by X-Siluet-Length all stay shown", async () => {
+	const tiles = Array.from({ length: 12 }, (_, i) => {
+		const src = `/tile${i}`;
+		sizes.set(src, 2 * MiB);
+		declared.set(src, siluet(2 * MiB));
+		return show(src);
+	});
+	// Answer every request before its body streams, so four reads are in flight at once.
+	for (let round = 0; round < 6; round++) {
+		for (const call of calls) call.answer();
+		await tick();
+		for (const body of bodies.values()) body();
+		await tick();
+	}
+	expect(calls).toHaveLength(12);
+	expect(tiles.filter((tile) => tile.src !== "")).toHaveLength(12);
+});
+
+test.each([
+	["longer", 40 * MiB + 1],
+	["shorter", 40 * MiB - 1],
+])("a body %s than its X-Siluet-Length fails and releases its reservation", async (_, size) => {
+	sizes.set("/mismatch", size);
+	declared.set("/mismatch", siluet(40 * MiB));
+	// A longer body is cancelled at its first extra byte; a shorter one fails when it ends.
+	if (size > 40 * MiB) unending.add("/mismatch");
+	const read = readPrivate("/mismatch", "image/png", "image", new AbortController().signal);
+	const failure = read.catch((error: unknown) => error);
+	await tick();
+	await deliver("/mismatch");
+	expect(await failure).toBeInstanceOf(TypeError);
+	expect(cancelled.has("/mismatch")).toBe(size > 40 * MiB);
+	// A leaked 40 MiB would leave no room for three 80 MiB files.
+	const shown = ["/r1", "/r2", "/r3"].map((src) => {
+		sizes.set(src, 80 * MiB);
+		return show(src);
+	});
+	await tick();
+	for (const src of ["/r1", "/r2", "/r3"]) await deliver(src);
+	expect(shown.every((element) => element.src !== "")).toBe(true);
+});
+
+test("an X-Siluet-Length over the kind's limit is unavailable and cancels the body", async () => {
+	sizes.set("/huge", 1);
+	declared.set("/huge", siluet(mediaLimits.image + 1, { "content-length": "1" }));
+	unending.add("/huge");
+	const read = readPrivate("/huge", "image/png", "image", new AbortController().signal);
+	const failure = read.catch((error: unknown) => error);
+	await tick();
+	await deliver("/huge");
+	expect(await failure).toBeInstanceOf(MediaUnavailable);
+	expect(cancelled.has("/huge")).toBe(true);
+});
+
+/**
+ * Show two 80 MiB files, answer `src` with its body held, then answer a 1-byte read: it evicts
+ * the older shown file only if `src` reserved 80 MiB.
+ */
+async function reservesWhole(src: string, headers: Record<string, string>, size: number) {
+	for (const shown of ["/s1", "/s2"]) sizes.set(shown, 80 * MiB);
+	const s1 = show("/s1");
+	const s2 = show("/s2");
+	await tick();
+	await deliver("/s1");
+	await deliver("/s2");
+	sizes.set(src, size);
+	declared.set(src, headers);
+	show(src);
+	await tick();
+	calls.find((call) => call.src === src)?.answer();
+	await tick();
+	sizes.set("/byte", 1);
+	declared.set("/byte", siluet(1, { "content-length": "1" }));
+	show("/byte");
+	await tick();
+	calls.find((call) => call.src === "/byte")?.answer();
+	await tick();
+	expect(s2.src).not.toBe("");
+	return s1.src === "";
+}
+
+test.each(["", "2 MiB", "-1", "1.5", "0x10"])(
+	"a malformed X-Siluet-Length %p reserves the kind's limit, never the Content-Length",
+	async (value) => {
+		expect(await reservesWhole("/malformed", siluet(value, { "content-length": "1" }), 1)).toBe(
+			true,
+		);
+	},
+);
+
+test("with both headers, X-Siluet-Length decides the reservation", async () => {
+	expect(await reservesWhole("/both", siluet(80 * MiB, { "content-length": "1" }), 80 * MiB)).toBe(
+		true,
+	);
+});
+
+test("a download's share shrinks to its X-Siluet-Length", async () => {
+	await withLinks(async () => {
+		sizes.set("/small", 2 * MiB);
+		declared.set("/small", siluet(2 * MiB));
+		sizes.set("/large", 78 * MiB);
+		sizes.set("/third", 80 * MiB);
+		const downloads = ["/small", "/large", "/third"].map((src) =>
+			downloadPrivate(src, "image/png", "image", "a.png"),
+		);
+		await tick();
+		calls.find((call) => call.src === "/large")?.answer();
+		await tick();
+		// 80 MiB reserved for the undeclared small one and 78 MiB leave no room for the third.
+		expect(calls.map((call) => call.src)).toEqual(["/small", "/large"]);
+		calls.find((call) => call.src === "/small")?.answer();
+		await tick();
+		expect(calls.map((call) => call.src)).toEqual(["/small", "/large", "/third"]);
+		for (const src of ["/small", "/large", "/third"]) await deliver(src);
+		await Promise.all(downloads);
+	});
 });
 
 /** Run `body` with link timers captured instead of scheduled, then revoke every link. */
