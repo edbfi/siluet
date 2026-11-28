@@ -1,5 +1,6 @@
-import { expect, jest, test } from "bun:test";
-import { downloadImage } from "./download";
+import { expect, jest, spyOn, test } from "bun:test";
+import { g13Bounds } from "../../../../../tests/fixtures/gallery-bounds";
+import { downloadImage, encodedLimit } from "./download";
 
 const source = "https://images.example.org/image?signature=private";
 const resolve = async () => "93.184.216.34";
@@ -87,7 +88,7 @@ test("rejects an expired result, partial response, unsafe length, or chunked ove
 		new Response("partial", { status: 206 }),
 		new Response("short", { headers: { "content-length": "6" } }),
 		new Response("compressed", { headers: { "content-encoding": "gzip" } }),
-		new Response("large", { headers: { "content-length": String(32 * 1024 * 1024 + 1) } }),
+		new Response("large", { headers: { "content-length": String(encodedLimit + 1) } }),
 		new Response(
 			new ReadableStream({
 				pull(controller) {
@@ -99,6 +100,62 @@ test("rejects an expired result, partial response, unsafe length, or chunked ove
 		await expect(
 			downloadImage(source, { resolve, request: async () => response }),
 		).rejects.toThrow();
+	}
+});
+
+/** A body of `size` bytes in 1 MiB chunks, declaring `declared` (none when null). */
+function body(size: number, declared: number | null = size) {
+	let sent = 0;
+	const chunk = new Uint8Array(1024 * 1024).fill(7);
+	const stream = new ReadableStream<Uint8Array>({
+		pull(controller) {
+			const length = Math.min(chunk.length, size - sent);
+			if (length <= 0) return controller.close();
+			controller.enqueue(chunk.subarray(0, length));
+			sent += length;
+		},
+	});
+	return new Response(stream, {
+		headers: declared === null ? {} : { "content-length": String(declared) },
+	});
+}
+
+test("the encoded limit is 80 MiB: exactly that much is read, one byte more fails", async () => {
+	expect(encodedLimit).toBe(g13Bounds.bytes);
+	for (const declared of [encodedLimit, null]) {
+		const bytes = await downloadImage(source, {
+			resolve,
+			request: async () => body(encodedLimit, declared),
+		});
+		expect(bytes.length).toBe(encodedLimit);
+	}
+	for (const response of [
+		() => body(encodedLimit + 1, null),
+		() => body(encodedLimit + 1, encodedLimit + 1),
+		() => body(0, encodedLimit + 1),
+	]) {
+		const error = await downloadImage(source, { resolve, request: async () => response() }).catch(
+			(reason: unknown) => reason,
+		);
+		// A failed download, not a hold: D9 retries it.
+		expect(error).toBeInstanceOf(Error);
+		expect(error).not.toHaveProperty("reason");
+	}
+});
+
+test("a valid declared length pre-sizes the buffer the body is read into", async () => {
+	const allocate = spyOn(Buffer, "allocUnsafe");
+	try {
+		await downloadImage(source, { resolve, request: async () => body(3 * 1024 * 1024) });
+		expect(allocate.mock.calls).toEqual([[3 * 1024 * 1024]]);
+		const undeclared = await downloadImage(source, {
+			resolve,
+			request: async () => body(1024, null),
+		});
+		expect(undeclared.length).toBe(1024);
+		expect(allocate).toHaveBeenCalledTimes(1);
+	} finally {
+		allocate.mockRestore();
 	}
 });
 

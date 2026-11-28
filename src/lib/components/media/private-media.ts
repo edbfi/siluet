@@ -16,13 +16,19 @@ export const mediaLimits = {
 export type MediaKind = keyof typeof mediaLimits;
 /** Per tab: reads in flight and bytes held. */
 const maxReads = 4;
-const maxBytes = 192 * MiB;
 /**
- * Shown files keep one read: downloads take at most three, and pin at most 128 MiB so the
- * largest shown file still fits.
+ * The tab's read cap: bytes held and in flight. A measured constant (D5), at least twice the
+ * largest kind, so a shown file and a download always fit. Gallery pages render it as
+ * `data-read-cap`.
+ */
+export const readCap = 240 * MiB;
+const largestKind = Math.max(...Object.values(mediaLimits));
+/**
+ * Shown files keep one read: downloads take at most three, and pin at most the cap less the
+ * largest kind (160 MiB), so the largest shown file still fits.
  */
 const maxDownloadReads = maxReads - 1;
-const maxPinned = maxBytes - mediaLimits.video;
+export const downloadCap = readCap - largestKind;
 /** A download link outlives its click long enough for the browser to start saving. */
 const downloadMs = 60000;
 
@@ -83,7 +89,7 @@ function admit() {
 		if (turn) {
 			const shown = shownBlob(turn.src);
 			const need = shown ? shown.size : mediaLimits[turn.kind];
-			const fits = (shown && downloads.includes(shown)) || pinned() + need <= maxPinned;
+			const fits = (shown && downloads.includes(shown)) || pinned() + need <= downloadCap;
 			// A shown file goes first unless no download is reading, so neither can starve.
 			const read =
 				reads < maxReads &&
@@ -161,8 +167,8 @@ function makeRoom(size: number, keep: Holder | null) {
 		.sort((a, b) => a.visibleAt - b.visibleAt);
 	const evictable = new Set(others.flatMap((h) => (h.blob ? [h.blob] : [])));
 	const freeable = [...evictable].reduce((sum, blob) => sum + blob.size, 0);
-	if (held() - freeable + size > maxBytes) return;
-	while (held() + size > maxBytes && others.length) others.shift()?.evict();
+	if (held() - freeable + size > readCap) return;
+	while (held() + size > readCap && others.length) others.shift()?.evict();
 }
 /** Reads waiting for other reads or download links to release their bytes. */
 const roomWaiters = new Set<() => void>();
@@ -194,7 +200,7 @@ async function reserve(size: number, keep: Holder | null, signal: AbortSignal) {
 	for (;;) {
 		signal.throwIfAborted();
 		makeRoom(size, keep);
-		if (held() + size <= maxBytes) {
+		if (held() + size <= readCap) {
 			reserved += size;
 			return;
 		}

@@ -9,8 +9,11 @@ export const galleryImageLimits = {
 	pixels: 20_000_000,
 	/** The longest edge a saved image may have, inclusive. */
 	edge: 16_384,
-	/** The largest encoded image Gallery downloads, saves and reads back. */
-	bytes: 32 * MiB,
+	/**
+	 * The largest encoded image Gallery downloads, saves and reads back. No provider documents
+	 * one; a stored 8-bit RGBA PNG at 20 MP measures 80,131,293 bytes.
+	 */
+	bytes: 80 * MiB,
 } as const;
 
 /** Gallery's pixel limit in megapixels, as Review states it. */

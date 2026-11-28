@@ -10,6 +10,6 @@ test("Review states Gallery's pixel limit in whole megapixels, read from the sha
 });
 
 test("Gallery's image limits are one pixel count, one edge and one encoded size", () => {
-	expect(galleryImageLimits).toEqual({ pixels: 20_000_000, edge: 16_384, bytes: 32 * 1024 * 1024 });
+	expect(galleryImageLimits).toEqual({ pixels: 20_000_000, edge: 16_384, bytes: 80 * 1024 * 1024 });
 	expect(Number.isInteger(galleryMegapixels)).toBe(true);
 });

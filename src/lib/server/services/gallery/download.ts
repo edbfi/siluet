@@ -30,19 +30,25 @@ async function readImage(response: Response) {
 		throw invalid();
 	}
 	const reader = response.body.getReader();
-	const sink = new Bun.ArrayBufferSink();
-	sink.start();
+	// A declared length sizes the buffer once; only an undeclared body grows a sink.
+	const declared = length === null ? null : Number(length);
+	const buffer = declared === null ? null : Buffer.allocUnsafe(declared);
+	const sink = buffer ? null : new Bun.ArrayBufferSink();
+	sink?.start({});
 	let total = 0;
 	try {
 		while (true) {
 			const chunk = await reader.read();
 			if (chunk.done) break;
+			const offset = total;
 			total += chunk.value.byteLength;
-			if (total > encodedLimit) throw invalid();
-			sink.write(chunk.value);
+			if (total > encodedLimit || (declared !== null && total > declared)) throw invalid();
+			if (buffer) buffer.set(chunk.value, offset);
+			else sink?.write(chunk.value);
 		}
-		if (total === 0 || (length !== null && Number(length) !== total)) throw invalid();
-		const bytes = sink.end();
+		if (total === 0 || (declared !== null && declared !== total)) throw invalid();
+		if (buffer) return buffer;
+		const bytes = sink?.end() ?? new ArrayBuffer(0);
 		return bytes instanceof ArrayBuffer
 			? Buffer.from(bytes)
 			: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
