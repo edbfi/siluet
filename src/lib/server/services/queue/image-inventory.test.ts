@@ -176,7 +176,7 @@ test("the Seedream exception queues before any snapshot and never revives after 
 	const first = await reviewed();
 	expect(first.review.access).toEqual({
 		state: "exception",
-		text: "The global image model list included this model for this key.",
+		text: "Seedream 5.5 was listed for this key.",
 	});
 	expect(await first.click()).toHaveProperty("jobId");
 	reply = async () => new Response(null, { status: 503 });

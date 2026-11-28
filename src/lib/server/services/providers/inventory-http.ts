@@ -42,7 +42,11 @@ export async function inventoryAction({ request, locals }: RequestEvent) {
 		default:
 			// A manual check never skips; anything else changed under it and recorded nothing.
 			return json(
-				{ outcome: "superseded", ok: false, message: "The saved connection changed. Check again." },
+				{
+					outcome: "superseded",
+					ok: false,
+					message: "A newer check or a key change replaced this one. Check again.",
+				},
 				{ status: 409 },
 			);
 	}

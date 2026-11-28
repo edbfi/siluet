@@ -68,7 +68,7 @@ test.each([
 		"Three checks a minute per scope. Try again in 42 s.",
 	],
 	[{ outcome: "disconnected" }, 409, "Connect a readable ToAPIs model key in Settings."],
-	[{ outcome: "superseded" }, 409, "The saved connection changed. Check again."],
+	[{ outcome: "superseded" }, 409, "A newer check or a key change replaced this one. Check again."],
 ] as const)("a refused check says why", async (outcome, status, message) => {
 	const response = await inventoryAction(event({ scope: "image" }, {}, outcome).event);
 	expect(response.status).toBe(status);

@@ -165,7 +165,7 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await expect(absentLine).toBeVisible();
 			await expect(queue(1)).toBeDisabled();
 			await expect(
-				review.getByRole("button", { name: "Check ToAPIs model access again" }),
+				review.getByRole("button", { name: "Check again: ToAPIs model access" }),
 			).toBeVisible();
 			await poyo.check();
 			await expect(facts).toContainText("Access to this model is unconfirmed.");

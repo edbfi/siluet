@@ -59,7 +59,7 @@ test("URL keyframes review by keyboard, queue once, save automatically and reope
 			form: { provider: "toapis", key: providerFixtureKeys.restricted },
 		});
 		await page.goto(`${origin}/settings/providers?provider=toapis`);
-		await page.getByRole("button", { name: "Check video models again" }).press("Enter");
+		await page.getByRole("button", { name: "Check again: video models" }).press("Enter");
 		await expect(page.getByText(/ToAPIs listed seedance-2-5 for this key/)).toBeVisible();
 
 		const queue = page.getByRole("button", { name: "Queue 1 request" });

@@ -725,7 +725,7 @@ $effect(() => {
 									type="button"
 									class={styles.inlineAction}
 									disabled={checking || !!pending}
-									aria-label="Check ToAPIs model access again"
+									aria-label="Check again: ToAPIs model access"
 									aria-describedby={`${headingId}-access`}
 									onclick={checkAgain}
 								>

@@ -48,8 +48,8 @@ type InventoryFeedback = { ok: boolean; message: string };
 const inventoryFeedback = $state<Partial<Record<InventoryScope, InventoryFeedback>>>({});
 const checkingInventory = $state<Partial<Record<InventoryScope, boolean>>>({});
 const inventorySections = [
-	{ scope: "image", title: "Image models", action: "Check image models again" },
-	{ scope: "video", title: "Video models", action: "Check video models again" },
+	{ scope: "image", title: "Image models", action: "Check again: image models" },
+	{ scope: "video", title: "Video models", action: "Check again: video models" },
 ] as const;
 const statusWords = { listed: "listed", absent: "absent", unknown: "unknown" };
 

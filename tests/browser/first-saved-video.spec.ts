@@ -93,7 +93,7 @@ test("video-only key reviews once, saves one video and reopens its original byte
 				"Check ToAPIs model access.",
 			);
 			await page.goto(`${origin}/settings/providers?provider=toapis`);
-			await page.getByRole("button", { name: "Check video models again" }).press("Enter");
+			await page.getByRole("button", { name: "Check again: video models" }).press("Enter");
 			await expect(page.getByText(/ToAPIs listed seedance-2-5 for this key/)).toHaveCount(1);
 			await expect(
 				page.getByRole("status").filter({ hasText: /ToAPIs listed seedance-2-5 for this key/ }),
@@ -284,7 +284,7 @@ async function openSavedClip(page: Page, directory: string, bytes: Buffer) {
 			form: { provider: "toapis", key: providerFixtureKeys.restricted },
 		});
 		await page.goto(`${origin}/settings/providers?provider=toapis`);
-		await page.getByRole("button", { name: "Check video models again" }).click();
+		await page.getByRole("button", { name: "Check again: video models" }).click();
 		await expect(page.getByText(/ToAPIs listed seedance-2-5 for this key/)).toBeVisible();
 		const input = {
 			draft: { ...videoDefaults, prompt: "A red ball bounces." },

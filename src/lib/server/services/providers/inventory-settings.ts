@@ -19,7 +19,9 @@ function ledgerIds(scope: InventoryScope) {
 		ledger.providers.toapis.rows.filter((row) => row.media === scope).flatMap((row) => row.ids),
 	);
 	const first = shipped[scope]?.model;
-	return [...ids].sort((a, b) => Number(b === first) - Number(a === first) || a.localeCompare(b));
+	return [...ids].sort(
+		(a, b) => Number(b === first) - Number(a === first) || (a < b ? -1 : a > b ? 1 : 0),
+	);
 }
 
 export type InventorySection = {

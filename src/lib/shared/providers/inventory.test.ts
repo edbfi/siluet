@@ -32,7 +32,7 @@ test.each([
 	],
 	[
 		access("exception", { checkedAt: null, basis: "pre-snapshot" }),
-		"The global image model list included this model for this key.",
+		"Seedream 5.5 was listed for this key.",
 	],
 ] as const)("Review and Settings say what the evidence says", (state, text) => {
 	expect(accessText(state, "doubao-seedream-5-5", "image")).toBe(text);

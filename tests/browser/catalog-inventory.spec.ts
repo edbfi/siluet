@@ -83,7 +83,7 @@ test("Settings and Review show listed, absent or unknown per exact ToAPIs model,
 			const answered = page.waitForResponse(
 				(response) => new URL(response.url()).pathname === "/providers/inventory",
 			);
-			const button = page.getByRole("button", { name: `Check ${scope} models again` });
+			const button = page.getByRole("button", { name: `Check again: ${scope} models` });
 			await button.press("Enter");
 			const response = await answered;
 			// The section refreshes before it takes another check.
@@ -93,7 +93,7 @@ test("Settings and Review show listed, absent or unknown per exact ToAPIs model,
 		const review = page.getByRole("region", { name: "Review request", exact: true });
 		const facts = review.getByRole("tabpanel", { name: "Review", exact: true });
 		const queue = review.getByRole("button", { name: "Queue 1 request" });
-		const reviewCheck = review.getByRole("button", { name: "Check ToAPIs model access again" });
+		const reviewCheck = review.getByRole("button", { name: "Check again: ToAPIs model access" });
 		const openImageReview = async () => {
 			await page.goto(`${origin}/image`);
 			await page.getByRole("textbox", { name: "Prompt", exact: true }).fill(prompt);

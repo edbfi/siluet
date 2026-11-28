@@ -132,7 +132,7 @@ export const staleText = "The ToAPIs model list is more than 24 hours old. Check
 export const listingCaveat =
 	"A listing is not evidence of entitlement, filtering compatibility or price.";
 const exceptionText: Record<InventoryScope, string> = {
-	image: "The global image model list included this model for this key.",
+	image: "Seedream 5.5 was listed for this key.",
 	video: "Seedance 2.5 was listed for this key.",
 };
 

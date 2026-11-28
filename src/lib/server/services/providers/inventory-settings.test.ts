@@ -97,7 +97,7 @@ test.each([
 test("before any check, a section asks for one, and the shipped exception keeps its text", async () => {
 	const inventory = await setup(true);
 	const image = await inventorySection(inventory, "image");
-	expect(image.line).toBe("The global image model list included this model for this key.");
+	expect(image.line).toBe("Seedream 5.5 was listed for this key.");
 	expect(image.models.every(({ status }) => status === "unknown")).toBe(true);
 	expect((await inventorySection(inventory, "video")).line).toBe("Check ToAPIs model access.");
 });
