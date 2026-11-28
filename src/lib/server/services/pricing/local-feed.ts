@@ -12,7 +12,11 @@ import {
 	type ProviderPricingFeed,
 	pricingSourceDate,
 } from "../../../shared/pricing/feeds";
-import { decodePoyoBasis, type PoyoPriceBasis } from "../../../shared/pricing/poyo-basis";
+import {
+	decodePoyoBasis,
+	type PoyoPriceBasis,
+	poyoBasisByteLimit,
+} from "../../../shared/pricing/poyo-basis";
 import {
 	decodePoyoV2Feed,
 	type PoyoPricingFeed,
@@ -52,8 +56,6 @@ export type CachedPricingFeed = { checkedAt: string; feed: ProviderPricingFeed }
 export const pricingFeedByteLimit = 16 * 1024;
 /** Bundled and cached v2 files leave room for the cache wrapper around a 64 KiB feed. */
 export const poyoV2FileByteLimit = 256 * 1024;
-/** A cached or bundled basis is read with the feed's own 64 KiB wire limit. */
-export const poyoBasisFileByteLimit = 64 * 1024;
 
 const pricingFiles = {
 	poyo: { directory: "v1", name: "feed.json", byteLimit: pricingFeedByteLimit },
@@ -68,7 +70,7 @@ export function poyoBasisPath(v2Path: string): string {
 
 /** Read a price basis file: `undefined` when it is absent, unreadable or invalid. */
 export async function readPoyoBasis(path: string): Promise<PoyoPriceBasis | undefined> {
-	return decodePoyoBasis(await readLocalJson(path, poyoBasisFileByteLimit));
+	return decodePoyoBasis(await readLocalJson(path, poyoBasisByteLimit));
 }
 
 export function pricingFileLocation(file: PricingFile): string {

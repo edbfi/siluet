@@ -10,7 +10,7 @@ import pair from "../../../../../tests/fixtures/poyo-basis-pair.json";
 import { queueRows } from "../../../shared/media-catalog/image-queue";
 import { estimateDerivedPrice } from "../../../shared/pricing/derived-estimate";
 import { estimatePrice } from "../../../shared/pricing/estimate";
-import { decodePoyoBasis } from "../../../shared/pricing/poyo-basis";
+import { decodePoyoBasis, poyoBasisByteLimit } from "../../../shared/pricing/poyo-basis";
 import { decodePoyoV2Feed } from "../../../shared/pricing/poyo-feed";
 import {
 	loadLocalPoyoPricing,
@@ -308,6 +308,16 @@ describe("the Poyo.ai price basis", () => {
 		expect(pricing).toEqual({ feed: later });
 		expect([derived, verified]).toEqual(["unknown", "known"]);
 		await writeCache(basisCache(), "{");
+		expect((await quotes()).pricing).toEqual({ feed: later });
+	});
+
+	test("a cached basis pairs up to the basis limit and not one byte more", async () => {
+		await writeCache(pricingCachePath(directory, "poyo-v2"), { checkedAt, feed: later });
+		const json = JSON.stringify(laterBasis);
+		const pad = (bytes: number) => `${json}${" ".repeat(bytes - json.length)}`;
+		await writeCache(basisCache(), pad(poyoBasisByteLimit));
+		expect((await quotes()).pricing).toEqual({ feed: later, basis: laterBasis });
+		await writeCache(basisCache(), pad(poyoBasisByteLimit + 1));
 		expect((await quotes()).pricing).toEqual({ feed: later });
 	});
 

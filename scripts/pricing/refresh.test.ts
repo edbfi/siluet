@@ -6,6 +6,7 @@ import { queueRows } from "../../src/lib/shared/media-catalog/image-queue";
 import { estimateDerivedPrice } from "../../src/lib/shared/pricing/derived-estimate";
 import { estimatePrice } from "../../src/lib/shared/pricing/estimate";
 import type { PricingFeed } from "../../src/lib/shared/pricing/feed";
+import { poyoBasisByteLimit } from "../../src/lib/shared/pricing/poyo-basis";
 import h3Fixture from "../../tests/fixtures/h3-rate.v2.json";
 import pair from "../../tests/fixtures/poyo-basis-pair.json";
 import { poyoV2Feed, sizedPoyoV2Feed } from "../../tests/fixtures/poyo-v2-feed";
@@ -20,6 +21,7 @@ import {
 } from "./local-feed";
 import {
 	describeRefresh,
+	encodeBasisCache,
 	encodeCacheEntry,
 	poyoBasisPricingUrl,
 	poyoV2PricingFeedUrl,
@@ -680,6 +682,26 @@ describe("confirmed PoYo v2 refresh", () => {
 			expect(await quotes()).toEqual(["known", "known"]);
 		});
 
+		/** The basis, padded with JSON whitespace to exactly `bytes`. */
+		const sized = (bytes: number) => {
+			const json = JSON.stringify(basis);
+			return `${json}${" ".repeat(bytes - new TextEncoder().encode(json).byteLength)}`;
+		};
+
+		test("a basis of exactly the basis limit is read and cached", async () => {
+			const { result } = refreshV2(feed, v2Now, new Response(sized(poyoBasisByteLimit)));
+			expect(await result).toMatchObject({ status: "updated", feed });
+			expect(await readFile(basisCache(), "utf8")).toBe(`${canonicalJson(basis)}\n`);
+		});
+
+		test("a basis the reader would refuse for its size is never cached", () => {
+			const digests = Object.fromEntries(
+				Array.from({ length: 500 }, (_, i) => [`m${i}`, "0".repeat(64)]),
+			);
+			expect(() => encodeBasisCache({ ...basis, digests })).toThrow(/size limit/);
+			expect(encodeBasisCache(basis)).toBe(`${canonicalJson(basis)}\n`);
+		});
+
 		test("an unpublished basis refreshes the feed alone and drops the cached basis", async () => {
 			await refreshV2(feed, v2Now, basis).result;
 			const next = { ...feed, confirmedAt: "2026-11-24T14:30:00Z" };
@@ -693,11 +715,7 @@ describe("confirmed PoYo v2 refresh", () => {
 			["another body", () => ({ ...basis, feedSha256: "f".repeat(64) }), /does not pair/],
 			["an invalid schema", () => ({ ...basis, digests: [] }), /invalid schema/],
 			["a server error", () => new Response("error", { status: 503 }), /HTTP 503/],
-			[
-				"one byte over the feed's limit",
-				() => new Response(`${JSON.stringify(basis)}${" ".repeat(64 * 1024)}`),
-				/size/,
-			],
+			["one byte over the basis limit", () => new Response(sized(poyoBasisByteLimit + 1)), /size/],
 		])("a basis with %s replaces neither cached file", async (_, reply, reason) => {
 			await refreshV2(feed, v2Now, basis).result;
 			const saved = [await readFile(v2CachePath, "utf8"), await readFile(basisCache(), "utf8")];

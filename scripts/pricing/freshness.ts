@@ -130,7 +130,7 @@ const bases = {
 	},
 	bundled: {
 		label: "Bundled PoYo price basis on main",
-		byteLimit: bundledByteLimit,
+		byteLimit: poyoBasisByteLimit,
 		feeds: "the bundled rates",
 		// Until a re-bundle adds the published basis, derived rows stay unknown-price.
 		absent: (label: string): FreshnessCheck => ({

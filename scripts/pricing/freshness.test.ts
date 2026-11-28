@@ -299,6 +299,15 @@ describe("the PoYo price basis", () => {
 		expect(await basisCheck(options)).toEqual({ level: "warning", message });
 	});
 
+	test("a bundled basis pairs up to the basis limit and not one byte more", async () => {
+		const json = JSON.stringify(pair.basis);
+		const options = { bundledPoyo: path("pair-feed.json"), bundledPoyoBasis: path("basis.json") };
+		writeFileSync(path("basis.json"), `${json}${" ".repeat(32 * 1024 - json.length)}`);
+		expect(await basisCheck(options)).toMatchObject({ level: "notice" });
+		writeFileSync(path("basis.json"), `${json}${" ".repeat(32 * 1024 + 1 - json.length)}`);
+		expect(await basisCheck(options)).toMatchObject({ level: "warning" });
+	});
+
 	test("a v1 bundled feed cannot pair with a basis", async () => {
 		const options = { bundledPoyo: path("v1.json"), bundledPoyoBasis: path("pair-basis.json") };
 		expect(await basisCheck(options)).toMatchObject({ level: "warning" });

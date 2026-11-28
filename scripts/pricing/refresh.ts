@@ -8,7 +8,11 @@ import {
 	type ProviderPricingFeed,
 	pricingSourceDate,
 } from "../../src/lib/shared/pricing/feeds";
-import { decodePoyoBasis, type PoyoPriceBasis } from "../../src/lib/shared/pricing/poyo-basis";
+import {
+	decodePoyoBasis,
+	type PoyoPriceBasis,
+	poyoBasisByteLimit,
+} from "../../src/lib/shared/pricing/poyo-basis";
 import { poyoConfirmationMs, poyoFeedExpiryMs } from "../../src/lib/shared/pricing/poyo-feed";
 import { toapisFeedExpiryMs } from "../../src/lib/shared/pricing/toapis-feed";
 import {
@@ -123,8 +127,8 @@ async function readFeed(
 }
 
 /**
- * The price basis beside a v2 feed, read with the feed's size limit and checked against it, or
- * `null` while none is published.
+ * The price basis beside a v2 feed, read with the published basis limit and checked against the
+ * feed, or `null` while none is published.
  */
 async function readBasis(
 	feed: ProviderPricingFeed,
@@ -135,7 +139,7 @@ async function readBasis(
 		void response.body?.cancel().catch(() => {});
 		return null;
 	}
-	const basis = decodePoyoBasis(await readJsonBody(response, poyoV2WireByteLimit, signal));
+	const basis = decodePoyoBasis(await readJsonBody(response, poyoBasisByteLimit, signal));
 	if (!basis) throw new Error("Pricing basis has an invalid schema.");
 	if (feed.provider !== "poyo" || feed.version !== 2 || !poyoBasisPairs(feed, basis))
 		throw new Error("Pricing basis does not pair with the feed.");
@@ -149,6 +153,15 @@ export function encodeCacheEntry(file: PricingFile, entry: CachedPricingFeed): s
 	const text = `${json}\n`;
 	if (new TextEncoder().encode(text).byteLength > refreshFiles[file].cacheLimit) {
 		throw new Error("Pricing cache entry exceeds the size limit.");
+	}
+	return text;
+}
+
+/** Serialise a cached basis, refusing one the reader would reject for its size. */
+export function encodeBasisCache(basis: PoyoPriceBasis): string {
+	const text = `${canonicalJson(basis)}\n`;
+	if (new TextEncoder().encode(text).byteLength > poyoBasisByteLimit) {
+		throw new Error("Pricing basis cache entry exceeds the size limit.");
 	}
 	return text;
 }
@@ -228,7 +241,7 @@ async function saveFeed(
 		await replaceCache(cachePath, encodeCacheEntry(file, { checkedAt, feed }));
 		// The feed lands first. A stop before the basis lands leaves an unpaired basis, which the
 		// reader ignores, so derived rates stay unknown until the next refresh.
-		if (basis?.basis) await replaceCache(basis.path, `${canonicalJson(basis.basis)}\n`);
+		if (basis?.basis) await replaceCache(basis.path, encodeBasisCache(basis.basis));
 		else if (basis) await rm(basis.path, { force: true });
 		return { status, checkedAt, feed, cachePath };
 	} finally {
