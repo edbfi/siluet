@@ -3,7 +3,11 @@ import { readFile, rm } from "node:fs/promises";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { galleryStatement } from "../../src/lib/shared/image-studio/derived-review";
 import { createSeedreamDraft } from "../../src/lib/shared/image-studio/seedream";
-import { type GalleryFixture, generateGalleryBounds } from "../fixtures/gallery-bounds";
+import {
+	type GalleryBounds,
+	type GalleryFixture,
+	generateGalleryBounds,
+} from "../fixtures/gallery-bounds";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys, startProviderFixtures } from "../fixtures/provider-connections";
 import { startStudio } from "./built-studio";
@@ -12,19 +16,22 @@ import { test } from "./studio-test";
 
 // G13's raised Gallery limits in the built app (catalog engine spec, "Gallery size limits";
 // D5): 20 MP and 80 MiB images save from one transfer, reopen offline, download unchanged and
-// stay within the tab's read cap. Fixtures are generated into a temporary directory and never
-// committed; no provider is called.
+// stay within the tab's read cap. Each worker generates the fixtures into a temporary directory
+// before its first test here and removes them after its last, so listing or filtering the specs
+// leaves nothing behind; they are never committed, and no provider is called.
 
 type Studio = Awaited<ReturnType<typeof startStudio>>;
 const MiB = 1024 * 1024;
-const bounds = await generateGalleryBounds([
-	"png20",
-	"flux4k",
-	"encodedBound",
-	"over20",
-	"verification25",
-]);
-test.afterAll(() => bounds.remove());
+const fixtures = ["png20", "flux4k", "encodedBound", "over20", "verification25"] as const;
+let bounds: GalleryBounds<(typeof fixtures)[number]>;
+test.beforeAll(async () => {
+	test.setTimeout(120_000);
+	bounds = await generateGalleryBounds(fixtures);
+});
+test.afterAll(async () => {
+	test.setTimeout(60_000);
+	await bounds?.remove();
+});
 const bytesOf = async (fixture: GalleryFixture) => new Uint8Array(await readFile(fixture.path));
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 /** What a download is checked by: its SHA-256 and length, against the fixture's. */
