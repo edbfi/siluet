@@ -55,7 +55,8 @@ function decrypt(key: Buffer, encoded: string, data: Buffer) {
 
 function allowsCredential(access: CredentialAccess, provider: ProviderId, seedream: boolean) {
 	if (access === "poyo-balance") return provider === "poyo";
-	if (access === "toapis-video") return provider === "toapis";
+	// Any readable ToAPIs key: the inventory snapshot, not the key, says what it may queue.
+	if (access === "toapis-video" || access === "toapis-image") return provider === "toapis";
 	return seedream;
 }
 
@@ -69,6 +70,7 @@ export function providerStore(installation: Installation) {
 			seedream: new Map<ProviderId, number>(),
 			"poyo-balance": new Map<ProviderId, number>(),
 			"toapis-video": new Map<ProviderId, number>(),
+			"toapis-image": new Map<ProviderId, number>(),
 		};
 		const rows = await use((db) =>
 			db.all<{
@@ -113,7 +115,10 @@ export function providerStore(installation: Installation) {
 					}
 					if (seedream) revisions.seedream.set(id, row.revision);
 					if (id === "poyo") revisions["poyo-balance"].set(id, row.revision);
-					if (id === "toapis") revisions["toapis-video"].set(id, row.revision);
+					if (id === "toapis") {
+						revisions["toapis-video"].set(id, row.revision);
+						revisions["toapis-image"].set(id, row.revision);
+					}
 					return { id, state: "connected", verifiedAt, seedream };
 				}
 			} catch {

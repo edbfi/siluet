@@ -4,7 +4,7 @@ import type { ProviderId } from "../../shared/providers/connections";
 
 export type ImageCredentialAccess = "seedream" | "poyo-balance";
 /** The connection check that a job's key must have passed. */
-export type CredentialAccess = ImageCredentialAccess | "toapis-video";
+export type CredentialAccess = ImageCredentialAccess | "toapis-video" | "toapis-image";
 
 // Only the shipped Seedream 5.5 operations need the key's Seedream check. Every other Poyo.ai
 // image model, Z-Image and the derived rows, needs a balance-verified key (spec, condition 5).
