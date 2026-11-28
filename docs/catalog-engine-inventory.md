@@ -338,7 +338,7 @@ String options that are not free text and whose domain appears only in a descrip
 
 | IDs | Field | Domain in prose | Path |
 | --- | --- | --- | --- |
-| `minimax-h3-image` | `size` | ten ratios, `auto` or `WIDTHxHEIGHT` within 655,360–20,000,000 pixels and 1:3–3:1 | typing rule with G6; large sizes after G13 |
+| `minimax-h3-image` | `size` | ten ratios, `auto` or `WIDTHxHEIGHT` within 655,360–20,000,000 pixels and 1:3–3:1 | typing rule with G6, within G13's 20 MP |
 | `gpt-image-2` | `size` | preset ratios, `auto` or a custom pixel size | omitted until documented · Q11: its page is not pinned |
 | `gpt-image-2-edit` | `size` | preset ratios, `auto` or a custom pixel size | typing rule with G5 |
 | `kling-2.5-turbo-pro` | `aspect_ratio` | none ("Optional aspect ratio string") | omitted until documented · Q11 |

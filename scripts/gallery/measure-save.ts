@@ -15,7 +15,7 @@
 import { createHash } from "node:crypto";
 import { appendFile, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { RuntimeInstallation } from "../../src/lib/server/db/runtime-installation";
 import type { Transport } from "../../src/lib/server/services/gallery/download";
 
@@ -389,7 +389,8 @@ export async function measure(scenario: Scenario, paths: readonly string[]) {
 		const after = peak() * calibration.unit;
 		return {
 			scenario,
-			files: paths.length,
+			// Each file by name, so a job summary says which fixture a figure measured.
+			files: paths.map((path) => basename(path)),
 			outcomes,
 			...(concurrency && { concurrency }),
 			runner: { platform: process.platform, arch: process.arch, bun: Bun.version },

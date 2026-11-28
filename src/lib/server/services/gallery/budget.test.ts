@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type GalleryBounds,
@@ -38,7 +38,8 @@ const isolated = ["sh", "-c", '"$@"; exit $?', "sh"];
 
 async function measure(scenario: string, paths: string[], env: Record<string, string> = {}) {
 	const child = Bun.spawn([...isolated, process.execPath, harness, scenario, ...paths], {
-		env: { ...process.env, GITHUB_STEP_SUMMARY: "", ...env },
+		// In CI each run appends its figures to the job summary, where the ceilings come from.
+		env: { ...process.env, ...env },
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -58,7 +59,7 @@ test("a save at today's bound reports its calibrated peak within the ceiling, an
 	});
 	expect(result).toMatchObject({
 		scenario: "save",
-		files: 1,
+		files: ["current"],
 		outcomes: ["saved"],
 		runner: { platform: process.platform, arch: process.arch, bun: Bun.version },
 	});
@@ -71,7 +72,10 @@ test("a save at today's bound reports its calibrated peak within the ceiling, an
 	expect(result.maxRSS.after).toBeGreaterThanOrEqual(result.maxRSS.before);
 	expect(result.peakMiB).toBe(Math.ceil(result.maxRSS.after / MiB));
 	expect(result.peakMiB).toBeLessThanOrEqual(rssCeilingsMiB.current);
-	expect(await readFile(summary, "utf8")).toContain(text);
+	const appended = await readFile(summary, "utf8");
+	expect(appended).toContain(text);
+	// This run's figures still reach the job's own summary.
+	if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, appended);
 }, 60_000);
 
 test("an unknown scenario fails before measuring", async () => {
@@ -90,6 +94,7 @@ test.each([
 	"one save of %s stays within its ceiling",
 	async (fixture, outcome) => {
 		const { result } = await measure("save", [bounds.files[fixture].path]);
+		expect(result.files).toEqual([fixture]);
 		expect(result.outcomes).toEqual([outcome]);
 		expect(result.peakMiB).toBeLessThanOrEqual(rssCeilingsMiB[fixture]);
 	},
