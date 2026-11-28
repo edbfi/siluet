@@ -301,11 +301,27 @@ test("an 80 MiB image arriving at 2 MiB/s, past the old 30 s deadline, saves fro
 
 /**
  * Count, in the page, the bytes the tab holds as object URLs and the bytes `/media` reads have
- * received but not yet turned into a blob; keep the peak. A read the tab has not started taking
- * holds no bytes, so the wrapper reads only when the page does.
+ * received but not yet turned into a blob; keep the peak. Count the `/media` responses and the
+ * object URLs created and revoked, so the eviction is seen, not inferred. A read the tab has not
+ * started taking holds no bytes, so the wrapper reads only when the page does.
  */
+type ReadState = {
+	held: Map<string, number>;
+	streaming: number;
+	peak: number;
+	responses: number;
+	created: number;
+	revoked: number;
+};
 function watchReads() {
-	const state = { held: new Map<string, number>(), streaming: 0, peak: 0 };
+	const state: ReadState = {
+		held: new Map<string, number>(),
+		streaming: 0,
+		peak: 0,
+		responses: 0,
+		created: 0,
+		revoked: 0,
+	};
 	Object.assign(window, { __reads: state });
 	const measure = () => {
 		const held = [...state.held.values()].reduce((sum, size) => sum + size, 0);
@@ -315,12 +331,13 @@ function watchReads() {
 	const revoke = URL.revokeObjectURL.bind(URL);
 	URL.createObjectURL = (object: Blob | MediaSource) => {
 		const url = create(object);
+		state.created++;
 		if (object instanceof Blob) state.held.set(url, object.size);
 		measure();
 		return url;
 	};
 	URL.revokeObjectURL = (url: string) => {
-		state.held.delete(url);
+		if (state.held.delete(url)) state.revoked++;
 		revoke(url);
 	};
 	const read = window.fetch.bind(window);
@@ -328,6 +345,7 @@ function watchReads() {
 		const response = await read(input, init);
 		const url = new URL(input instanceof Request ? input.url : String(input), location.href);
 		if (!url.pathname.endsWith("/media") || !response.body) return response;
+		state.responses++;
 		let received = 0;
 		const end = () => {
 			state.streaming -= received;
@@ -418,19 +436,21 @@ test("on /gallery, four 80 MiB images stay within the tab's read cap, and a thir
 			);
 		const reads = () =>
 			page.evaluate(() => {
-				const { held, streaming, peak } = (
-					window as unknown as {
-						__reads: { held: Map<string, number>; streaming: number; peak: number };
-					}
-				).__reads;
-				return { held: [...held.values()].length, streaming, peak };
+				const { held, peak, ...counts } = (window as unknown as { __reads: ReadState }).__reads;
+				return { ...counts, held: held.size, peak };
 			});
-		// All four were read; the least recently visible gave way, so three are held.
-		await expect.poll(blobs, { timeout: 60_000 }).toBe(3);
-		await expect.poll(async () => (await reads()).streaming).toBe(0);
-		const after = await reads();
-		expect(after.held).toBe(3);
-		expect(after.peak).toBeLessThanOrEqual(cap);
+		// All four were read, the least recently visible gave way and its URL was revoked, nothing
+		// is still streaming, and three tiles hold their blobs. Only then is the peak final.
+		await expect
+			.poll(
+				async () => {
+					const { peak: _, ...counts } = await reads();
+					return { ...counts, tiles: await blobs() };
+				},
+				{ timeout: 60_000 },
+			)
+			.toEqual({ responses: 4, created: 4, revoked: 1, streaming: 0, held: 3, tiles: 3 });
+		expect((await reads()).peak).toBeLessThanOrEqual(cap);
 		if (browserName === "chromium")
 			test.info().annotations.push({
 				type: "VmHWM MiB (largest first)",
