@@ -6,7 +6,7 @@ const MiB = 1024 * 1024;
 
 export const galleryImageLimits = {
 	/** The most pixels a saved image may have, inclusive. */
-	pixels: 16_000_000,
+	pixels: 20_000_000,
 	/** The longest edge a saved image may have, inclusive. */
 	edge: 16_384,
 	/** The largest encoded image Gallery downloads, saves and reads back. */

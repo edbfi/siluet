@@ -13,7 +13,7 @@ const samePath =
 const access =
 	"Poyo.ai does not publish per-key model access. Siluet has checked only that this key works.";
 const gallery =
-	"Gallery saves images up to 16 megapixels. A completed billable image over that stays with the provider.";
+	"Gallery saves images up to 20 megapixels. A completed billable image over that stays with the provider.";
 
 test("a Queue-eligible derived row composes from its row and Review states what it binds", async ({
 	page,

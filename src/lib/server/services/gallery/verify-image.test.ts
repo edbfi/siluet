@@ -1,11 +1,105 @@
-import { expect, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import { crc32 } from "node:zlib";
 import sharp from "sharp";
+import {
+	type GalleryBounds,
+	g13Bounds,
+	generateGalleryBounds,
+} from "../../../../../tests/fixtures/gallery-bounds";
 import { referenceGif, referencePng } from "../../../../../tests/fixtures/reference-image";
 import { riffWebp, webpChunks, webpFixtures } from "../../../../../tests/fixtures/webp";
-import { verifyImage } from "./verify-image";
+import { galleryImageLimits } from "../../../shared/gallery/limits";
+import { verificationPixels, verifyImage } from "./verify-image";
 
 const jpeg = await new Bun.Image(referencePng).jpeg().buffer();
+// Five thousand columns, one row past each bound.
+const width = 5000;
+const overPixels = [width, galleryImageLimits.pixels / width + 1] as const;
+const overVerification = [width, verificationPixels / width + 1] as const;
+const solid = (size: readonly [number, number]) =>
+	sharp({ create: { width: size[0], height: size[1], channels: 3, background: "#103254" } });
+/** The 1×1 reference PNG with its header claiming another size. */
+function claimedPng(size: readonly [number, number], bytes = Buffer.from(referencePng)) {
+	bytes.writeUInt32BE(size[0], 16);
+	bytes.writeUInt32BE(size[1], 20);
+	bytes.writeUInt32BE(crc32(bytes.subarray(12, 29)), 29);
+	return bytes;
+}
+
+test("Gallery saves up to 20 MP and classifies complete images up to 25 MP", () => {
+	expect(galleryImageLimits.pixels).toBe(g13Bounds.pixels);
+	expect(verificationPixels).toBe(g13Bounds.verificationPixels);
+	expect(galleryImageLimits.edge).toBe(16_384);
+});
+
+describe("at G13's bounds", () => {
+	let bounds: GalleryBounds<
+		"png20" | "jpeg20" | "webp20" | "png16" | "over20" | "verification25" | "over25"
+	>;
+	beforeAll(async () => {
+		bounds = await generateGalleryBounds([
+			"png20",
+			"jpeg20",
+			"webp20",
+			"png16",
+			"over20",
+			"verification25",
+			"over25",
+		]);
+	}, 60_000);
+	afterAll(() => bounds?.remove(), 60_000);
+
+	test.each([
+		["png20", "image/png"],
+		["jpeg20", "image/jpeg"],
+		["webp20", "image/webp"],
+		["png16", "image/png"],
+	] as const)(
+		"a 5000×4000 %s saves",
+		async (name, mime) => {
+			const bytes = await readFile(bounds.files[name].path);
+			expect(await verifyImage(bytes)).toEqual({ mime, width: 5000, height: 4000 });
+		},
+		60_000,
+	);
+
+	test.each(["over20", "verification25"] as const)(
+		"a complete %s image is held as unsupported",
+		async (name) => {
+			const bytes = await readFile(bounds.files[name].path);
+			await expect(verifyImage(bytes)).rejects.toMatchObject({ reason: "unsupported-image" });
+		},
+		60_000,
+	);
+
+	test("a complete image one row past 25 MP keeps the retrieval outcome", async () => {
+		const bytes = await readFile(bounds.files.over25.path);
+		const error = await verifyImage(bytes).catch((reason: unknown) => reason);
+		expect(error).toBeInstanceOf(Error);
+		expect(error).not.toHaveProperty("reason");
+	}, 60_000);
+});
+
+test("an image in the Gallery profile decodes once, under the timeout, to one byte a pixel", async () => {
+	const prototype = Object.getPrototypeOf(sharp());
+	const pixels = Buffer.alloc(64 * 2 * 4, 200);
+	const rgba16 = await sharp(pixels, { raw: { width: 64, height: 2, channels: 4 } })
+		.toColourspace("rgb16")
+		.png()
+		.toBuffer();
+	const timeout = spyOn(prototype, "timeout");
+	const toBuffer = spyOn(prototype, "toBuffer");
+	try {
+		expect(await verifyImage(rgba16)).toEqual({ mime: "image/png", width: 64, height: 2 });
+		expect(timeout.mock.calls).toEqual([[{ seconds: 5 }]]);
+		expect(toBuffer).toHaveBeenCalledTimes(1);
+		const output: Buffer = await toBuffer.mock.results[0].value;
+		expect(output.length).toBe(64 * 2);
+	} finally {
+		for (const spy of [timeout, toBuffer]) spy.mockRestore();
+	}
+});
 
 test("decodes original PNG and JPEG pixels", async () => {
 	expect(await verifyImage(referencePng)).toEqual({ mime: "image/png", width: 1, height: 1 });
@@ -126,17 +220,8 @@ test("requires complete images, including entropy-coded JPEG data and PNG chunk 
 });
 
 test("checks width, height and decoded area before allocating pixel output", async () => {
-	for (const [width, height] of [
-		[16385, 1],
-		[1, 16385],
-		[4001, 4000],
-	]) {
-		const bytes = Buffer.from(referencePng);
-		bytes.writeUInt32BE(width, 16);
-		bytes.writeUInt32BE(height, 20);
-		bytes.writeUInt32BE(crc32(bytes.subarray(12, 29)), 29);
-		await expect(verifyImage(bytes)).rejects.toThrow();
-	}
+	for (const size of [[16385, 1], [1, 16385], overPixels, overVerification] as const)
+		await expect(verifyImage(claimedPng(size))).rejects.toThrow();
 });
 
 test("only one complete JPEG codestream may be published, including progressive scans", async () => {
@@ -152,11 +237,7 @@ test("Save identifies complete images outside the Gallery profile with a bounded
 	})
 		.png()
 		.toBuffer();
-	const large = await sharp({
-		create: { width: 4001, height: 4000, channels: 3, background: "#103254" },
-	})
-		.jpeg()
-		.toBuffer();
+	const large = await solid(overPixels).jpeg().toBuffer();
 	for (const bytes of [
 		(await webpFixtures()).held.animated,
 		referenceGif,
@@ -190,15 +271,11 @@ test("incomplete or damaged pixels retain the ordinary retrieval outcome", async
 });
 
 test("an oversized header and end marker alone cannot identify a complete Gallery result", async () => {
-	const png = Buffer.concat([referencePng.subarray(0, 33), referencePng.subarray(-12)]);
-	png.writeUInt32BE(4001, 16);
-	png.writeUInt32BE(4000, 20);
-	png.writeUInt32BE(crc32(png.subarray(12, 29)), 29);
-	const large = await sharp({
-		create: { width: 4001, height: 4000, channels: 3, background: "#103254" },
-	})
-		.jpeg()
-		.toBuffer();
+	const png = claimedPng(
+		overPixels,
+		Buffer.concat([referencePng.subarray(0, 33), referencePng.subarray(-12)]),
+	);
+	const large = await solid(overPixels).jpeg().toBuffer();
 	const scan = large.indexOf(Buffer.from([0xff, 0xda]));
 	const scanStart = scan + 2 + large.readUInt16BE(scan + 2);
 	const emptyScan = Buffer.concat([large.subarray(0, scanStart), large.subarray(-2)]);
@@ -210,30 +287,18 @@ test("an oversized header and end marker alone cannot identify a complete Galler
 });
 
 test("a complete WebP just above the Gallery pixel limit has a durable reason", async () => {
-	const webp = await sharp({
-		create: { width: 4001, height: 4000, channels: 3, background: "#103254" },
-	})
-		.webp({ lossless: true, effort: 0 })
-		.toBuffer();
+	const webp = await solid(overPixels).webp({ lossless: true, effort: 0 }).toBuffer();
 	await expect(verifyImage(webp)).rejects.toMatchObject({ reason: "unsupported-image" });
 });
 
 test("oversized PNG dimensions and valid CRCs cannot vouch for damaged pixel data", async () => {
-	const png = Buffer.from(referencePng);
-	png.writeUInt32BE(4001, 16);
-	png.writeUInt32BE(4000, 20);
-	png.writeUInt32BE(crc32(png.subarray(12, 29)), 29);
-	const error = await verifyImage(png).catch((reason: unknown) => reason);
+	const error = await verifyImage(claimedPng(overPixels)).catch((reason: unknown) => reason);
 	expect(error).toBeInstanceOf(Error);
 	expect(error).not.toHaveProperty("reason");
 });
 
 test("a complete image beyond the verification budget keeps the retrieval outcome", async () => {
-	const png = await sharp({
-		create: { width: 5000, height: 4001, channels: 3, background: "#103254" },
-	})
-		.png()
-		.toBuffer();
+	const png = await solid(overVerification).png().toBuffer();
 	const error = await verifyImage(png).catch((reason: unknown) => reason);
 	expect(error).toBeInstanceOf(Error);
 	expect(error).not.toHaveProperty("reason");
@@ -306,9 +371,9 @@ test("decodes under a 5 s libvips timeout with the operation cache off", async (
 test("an image outside the Gallery profile decodes once, under the timeout, to one byte a pixel", async () => {
 	const prototype = Object.getPrototypeOf(sharp());
 	// 16-bit RGBA, one pixel wider than the Gallery allows.
-	const width = 16385;
-	const pixels = Buffer.alloc(width * 2 * 4, 200);
-	const rgba16 = await sharp(pixels, { raw: { width, height: 2, channels: 4 } })
+	const wide = galleryImageLimits.edge + 1;
+	const pixels = Buffer.alloc(wide * 2 * 4, 200);
+	const rgba16 = await sharp(pixels, { raw: { width: wide, height: 2, channels: 4 } })
 		.toColourspace("rgb16")
 		.png()
 		.toBuffer();
@@ -322,7 +387,7 @@ test("an image outside the Gallery profile decodes once, under the timeout, to o
 		expect(timeout.mock.calls).toEqual([[{ seconds: 5 }]]);
 		expect(toBuffer).toHaveBeenCalledTimes(1);
 		const output: Buffer = await toBuffer.mock.results[0].value;
-		expect(output.length).toBe(width * 2);
+		expect(output.length).toBe(wide * 2);
 	} finally {
 		for (const spy of [stats, timeout, toBuffer]) spy.mockRestore();
 	}
