@@ -1,5 +1,5 @@
 import { css, cx } from "#styled-system/css";
-import { studioPanel } from "#styled-system/recipes";
+import { studioButton, studioPanel } from "#styled-system/recipes";
 
 export const panel = cx(
 	studioPanel(),
@@ -117,3 +117,17 @@ export const consent = css({
 	cursor: "pointer",
 	"& input": { accentColor: "accent", flexShrink: 0 },
 });
+
+/** Check again beside a Review's access line. */
+export const inlineAction = cx(
+	studioButton({ appearance: "secondary" }),
+	css({
+		display: "inline-flex",
+		marginInlineStart: "0.5rem",
+		minHeight: "44px",
+		fontSize: "0.85rem",
+		_disabled: { color: "muted", cursor: "wait" },
+	}),
+);
+
+export const warning = css({ display: "block", color: "warning", fontSize: "0.85rem" });

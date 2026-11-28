@@ -34,14 +34,13 @@ export function createProviderConnections(
 			const unavailableProviders: string[] = [];
 			const connections = await statuses();
 			for (const status of connections) {
-				if (status.state === "connected" && status.seedream) {
+				// Any connected ToAPIs key reviews: its inventory snapshot decides Queue.
+				if (status.state === "connected" && (status.seedream || status.id === "toapis")) {
 					eligibleProviders.push(status.id);
 					continue;
 				}
 				const name = seedreamProviderNames[status.id];
-				if (status.state === "connected" && status.id === "toapis") {
-					unavailableProviders.push("ToAPIs did not list Seedream 5.5 for this key.");
-				} else if (status.state === "disconnected") {
+				if (status.state === "disconnected") {
 					unavailableProviders.push(`${name} is disconnected.`);
 				} else {
 					unavailableProviders.push(`Check the ${name} connection in Settings.`);

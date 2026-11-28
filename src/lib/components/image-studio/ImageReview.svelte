@@ -41,6 +41,7 @@ import ImageReferenceGuidance from "./ImageReferenceGuidance.svelte";
 import * as styles from "./image-review-styles.ts";
 import LocalCopyDetails from "./LocalCopyDetails.svelte";
 import type { LocalCopies } from "./local-copy.svelte.ts";
+import { type ReviewedAccess, reviewAccess } from "./review-access.ts";
 
 let {
 	modelId,
@@ -129,7 +130,7 @@ const fileStages = $derived(
 		: null,
 );
 const fileCount = $derived(localFiles?.length ?? 0);
-type ReviewTerms = {
+type ReviewTerms = ReviewedAccess & {
 	files?: ReviewedFile[];
 	token: string;
 	quote: PriceEstimate;
@@ -240,7 +241,35 @@ const disclosure = $derived.by(() => {
 		? (current?.disclosure ?? zImageDisclosure(operation))
 		: current?.editDisclosure;
 });
-const canQueue = $derived(current && (!current.requiresConsent || acceptedToken === current.token));
+// A ToAPIs Review's access line, shown once; any blocker keeps Queue disabled.
+const access = $derived(reviewAccess(current));
+const canQueue = $derived(
+	current && !access.blocked && (!current.requiresConsent || acceptedToken === current.token),
+);
+let checking = $state(false);
+let checkMessage = $state<string | null>(null);
+// Check again records a new snapshot, which the Review's terms bind, so Review runs again.
+async function checkAgain() {
+	if (checking || pending) return;
+	checking = true;
+	checkMessage = null;
+	try {
+		const response = await post("/providers/inventory", { scope: "image" });
+		const answer: { outcome?: string; message?: string } | null = await response
+			.json()
+			.catch(() => null);
+		if (answer?.outcome === "recorded" || answer?.outcome === "superseded") {
+			checking = false;
+			await inspect();
+			return;
+		}
+		checkMessage = answer?.message ?? "The model check is unavailable. Try again.";
+	} catch {
+		checkMessage = "The model check is unavailable. Try again.";
+	} finally {
+		checking = false;
+	}
+}
 const fileWord = $derived(localCopies?.cleaned === false ? "file" : "cleaned copy");
 // One upload per file and one edit, each potentially billable.
 const fileRequests = $derived(request?.files ? request.files.length + 1 : 0);
@@ -361,6 +390,7 @@ async function inspect() {
 	authorized = null;
 	feedback = null;
 	retryMessage = null;
+	checkMessage = null;
 	tabValue = "review";
 	try {
 		const response = await post(input.files ? "/image/file-review" : "/image/review", {
@@ -685,9 +715,26 @@ $effect(() => {
 					<div class={styles.fact}>
 						<dt class={styles.term}>Route evidence</dt>
 						<dd class={styles.detail}>
-							{entry.key.provider === "poyo"
-								? "The balance check accepted this key. Access to this model is unconfirmed."
-								: "The global image model list included this model for this key."}
+							{#if entry.key.provider === "poyo"}
+								The balance check accepted this key. Access to this model is unconfirmed.
+							{:else if access.line}
+								<span id={`${headingId}-access`}>{access.line}</span>
+								<button
+									type="button"
+									class={styles.inlineAction}
+									disabled={checking || !!pending}
+									aria-label="Check ToAPIs model access again"
+									aria-describedby={`${headingId}-access`}
+									onclick={checkAgain}
+								>
+									{checking ? "Checking…" : "Check again"}
+								</button>
+								{#if checkMessage}
+									<span class={styles.warning} role="alert">{checkMessage}</span>
+								{/if}
+							{:else}
+								Review the request to check this key's access to the model.
+							{/if}
 							{#if filtering?.declaredField}
 								The model contract declares <code>{filtering.declaredField}: false</code>.
 							{/if}
@@ -990,6 +1037,10 @@ $effect(() => {
 			{unavailable}
 		{:else if current && tabValue !== "review"}
 			Open the Review tab to queue this request.
+		{:else if current && access.blocked}
+			{access.blockers.length
+				? access.blockers.join(" ")
+				: "Queue needs the model access shown under Route evidence."}
 		{:else if current}
 			{canQueue ? "Ready to queue." : "Confirm the unknown cost before queuing."}
 		{:else}

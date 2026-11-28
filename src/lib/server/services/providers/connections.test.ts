@@ -54,7 +54,7 @@ test("a rejected or unavailable replacement preserves the accepted key and times
 	]);
 });
 
-test("eligibility excludes disconnected, unreadable, and connected keys lacking Seedream", async () => {
+test("eligibility excludes disconnected and unreadable keys, and Poyo.ai keys lacking Seedream", async () => {
 	const accepted: ConnectionCheck = async () => ({ outcome: "accepted", seedream: true });
 	const { service, connections } = setup(accepted, async (key) => ({
 		outcome: "accepted",
@@ -62,8 +62,9 @@ test("eligibility excludes disconnected, unreadable, and connected keys lacking 
 	}));
 	expect((await service.imageAvailability()).eligibleProviders).toEqual([]);
 	await service.connect("poyo", "fixture-poyo");
+	// Any connected ToAPIs key reviews; its inventory snapshot decides Queue.
 	await service.connect("toapis", "fixture-toapis-restricted");
-	expect((await service.imageAvailability()).eligibleProviders).toEqual(["poyo"]);
+	expect((await service.imageAvailability()).eligibleProviders).toEqual(["poyo", "toapis"]);
 	await service.connect("toapis", "fixture-toapis-eligible");
 	expect((await service.imageAvailability()).eligibleProviders).toEqual(["poyo", "toapis"]);
 	connections.set("poyo", { id: "poyo", state: "connected", verifiedAt: 123, seedream: false });
