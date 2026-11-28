@@ -14,4 +14,15 @@ export const rssCeilingsMiB = {
 	webp20: 800,
 	/** One 20 MP save of a compressible 16-bit RGB PNG, from the probe. */
 	png16: 384,
+	/** One 25 MP classification, held as unsupported (217 MiB locally). */
+	verification25: 448,
+	/** Two lossless WebP saves through the worker: two transfers, one verification (520 MiB). */
+	saves: 1056,
+	/**
+	 * Four reads of an 80 MiB file through the route's two permits (506 MiB). The first pair's
+	 * buffers are still uncollected when the second pair reads.
+	 */
+	reads: 1024,
+	/** Two saves, two held 80 MiB reads and one D7 cleanup at once (820 MiB). */
+	combined: 1664,
 } as const;

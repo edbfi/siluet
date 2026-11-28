@@ -13,10 +13,20 @@ import { rssCeilingsMiB } from "./budgets";
 
 const MiB = 1024 * 1024;
 const harness = join(import.meta.dir, "../../../../../scripts/gallery/measure-save.ts");
-let bounds: GalleryBounds<"current">;
+const fixtures = [
+	"current",
+	"png20",
+	"jpeg20",
+	"webp20",
+	"png16",
+	"verification25",
+	"encodedBound",
+	"cleanupJpeg",
+] as const;
+let bounds: GalleryBounds<(typeof fixtures)[number]>;
 
 beforeAll(async () => {
-	bounds = await generateGalleryBounds(["current"]);
+	bounds = await generateGalleryBounds(fixtures);
 }, 60_000);
 afterAll(() => bounds?.remove(), 60_000);
 
@@ -66,4 +76,58 @@ test("a save at today's bound reports its calibrated peak within the ceiling, an
 
 test("an unknown scenario fails before measuring", async () => {
 	await expect(measure("unknown", [bounds.files.current.path])).rejects.toThrow("Unknown scenario");
+}, 60_000);
+
+// Each scenario at G13's bounds (catalog engine spec, "Gallery size limits"), one at a time.
+test.each([
+	["png20", "saved"],
+	["jpeg20", "saved"],
+	["webp20", "saved"],
+	["png16", "saved"],
+	// A complete 25 MP image is classified, then held as unsupported.
+	["verification25", "unsupported"],
+] as const)(
+	"one save of %s stays within its ceiling",
+	async (fixture, outcome) => {
+		const { result } = await measure("save", [bounds.files[fixture].path]);
+		expect(result.outcomes).toEqual([outcome]);
+		expect(result.peakMiB).toBeLessThanOrEqual(rssCeilingsMiB[fixture]);
+	},
+	60_000,
+);
+
+test("two saves through the worker overlap their transfers and verify one at a time within the ceiling", async () => {
+	const { webp20 } = bounds.files;
+	const { result } = await measure("saves", [webp20.path, webp20.path]);
+	expect(result.outcomes).toEqual(["saved", "saved"]);
+	// The production caps: both transfers ran together, and only one verification at a time.
+	expect(result.concurrency).toEqual({ transfers: 2, verifications: 1 });
+	expect(result.peakMiB).toBeLessThanOrEqual(rssCeilingsMiB.saves);
+}, 60_000);
+
+test("four Gallery reads of an 80 MiB file hold two buffers within the ceiling", async () => {
+	const { encodedBound } = bounds.files;
+	const { result } = await measure("reads", [encodedBound.path]);
+	expect(result.outcomes).toEqual(["read", "read", "read", "read"]);
+	expect(result.concurrency).toEqual({ reads: 2 });
+	expect(result.peakMiB).toBeLessThanOrEqual(rssCeilingsMiB.reads);
+}, 60_000);
+
+test("two transfers, one verification, two held reads and one cleanup at once stay within the combined ceiling", async () => {
+	const { webp20, encodedBound, cleanupJpeg } = bounds.files;
+	const { result } = await measure("combined", [
+		webp20.path,
+		webp20.path,
+		encodedBound.path,
+		cleanupJpeg.path,
+	]);
+	expect(result.outcomes).toEqual(["saved", "saved", "read", "read", "prepared"]);
+	// The cleanup decoded while a verification ran and both read buffers were held.
+	expect(result.concurrency).toEqual({
+		transfers: 2,
+		verifications: 1,
+		reads: 2,
+		overlapped: true,
+	});
+	expect(result.peakMiB).toBeLessThanOrEqual(rssCeilingsMiB.combined);
 }, 60_000);
