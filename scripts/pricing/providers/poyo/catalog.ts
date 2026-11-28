@@ -421,7 +421,7 @@ export function normalizeRates(
 	// A derived rate applies to its row only while this digest equals the row's own basis.
 	const plain = plainRows(text);
 	const digests: Record<string, string> = {};
-	for (const model of derivedKeys) {
+	for (const model of new Set(derivedKeys)) {
 		if (Object.hasOwn(rates, model)) continue;
 		const rate = rateFor(model, derivedRate);
 		if (rate.kind === "unavailable") continue;

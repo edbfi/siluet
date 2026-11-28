@@ -7,10 +7,6 @@ import { poyoAccessNote } from "../media-catalog/eligibility";
 import { d4Wording } from "../media-catalog/filtering";
 import { queueRevision, queueRevisionDate } from "../media-catalog/image-queue";
 import type { QueueRow } from "../media-catalog/queue-row";
-import { estimateDerivedPrice } from "../pricing/derived-estimate";
-import type { PriceEstimate } from "../pricing/estimate";
-import type { PricingFeeds } from "../pricing/feeds";
-import type { DerivedDraft } from "./derived";
 
 /** Gallery's image limit today: 16,000,000 pixels (G13 raises it). */
 export const galleryMegapixels = 16;
@@ -49,20 +45,6 @@ export function derivedWording(row: QueueRow): DerivedWording {
 		gallery: galleryStatement,
 		access: poyoAccessNote,
 	};
-}
-
-/**
- * A derived row's price: an estimate where a published rate fits its options exactly and the
- * price basis pairs with the feed, else unknown, and Queue needs the creator's acceptance
- * (spec, Pricing and condition 3).
- */
-export function derivedQuote(
-	feeds: PricingFeeds,
-	row: QueueRow,
-	draft: Pick<DerivedDraft, "options">,
-	nowMs: number,
-): PriceEstimate {
-	return estimateDerivedPrice(feeds, row, draft.options, nowMs);
 }
 
 /** Review's note for a refusal Poyo.ai confirmed for this key; it never blocks Queue. */

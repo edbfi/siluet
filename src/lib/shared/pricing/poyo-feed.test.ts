@@ -229,7 +229,9 @@ test("resolution tiers decode in their exact shape and anything else stays unquo
 	const perImage = { kind: "per-image-by-resolution", resolutions: { "1K": "1.8" } };
 	const sameName = { kind: "per-image-by-resolution", resolutions: { "1080p": "2", "1080P": "3" } };
 	const zero = { kind: "per-request-by-resolution", resolutions: { "1K": "0" } };
-	const feed = decodePoyoV2Feed(withRates({ tier, perImage, sameName, zero }));
+	const empty = { kind: "per-request-by-resolution", resolutions: {} };
+	const extra = { kind: "per-request-by-resolution", resolutions: { "1K": "1" }, extra: "2" };
+	const feed = decodePoyoV2Feed(withRates({ tier, perImage, sameName, zero, empty, extra }));
 	if (!feed) throw new Error("A feed with tier rates must decode.");
 	expect<unknown>(feed.rates.tier).toEqual(tier);
 	expect(isTierRate(feed.rates.tier)).toBe(true);
@@ -238,5 +240,7 @@ test("resolution tiers decode in their exact shape and anything else stays unquo
 	expect<unknown>(feed.rates.sameName).toEqual(sameName);
 	expect(isTierRate(feed.rates.sameName)).toBe(false);
 	expect(isTierRate(feed.rates.zero)).toBe(false);
+	expect(isTierRate(feed.rates.empty)).toBe(false);
+	expect(isTierRate(feed.rates.extra)).toBe(false);
 	expect(poyoTierKey("480*832")).toBe("480x832");
 });

@@ -3,16 +3,11 @@ import { toapisRates } from "../../../../tests/fixtures/toapis-feed";
 import { contractDeclaresField, d4Disclosure } from "../media-catalog/filtering";
 import queue from "../media-catalog/poyo-queue.json";
 import type { QueueRow } from "../media-catalog/queue-row";
+import { estimateDerivedPrice } from "../pricing/derived-estimate";
 import type { PricingFeed } from "../pricing/feed";
 import { decodePricingFeeds } from "../pricing/feeds";
 import { buildDerivedRequest, createDerivedDraft, validateDerivedDraft } from "./derived";
-import {
-	derivedQuote,
-	derivedWording,
-	refusalNote,
-	refusedValues,
-	samePathSentence,
-} from "./derived-review";
+import { derivedWording, refusalNote, refusedValues, samePathSentence } from "./derived-review";
 import { createImageReview, type ReviewReference } from "./review";
 import {
 	estimateReviewPrice,
@@ -472,7 +467,7 @@ describe("derived text-to-image Review", () => {
 			},
 		});
 		// No feed means no rate, and a v2 feed without a paired basis quotes no derived row.
-		expect(derivedQuote({}, target, validated.draft, Date.now())).toEqual({
+		expect(estimateDerivedPrice({}, target, validated.draft.options, Date.now())).toEqual({
 			status: "unknown",
 			reason: "missing-feed",
 			maxAttempts: 1,

@@ -57,7 +57,7 @@ canonical_basis() {
     include "publish-validation";
     read_feed(32768)
     | if basis then . else error("Invalid PoYo price basis handoff") end')
-  ((${#feed} + 1 <= 32768)) || fail "The pricing feed exceeds the size limit."
+  ((${#feed} + 1 <= 32768)) || fail "The price basis exceeds the size limit."
   printf '%s\n' "$feed"
 }
 

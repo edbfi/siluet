@@ -51,9 +51,8 @@ export function estimateDerivedPrice(
 	let credits: string | undefined;
 	if (rate && isFixedRate(rate)) credits = rate.credits;
 	else if (rate && isTierRate(rate)) {
-		// One image per request, so a per-image tier charges once.
-		if (rate.kind === "per-image-by-resolution" && row.count !== 1 && row.count !== null)
-			return unknown("unsupported-input");
+		// A derived row queues one image per request (`n: 1` or no count field), so a per-image
+		// tier charges once.
 		credits = tierCredits(rate.resolutions, options.resolution);
 		if (credits === undefined) return unknown("unsupported-input");
 	} else return unknown("rate-unavailable");

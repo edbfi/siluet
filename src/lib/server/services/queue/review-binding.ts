@@ -1,8 +1,9 @@
-import { type DerivedWording, derivedQuote } from "../../../shared/image-studio/derived-review";
+import type { DerivedWording } from "../../../shared/image-studio/derived-review";
 import type { editDisclosure } from "../../../shared/image-studio/edit-disclosure";
 import { createImageReview } from "../../../shared/image-studio/review";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import { zImageDisclosure } from "../../../shared/image-studio/z-image";
+import { estimateDerivedPrice } from "../../../shared/pricing/derived-estimate";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
 import type { DerivedLiveRequest, DerivedRequest } from "./derived";
 import type { LiveRequest } from "./request";
@@ -115,7 +116,7 @@ export function reviewBinding(
 		revision: number,
 		time: number,
 	) {
-		const quote = derivedQuote(feeds, live.row, live.draft, time);
+		const quote = estimateDerivedPrice(feeds, live.row, live.draft.options, time);
 		const requiresConsent = quote.status === "unknown";
 		const priceTerms = [
 			revision,

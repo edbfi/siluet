@@ -4,7 +4,6 @@ import { onDestroy, tick } from "svelte";
 import type { DerivedDraft } from "#lib/shared/image-studio/derived.ts";
 import {
 	type DerivedWording,
-	derivedQuote,
 	derivedWording,
 	refusalNote,
 } from "#lib/shared/image-studio/derived-review.ts";
@@ -34,6 +33,7 @@ import type { FilteringEvidence } from "#lib/shared/media-catalog/filtering.ts";
 import type { QueueKey, QueueRow } from "#lib/shared/media-catalog/queue-row.ts";
 import { type ReleasedImageOperation, zImageModel } from "#lib/shared/media-catalog/registry.ts";
 import { sumAmounts } from "#lib/shared/pricing/decimal.ts";
+import { estimateDerivedPrice } from "#lib/shared/pricing/derived-estimate.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
 import type { PricingFeeds, PricingProvider } from "#lib/shared/pricing/feeds.ts";
 import { goto } from "$app/navigation";
@@ -215,7 +215,12 @@ const offlineQuote = $derived(
 	review &&
 		(catalogRow
 			? // A derived row's composer hands Review its derived draft.
-				derivedQuote(feeds, catalogRow, draft as DerivedDraft, browserNow ?? nowMs)
+				estimateDerivedPrice(
+					feeds,
+					catalogRow,
+					(draft as DerivedDraft).options,
+					browserNow ?? nowMs,
+				)
 			: estimateReviewPrice(feeds, review.pricing, batch, browserNow ?? nowMs)),
 );
 const expiry = $derived.by(() => {
