@@ -179,6 +179,29 @@ else
   [[ $? == 2 ]] || fail "Could not determine whether the $data_ref branch exists."
 fi
 
+if [[ $provider == poyo && -n $old_v2 && -n $old_basis ]]; then
+  # Derived rates follow main's queue, but readers refuse a revision that loses a rate. At the
+  # same revision, keep each published rate the basis binds and the candidate dropped.
+  carried=$(jq -c --slurpfile old "$work/previous-v2.json" \
+    --slurpfile old_basis "$work/previous-basis.json" '
+    if .revision == $old[0].revision and $old_basis[0].revision == .revision then
+      . as $new
+      | [$old_basis[0].digests | keys[]
+        | select(. as $key | ($new.rates | has($key) | not) and ($old[0].rates | has($key)))]
+    else [] end' "$work/candidate.json")
+  if [[ $carried != '[]' ]]; then
+    jq -c --slurpfile old "$work/previous-v2.json" --argjson keys "$carried" \
+      '.rates += ($old[0].rates | with_entries(select(.key as $key | $keys | index($key))))' \
+      "$work/candidate.json" | canonical_feed providers/poyo/publish-v2.jq 65536 >"$work/merged.json"
+    mv "$work/merged.json" "$work/candidate.json"
+    jq -c --slurpfile old_basis "$work/previous-basis.json" --argjson keys "$carried" \
+      --arg sha "$(sha256_body "$work/candidate.json")" '
+      .digests += ($old_basis[0].digests | with_entries(select(.key as $key | $keys | index($key))))
+      | .feedSha256 = $sha' "$work/basis.json" | canonical_basis >"$work/merged.json"
+    mv "$work/merged.json" "$work/basis.json"
+  fi
+fi
+
 if [[ $provider == poyo ]]; then
   # A rerun of the same collection publishes nothing. Both files must be unchanged.
   if [[ -n $old_v2 && -n $old_basis && $license_blob == "$old_license" ]] &&
@@ -206,10 +229,7 @@ if [[ $provider == poyo ]]; then
     fi
     license_state=same
     [[ $license_blob == "$old_license" ]] || license_state=changed
-    previous_basis="$work/previous-basis.json"
-    [[ -n $old_basis ]] || : >"$previous_basis"
-    update=$(jq -r --slurpfile previous "$previous" --slurpfile previous_basis "$previous_basis" \
-      --arg license "$license_state" \
+    update=$(jq -r --slurpfile previous "$previous" --arg license "$license_state" \
       -L "$script_dir" -f "$script_dir/providers/poyo/order.jq" "$work/candidate.json") ||
       fail "PoYo pricing ordering validation failed."
     # Publish at most one confirmation-only update per UTC day.

@@ -14,7 +14,7 @@ import {
 	poyoV2Feed as bundledV2,
 	sizedPoyoV2Feed,
 } from "../../tests/fixtures/poyo-v2-feed.ts";
-import { canonicalJson } from "./local-feed.ts";
+import { canonicalJson, pricingFeedConflict } from "./local-feed.ts";
 import { refreshPricingFeed } from "./refresh.ts";
 
 const v1Path = "pricing/v1/feed.json";
@@ -602,27 +602,44 @@ describe("PoYo price basis publication", () => {
 		expect(JSON.parse(show(basisPath))).toEqual(basisFor(v2));
 	});
 
-	test("the same revision may drop a derived rate that main no longer queues, never a shipped one", () => {
+	test("the same revision keeps a derived rate main no longer queues, with its digest", () => {
 		const derived = { kind: "per-request", credits: "4" } as const;
 		const withDerived = { ...v2, rates: { ...v2.rates, "gpt-4o-image": derived } };
 		const both = { "z-image": "0".repeat(64), "gpt-4o-image": "1".repeat(64) };
+		const old = { ...withDerived, confirmedAt: yesterday };
 		const seeded = seed({
 			[v1Path]: `${JSON.stringify(bundledV1)}\n`,
 			[v1LicensePath]: licenseText,
-			[v2Path]: `${JSON.stringify({ ...withDerived, confirmedAt: yesterday })}\n`,
+			[v2Path]: `${JSON.stringify(old)}\n`,
 			[v2LicensePath]: licenseText,
-			[basisPath]: `${canonicalJson(basisFor({ ...withDerived, confirmedAt: yesterday }, both))}\n`,
+			[basisPath]: `${canonicalJson(basisFor(old, both))}\n`,
 		});
 		// A queue row on main went back to pending, so the collector no longer derives its rate.
 		const result = publish(v2);
 		if (!result.success) throw new Error(result.err);
 		expect(git(remote, "rev-parse", `${ref}^`).trim()).toBe(seeded);
-		expect(Object.keys(JSON.parse(show(v2Path)).rates)).not.toContain("gpt-4o-image");
-		// A rate the basis does not bind is a shipped rate, and removing it still fails.
-		const published = head();
-		const withoutZImage = { ...v2, rates: { "seedream-5.5": v2.rates["seedream-5.5"] } };
-		const refused = publish(withoutZImage, license, basisFor(withoutZImage, {}));
-		expect(refused.success).toBe(false);
+		const published = JSON.parse(show(v2Path));
+		expect(published.rates["gpt-4o-image"]).toEqual(derived);
+		const basis = JSON.parse(show(basisPath));
+		expect(basis.digests).toEqual(both);
+		expect(basis.feedSha256).toBe(sha256(show(v2Path).trimEnd()));
+		// Every reader accepts the published feed at the revision it already holds.
+		const [decoded, held] = [decodePoyoV2Feed(published), decodePoyoV2Feed(old)];
+		if (!decoded || !held) throw new Error("The feeds must decode.");
+		expect(pricingFeedConflict(decoded, held)).toBeUndefined();
+	});
+
+	test("the same revision still refuses to drop a rate the basis does not bind", () => {
+		const shipped = { ...v2, rates: { ...v2.rates, "h3-max": h3Fixture.rates["h3-max"] } };
+		const old = { ...shipped, confirmedAt: yesterday };
+		const published = seed({
+			[v1Path]: `${JSON.stringify(bundledV1)}\n`,
+			[v1LicensePath]: licenseText,
+			[v2Path]: `${JSON.stringify(old)}\n`,
+			[v2LicensePath]: licenseText,
+			[basisPath]: `${canonicalJson(basisFor(old, { "gpt-4o-image": "1".repeat(64) }))}\n`,
+		});
+		expect(publish(v2).err).toMatch(/removed a published rate/);
 		expect(head()).toBe(published);
 	});
 

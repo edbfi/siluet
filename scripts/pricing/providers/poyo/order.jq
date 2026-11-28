@@ -5,18 +5,14 @@
 . as $candidate
 | $previous[0] as $old
 | ($old.confirmedAt // $old.sourceDate) as $old_confirmed
-# Derived rates follow main's queue, so the same revision may drop one the published basis binds.
-| (if $previous_basis[0].revision == $old.revision then $previous_basis[0].digests | keys
-    else [] end) as $derived
-| (($old.rates | keys) - ($candidate.rates | keys)) as $removed
 | if .confirmedAt < $old_confirmed then
     error("The PoYo candidate has an older confirmation than the published feed.")
   elif .revision == $old.revision then
     if .sourceDate != $old.sourceDate or $license != "same" then
       error("The same PoYo revision produced a different source date or license.")
-    elif $removed - $derived != [] then
+    elif ($old.rates | keys) - ($candidate.rates | keys) != [] then
       error("The same PoYo revision removed a published rate.")
-    elif any($old.rates | to_entries[] | select(.key as $key | $removed | index($key) | not);
+    elif any($old.rates | to_entries[];
         .value != {kind: "unavailable"} and .value != $candidate.rates[.key]) then
       error("The same PoYo revision changed an existing rate.")
     elif .rates == $old.rates then "confirmation"

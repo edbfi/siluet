@@ -238,10 +238,13 @@ async function saveFeed(
 		const previous = cache?.feed ?? bundled;
 		const status = canonicalJson(feed) === canonicalJson(previous) ? "unchanged" : "updated";
 		const checkedAt = new Date(nowMs).toISOString();
-		await replaceCache(cachePath, encodeCacheEntry(file, { checkedAt, feed }));
+		// Encode both before either lands, so a size refusal replaces neither file.
+		const feedText = encodeCacheEntry(file, { checkedAt, feed });
+		const basisText = basis?.basis && encodeBasisCache(basis.basis);
+		await replaceCache(cachePath, feedText);
 		// The feed lands first. A stop before the basis lands leaves an unpaired basis, which the
 		// reader ignores, so derived rates stay unknown until the next refresh.
-		if (basis?.basis) await replaceCache(basis.path, encodeBasisCache(basis.basis));
+		if (basis && basisText) await replaceCache(basis.path, basisText);
 		else if (basis) await rm(basis.path, { force: true });
 		return { status, checkedAt, feed, cachePath };
 	} finally {
