@@ -410,7 +410,7 @@ test("the committed baseline watches every reviewed REST page and both ToAPIs mo
 	// baseline date.
 	const ledger = read("../../docs/media-catalog.v1.json").providers.toapis.sources;
 	const toapis = read("./sources/toapis-pages.json");
-	expect(toapis.accessed).toBe("2026-11-27");
+	expect(toapis.accessed).toBe("2026-11-28");
 	expect(baseline.pages.filter((page) => page.kind !== "rest")).toEqual([
 		{ ...toapis.pages[0], kind: "toapis-model-list", url: `${ledger.keyList}.md` },
 		{ ...toapis.pages[1], kind: "toapis-catalog", url: `${ledger.snapshot}.md` },
