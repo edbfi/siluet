@@ -238,22 +238,6 @@ test("a video check leaves the credential and the image snapshot byte-identical"
 	).toEqual(before);
 });
 
-test("until the video claim reads the snapshot, a video check also keeps the Seedance record", async () => {
-	const { store, inventory } = setup();
-	await store.save("toapis", "fixture-key", now, false, 0);
-	const record = () =>
-		db.use((conn) => conn.get<{ state: string }>(sql`SELECT state FROM model_access`));
-	for (const [response, state] of [
-		[list(), "missing"],
-		[new Response(null, { status: 500 }), "unverified"],
-		[list("seedance-2-5"), "eligible"],
-	] as const) {
-		reply = async () => response;
-		await inventory.check("video");
-		expect((await record())?.state).toBe(state);
-	}
-});
-
 test("Connect records the image snapshot it read, then Check again replaces it", async () => {
 	const { store, inventory, snapshots } = setup();
 	expect(

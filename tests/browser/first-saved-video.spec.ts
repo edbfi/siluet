@@ -135,6 +135,23 @@ test("video-only key reviews once, saves one video and reopens its original byte
 			const acceptance = page.getByRole("checkbox", { name: /I accept/ });
 			await acceptance.press("Space");
 			await expect(button).toBeEnabled();
+			// A Check again elsewhere makes this Review stale: Queue sends nothing to ToAPIs and the
+			// page shows the fresh Review's access line, with its consent cleared.
+			expect((await post("/providers/inventory", { scope: "video" })).status()).toBe(200);
+			const sent = fixture.requests.length;
+			const refused = page.waitForResponse((r) => new URL(r.url()).pathname === "/video/queue");
+			await button.press("Enter");
+			expect((await refused).status()).toBe(409);
+			await expect(
+				page.getByText("The terms changed. Check the updated Review before queuing."),
+			).toBeVisible();
+			await expect(page.getByText(/^ToAPIs listed seedance-2-5 for this key at /)).toBeVisible();
+			expect(fixture.requests.length).toBe(sent);
+			expect(posts).toBe(0);
+			await expect(acceptance).not.toBeChecked();
+			await expect(button).toBeDisabled();
+			await acceptance.press("Space");
+			await expect(button).toBeEnabled();
 			const replacement = page.waitForResponse(
 				(r) => new URL(r.url()).pathname === "/video/review",
 			);

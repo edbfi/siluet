@@ -107,8 +107,14 @@ async function openOwner(dev: boolean) {
 			readability: store.jobReadability,
 		});
 		const inventory = createInventory(installation, store);
-		const videoAccess = createVideoAccess(installation, store);
-		const videoQueue = await createVideoQueue(installation, videoAccess, jobs.dispatchVideo);
+		const videoQueue = await createVideoQueue(
+			installation,
+			createVideoAccess(installation, store),
+			jobs.dispatchVideo,
+			undefined,
+			undefined,
+			inventory,
+		);
 		const gallery = createGallery(installation);
 		const queue = await createSubmissionQueue(installation, store.credential, jobs);
 		const refusals = modelRefusals(installation);
@@ -211,7 +217,6 @@ async function openOwner(dev: boolean) {
 			prepareMedia,
 			origin,
 			checkAccess,
-			videoAccess,
 			inventory,
 			inventorySection: (scope: InventoryScope) => inventorySection(inventory, scope),
 			videoQueue,

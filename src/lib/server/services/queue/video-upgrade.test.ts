@@ -131,8 +131,14 @@ test("a released Seedance Review goes stale across per-mode Save limits, and a c
 		sign("video-review-v1", pending, termsReleased, "owner", released.key, released.body, 1, 0),
 	].join(".");
 	const click = { ...input, token: pendingToken };
-	expect(await queue.submit("owner", click)).toEqual({ error: "stale" });
-	expect(await queue.submit("owner", click)).toEqual({ error: "stale" });
+	expect(await queue.submit("owner", click)).toMatchObject({
+		error: "stale",
+		review: { token: expect.any(String) },
+	});
+	expect(await queue.submit("owner", click)).toMatchObject({
+		error: "stale",
+		review: { token: expect.any(String) },
+	});
 	expect(dispatched).toHaveLength(0);
 
 	// A job #37 already claimed (a legacy row without video terms) replays with no POST.

@@ -19,7 +19,7 @@ import { videoDefaults } from "../../../shared/video-studio/seedance";
 import { imageJobStore } from "../../db/image-job-store";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
-import { checkVideoInventory } from "../../providers/toapis/connection";
+import { createInventory } from "../providers/inventory";
 import { createVideoAccess } from "../providers/video-access";
 import { closedAbsentSendsField, createVideoQueue } from "./video";
 
@@ -36,6 +36,11 @@ afterEach(async () => {
 	await rm(directory, { recursive: true, force: true });
 });
 
+/**
+ * A stale video claim's answer: the refusal and a fresh Review to show instead. A plain subset,
+ * because Bun's toMatchObject rewrites the received value where an asymmetric matcher matched.
+ */
+const staleWithReview = { error: "stale", review: {} };
 const frame = "https://frames.example.com/start.png";
 const clip = "https://clips.example.com/source.mp4";
 const shipped = [
@@ -82,16 +87,15 @@ function parse(operation: (typeof shipped)[number][0], draft: object) {
 
 async function eligibleQueue(posts: string[]) {
 	const store = providerStore(db);
-	const access = createVideoAccess(
-		db,
-		store,
-		checkVideoInventory(async () =>
+	const access = createVideoAccess(db, store);
+	const inventory = createInventory(db, store, {
+		read: async () =>
 			Response.json({ success: true, object: "list", data: [{ id: "seedance-2-5" }] }),
-		),
-	);
+		now: () => now,
+	});
 	await store.save("toapis", "video-only", now, false, 0);
 	await store.save("poyo", "balance-only", now, false, 0);
-	await access.check();
+	await inventory.check("video");
 	return createVideoQueue(
 		db,
 		access,
@@ -131,7 +135,7 @@ test.each(shipped)(
 			expect(review.blockers).toContain(queueEvidenceProblem(evidence, provider) as string);
 			expect(
 				await queue.submit("owner", { ...changed, token: review.token, acceptTerms: true }),
-			).toEqual({ error: "stale" });
+			).toMatchObject(staleWithReview);
 			// With its wording bound into the reviewed disclosures, a queueing state has no D4
 			// blocker; a blocking state still does.
 			const wording = d4Wording(provider, evidence);
@@ -173,6 +177,6 @@ test("changed D4 wording makes an unclaimed video Review stale", async () => {
 	const reworded = { ...open, disclosures: [...live.disclosures, `${wording[0]} Updated.`] };
 	expect(
 		await queue.submit("owner", { ...reworded, token: review.token, acceptTerms: true }),
-	).toEqual({ error: "stale" });
+	).toMatchObject(staleWithReview);
 	expect(posts).toEqual([]);
 });

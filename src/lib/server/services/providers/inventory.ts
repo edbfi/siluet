@@ -1,13 +1,11 @@
 // Check again and the automatic Review check for the shared ToAPIs inventory snapshot
 // (docs/SPEC-catalog-engine.md "Shared ToAPIs inventory snapshot (G9)").
-import { sql } from "drizzle-orm";
 import { seedreamRoutes } from "../../../shared/media-catalog/registry";
 import {
 	type InventoryKey,
 	type InventoryScope,
 	isFresh,
 	type ModelAccess,
-	preSnapshotVideoModel,
 } from "../../../shared/providers/inventory";
 import type { Installation } from "../../db/installation";
 import {
@@ -74,29 +72,15 @@ export function createInventory(
 		const checkedAt = now();
 		const written = await installation.use((db) =>
 			db.transaction(
-				async (tx) => {
-					const landed = await recordSnapshot(tx, {
+				(tx) =>
+					recordSnapshot(tx, {
 						origin,
 						scope,
 						revision: key.revision,
 						generation,
 						checkedAt,
 						result,
-					});
-					// The shipped video claim reads this record until it reads the snapshot.
-					if (landed && scope === "video") {
-						const state =
-							result.outcome !== "succeeded"
-								? "unverified"
-								: result.models.includes(preSnapshotVideoModel)
-									? "eligible"
-									: "missing";
-						await tx.run(sql`INSERT INTO model_access(provider,model,revision,state,checked_at)
-							VALUES('toapis',${preSnapshotVideoModel},${key.revision},${state},${checkedAt})
-							ON CONFLICT(provider,model) DO UPDATE SET revision=excluded.revision,state=excluded.state,checked_at=excluded.checked_at`);
-					}
-					return landed;
-				},
+					}),
 				{ behavior: "immediate" },
 			),
 		);
