@@ -39,6 +39,14 @@ export function startProviderFixtures(
 				if (key === providerFixtureKeys.unavailable)
 					return new Response(`Fixture outage mentioning ${key}`, { status: 503 });
 			}
+			if (path === "/toapis/video-models") {
+				if (key === providerFixtureKeys.toapis || key === providerFixtureKeys.restricted)
+					return Response.json({
+						success: true,
+						object: "list",
+						data: key === providerFixtureKeys.toapis ? [{ id: "seedance-2-5" }] : [],
+					});
+			}
 			if (path === "/toapis/models") {
 				if (key === providerFixtureKeys.toapis || key === providerFixtureKeys.restricted)
 					return Response.json({

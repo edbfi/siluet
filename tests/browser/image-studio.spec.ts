@@ -145,7 +145,9 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await toapisLink.press("Enter");
 			await expect(toapisLink).toHaveAttribute("aria-current", "page");
 			await saveKey(page, keys.restricted);
-			await expect(page.getByText("Seedream 5.5 access unavailable.")).toBeVisible();
+			await expect(
+				page.getByText(/^ToAPIs did not list doubao-seedream-5-5 for this key at /),
+			).toBeVisible();
 
 			await imageLink.press("Enter");
 			await expect(prompt).toHaveValue("tiny");

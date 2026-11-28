@@ -42,7 +42,46 @@ const feedback = $derived(
 		? (feedbackByProvider[provider.id] ?? (form?.provider === provider.id ? form : null))
 		: null,
 );
-const videoFeedback = $derived(feedback?.outcome === "video-checked" ? feedback : null);
+// A section's outcome is announced only after its own Check again, until the key changes.
+type InventoryScope = "image" | "video";
+type InventoryFeedback = { ok: boolean; message: string };
+const inventoryFeedback = $state<Partial<Record<InventoryScope, InventoryFeedback>>>({});
+const checkingInventory = $state<Partial<Record<InventoryScope, boolean>>>({});
+const inventorySections = [
+	{ scope: "image", title: "Image models", action: "Check image models again" },
+	{ scope: "video", title: "Video models", action: "Check video models again" },
+] as const;
+const statusWords = { listed: "listed", absent: "absent", unknown: "unknown" };
+
+async function checkInventory(scope: InventoryScope) {
+	if (checkingInventory[scope]) return;
+	checkingInventory[scope] = true;
+	try {
+		const response = await fetch("/providers/inventory", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ scope }),
+		});
+		const answer: { outcome?: string; ok?: boolean; message?: string } | null = await response
+			.json()
+			.catch(() => null);
+		if (answer?.outcome === "recorded" || answer?.outcome === "superseded") await refreshAll();
+		// A recorded check shows its section's refreshed line; any other answer says why.
+		inventoryFeedback[scope] = {
+			ok: answer?.ok === true,
+			message:
+				answer?.outcome === "recorded"
+					? ""
+					: typeof answer?.message === "string"
+						? answer.message
+						: "The model check is unavailable. Try again.",
+		};
+	} catch {
+		inventoryFeedback[scope] = { ok: false, message: "The model check is unavailable. Try again." };
+	} finally {
+		delete checkingInventory[scope];
+	}
+}
 const isSuccess = $derived(feedback?.outcome === "connected" || feedback?.outcome === "removed");
 const pendingMessages = { connect: "Checking key…", remove: "Removing key…" };
 
@@ -57,6 +96,8 @@ function save(
 		}
 		lastSubmitted = id;
 		pendingByProvider[id] = operation;
+		if (id === "toapis")
+			for (const scope of ["image", "video"] as const) delete inventoryFeedback[scope];
 		if (operation === "connect") formElement.reset();
 		return async ({ result, update }) => {
 			try {
@@ -134,37 +175,48 @@ function save(
 								>{dateFormat.format(provider.verifiedAt)} UTC</time
 							>
 						</p>
-						{#if provider.id === "toapis"}
-							<p
-								class={cx(
-									styles.notice,
-									videoFeedback && !videoFeedback.eligible && styles.warning,
-								)}
-								role={videoFeedback ? (videoFeedback.eligible ? "status" : "alert") : undefined}
-							>
-								{videoFeedback?.message ?? data.videoAccess.message}
-								{(!videoFeedback || videoFeedback.message === data.videoAccess.message) &&
-								data.videoAccess.checkedAt
-									? `${dateFormat.format(data.videoAccess.checkedAt)} UTC`
-									: ""}
-							</p>
-							<form
-								method="POST"
-								action="?/video&provider=toapis"
-								use:enhance={() =>
-									async ({ result, update }) => {
-										if (result.type === "success" && result.data?.provider === "toapis")
-											feedbackByProvider.toapis = result.data as ConnectionFeedback;
-										else {
-											delete feedbackByProvider.toapis;
-											await update({ navigate: false });
-										}
-									}}
-							>
-								<button type="submit" class={styles.action}>Check video access</button>
-							</form>
-						{/if}
-						{#if !provider.seedream}
+						{#if provider.id === "toapis" && data.inventory}
+							{#each inventorySections as section (section.scope)}
+								{@const current = data.inventory[section.scope]}
+								{@const announced = inventoryFeedback[section.scope]}
+								<section class={styles.inventory} aria-labelledby={`inventory-${section.scope}`}>
+									<h3 class={styles.statusHeading} id={`inventory-${section.scope}`}>
+										{section.title}
+									</h3>
+									<p
+										class={cx(styles.paragraph, announced && !announced.ok && styles.warning)}
+										role={announced ? (announced.ok ? "status" : "alert") : undefined}
+									>
+										{announced?.message || current.line}
+									</p>
+									<div class={styles.inventoryActions}>
+										<button
+											type="button"
+											class={cx(studioButton({ appearance: "secondary" }), styles.action)}
+											aria-label={section.action}
+											aria-disabled={!!checkingInventory[section.scope]}
+											onclick={() => checkInventory(section.scope)}
+										>
+											{checkingInventory[section.scope] ? "Checking…" : "Check again"}
+										</button>
+									</div>
+									<details class={styles.disclosure}>
+										<summary>Every ToAPIs {section.scope} model ({current.models.length})</summary>
+										<ul class={styles.modelList}>
+											{#each current.models as model (model.id)}
+												<li>
+													<code>{model.id}</code>
+													<span class={styles.modelStatus} data-status={model.status}
+														>· {statusWords[model.status]}</span
+													>
+												</li>
+											{/each}
+										</ul>
+										<p class={styles.paragraph}>{current.caveat}</p>
+									</details>
+								</section>
+							{/each}
+						{:else if !provider.seedream}
 							<p class={cx(styles.warning, styles.notice)}>Seedream 5.5 access unavailable.</p>
 						{/if}
 					{:else if provider.state === "reconnect"}
@@ -257,9 +309,7 @@ function save(
 						{pending ? pendingMessages[pending] : isSuccess ? feedback?.message : ""}
 					</p>
 					<p class={cx(styles.feedback, styles.warning, styles.notice)} role="alert">
-						{feedback && !isSuccess && (!videoFeedback || provider.state !== "connected")
-							? feedback.message
-							: ""}
+						{feedback && !isSuccess ? feedback.message : ""}
 					</p>
 				</div>
 			{/key}

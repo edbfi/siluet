@@ -5,11 +5,17 @@ import { seedreamRoutes } from "../../../shared/media-catalog/registry";
 import {
 	type InventoryKey,
 	type InventoryScope,
+	isFresh,
 	type ModelAccess,
 	preSnapshotVideoModel,
 } from "../../../shared/providers/inventory";
 import type { Installation } from "../../db/installation";
-import { inventoryAccess, issueGeneration, recordSnapshot } from "../../db/inventory-store";
+import {
+	currentSnapshot,
+	inventoryAccess,
+	issueGeneration,
+	recordSnapshot,
+} from "../../db/inventory-store";
 import type { providerStore } from "../../db/provider-store";
 import type { CheckFetch } from "../../providers/connection-check";
 import { readModelList } from "../../providers/toapis/model-list";
@@ -135,6 +141,17 @@ export function createInventory(
 		origin,
 		check,
 		access,
+		/** The saved key's snapshot of a scope and whether it is fresh, for Settings. */
+		async snapshot(scope: InventoryScope) {
+			const readable = await saved();
+			const time = now();
+			const snapshot = readable
+				? await installation.use((db) => currentSnapshot(db, origin, scope))
+				: null;
+			return snapshot?.revision === readable?.revision && snapshot
+				? { ...snapshot, fresh: isFresh(snapshot.checkedAt, time) }
+				: null;
+		},
 		/**
 		 * The access a Review shows. Only a stale successful snapshot gets one automatic check, within
 		 * the scope's limit; a missing or failed snapshot keeps the manual Check again.

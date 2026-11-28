@@ -19,7 +19,7 @@ export const accessMessage: Record<VideoAccessState, string> = {
 	eligible: "Seedance 2.5 was listed for this key.",
 	missing: "ToAPIs did not list Seedance 2.5 for this key.",
 	unverified: "Video inventory could not be verified. Check again in Settings.",
-	unchecked: "Check video access in Settings.",
+	unchecked: "Check ToAPIs model access.",
 	disconnected: "Connect a readable ToAPIs model key in Settings.",
 };
 export function createVideoAccess(
@@ -37,13 +37,6 @@ export function createVideoAccess(
 	}
 	return {
 		current,
-		async display() {
-			const { record } = await current();
-			return {
-				message: accessMessage[record?.state ?? "disconnected"],
-				checkedAt: record?.checked_at,
-			};
-		},
 		async check() {
 			const now = Date.now();
 			attempts = attempts.filter((t) => t > now - 60_000);

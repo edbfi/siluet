@@ -1,4 +1,5 @@
 import type { EventEmitter } from "node:events";
+import type { InventoryScope } from "../../../shared/providers/inventory";
 import { fileAttemptStore } from "../../db/file-attempt";
 import { mediaCleaning } from "../../db/media-cleaning";
 import { modelRefusals } from "../../db/model-refusal";
@@ -19,6 +20,8 @@ import { createMediaPreparation } from "../media-cleanup/preparation";
 import { createScratchPool } from "../media-staging/scratch";
 import { createStages } from "../media-staging/stages";
 import { createProviderConnections } from "../providers/connections";
+import { createInventory } from "../providers/inventory";
+import { inventorySection } from "../providers/inventory-settings";
 import { createVideoAccess } from "../providers/video-access";
 import { createSubmissionQueue } from "../queue/submission";
 import { createVideoQueue } from "../queue/video";
@@ -103,6 +106,7 @@ async function openOwner(dev: boolean) {
 			readForSave: jobs.readForSave,
 			readability: store.jobReadability,
 		});
+		const inventory = createInventory(installation, store);
 		const videoAccess = createVideoAccess(installation, store);
 		const videoQueue = await createVideoQueue(installation, videoAccess, jobs.dispatchVideo);
 		const gallery = createGallery(installation);
@@ -208,6 +212,8 @@ async function openOwner(dev: boolean) {
 			origin,
 			checkAccess,
 			videoAccess,
+			inventory,
+			inventorySection: (scope: InventoryScope) => inventorySection(inventory, scope),
 			videoQueue,
 			jobs,
 			gallery,

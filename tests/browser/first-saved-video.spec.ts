@@ -90,13 +90,13 @@ test("video-only key reviews once, saves one video and reopens its original byte
 				form: { provider: "toapis", key: providerFixtureKeys.restricted },
 			});
 			expect((await (await post("/video/review", input)).json()).blockers.join(" ")).toContain(
-				"Check video access",
+				"Check ToAPIs model access.",
 			);
 			await page.goto(`${origin}/settings/providers?provider=toapis`);
-			await page.getByRole("button", { name: "Check video access" }).press("Enter");
-			await expect(page.getByText(/Seedance 2.5 was listed/)).toHaveCount(1);
+			await page.getByRole("button", { name: "Check video models again" }).press("Enter");
+			await expect(page.getByText(/ToAPIs listed seedance-2-5 for this key/)).toHaveCount(1);
 			await expect(
-				page.getByRole("status").filter({ hasText: /Seedance 2.5 was listed/ }),
+				page.getByRole("status").filter({ hasText: /ToAPIs listed seedance-2-5 for this key/ }),
 			).toBeVisible();
 			await page.goto(`${origin}/video`);
 			let review: { token: string; blockers: string[] } | undefined;
@@ -267,8 +267,8 @@ async function openSavedClip(page: Page, directory: string, bytes: Buffer) {
 			form: { provider: "toapis", key: providerFixtureKeys.restricted },
 		});
 		await page.goto(`${origin}/settings/providers?provider=toapis`);
-		await page.getByRole("button", { name: "Check video access" }).click();
-		await expect(page.getByText(/Seedance 2.5 was listed/).first()).toBeVisible();
+		await page.getByRole("button", { name: "Check video models again" }).click();
+		await expect(page.getByText(/ToAPIs listed seedance-2-5 for this key/)).toBeVisible();
 		const input = {
 			draft: { ...videoDefaults, prompt: "A red ball bounces." },
 			operationKey: seedanceOperation.key,
