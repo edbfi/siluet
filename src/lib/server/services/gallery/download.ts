@@ -106,25 +106,41 @@ export async function mediaResponse(source: string, transport: Transport, signal
 	throw invalid();
 }
 
-/** Download one image within 30 seconds. A caller `signal` (shutdown) aborts the transfer. */
-export async function downloadImage(source: string, transport = direct, signal?: AbortSignal) {
+/**
+ * An image transfer's two deadlines, as video's: headers within 30 s, so a dead host fails fast,
+ * and the whole body within 75 s, which keeps today's floor of 32 MiB in 30 s at 80 MiB.
+ */
+export const imageDeadlines = { headersMs: 30_000, totalMs: 75_000 };
+
+/** Download one image within `deadlines`. A caller `signal` (shutdown) aborts the transfer. */
+export async function downloadImage(
+	source: string,
+	transport = direct,
+	signal?: AbortSignal,
+	deadlines = imageDeadlines,
+) {
 	const controller = new AbortController();
 	const deadline = Promise.withResolvers<never>();
 	const stop = (error: Error) => {
 		controller.abort();
 		deadline.reject(error);
 	};
-	const timer = setTimeout(() => stop(invalid()), 30_000);
+	const total = setTimeout(() => stop(invalid()), deadlines.totalMs);
+	const headers = setTimeout(() => stop(invalid()), deadlines.headersMs);
 	const cancel = () => stop(signal?.reason ?? new Error("The image transfer was aborted."));
 	signal?.addEventListener("abort", cancel, { once: true });
 	try {
 		signal?.throwIfAborted();
 		return await Promise.race([
-			mediaResponse(source, transport, controller.signal).then(readImage),
+			mediaResponse(source, transport, controller.signal).then((response) => {
+				clearTimeout(headers);
+				return readImage(response);
+			}),
 			deadline.promise,
 		]);
 	} finally {
-		clearTimeout(timer);
+		clearTimeout(headers);
+		clearTimeout(total);
 		signal?.removeEventListener("abort", cancel);
 	}
 }
