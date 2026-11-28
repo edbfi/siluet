@@ -15,6 +15,7 @@ import {
 import { offeredFormats } from "../../src/lib/shared/media-catalog/formats";
 import { releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import {
+	documentedTiers,
 	type OutputNote,
 	outputHolds,
 	outputNotes,
@@ -36,7 +37,7 @@ import {
 	validateBody,
 } from "../../src/lib/shared/media-catalog/schema";
 
-export { envelopeValues, narrowedDomain, offeredDomain } from "./domains";
+export { envelopeValues, narrowedDomain, offeredDomain, undocumentedTierValues } from "./domains";
 
 import { sha256 } from "./project";
 import pageReviews from "./sources/page-reviews.json";
@@ -747,6 +748,7 @@ export function staleBindings(
 	bound: readonly { model: string; field: string; schemaSha256: string }[] = [
 		...reviewedOverrides,
 		...reviewedFieldExclusions,
+		...documentedTiers,
 	],
 ) {
 	return bound

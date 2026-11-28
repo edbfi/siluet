@@ -6,6 +6,7 @@ import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import { d4States } from "../../src/lib/shared/media-catalog/filtering";
 import {
+	documentedTiers,
 	type QualifierDisposition,
 	reviewedOverrides,
 } from "../../src/lib/shared/media-catalog/rules";
@@ -26,6 +27,7 @@ import {
 	staleBindings,
 } from "./derive";
 import { sha256 } from "./project";
+import catalogSource from "./sources/poyo-ec73207.json";
 import { verifiedOptions as optionsOf } from "./verified";
 
 const committed = readFileSync(rowsPath, "utf8");
@@ -730,11 +732,12 @@ describe("listed sizes and the Gallery envelope", () => {
 	};
 	const offered = (model: string, field: string) =>
 		offeredDomain(row(model), option(model, field), row(model).operations[0]).values;
-	test("Seedream 4.5 and 5.0 Lite offer their listed sizes, without a 4K tier", () => {
+	test("Seedream 4.5 and 5.0 Lite offer their listed sizes, 4.5's 4K tier included", () => {
 		expect(option("seedream-4.5", "size")).toMatchObject({ kind: "rule" });
 		expect(option("seedream-4.5", "size").gap).toBeUndefined();
 		expect(offered("seedream-4.5", "size")).toEqual([
 			"2K",
+			"4K",
 			"1:1",
 			"4:3",
 			"3:4",
@@ -757,18 +760,50 @@ describe("listed sizes and the Gallery envelope", () => {
 			"21:9",
 		]);
 	});
-	test("no 4K or 8K tier is offered on an image row until G13", () => {
+	test("image rows offer their 4K tiers within G13's 20 MP, and no 8K tier until G13b", () => {
 		for (const candidate of rows.filter((item) => item.media === "image"))
 			for (const item of candidate.options)
 				for (const operation of candidate.operations)
-					expect(
-						(offeredDomain(candidate, item, operation).values ?? []).filter(
-							(value) => value === "4K" || value === "8K",
-						),
-					).toEqual([]);
+					expect(offeredDomain(candidate, item, operation).values ?? []).not.toContain("8K");
 		expect(
-			narrowedDomain(row("seedream-4"), option("seedream-4", "resolution"), "text-to-image").values,
-		).toContain("4K");
+			narrowedDomain(
+				row("kling-4.0-image"),
+				option("kling-4.0-image", "resolution"),
+				"text-to-image",
+			).values,
+		).toContain("8K");
+		for (const [model, field] of [
+			["flux-3-klein", "resolution"],
+			["kling-o3-image", "resolution"],
+			["nano-banana-2", "resolution"],
+			["nano-banana-pro", "resolution"],
+			["seedream-4", "resolution"],
+			["seedream-4.5", "size"],
+		] as const)
+			expect(offered(model, field)).toContain("4K");
+	});
+	test("flux-3-klein's 4K tier is documented within Gallery's limit, bound to its schema", () => {
+		expect(documentedTiers).toHaveLength(1);
+		const [tier] = documentedTiers;
+		expect(tier).toMatchObject({
+			model: "flux-3-klein",
+			operation: "text-to-image",
+			field: "resolution",
+			value: "4K",
+			schemaSha256: row("flux-3-klein").catalog,
+		});
+		// The long edge is 4096 px, so 4096×4096 at 1:1 is its largest output.
+		expect(tier?.pixels).toBe(4096 * 4096);
+		expect(tier?.pixels).toBeLessThanOrEqual(20_000_000);
+		const entry = catalogSource.entries.find((item) => item.model_id === "flux-3-klein");
+		if (!entry) throw new Error("flux-3-klein has no catalog entry.");
+		// The pinned entries are a union of every schema; read this one's resolution alone.
+		const { properties } = entry.input_schema as unknown as {
+			properties: Record<string, { description?: string }>;
+		};
+		const description = properties.resolution?.description;
+		expect(description).toContain(tier?.quote ?? "missing");
+		expect(staleBindings(rows, documentedTiers)).toEqual([]);
 	});
 	test("flux-3-klein offers its seven ratios and no custom WIDTHxHEIGHT", () => {
 		expect(offered("flux-3-klein", "size")).toEqual([

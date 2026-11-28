@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import ledger from "../../docs/media-catalog.v1.json";
 import type { D4State } from "../../src/lib/shared/media-catalog/filtering";
-import { galleryEnvelope } from "../../src/lib/shared/media-catalog/rules";
+import { galleryEnvelope, undocumentedTiers } from "../../src/lib/shared/media-catalog/rules";
 import {
 	type DerivedOption,
 	type DerivedRow,
@@ -12,6 +12,7 @@ import {
 	deriveRows,
 	envelopeValues,
 	narrowedDomain,
+	undocumentedTierValues,
 } from "./derive";
 import { queueProjection } from "./queue";
 import { type Offered, queueRowOffered, type VerifiedOptions, verifiedOptions } from "./verified";
@@ -378,23 +379,37 @@ export function optionObligations(
 		});
 		return items;
 	}
+	const withheld = envelopeValues(row, option, domain);
+	const envelope = (): CoverageItem => ({
+		...base,
+		slice: galleryEnvelope.slice,
+		values: range({ values: withheld }),
+		state: "pending",
+		reason: galleryEnvelope.reason,
+		envelope: true,
+	});
 	if (covered) {
-		// A covered option leaves its envelope values and custom branch to their own items.
-		const withheld = envelopeValues(row, option, domain);
-		if (withheld.length)
+		// A covered option leaves its envelope values, its offered tiers of undocumented size and
+		// its custom branch to their own items.
+		if (withheld.length) items.push(envelope());
+		const choice = offered?.[option.field];
+		const stated = undocumentedTierValues(row, option, domain, key.operation).filter(
+			(value) => choice && "values" in choice && choice.values.includes(value),
+		);
+		if (stated.length)
 			items.push({
 				...base,
-				values: range({ values: withheld }),
-				state: "pending",
-				reason: galleryEnvelope.reason,
-				envelope: true,
+				values: range({ values: stated }),
+				state: "unknown",
+				reason: undocumentedTiers.reason,
+				question: undocumentedTiers.question,
 			});
 		if (option.custom) items.push({ ...base, values: "custom sizes", ...option.custom });
-		const remaining = withheld.length
-			? { ...domain, values: domain.values?.filter((value) => !withheld.includes(value)) }
+		const split = [...withheld, ...stated];
+		const remaining = split.length
+			? { ...domain, values: domain.values?.filter((value) => !split.includes(value)) }
 			: domain;
 		const listed = range(remaining);
-		const choice = offered?.[option.field];
 		const gap = offerGap(remaining, choice, option.kind);
 		items.push(
 			gap
@@ -409,7 +424,15 @@ export function optionObligations(
 		);
 		return items;
 	}
-	items.push({ ...base, values, state: "pending", reason: slice });
+	// An envelope value leaves its slice for the envelope's own, except inside a Phase 3 family,
+	// which keeps the whole option and notes where the value goes.
+	if (withheld.length && !slice.startsWith("P3 ·")) {
+		const rest = { ...domain, values: domain.values?.filter((value) => !withheld.includes(value)) };
+		items.push(envelope(), { ...base, values: range(rest), state: "pending", reason: slice });
+		return items;
+	}
+	const note = withheld.length ? `; ${withheld.join(", ")}: ${galleryEnvelope.slice}` : "";
+	items.push({ ...base, values, state: "pending", reason: `${slice}${note}` });
 	return items;
 }
 

@@ -84,9 +84,12 @@ test("the draft takes only its own keys, its own fields and their offered values
 	).toEqual({
 		size: "Choose a size this model offers.",
 	});
-	// A 4K tier stays withheld until G13.
+	// G13 offers the 4K tier; a tier the model does not offer is refused.
 	expect(
 		errors(row("kling-o3-image"), { ...ok, options: { ...ok.options, resolution: "4K" } }),
+	).toBeNull();
+	expect(
+		errors(row("kling-o3-image"), { ...ok, options: { ...ok.options, resolution: "8K" } }),
 	).toEqual({ resolution: "Choose a resolution this model offers." });
 	expect(errors(row("kling-o3-image"), Object.create(ok))).toEqual({
 		draft: "Choose an image model and its options again.",

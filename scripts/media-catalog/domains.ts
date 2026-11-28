@@ -2,9 +2,11 @@
 // value overrides, then the values a Siluet envelope withholds. Coverage, the queue rows and the
 // verified options share it. It reads no derived rows and imports no deriver at runtime.
 import {
+	documentedTiers,
 	galleryEnvelope,
 	type ReviewedOverride,
 	reviewedOverrides,
+	undocumentedTiers,
 } from "../../src/lib/shared/media-catalog/rules";
 import type { DerivedOption, DerivedRow, Domain } from "./derive";
 
@@ -46,6 +48,35 @@ export function envelopeValues(
 		return [];
 	return (domain.values ?? []).filter((value) =>
 		(galleryEnvelope.values as readonly Json[]).includes(value),
+	);
+}
+
+/**
+ * Tiers of one option whose output size no source documents: the composer offers them, and Review
+ * states Gallery's limit. A tier documented on this row's schema is not among them.
+ */
+export function undocumentedTierValues(
+	row: Pick<DerivedRow, "model" | "catalog" | "media">,
+	option: DerivedOption,
+	domain: Domain,
+	operation: string,
+) {
+	if (
+		row.media !== "image" ||
+		!(undocumentedTiers.fields as readonly string[]).includes(option.field)
+	)
+		return [];
+	const documented = (value: Json) =>
+		documentedTiers.some(
+			(tier) =>
+				tier.model === row.model &&
+				tier.operation === operation &&
+				tier.field === option.field &&
+				tier.value === value &&
+				tier.schemaSha256 === row.catalog,
+		);
+	return (domain.values ?? []).filter(
+		(value) => (undocumentedTiers.values as readonly Json[]).includes(value) && !documented(value),
 	);
 }
 
