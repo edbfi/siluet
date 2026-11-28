@@ -107,7 +107,7 @@ export function imageBatchStore({ use }: Installation) {
 						if (time >= batch.deadline) return { stop: "expired" } as const;
 						const credential =
 							await tx.get(sql`SELECT 1 FROM provider_credential WHERE provider=${batch.provider}
-					AND revision=${batch.revision} AND ciphertext IS NOT NULL AND seedream=1`);
+					AND revision=${batch.revision} AND ciphertext IS NOT NULL AND (provider='toapis' OR seedream=1)`);
 						if (!credential || !termsCurrent()) return { stop: "terms" } as const;
 						const until = await nextProviderStart(tx, batch.provider, "submit", time);
 						if (until >= batch.deadline) return { stop: "cooldown" } as const;

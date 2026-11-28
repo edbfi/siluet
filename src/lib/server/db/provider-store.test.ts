@@ -94,7 +94,8 @@ test("readable Seedream revisions follow ciphertext and key changes between Jobs
 	const toapis = { provider: "toapis", model: "doubao-seedream-5-5", revision: 1 } as const;
 	let readable = await store.jobReadability();
 	expect(readable(poyo)).toBe(true);
-	expect(readable(toapis)).toBe(false);
+	// A ToAPIs image job reads any readable ToAPIs key: its snapshot, not the flag, gated Queue.
+	expect(readable(toapis)).toBe(true);
 	await saveCurrent(store, "poyo", poyoKey, 124, true);
 	readable = await store.jobReadability();
 	expect(readable(poyo)).toBe(false);

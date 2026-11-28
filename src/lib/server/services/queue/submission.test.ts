@@ -337,12 +337,15 @@ test.each(["poyo", "toapis"] as const)(
 		const unusedReview = await previous.review("owner", input);
 		if ("error" in acceptedReview || "error" in unusedReview) throw new Error("Expected Review.");
 		const digest = await installationReviewDigest();
+		// A ToAPIs Review also binds its access evidence: here the pre-snapshot exception.
+		const access = { revision: 1, state: "exception", checkedAt: null, basis: "pre-snapshot" };
 		const oldTerms = digest(
 			"edit-review-terms-v1",
 			1,
 			acceptedReview.quote,
 			true,
 			null,
+			...(provider === "toapis" ? [access] : []),
 			previousEditDisclosure[provider],
 		);
 		const { method, url, body } = input.request;
@@ -691,7 +694,15 @@ test("the ordered-edit release's encrypted keys, unused token and durable claim 
 	const live = parseQueueRequest({ draft, count: 1, retryLimit: 0, acceptUnknown: true });
 	if (!live) throw new Error("Expected the pre-registry draft to resolve.");
 	const api = await queue();
-	expect(await api.submit("owner", { ...live, token: unusedToken })).toEqual({ jobId: unused });
+	// G9 binds a ToAPIs Review's access evidence, so the unused token is stale and sends nothing;
+	// its fresh Review queues under the pre-snapshot exception.
+	const refused = await api.submit("owner", { ...live, token: unusedToken });
+	expect(refused).toMatchObject({ error: "stale", review: { access: { state: "exception" } } });
+	expect(posted).toEqual([]);
+	if (!("review" in refused)) throw new Error("Expected a fresh Review.");
+	expect(await api.submit("owner", { ...live, token: refused.review.token })).toHaveProperty(
+		"jobId",
+	);
 	expect(posted).toEqual(["fixture-global-image-key"]);
 	await providerStore(db).remove("toapis");
 	expect(await api.submit("owner", { ...live, token: originalToken })).toEqual({ jobId: claimed });
@@ -755,10 +766,20 @@ test.each(["poyo", "toapis"] as const)(
 				conn.run(sql`UPDATE provider_credential SET ciphertext='unreadable' WHERE provider='poyo'`),
 			);
 		}
-		expect(await api.review("owner", input)).toEqual({ error: "stale" });
-		expect(
-			await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true }),
-		).toEqual({ error: "stale" });
+		if (provider === "toapis") {
+			// Any readable ToAPIs key reviews; with no snapshot and no flag it cannot queue.
+			expect(await api.review("owner", input)).toMatchObject({
+				blockers: ["Check ToAPIs model access."],
+			});
+			expect(
+				await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true }),
+			).toMatchObject({ error: "stale", review: { blockers: ["Check ToAPIs model access."] } });
+		} else {
+			expect(await api.review("owner", input)).toEqual({ error: "stale" });
+			expect(
+				await api.submit("owner", { ...input, token: terms.token, acceptUnknown: true }),
+			).toEqual({ error: "stale" });
+		}
 		expect(
 			await api.review("owner", makeInput(provider === "poyo" ? "toapis" : "poyo")),
 		).toHaveProperty("token");

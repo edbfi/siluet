@@ -163,3 +163,25 @@ export function accessText(access: ModelAccess, model: string, scope: InventoryS
 export function rateLimitText(retryAfterSeconds: number) {
 	return `Three checks a minute per scope. Try again in ${Math.max(1, Math.ceil(retryAfterSeconds))} s.`;
 }
+
+/** What a Review shows for its exact ToAPIs model: the state, its line and whether it queues. */
+export function accessLine(
+	access: ModelAccess,
+	model: string,
+	scope: InventoryScope,
+	skipped = false,
+) {
+	return {
+		state: access.state,
+		queues: accessQueues(access),
+		text: skipped ? skippedText : accessText(access, model, scope),
+	};
+}
+
+/** The access evidence a Review's terms digest binds. */
+export const accessBinding = ({ revision, state, checkedAt, basis }: ModelAccess) => ({
+	revision,
+	state,
+	checkedAt,
+	basis,
+});

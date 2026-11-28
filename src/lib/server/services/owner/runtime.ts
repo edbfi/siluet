@@ -116,7 +116,16 @@ async function openOwner(dev: boolean) {
 			inventory,
 		);
 		const gallery = createGallery(installation);
-		const queue = await createSubmissionQueue(installation, store.credential, jobs);
+		const queue = await createSubmissionQueue(
+			installation,
+			store.credential,
+			jobs,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ inventory },
+		);
 		const refusals = modelRefusals(installation);
 		// File attempts carry this runtime's nonce, so a later runtime never sends for them.
 		const nonce = crypto.randomUUID();
@@ -126,7 +135,7 @@ async function openOwner(dev: boolean) {
 			stages,
 			store.credential,
 			fileDispatcher(installation, nonce, jobs.schedule),
-			{ readCleaning: cleaning.read, shutdown: shutdown.signal },
+			{ readCleaning: cleaning.read, shutdown: shutdown.signal, inventory },
 		);
 		let workers: Promise<void> | undefined;
 		async function checkAccess() {

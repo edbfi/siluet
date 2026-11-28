@@ -6,15 +6,19 @@ import { zImageDisclosure } from "../../../shared/image-studio/z-image";
 import { queueingD4 } from "../../../shared/media-catalog/eligibility";
 import { queueEvidenceProblem } from "../../../shared/media-catalog/filtering";
 import type { QueueRow } from "../../../shared/media-catalog/queue-row";
+import { seedreamRoutes } from "../../../shared/media-catalog/registry";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
 import type { ProviderId } from "../../../shared/providers/connections";
+import { accessLine, accessQueues, type ModelAccess } from "../../../shared/providers/inventory";
 import { credentialPermitsImage, imageCredentialAccess } from "../../db/image-credential-access";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import type { Installation } from "../../db/installation";
+import { inventoryAccess } from "../../db/inventory-store";
 import { nextProviderStart } from "../../db/provider-gate";
 import type { providerStore } from "../../db/provider-store";
 import type { ReviewedImageRequest } from "../../providers/image-job";
 import { loadStudioPricingFeeds } from "../pricing/studio-feeds";
+import type { Inventory } from "../providers/inventory";
 import type { BatchAuthorization } from "./batch-dispatch";
 import { imageJobContract } from "./contract";
 import { type DerivedLiveRequest, type DerivedRows, derivedRows, resolveDerived } from "./derived";
@@ -36,7 +40,11 @@ type SingleDispatch = (
 export type DerivedQueueOptions = {
 	readonly rows?: DerivedRows;
 	readonly wording?: (row: QueueRow) => DerivedWording;
+	/** Runs a ToAPIs Review's automatic check on a stale snapshot. Without it, Review only reads. */
+	readonly inventory?: Pick<Inventory, "review">;
 };
+
+const inventoryOrigin = seedreamRoutes.toapis.origin;
 
 export async function createSubmissionQueue(
 	installation: Installation,
@@ -48,7 +56,7 @@ export async function createSubmissionQueue(
 	now = Date.now,
 	discloseEdit = editDisclosure,
 	discloseZImage = zImageDisclosure,
-	{ rows = derivedRows, wording = derivedWording }: DerivedQueueOptions = {},
+	{ rows = derivedRows, wording = derivedWording, inventory }: DerivedQueueOptions = {},
 ) {
 	const { dispatch, dispatchBatch } =
 		typeof dispatcher === "function"
@@ -62,7 +70,22 @@ export async function createSubmissionQueue(
 	// Image Reviews bind no D4 wording yet, so only a declared row can queue here.
 	const blocked = (live: LiveRequest) =>
 		live.replayOnly || queueEvidenceProblem(live.entry.evidence, live.entry.key.provider) !== null;
-	async function reviewShipped(owner: string, live: LiveRequest) {
+	/**
+	 * A ToAPIs Review's access evidence. Only an opened Review runs the automatic check on a stale
+	 * snapshot; the fresh Review a stale claim answers with only reads.
+	 */
+	async function toapisAccess(live: LiveRequest, revision: number, automatic: boolean) {
+		if (inventory && automatic) return inventory.review(live.entry.key, "image");
+		const access = await installation.use((db) =>
+			inventoryAccess(
+				db,
+				{ origin: inventoryOrigin, scope: "image", key: live.entry.key, readable: revision },
+				now(),
+			),
+		);
+		return { access, skipped: false };
+	}
+	async function reviewShipped(owner: string, live: LiveRequest, automatic = true) {
 		if (blocked(live)) return invalid;
 		const provider = live.input.provider;
 		const [saved, feeds] = await Promise.all([
@@ -70,12 +93,24 @@ export async function createSubmissionQueue(
 			loadFeeds(now()),
 		]);
 		if (!saved) return stale;
-		const { terms, ...display } = reviewTerms(live, feeds, saved.revision, now());
+		const evidence =
+			provider === "toapis" ? await toapisAccess(live, saved.revision, automatic) : null;
+		const { terms, ...display } = reviewTerms(
+			live,
+			feeds,
+			saved.revision,
+			now(),
+			evidence?.access ?? null,
+		);
+		const line =
+			evidence && accessLine(evidence.access, live.input.model, "image", evidence.skipped);
 		const id = crypto.randomUUID();
 		return {
 			token: [id, terms, signature(id, terms, owner, live)].join("."),
 			...display,
 			acceptUnknown: false,
+			access: line && { state: line.state, text: line.text },
+			blockers: line && !line.queues ? [line.text] : [],
 		};
 	}
 
@@ -238,7 +273,23 @@ export async function createSubmissionQueue(
 					WHERE c.provider=${provider} AND c.ciphertext IS NOT NULL AND ${credentialPermitsImage(live.input.model)}`);
 					if (current?.revision !== saved.revision) return stale;
 					const time = now();
-					const reviewed = reviewTerms(live, feeds, saved.revision, time);
+					// A ToAPIs claim re-reads its access in this transaction: only a fresh listing,
+					// or the frozen exception before any snapshot, queues.
+					const access: ModelAccess | null =
+						provider === "toapis"
+							? await inventoryAccess(
+									tx,
+									{
+										origin: inventoryOrigin,
+										scope: "image",
+										key: live.entry.key,
+										readable: saved.revision,
+									},
+									time,
+								)
+							: null;
+					if (access && !accessQueues(access)) return stale;
+					const reviewed = reviewTerms(live, feeds, saved.revision, time, access);
 					if (reviewed.terms !== terms) return stale;
 					if (reviewed.requiresConsent && !live.acceptUnknown) return invalid;
 					if (batch) {
@@ -262,14 +313,14 @@ export async function createSubmissionQueue(
 						await tx.run(sql`INSERT INTO image_job(id,binding,provider,revision,quote,accepted_unknown,state,created_at,model,operation,poll_deadline,contract)
 					VALUES(${id},${binding},${provider},${saved.revision},${JSON.stringify(reviewed.quote)},${Number(live.acceptUnknown)},'submitting',${time},${live.input.model},${live.entry.key.operation},${time + imageJobPollingWindowMs},${contract})`);
 					}
-					return { key: saved.key, revision: saved.revision, deadline: time + 120_000 };
+					return { key: saved.key, revision: saved.revision, deadline: time + 120_000, access };
 				},
 				{ behavior: "immediate" },
 			),
 		);
 		if (!("key" in claimed) || claimed.key === undefined) {
 			if (!("error" in claimed) || claimed.error !== "stale") return claimed;
-			const fresh = await reviewShipped(owner, live);
+			const fresh = await reviewShipped(owner, live, false);
 			return "token" in fresh ? { error: "stale" as const, review: fresh } : stale;
 		}
 		// Only the transaction that inserted the job can dispatch.
@@ -282,9 +333,11 @@ export async function createSubmissionQueue(
 				key: claimed.key,
 				provider,
 				request: live.request,
+				// The access evidence captured at claim: a later check does not stop this batch.
 				checkTerms: async () => {
 					const feeds = await loadFeeds(now());
-					return () => reviewTerms(live, feeds, claimed.revision, now()).terms === terms;
+					return () =>
+						reviewTerms(live, feeds, claimed.revision, now(), claimed.access).terms === terms;
 				},
 			}).catch(() => console.error("Image batch dispatch interrupted."));
 		} else await dispatch(id, provider, claimed.key, live.request);

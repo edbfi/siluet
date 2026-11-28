@@ -2,12 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import { filteringFields, queueEvidenceProblem } from "../../../shared/media-catalog/filtering";
-import {
-	accessQueues,
-	accessText,
-	type ModelAccess,
-	skippedText,
-} from "../../../shared/providers/inventory";
+import { accessLine, type ModelAccess } from "../../../shared/providers/inventory";
 import { frameReviewLabels, roleMedia } from "../../../shared/video-studio/keyframes";
 import type { PoyoVideoBody } from "../../../shared/video-studio/poyo-video";
 import { previewVideo, type VideoRequest } from "../../../shared/video-studio/request";
@@ -59,19 +54,10 @@ type Evidence =
 	| { provider: "poyo"; record: PoyoVideoAccess | null | undefined }
 	| { provider: "toapis"; access: ModelAccess; skipped: boolean };
 
-/**
- * The ToAPIs access line a Review shows for its exact model, with Check again. Poyo.ai keeps its
- * balance-verified note and has none.
- */
-function accessLine(input: VideoRequest, evidence: Evidence) {
+/** The ToAPIs access line a Review shows for its exact model. Poyo.ai keeps its balance note. */
+function videoAccessLine(input: VideoRequest, evidence: Evidence) {
 	if (evidence.provider !== "toapis") return null;
-	return {
-		state: evidence.access.state,
-		queues: accessQueues(evidence.access),
-		text: evidence.skipped
-			? skippedText
-			: accessText(evidence.access, input.operation.key.model, "video"),
-	};
+	return accessLine(evidence.access, input.operation.key.model, "video", evidence.skipped);
 }
 
 export async function createVideoQueue(
@@ -111,7 +97,7 @@ export async function createVideoQueue(
 			{ count: 1, retryLimit: 0 },
 			time,
 		);
-		const line = accessLine(input, evidence);
+		const line = videoAccessLine(input, evidence);
 		const record = evidence.provider === "poyo" ? evidence.record : null;
 		const blockers = [
 			queueEvidenceProblem(
