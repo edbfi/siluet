@@ -181,10 +181,12 @@ fi
 
 if [[ $provider == poyo && -n $old_v2 && -n $old_basis ]]; then
   # Derived rates follow main's queue, but readers refuse a revision that loses a rate. At the
-  # same revision, keep each published rate the basis binds and the candidate dropped.
+  # same revision, keep each published rate its paired basis binds and the candidate dropped.
   carried=$(jq -c --slurpfile old "$work/previous-v2.json" \
-    --slurpfile old_basis "$work/previous-basis.json" '
-    if .revision == $old[0].revision and $old_basis[0].revision == .revision then
+    --slurpfile old_basis "$work/previous-basis.json" \
+    --arg old_sha "$(sha256_body "$work/previous-v2.json")" '
+    if .revision == $old[0].revision and $old_basis[0].revision == .revision
+      and $old_basis[0].feedSha256 == $old_sha then
       . as $new
       | [$old_basis[0].digests | keys[]
         | select(. as $key | ($new.rates | has($key) | not) and ($old[0].rates | has($key)))]

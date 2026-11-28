@@ -629,6 +629,43 @@ describe("PoYo price basis publication", () => {
 		expect(pricingFeedConflict(decoded, held)).toBeUndefined();
 	});
 
+	test("after a carry, a rerun is unchanged and a later same-day confirmation skips", () => {
+		const derived = { kind: "per-request", credits: "4" } as const;
+		const old = { ...v2, rates: { ...v2.rates, "gpt-4o-image": derived }, confirmedAt: yesterday };
+		const both = { "z-image": "0".repeat(64), "gpt-4o-image": "1".repeat(64) };
+		seed({
+			[v1Path]: `${JSON.stringify(bundledV1)}\n`,
+			[v1LicensePath]: licenseText,
+			[v2Path]: `${JSON.stringify(old)}\n`,
+			[v2LicensePath]: licenseText,
+			[basisPath]: `${canonicalJson(basisFor(old, both))}\n`,
+		});
+		const earlier = { ...v2, confirmedAt: earlierToday };
+		const first = publish(earlier);
+		if (!first.success) throw new Error(first.err);
+		const published = head();
+		expect(publish(earlier).out).toContain("PoYo pricing is unchanged.");
+		expect(publish(v2).out).toContain("PoYo pricing was already confirmed today.");
+		expect(head()).toBe(published);
+	});
+
+	test("nothing is carried from a basis that does not pair with the published feed", () => {
+		const derived = { kind: "per-request", credits: "4" } as const;
+		const old = { ...v2, rates: { ...v2.rates, "gpt-4o-image": derived }, confirmedAt: yesterday };
+		const published = seed({
+			[v1Path]: `${JSON.stringify(bundledV1)}\n`,
+			[v1LicensePath]: licenseText,
+			[v2Path]: `${JSON.stringify(old)}\n`,
+			[v2LicensePath]: licenseText,
+			[basisPath]: `${canonicalJson({
+				...basisFor(old, { "gpt-4o-image": "1".repeat(64) }),
+				feedSha256: "f".repeat(64),
+			})}\n`,
+		});
+		expect(publish(v2).err).toMatch(/removed a published rate/);
+		expect(head()).toBe(published);
+	});
+
 	test("the same revision still refuses to drop a rate the basis does not bind", () => {
 		const shipped = { ...v2, rates: { ...v2.rates, "h3-max": h3Fixture.rates["h3-max"] } };
 		const old = { ...shipped, confirmedAt: yesterday };

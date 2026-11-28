@@ -645,6 +645,9 @@ describe("confirmed PoYo v2 refresh", () => {
 		const feed = { ...pair.feed, confirmedAt: "2026-11-24T13:30:00Z" };
 		const basis = { ...pair.basis, feedSha256: poyoFeedSha256(feed as never) };
 		const basisCache = () => poyoBasisPath(v2CachePath);
+		// The feed each "replaces neither" case offers, and a basis that pairs with it.
+		const nextFeed = { ...feed, confirmedAt: "2026-11-24T14:30:00Z" };
+		const nextBasis = { ...basis, feedSha256: poyoFeedSha256(nextFeed as never) };
 		const target = queueRows.find(({ rateKey }) => rateKey === "gpt-4o-image");
 		if (!target) throw new Error("gpt-4o-image is not a queue row.");
 		const zImage = {
@@ -688,6 +691,19 @@ describe("confirmed PoYo v2 refresh", () => {
 			return `${json}${" ".repeat(bytes - new TextEncoder().encode(json).byteLength)}`;
 		};
 
+		/** A compact basis of exactly `bytes`, which the cache cannot hold once its LF is added. */
+		const compact = (bytes: number, paired = basis) => {
+			const digests: Record<string, string> = {};
+			const length = () => JSON.stringify({ ...paired, digests }).length;
+			// Each further digest costs its key plus 70 bytes; stop while the last can fill the rest.
+			for (let i = 0; bytes - length() - (`m${i}`.length + 70) >= 71; i++)
+				digests[`m${i}`] = "0".repeat(64);
+			digests[`x${"x".repeat(bytes - length() - 71)}`] = "0".repeat(64);
+			const json = JSON.stringify({ ...paired, digests });
+			if (json.length !== bytes) throw new Error(`The compact basis is ${json.length} bytes.`);
+			return json;
+		};
+
 		test("a basis of exactly the basis limit is read and cached", async () => {
 			const { result } = refreshV2(feed, v2Now, new Response(sized(poyoBasisByteLimit)));
 			expect(await result).toMatchObject({ status: "updated", feed });
@@ -716,11 +732,15 @@ describe("confirmed PoYo v2 refresh", () => {
 			["an invalid schema", () => ({ ...basis, digests: [] }), /invalid schema/],
 			["a server error", () => new Response("error", { status: 503 }), /HTTP 503/],
 			["one byte over the basis limit", () => new Response(sized(poyoBasisByteLimit + 1)), /size/],
+			[
+				"exactly the basis limit with no LF",
+				() => new Response(compact(poyoBasisByteLimit, nextBasis)),
+				/size limit/,
+			],
 		])("a basis with %s replaces neither cached file", async (_, reply, reason) => {
 			await refreshV2(feed, v2Now, basis).result;
 			const saved = [await readFile(v2CachePath, "utf8"), await readFile(basisCache(), "utf8")];
-			const next = { ...feed, confirmedAt: "2026-11-24T14:30:00Z" };
-			await expect(refreshV2(next, v2Now, reply()).result).rejects.toThrow(reason);
+			await expect(refreshV2(nextFeed, v2Now, reply()).result).rejects.toThrow(reason);
 			expect([await readFile(v2CachePath, "utf8"), await readFile(basisCache(), "utf8")]).toEqual(
 				saved,
 			);

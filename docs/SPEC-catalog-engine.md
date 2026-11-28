@@ -200,7 +200,7 @@ A price applies only on an exact match of operation, resolved options, billing u
 **Basis.** A rate is valid for a derived row while the SHA-256 of that entry's canonical `billing` and `input_schema` matches the projection's. A re-pin that leaves the entry unchanged keeps its rate. Older builds decode only exact top-level keys and credit decimals inside rates, so the v2 feed cannot carry the digest. The collector writes `pricing/v2/poyo-basis.json` with `{revision, feedSha256, digests}`: the feed's revision, the SHA-256 of `canonicalJson(decoded feed)` as `local-feed.ts` defines it, and one digest per rate key. The feed and its basis are one unit:
 
 - `publish.sh` publishes both in one tree, or neither.
-- `refresh.ts` fetches both, applies the feed's size limit to each and validates the pair before it replaces the cached pair.
+- `refresh.ts` fetches both, applies each file's own size limit (32 KiB for the basis) and validates the pair before it replaces the cached pair.
 - `studio-feeds.ts` embeds the bundled basis beside the bundled v2 feed.
 - `loadLocalPricing` and `preferPoyoFeed` select the feed and its basis from the same source, cache or bundled. A cached feed never pairs with the bundled basis.
 - `stage-feeds.sh` only stages both files for `freshness.ts`, which checks the pair.
