@@ -1,6 +1,6 @@
 {
-	"accessed": "2026-11-27",
-	"note": "Markdown digests of the ToAPIs model list and public catalog the ledger records as sources.keyList and sources.snapshot, read anonymously on the access date. They are the drift baseline from that date only: changes between the catalog's 2026-11-10 snapshot and this date are not verified by them, and G9 and G10a re-read both pages.",
+	"accessed": "2026-11-28",
+	"note": "Markdown digests of the ToAPIs model list and public catalog the ledger records as sources.keyList and sources.snapshot, read anonymously on the access date. G2d first read both on 2026-11-27, and G9 re-read both on 2026-11-28 at the same digests. They are the drift baseline from those dates only: changes between the catalog's 2026-11-10 snapshot and 2026-11-27 are not verified by them, and G10a re-reads both pages.",
 	"pages": [
 		{
 			"sha256": "79dcc852d162a98b5a7b55624acdb8336490bc6775cb3334270ace083a20a8d0",

@@ -150,9 +150,14 @@ test("built Settings checks, replaces, restores and removes encrypted connection
 		await selectProvider(page, "ToAPIs");
 		await expect(page.getByText("Disconnected", { exact: true })).toBeVisible();
 		expect(await submit(page, "Connect", keys.restricted)).toBe(200);
-		await expect(page.getByText("Seedream 5.5 access unavailable.")).toBeVisible();
+		// Connect records the image listing it read; the Image models section shows it.
+		const absent = page.getByText(/^ToAPIs did not list doubao-seedream-5-5 for this key at /);
+		await expect(absent).toBeVisible();
 		expect(await submit(page, "Replace key", keys.toapis)).toBe(200);
-		await expect(page.getByText("Seedream 5.5 access unavailable.")).toHaveCount(0);
+		await expect(absent).toHaveCount(0);
+		await expect(
+			page.getByText(/^ToAPIs listed doubao-seedream-5-5 for this key at .+ UTC\.$/),
+		).toBeVisible();
 		await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 		const toapisAccepted = await acceptance.getAttribute("datetime");
 

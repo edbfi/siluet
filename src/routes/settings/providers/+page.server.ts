@@ -10,7 +10,17 @@ export const load: PageServerLoad = async ({ locals }) => {
 			neededByJobs: await locals.studio.jobs.needsCredential(connection.id),
 		})),
 	);
-	return { providers, videoAccess: await locals.studio.videoAccess.display() };
+	// The inventory sections describe a connected ToAPIs key only.
+	const toapis = connections.some(({ id, state }) => id === "toapis" && state === "connected");
+	return {
+		providers,
+		inventory: toapis
+			? {
+					image: await locals.studio.inventorySection("image"),
+					video: await locals.studio.inventorySection("video"),
+				}
+			: null,
+	};
 };
 
 const messages = {
@@ -72,11 +82,6 @@ async function changeConnection(
 }
 
 export const actions = {
-	video: async ({ locals }) => ({
-		provider: "toapis" as const,
-		outcome: "video-checked" as const,
-		...(await locals.studio.videoAccess.check()),
-	}),
 	connect: (event) => changeConnection(event, "connect"),
 	remove: (event) => changeConnection(event, "remove"),
 } satisfies Actions;

@@ -94,7 +94,8 @@ test("readable Seedream revisions follow ciphertext and key changes between Jobs
 	const toapis = { provider: "toapis", model: "doubao-seedream-5-5", revision: 1 } as const;
 	let readable = await store.jobReadability();
 	expect(readable(poyo)).toBe(true);
-	expect(readable(toapis)).toBe(false);
+	// A ToAPIs image job reads any readable ToAPIs key: its snapshot, not the flag, gated Queue.
+	expect(readable(toapis)).toBe(true);
 	await saveCurrent(store, "poyo", poyoKey, 124, true);
 	readable = await store.jobReadability();
 	expect(readable(poyo)).toBe(false);
@@ -440,6 +441,21 @@ test("Poyo balance access follows the readable revision independently of Seedrea
 	expect(await store.credential("poyo", 2, "poyo-balance")).toMatchObject({ revision: 2 });
 	await store.remove("poyo");
 	expect(await store.credential("poyo", 2, "poyo-balance")).toBeNull();
+});
+
+test("ToAPIs image access opens any readable ToAPIs key and never a Poyo.ai one", async () => {
+	const store = providerStore(installation);
+	await saveCurrent(store, "poyo", poyoKey, 123, true);
+	await saveCurrent(store, "toapis", toapisKey, 123, false);
+	expect(await store.credential("toapis", 1, "toapis-image")).toEqual({
+		revision: 1,
+		key: toapisKey,
+	});
+	expect(await store.credential("toapis", 2, "toapis-image")).toBeNull();
+	expect(await store.credential("poyo", 1, "toapis-image")).toBeNull();
+	expect(await store.credential("toapis", 1)).toBeNull();
+	await store.remove("toapis");
+	expect(await store.credential("toapis", 1, "toapis-image")).toBeNull();
 });
 
 test("a key swapped for a FIFO after its checks is refused without blocking", async () => {

@@ -10,11 +10,20 @@ import {
 import { createImageReview } from "../../../shared/image-studio/review";
 import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import { queueEvidenceProblem } from "../../../shared/media-catalog/filtering";
+import { seedreamRoutes } from "../../../shared/media-catalog/registry";
 import type { CleaningSetting } from "../../../shared/media-staging/cleaning";
+import {
+	accessBinding,
+	accessLine,
+	accessQueues,
+	type ModelAccess,
+} from "../../../shared/providers/inventory";
 import { idleMs, lifetimeMs } from "../../db/access-store";
 import { claimFileSlots } from "../../db/file-attempt";
+import { imageCredentialAccess } from "../../db/image-credential-access";
 import { imageJobPollingWindowMs } from "../../db/image-job-schema";
 import type { Installation, InstallationTransaction } from "../../db/installation";
+import { inventoryAccess, inventoryListedSql } from "../../db/inventory-store";
 import { mediaCleaning, readCleaningIn } from "../../db/media-cleaning";
 import { nextPoyoUploadStart } from "../../db/poyo-upload-window";
 import { submitCooldown } from "../../db/provider-gate";
@@ -27,6 +36,7 @@ import {
 	type StageMode,
 } from "../media-staging/stages";
 import { loadStudioPricingFeeds } from "../pricing/studio-feeds";
+import type { Inventory } from "../providers/inventory";
 import { acceptedFileBinding, r1bReviewSignature, signedSlots } from "./accepted-binding";
 import type { fileDispatcher } from "./dispatch";
 import type { FileRequest } from "./request";
@@ -58,7 +68,11 @@ export type FileQueueOptions = {
 	readCleaning?: () => Promise<CleaningSetting>;
 	/** The runtime's `siluet:stopping` signal: admission closes before storage does. */
 	shutdown?: AbortSignal;
+	/** Runs a ToAPIs Review's automatic check on a stale snapshot. Without it, Review only reads. */
+	inventory?: Pick<Inventory, "review">;
 };
+
+const inventoryOrigin = seedreamRoutes.toapis.origin;
 
 /** A staged copy agrees with the setting: cleaned while cleaning is on, original while off. */
 const agrees = (setting: CleaningSetting, live: FileRequest) =>
@@ -94,6 +108,7 @@ export async function createFileQueue(
 		now = Date.now,
 		readCleaning = mediaCleaning(db).read,
 		shutdown,
+		inventory,
 	}: FileQueueOptions = {},
 ) {
 	const row = await db.use((tx) =>
@@ -119,8 +134,8 @@ export async function createFileQueue(
 	const poyoUploads = uploadSlot();
 	/**
 	 * The terms a file Review binds: the setting and its revision, every slot's rules and
-	 * preparation, the disclosure, the price and each upload's wire. Files whose mode
-	 * disagrees with the setting have none.
+	 * preparation, the disclosure, the price, each upload's wire and a ToAPIs key's access
+	 * evidence. Files whose mode disagrees with the setting have none.
 	 */
 	function termsFor(
 		live: FileRequest,
@@ -128,6 +143,7 @@ export async function createFileQueue(
 		feeds: Awaited<ReturnType<typeof loadFeeds>>,
 		setting: CleaningSetting,
 		modes: readonly StageMode[],
+		access: ModelAccess | null,
 	) {
 		if (!agrees(setting, live)) return null;
 		const provider = live.input.provider;
@@ -161,6 +177,7 @@ export async function createFileQueue(
 				fileByteLimit[provider],
 				["POST", fileUploadRoutes[provider], "Bearer", "multipart/form-data", "file", "default"],
 				true,
+				...(access ? [accessBinding(access)] : []),
 			),
 		};
 	}
@@ -182,6 +199,18 @@ export async function createFileQueue(
 			await submitCooldown(tx, provider),
 			provider === "poyo" ? await nextPoyoUploadStart(tx, time, uploads) : 0,
 		);
+	}
+	/** A ToAPIs file Review's access evidence, with one automatic check on a stale snapshot. */
+	async function toapisAccess(live: FileRequest, revision: number) {
+		if (inventory) return inventory.review(live.entry.key, "image");
+		const access = await db.use((tx) =>
+			inventoryAccess(
+				tx,
+				{ origin: inventoryOrigin, scope: "image", key: live.entry.key, readable: revision },
+				now(),
+			),
+		);
+		return { access, skipped: false };
 	}
 	const active = new Set<Promise<unknown>>();
 	// Identical authenticated first uses share one admission and one answer.
@@ -246,7 +275,11 @@ export async function createFileQueue(
 				const tooLarge = limit(live);
 				if (tooLarge) return tooLarge;
 				const provider = live.input.provider;
-				const saved = await credential(provider);
+				const saved = await credential(
+					provider,
+					undefined,
+					imageCredentialAccess(provider, live.input.model),
+				);
 				if (!saved) return refuse(unavailable);
 				if (!(await readCleaning().catch(() => null))) return refuse(unavailable);
 				const uploads = live.files.length;
@@ -278,7 +311,33 @@ export async function createFileQueue(
 												refused = stale(mismatched);
 												return false;
 											}
-											const termsNow = termsFor(live, saved.revision, feeds, setting, modes);
+											// A ToAPIs claim re-reads its access here: only a fresh listing, or the
+											// frozen exception before any snapshot, queues.
+											const access =
+												provider === "toapis"
+													? await inventoryAccess(
+															trx,
+															{
+																origin: inventoryOrigin,
+																scope: "image",
+																key: live.entry.key,
+																readable: saved.revision,
+															},
+															time,
+														)
+													: null;
+											if (access && !accessQueues(access)) {
+												refused = stale();
+												return false;
+											}
+											const termsNow = termsFor(
+												live,
+												saved.revision,
+												feeds,
+												setting,
+												modes,
+												access,
+											);
 											if (termsNow?.terms !== terms) {
 												refused = stale();
 												return false;
@@ -296,7 +355,8 @@ export async function createFileQueue(
 											const inserted =
 												await trx.get(sql`INSERT INTO image_job(id,binding,provider,revision,quote,accepted_unknown,state,created_at,model,operation,poll_deadline,file_owner,file_phase)
 								SELECT ${id},${binding},${provider},${saved.revision},${JSON.stringify(termsNow.quote)},1,'submitting',${time},${live.input.model},${live.entry.key.operation},${time + imageJobPollingWindowMs},${nonce},'claimed'
-								WHERE EXISTS(SELECT 1 FROM provider_credential WHERE provider=${provider} AND revision=${saved.revision} AND seedream=1 AND ciphertext IS NOT NULL)
+								WHERE EXISTS(SELECT 1 FROM provider_credential c WHERE c.provider=${provider} AND c.revision=${saved.revision} AND c.ciphertext IS NOT NULL
+									AND ${provider === "poyo" ? sql`c.seedream=1` : inventoryListedSql({ origin: inventoryOrigin, scope: "image", key: live.entry.key }, time)})
 								AND ${authenticated(scope, time)} RETURNING id`);
 											if (!inserted) return false;
 											await claimFileSlots(
@@ -362,11 +422,12 @@ export async function createFileQueue(
 			if (tooLarge) return tooLarge;
 			const provider = live.input.provider;
 			const [saved, feeds, setting] = await Promise.all([
-				credential(provider),
+				credential(provider, undefined, imageCredentialAccess(provider, live.input.model)),
 				loadFeeds(now()),
 				readCleaning().catch(() => null),
 			]);
 			if (!saved || !setting) return unavailable;
+			const evidence = provider === "toapis" ? await toapisAccess(live, saved.revision) : null;
 			const result = await stages.reviewAll(
 				scope,
 				live.files.map(({ stage }) => stage),
@@ -385,8 +446,17 @@ export async function createFileQueue(
 					return file ? { kind: "file", stage: file.stage } : slot;
 				}),
 			};
-			const terms = termsFor(reviewed, saved.revision, feeds, setting, result.reviewed);
+			const terms = termsFor(
+				reviewed,
+				saved.revision,
+				feeds,
+				setting,
+				result.reviewed,
+				evidence?.access ?? null,
+			);
 			if (!terms) return stale(files.map(({ position }) => position));
+			const line =
+				evidence && accessLine(evidence.access, live.input.model, "image", evidence.skipped);
 			const id = crypto.randomUUID();
 			return {
 				files: files.map(({ position, stage }) => ({ position, stage })),
@@ -395,6 +465,8 @@ export async function createFileQueue(
 				editDisclosure: terms.disclosure,
 				requiresConsent: true,
 				acceptUnknown: false,
+				access: line && { state: line.state, text: line.text },
+				blockers: line && !line.queues ? [line.text] : [],
 			};
 		},
 		// While shutting down, Queue sends nothing and answers `closing`, never a refusal,

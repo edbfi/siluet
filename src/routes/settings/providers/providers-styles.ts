@@ -115,4 +115,30 @@ export const styles = {
 	}),
 	connect: css({ "@media (max-width: 440px)": { justifySelf: "start" } }),
 	feedback: css({ "&:not(:empty)": { marginBlockStart: "0.75rem" } }),
+	inventory: css({
+		display: "grid",
+		gap: "0.375rem",
+		marginBlockStart: "0.875rem",
+		paddingBlockStart: "0.875rem",
+		borderBlockStart: "1px solid {colors.line}",
+	}),
+	inventoryActions: css({ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem" }),
+	disclosure: css({
+		fontSize: "0.875rem",
+		"& summary": { cursor: "pointer", minHeight: "2.75rem", display: "flex", alignItems: "center" },
+	}),
+	modelList: css({
+		display: "grid",
+		gridTemplateColumns: "repeat(auto-fill, minmax(16rem, 1fr))",
+		gap: "0.25rem 1rem",
+		marginBlock: "0.5rem",
+		paddingInlineStart: 0,
+		listStyle: "none",
+		fontSize: "0.8125rem",
+	}),
+	modelStatus: css({
+		color: "muted",
+		"&[data-status=listed]": { color: "success" },
+		"&[data-status=absent]": { color: "warning" },
+	}),
 };

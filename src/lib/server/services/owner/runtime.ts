@@ -1,4 +1,5 @@
 import type { EventEmitter } from "node:events";
+import type { InventoryScope } from "../../../shared/providers/inventory";
 import { fileAttemptStore } from "../../db/file-attempt";
 import { mediaCleaning } from "../../db/media-cleaning";
 import { modelRefusals } from "../../db/model-refusal";
@@ -19,6 +20,8 @@ import { createMediaPreparation } from "../media-cleanup/preparation";
 import { createScratchPool } from "../media-staging/scratch";
 import { createStages } from "../media-staging/stages";
 import { createProviderConnections } from "../providers/connections";
+import { createInventory } from "../providers/inventory";
+import { inventorySection } from "../providers/inventory-settings";
 import { createVideoAccess } from "../providers/video-access";
 import { createSubmissionQueue } from "../queue/submission";
 import { createVideoQueue } from "../queue/video";
@@ -103,10 +106,26 @@ async function openOwner(dev: boolean) {
 			readForSave: jobs.readForSave,
 			readability: store.jobReadability,
 		});
-		const videoAccess = createVideoAccess(installation, store);
-		const videoQueue = await createVideoQueue(installation, videoAccess, jobs.dispatchVideo);
+		const inventory = createInventory(installation, store);
+		const videoQueue = await createVideoQueue(
+			installation,
+			createVideoAccess(installation, store),
+			jobs.dispatchVideo,
+			undefined,
+			undefined,
+			inventory,
+		);
 		const gallery = createGallery(installation);
-		const queue = await createSubmissionQueue(installation, store.credential, jobs);
+		const queue = await createSubmissionQueue(
+			installation,
+			store.credential,
+			jobs,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ inventory },
+		);
 		const refusals = modelRefusals(installation);
 		// File attempts carry this runtime's nonce, so a later runtime never sends for them.
 		const nonce = crypto.randomUUID();
@@ -116,7 +135,7 @@ async function openOwner(dev: boolean) {
 			stages,
 			store.credential,
 			fileDispatcher(installation, nonce, jobs.schedule),
-			{ readCleaning: cleaning.read, shutdown: shutdown.signal },
+			{ readCleaning: cleaning.read, shutdown: shutdown.signal, inventory },
 		);
 		let workers: Promise<void> | undefined;
 		async function checkAccess() {
@@ -207,7 +226,8 @@ async function openOwner(dev: boolean) {
 			prepareMedia,
 			origin,
 			checkAccess,
-			videoAccess,
+			inventory,
+			inventorySection: (scope: InventoryScope) => inventorySection(inventory, scope),
 			videoQueue,
 			jobs,
 			gallery,

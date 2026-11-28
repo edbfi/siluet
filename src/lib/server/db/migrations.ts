@@ -9,6 +9,7 @@ import { imageBatchSchema } from "./image-batch-schema";
 import { imageContractMigration } from "./image-contract-schema";
 import { imageJobOperationMigration } from "./image-job-operation-migration";
 import { imageJobSchema } from "./image-job-schema";
+import { inventoryMigration } from "./inventory-schema";
 import { orderedFileMigration } from "./ordered-file-schema";
 import { saveIntentMigration } from "./save-intent-schema";
 import { videoProfileRearmMigration } from "./video-profile-rearm";
@@ -68,6 +69,7 @@ export const installationMigrations = {
 	"20261127120000_browser_key_sessions": browserKeyMigration,
 	"20261128120000_gallery_webp": galleryWebpMigration,
 	"20261129120000_image_contract": imageContractMigration,
+	"20261130120000_toapis_inventory": inventoryMigration,
 };
 
 export async function migrateInstallation(

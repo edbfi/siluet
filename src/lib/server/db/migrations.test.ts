@@ -154,10 +154,11 @@ test("released migrations keep their SQL and new ones sort after the last releas
 		expect(digest(value)).toBe(releasedMigrations.get(name) ?? "");
 });
 
-test("browser-key sessions sort just before Gallery WebP, then the image contract", () => {
-	expect(Object.keys(installationMigrations).sort().slice(-3)).toEqual([
+test("browser-key sessions sort just before Gallery WebP, the image contract and the inventory", () => {
+	expect(Object.keys(installationMigrations).sort().slice(-4)).toEqual([
 		"20261127120000_browser_key_sessions",
 		"20261128120000_gallery_webp",
 		"20261129120000_image_contract",
+		"20261130120000_toapis_inventory",
 	]);
 });

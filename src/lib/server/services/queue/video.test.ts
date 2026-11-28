@@ -9,6 +9,7 @@ import {
 	seedanceKeyframeOperations,
 	seedanceOperation,
 } from "../../../shared/media-catalog/registry";
+import { skippedText, staleText } from "../../../shared/providers/inventory";
 import { keyframeDisclosures } from "../../../shared/video-studio/keyframes";
 import {
 	parseVideo,
@@ -21,9 +22,9 @@ import { editDisclosures } from "../../../shared/video-studio/source-edit";
 import { imageJobStore } from "../../db/image-job-store";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerStore } from "../../db/provider-store";
-import { checkVideoInventory } from "../../providers/toapis/connection";
 import { createJobTracking } from "../jobs/tracking";
 import { loadStudioPricingFeeds } from "../pricing/studio-feeds";
+import { createInventory } from "../providers/inventory";
 import { createVideoAccess } from "../providers/video-access";
 import { createVideoQueue, type VideoTarget } from "./video";
 
@@ -51,49 +52,204 @@ afterEach(async () => {
 	await db.close();
 	await rm(directory, { recursive: true, force: true });
 });
+/**
+ * A stale video claim's answer: the refusal and a fresh Review to show instead. A plain subset,
+ * because Bun's toMatchObject rewrites the received value where an asymmetric matcher matched.
+ */
+const staleWithReview = { error: "stale", review: {} };
 function fixture() {
 	const store = providerStore(db);
 	let inventory: unknown = { success: true, object: "list", data: [{ id: "seedance-2-5" }] };
-	const access = createVideoAccess(
-		db,
-		store,
-		checkVideoInventory(async (url, init) => {
+	let elapsed = 0;
+	const reads: string[] = [];
+	const service = createInventory(db, store, {
+		read: async (url, init) => {
+			reads.push(url);
 			expect(url).toBe("https://toapis.com/v1/models?type=video");
 			expect(init.method).toBe("GET");
-			return Response.json(inventory);
-		}),
-	);
+			if (inventory instanceof Error) throw inventory;
+			return inventory instanceof Response ? inventory : Response.json(inventory);
+		},
+		now: () => now,
+		// Each check is a minute apart, so a fixture's checks never meet the limit.
+		elapsed: () => (elapsed += 60_001),
+	});
 	return {
 		store,
-		access,
+		access: createVideoAccess(db, store),
+		inventory: service,
+		reads,
+		check: () => service.check("video"),
 		next: (value: unknown) => {
 			inventory = value;
 		},
 	};
 }
-test("video checks preserve ciphertext, revision and image eligibility, with independent failed and missing results", async () => {
-	const { store, access, next } = fixture();
-	await store.save("toapis", "fixture", now, true, 0);
-	const original = await db.use((c) =>
-		c.get(sql`SELECT * FROM provider_credential WHERE provider='toapis'`),
-	);
-	for (const [response, state] of [
-		[{ success: true, object: "list", data: [] }, "missing"],
-		[{}, "unverified"],
-		[{ success: true, object: "list", data: [{ id: "seedance-2-5" }] }, "eligible"],
-	] as const) {
-		next(response);
-		expect((await access.check()).eligible).toBe(state === "eligible");
-		expect((await access.current()).record?.state).toBe(state);
-		expect(await store.credential("toapis", 1)).toEqual({ key: "fixture", revision: 1 });
+describe("ToAPIs inventory access", () => {
+	const listing = (...ids: string[]) => ({
+		success: true,
+		object: "list",
+		data: ids.map((id) => ({ id })),
+	});
+	async function inventoryQueue(saveFirst = true) {
+		const f = fixture();
+		if (saveFirst) await f.store.save("toapis", "video-only", now, false, 0);
+		const posts: VideoTarget[] = [];
+		const queue = await createVideoQueue(
+			db,
+			f.access,
+			async (_id, _key, send) => {
+				posts.push(send);
+			},
+			undefined,
+			() => now,
+			f.inventory,
+		);
+		const queueReview = async (request: VideoRequest = live) => {
+			const review = await queue.review("owner", request);
+			return {
+				review,
+				click: () => queue.submit("owner", { ...request, token: review.token, acceptTerms: true }),
+			};
+		};
+		return { ...f, posts, queue, queueReview };
 	}
-	expect((await access.check()).message).toContain("rate limited");
-	expect(
-		await db.use((c) => c.get(sql`SELECT * FROM provider_credential WHERE provider='toapis'`)),
-	).toEqual(original);
+
+	test("a fresh listing queues, and Review shows its access line", async () => {
+		const { check, queueReview, posts } = await inventoryQueue();
+		await check();
+		const { review, click } = await queueReview();
+		expect(review.blockers).toEqual([]);
+		expect(review.access).toEqual({
+			state: "listed",
+			text: expect.stringMatching(/^ToAPIs listed seedance-2-5 for this key at .+ UTC\.$/),
+		});
+		expect(await click()).toEqual({ jobId: expect.any(String) });
+		expect(posts).toHaveLength(1);
+	});
+
+	test.each([
+		["absent", listing("seedance-2-0"), "ToAPIs did not list seedance-2-5 for this key at"],
+		["failed", new Response(null, { status: 503 }), "The ToAPIs model check failed at"],
+	] as const)("an %s snapshot blocks Queue with zero POSTs", async (_, reply, text) => {
+		const { check, next, queueReview, posts } = await inventoryQueue();
+		next(reply);
+		await check();
+		const { review, click } = await queueReview();
+		expect(review.access?.text).toStartWith(text);
+		expect(review.blockers).toEqual([String(review.access?.text)]);
+		expect(await click()).toMatchObject(staleWithReview);
+		expect(posts).toHaveLength(0);
+	});
+
+	test("a stale snapshot whose automatic check cannot reach ToAPIs is skipped with zero POSTs", async () => {
+		const { check, next, queueReview, posts, reads } = await inventoryQueue();
+		await check();
+		now += 86_400_000;
+		next(Object.assign(new TypeError("fixture connect failure"), { code: "ECONNREFUSED" }));
+		const { review, click } = await queueReview();
+		expect(reads).toHaveLength(2);
+		expect(review.access).toEqual({ state: "stale", text: skippedText });
+		expect(review.blockers).toEqual([skippedText]);
+		const refused = await click();
+		expect(refused).toMatchObject(staleWithReview);
+		// The stale answer's fresh Review only reads: no second automatic check.
+		expect(reads).toHaveLength(2);
+		if ("review" in refused) expect(refused.review.access?.text).toBe(staleText);
+		expect(posts).toHaveLength(0);
+	});
+
+	test("another revision's snapshot leaves the model unknown with zero POSTs", async () => {
+		const { check, store, queueReview, posts } = await inventoryQueue();
+		await check();
+		await store.save("toapis", "video-replaced", now, false, 1);
+		const { review, click } = await queueReview();
+		expect(review.access).toEqual({ state: "unchecked", text: "Check ToAPIs model access." });
+		expect(await click()).toMatchObject(staleWithReview);
+		expect(posts).toHaveLength(0);
+	});
+
+	test("a Check again between Review and Queue makes the Review stale", async () => {
+		const { check, queueReview, posts } = await inventoryQueue();
+		await check();
+		const { click } = await queueReview();
+		now += 1000;
+		await check();
+		const refused = await click();
+		expect(refused).toMatchObject(staleWithReview);
+		if ("review" in refused) expect(refused.review.blockers).toEqual([]);
+		expect(posts).toHaveLength(0);
+	});
+
+	test("24 hours after the check the claim is stale, and its fresh Review sends no GET", async () => {
+		const { check, queueReview, posts, reads } = await inventoryQueue();
+		await check();
+		const { click } = await queueReview();
+		now += 86_400_000;
+		const refused = await click();
+		expect(refused).toMatchObject(staleWithReview);
+		if ("review" in refused)
+			expect(refused.review.access).toEqual({ state: "stale", text: staleText });
+		expect(reads).toHaveLength(1);
+		expect(posts).toHaveLength(0);
+		// Opening Review again runs the one automatic check, and Queue then succeeds.
+		const reopened = await queueReview();
+		expect(reads).toHaveLength(2);
+		expect(reopened.review.access?.state).toBe("listed");
+		expect(await reopened.click()).toEqual({ jobId: expect.any(String) });
+		expect(posts).toHaveLength(1);
+	});
+
+	test("the Seedance exception queues before any snapshot and ends at a failed check", async () => {
+		const { check, next, queueReview, posts } = await inventoryQueue();
+		await db.use((c) =>
+			c.run(sql`INSERT INTO model_access VALUES ('toapis','seedance-2-5',1,'eligible',${now})`),
+		);
+		const first = await queueReview();
+		expect(first.review.access).toEqual({
+			state: "exception",
+			text: "Seedance 2.5 was listed for this key.",
+		});
+		expect(await first.click()).toEqual({ jobId: expect.any(String) });
+		next(new Response(null, { status: 500 }));
+		await check();
+		const second = await queueReview();
+		expect(second.review.access?.state).toBe("failed");
+		expect(await second.click()).toMatchObject(staleWithReview);
+		expect(posts).toHaveLength(1);
+	});
+
+	test("a derived video key gets no exception", async () => {
+		const { queueReview, posts } = await inventoryQueue();
+		await db.use((c) =>
+			c.run(sql`INSERT INTO model_access VALUES ('toapis','seedance-2-5',1,'eligible',${now})`),
+		);
+		const derived = {
+			...live,
+			operation: {
+				...live.operation,
+				key: { ...live.operation.key, operation: "fixture-derived-video" },
+			},
+		} as unknown as VideoRequest;
+		const { review, click } = await queueReview(derived);
+		expect(review.access?.state).toBe("unchecked");
+		expect(await click()).toMatchObject(staleWithReview);
+		expect(posts).toHaveLength(0);
+	});
+
+	test("with no readable key Review keeps today's text and sends no GET", async () => {
+		const { queueReview, reads } = await inventoryQueue(false);
+		const { review } = await queueReview();
+		expect(review.access).toEqual({
+			state: "disconnected",
+			text: "Connect a readable ToAPIs model key in Settings.",
+		});
+		expect(reads).toHaveLength(0);
+	});
 });
+
 test("one durable claim binds the eligible key, exact terms and transient draft before dispatch", async () => {
-	const { store, access } = fixture();
+	const { store, access, check } = fixture();
 	await store.save("toapis", "video-only", now, false, 0);
 	let calls = 0;
 	const queue = await createVideoQueue(
@@ -118,10 +274,10 @@ test("one durable claim binds the eligible key, exact terms and transient draft 
 	async function blocked() {
 		const r = await review();
 		expect(r.blockers.length).toBeGreaterThan(0);
-		expect(await click(r.token)).toEqual({ error: "stale" });
+		expect(await click(r.token)).toMatchObject(staleWithReview);
 	}
 	await blocked();
-	await access.check();
+	await check();
 	expect(await store.credential("toapis")).toBeNull();
 	const first = await review();
 	expect(first.quote).toMatchObject({
@@ -131,11 +287,11 @@ test("one durable claim binds the eligible key, exact terms and transient draft 
 	expect(JSON.stringify(first.preview)).not.toContain("private.test");
 	expect(await click(first.token, false)).toEqual({ error: "invalid" });
 	now += 31 * 86400_000;
-	expect(await click(first.token)).toEqual({ error: "stale" });
+	expect(await click(first.token)).toMatchObject(staleWithReview);
 	now -= 31 * 86400_000;
 	await store.save("toapis", "video-only", now, false, 1);
-	expect(await click(first.token)).toEqual({ error: "stale" });
-	await access.check();
+	expect(await click(first.token)).toMatchObject(staleWithReview);
+	await check();
 	const r = await review();
 	const clicks = await Promise.all([click(r.token), click(r.token)]);
 	expect(clicks[0]).toEqual(clicks[1]);
@@ -148,9 +304,9 @@ test("one durable claim binds the eligible key, exact terms and transient draft 
 	expect(JSON.stringify(await imageJobStore(db).list())).not.toContain("private.test");
 });
 test("Review lists no verifier blocker", async () => {
-	const { store, access } = fixture();
+	const { store, access, check } = fixture();
 	await store.save("toapis", "video-only", now, false, 0);
-	await access.check();
+	await check();
 	const queue = await createVideoQueue(
 		db,
 		access,
@@ -171,9 +327,9 @@ function withSave(save: SaveLimit | null, disclosuresFrom: SaveLimit | null = sa
 	return { ...live, operation, disclosures } as VideoRequest;
 }
 test("a 20-second mode reviews its limit, binds it into the terms digest and stores it", async () => {
-	const { store, access } = fixture();
+	const { store, access, check } = fixture();
 	await store.save("toapis", "video-only", now, false, 0);
-	await access.check();
+	await check();
 	const sent: VideoTarget[] = [];
 	const queue = await createVideoQueue(
 		db,
@@ -194,7 +350,7 @@ test("a 20-second mode reviews its limit, binds it into the terms digest and sto
 	// The same disclosures under a 21-second limit no longer match the reviewed terms.
 	const changed = withSave({ seconds: 21, basis: "provider" }, { seconds: 20, basis: "provider" });
 	const click = { token: review.token, acceptTerms: true };
-	expect(await queue.submit("owner", { ...changed, ...click })).toEqual({ error: "stale" });
+	expect(await queue.submit("owner", { ...changed, ...click })).toMatchObject(staleWithReview);
 	expect(sent).toHaveLength(0);
 	const claimed = await queue.submit("owner", { ...twenty, ...click });
 	if (!("jobId" in claimed)) throw new Error("Missing claim");
@@ -203,9 +359,9 @@ test("a 20-second mode reviews its limit, binds it into the terms digest and sto
 	expect(await imageJobStore(db).get(claimed.jobId)).toMatchObject({ save_seconds: 20 });
 });
 test("a mode without a Save limit is Review-only and Queue makes zero POSTs", async () => {
-	const { store, access } = fixture();
+	const { store, access, check } = fixture();
 	await store.save("toapis", "video-only", now, false, 0);
-	await access.check();
+	await check();
 	let sends = 0;
 	const queue = await createVideoQueue(
 		db,
@@ -223,15 +379,15 @@ test("a mode without a Save limit is Review-only and Queue makes zero POSTs", as
 		expect(review.disclosures.join(" ")).not.toContain("Gallery saves");
 		expect(
 			await queue.submit("owner", { ...unbounded, token: review.token, acceptTerms: true }),
-		).toEqual({ error: "stale" });
+		).toMatchObject(staleWithReview);
 	}
 	expect(sends).toBe(0);
 	expect(await imageJobStore(db).list()).toHaveLength(0);
 });
 test("a rate withdrawn after Review requires a fresh Review before claim", async () => {
-	const { store, access } = fixture();
+	const { store, access, check } = fixture();
 	await store.save("toapis", "video-only", now, false, 0);
-	await access.check();
+	await check();
 	let priced = true,
 		sends = 0;
 	const queue = await createVideoQueue(
@@ -246,16 +402,16 @@ test("a rate withdrawn after Review requires a fresh Review before claim", async
 	const review = await queue.review("owner", live);
 	expect(review.quote).toMatchObject({ advertisedUnitRate: { usd: "10" } });
 	priced = false;
-	expect(await queue.submit("owner", { ...live, token: review.token, acceptTerms: true })).toEqual({
-		error: "stale",
-	});
+	expect(
+		await queue.submit("owner", { ...live, token: review.token, acceptTerms: true }),
+	).toMatchObject(staleWithReview);
 	expect(await imageJobStore(db).list()).toHaveLength(0);
 	expect(sends).toBe(0);
 });
 test("recovery reserves a single GET, retains Retry-After across reopen, attaches matching state once and never resends", async () => {
-	const { store, access } = fixture();
+	const { store, access, check } = fixture();
 	await store.save("toapis", "video-only", now, false, 0);
-	await access.check();
+	await check();
 	let posts = 0,
 		reads = 0,
 		business = "";
@@ -367,9 +523,9 @@ test("recovery reserves a single GET, retains Retry-After across reopen, attache
 test.each(["before-dispatch", "same-ack", "conflicting-ack"] as const)(
 	"startup during %s preserves the original claim and lookup identity",
 	async (point) => {
-		const { store, access } = fixture();
+		const { store, access, check } = fixture();
 		await store.save("toapis", "fixture", now, false, 0);
-		await access.check();
+		await check();
 		let posts = 0,
 			reads = 0;
 		const accepted = Promise.withResolvers<void>(),
@@ -464,9 +620,9 @@ test.each(["before-dispatch", "same-ack", "conflicting-ack"] as const)(
 );
 
 test("manual video reads keep an expired or failed task separate from its charge and stop at a changed revision", async () => {
-	const { store, access } = fixture();
+	const { store, access, check } = fixture();
 	await store.save("toapis", "fixture", now, false, 0);
-	await access.check();
+	await check();
 	const task = { object: "generation.task", model: "seedance-2-5", id: "pinned" };
 	let status: Record<string, unknown> = { ...task, status: "queued" };
 	let reads = 0,
@@ -540,9 +696,9 @@ test("manual video reads keep an expired or failed task separate from its charge
 test.each(["before claim", "after claim", "during POST"])(
 	"video shares the ToAPIs submit cooldown %s and replays accepted claims",
 	async (when) => {
-		const { store, access } = fixture();
+		const { store, access, check } = fixture();
 		await store.save("toapis", "video-only", now, false, 0);
-		await access.check();
+		await check();
 		let posts = 0;
 		const until = now + 20_000;
 		const closeGate = () =>
@@ -598,9 +754,9 @@ test.each(["before claim", "after claim", "during POST"])(
 );
 
 test("a video query throttle survives key replacement and defers a new image query", async () => {
-	const { store, access } = fixture();
+	const { store, access, check } = fixture();
 	await store.save("toapis", "first", now, true, 0);
-	await access.check();
+	await check();
 	let videoGets = 0,
 		imageGets = 0;
 	jobs = createJobTracking(db, store, {
@@ -641,9 +797,9 @@ test("a video query throttle survives key replacement and defers a new image que
 test.each([false, true])(
 	"recovery before video send keeps lookup available (cooldown %s)",
 	async (cooldown) => {
-		const { store, access } = fixture();
+		const { store, access, check } = fixture();
 		await store.save("toapis", "video-only", now, false, 0);
-		await access.check();
+		await check();
 		let posts = 0;
 		jobs = createJobTracking(db, store, {
 			now: () => now,
@@ -704,9 +860,9 @@ describe("Seedance keyframes", () => {
 		["animate", animate],
 		["interpolate", interpolate],
 	])("%s quotes the advertised token rate and labels frames without URLs", async (_, operation) => {
-		const { store, access } = fixture();
+		const { store, access, check } = fixture();
 		await store.save("toapis", "video-only", now, false, 0);
-		await access.check();
+		await check();
 		const queue = await createVideoQueue(
 			db,
 			access,
@@ -733,7 +889,7 @@ describe("Seedance keyframes", () => {
 	});
 
 	test("a claim binds the exact frames and stores no frame URL or host", async () => {
-		const { store, access } = fixture();
+		const { store, access, check } = fixture();
 		await store.save("toapis", "video-only", now, false, 0);
 		const sent: VideoTarget[] = [];
 		const queue = await createVideoQueue(
@@ -750,8 +906,8 @@ describe("Seedance keyframes", () => {
 			queue.submit("owner", { ...input, token, acceptTerms });
 		// Missing access, missing consent and a stale revision send nothing.
 		const unchecked = await queue.review("owner", live);
-		expect(await click(unchecked.token)).toEqual({ error: "stale" });
-		await access.check();
+		expect(await click(unchecked.token)).toMatchObject(staleWithReview);
+		await check();
 		const review = await queue.review("owner", live);
 		expect(await click(review.token, live, false)).toEqual({ error: "invalid" });
 		const swapped = parse(interpolate, [
@@ -765,9 +921,9 @@ describe("Seedance keyframes", () => {
 		for (const other of [swapped, replaced, parse(animate)])
 			expect(await click(review.token, other)).toEqual({ error: "invalid" });
 		await store.save("toapis", "video-only", now, false, 1);
-		expect(await click(review.token)).toEqual({ error: "stale" });
+		expect(await click(review.token)).toMatchObject(staleWithReview);
 		expect(sent).toHaveLength(0);
-		await access.check();
+		await check();
 		const fresh = await queue.review("owner", live);
 		const result = await click(fresh.token);
 		if (!("jobId" in result)) throw new Error("Missing claim");
@@ -783,9 +939,9 @@ describe("Seedance keyframes", () => {
 	});
 
 	test("the terms digest binds the keyframe disclosures and quote", async () => {
-		const { store, access } = fixture();
+		const { store, access, check } = fixture();
 		await store.save("toapis", "video-only", now, false, 0);
-		await access.check();
+		await check();
 		let priced = true;
 		const queue = await createVideoQueue(
 			db,
@@ -800,14 +956,14 @@ describe("Seedance keyframes", () => {
 		priced = false;
 		expect(
 			await queue.submit("owner", { ...parse(animate), token: keyframe.token, acceptTerms: true }),
-		).toEqual({ error: "stale" });
+		).toMatchObject(staleWithReview);
 		expect(await imageJobStore(db).list()).toHaveLength(0);
 	});
 
 	test("an identical replay across restart returns the same job after one POST", async () => {
-		const { store, access } = fixture();
+		const { store, access, check } = fixture();
 		await store.save("toapis", "video-only", now, false, 0);
-		await access.check();
+		await check();
 		let posts = 0;
 		const bodies: unknown[] = [];
 		const tracker = () =>
@@ -850,11 +1006,7 @@ describe("Seedance keyframes", () => {
 		await jobs.resume();
 		const restarted = await createVideoQueue(
 			db,
-			createVideoAccess(
-				db,
-				providerStore(db),
-				checkVideoInventory(async () => Response.json({})),
-			),
+			createVideoAccess(db, providerStore(db)),
 			jobs.dispatchVideo,
 			undefined,
 			() => now,
@@ -891,10 +1043,10 @@ describe("Seedance source-video edit", () => {
 	const durable = async () =>
 		JSON.stringify(await db.use((c) => c.all(sql`SELECT * FROM image_job`)));
 	async function eligible() {
-		const { store, access } = fixture();
+		const { store, access, check } = fixture();
 		await store.save("toapis", "video-only", now, false, 0);
-		await access.check();
-		return { store, access };
+		await check();
+		return { store, access, check };
 	}
 
 	test("Review quotes the video-input rate and names the source by host only", async () => {
@@ -952,7 +1104,7 @@ describe("Seedance source-video edit", () => {
 	});
 
 	test("a claim binds the exact source and stores no URL, host or prompt", async () => {
-		const { store, access } = fixture();
+		const { store, access, check } = fixture();
 		await store.save("toapis", "video-only", now, false, 0);
 		const sent: VideoTarget[] = [];
 		const queue = await createVideoQueue(
@@ -969,8 +1121,8 @@ describe("Seedance source-video edit", () => {
 			queue.submit("owner", { ...input, token, acceptTerms });
 		// Missing access, missing consent, a replaced URL and a stale revision send nothing.
 		const unchecked = await queue.review("owner", live);
-		expect(await click(unchecked.token)).toEqual({ error: "stale" });
-		await access.check();
+		expect(await click(unchecked.token)).toMatchObject(staleWithReview);
+		await check();
 		const review = await queue.review("owner", live);
 		expect(await click(review.token, live, false)).toEqual({ error: "invalid" });
 		for (const other of [
@@ -979,9 +1131,9 @@ describe("Seedance source-video edit", () => {
 		])
 			expect(await click(review.token, other)).toEqual({ error: "invalid" });
 		await store.save("toapis", "video-only", now, false, 1);
-		expect(await click(review.token)).toEqual({ error: "stale" });
+		expect(await click(review.token)).toMatchObject(staleWithReview);
 		expect(sent).toHaveLength(0);
-		await access.check();
+		await check();
 		const fresh = await queue.review("owner", live);
 		const result = await click(fresh.token);
 		if (!("jobId" in result)) throw new Error("Missing claim");
@@ -1027,13 +1179,13 @@ describe("Seedance source-video edit", () => {
 		priced = false;
 		expect(
 			await queue.submit("owner", { ...parse(), token: edit.token, acceptTerms: true }),
-		).toEqual({ error: "stale" });
+		).toMatchObject(staleWithReview);
 		priced = true;
 		const reviewed = await queue.review("owner", parse());
 		now += 31 * 86400_000;
 		expect(
 			await queue.submit("owner", { ...parse(), token: reviewed.token, acceptTerms: true }),
-		).toEqual({ error: "stale" });
+		).toMatchObject(staleWithReview);
 		expect(await imageJobStore(db).list()).toHaveLength(0);
 	});
 
@@ -1085,11 +1237,7 @@ describe("Seedance source-video edit", () => {
 		await jobs.resume();
 		const restarted = await createVideoQueue(
 			db,
-			createVideoAccess(
-				db,
-				providerStore(db),
-				checkVideoInventory(async () => Response.json({})),
-			),
+			createVideoAccess(db, providerStore(db)),
 			jobs.dispatchVideo,
 			undefined,
 			() => now,

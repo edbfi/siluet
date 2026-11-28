@@ -453,7 +453,10 @@ test.each([
 	const { review, click } = await reviewAndClick(queue);
 	expect(review.quote).toMatchObject({ status: "known", perRequest: "80" });
 	rates = { ...h3Feed.rates, "h3-max": rate };
-	expect(await queue.submit("owner", click)).toEqual({ error: "stale" });
+	expect(await queue.submit("owner", click)).toMatchObject({
+		error: "stale",
+		review: { token: expect.any(String) },
+	});
 	expect(seen.posts + seen.balances).toBe(0);
 	const fresh = await reviewAndClick(queue);
 	expect(fresh.review.quote.status === "known" ? fresh.review.quote.perRequest : "unknown").toBe(
@@ -513,7 +516,10 @@ test("after the quote expires a claimed Review replays its job and an unclaimed 
 	if (claimed.review.quote.status !== "known") throw new Error("Expected a known quote.");
 	now = Date.parse(claimed.review.quote.expiresAt);
 	expect(await queue.submit("owner", claimed.click)).toEqual(result);
-	expect(await queue.submit("owner", unclaimed.click)).toEqual({ error: "stale" });
+	expect(await queue.submit("owner", unclaimed.click)).toMatchObject({
+		error: "stale",
+		review: { token: expect.any(String) },
+	});
 	expect(seen.posts).toBe(1);
 	expect(await imageJobStore(db).list()).toHaveLength(1);
 });

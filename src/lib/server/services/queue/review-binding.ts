@@ -5,6 +5,7 @@ import { estimateReviewPrice } from "../../../shared/image-studio/review-price";
 import { zImageDisclosure } from "../../../shared/image-studio/z-image";
 import { estimateDerivedPrice } from "../../../shared/pricing/derived-estimate";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
+import { accessBinding, type ModelAccess } from "../../../shared/providers/inventory";
 import type { DerivedLiveRequest, DerivedRequest } from "./derived";
 import type { LiveRequest } from "./request";
 import type { reviewSigner } from "./review-signature";
@@ -49,7 +50,14 @@ export function reviewBinding(
 		}
 		return digest("review-v1", id, terms, owner, live.input.provider, live.request.body, 1, 0);
 	}
-	function reviewTerms(live: LiveRequest, feeds: PricingFeeds, revision: number, time: number) {
+	/** `access` is a ToAPIs Review's evidence, which its terms bind; Poyo.ai binds none. */
+	function reviewTerms(
+		live: LiveRequest,
+		feeds: PricingFeeds,
+		revision: number,
+		time: number,
+		access: ModelAccess | null = null,
+	) {
 		const provider = live.input.provider;
 		const { pricing } = createImageReview(live.input, live.request);
 		const quote = estimateReviewPrice(
@@ -59,7 +67,13 @@ export function reviewBinding(
 			time,
 		);
 		const requiresConsent = quote.status === "unknown" || provider === "toapis";
-		const priceTerms = [revision, quote, requiresConsent, feeds[provider] ?? null];
+		const priceTerms = [
+			revision,
+			quote,
+			requiresConsent,
+			feeds[provider] ?? null,
+			...(access ? [accessBinding(access)] : []),
+		];
 		if (live.entry.modelId === "z-image") {
 			const disclosure = discloseZImage(live.input.operation);
 			return {

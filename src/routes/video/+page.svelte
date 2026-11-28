@@ -1,5 +1,5 @@
 <script lang="ts">
-import { untrack } from "svelte";
+import { onDestroy, untrack } from "svelte";
 import * as style from "#lib/components/image-studio/image-review-styles.ts";
 import {
 	requestControl,
@@ -112,7 +112,45 @@ let reviewed = $state<{
 	frames: string[];
 	disclosures: string[];
 	blockers: string[];
+	/** The ToAPIs access line for this exact model; Poyo.ai has none. */
+	access: { state: string; text: string } | null;
 } | null>(null);
+// The access line appears once: it leaves the blocker list, and still blocks Queue.
+const visibleBlockers = $derived(
+	reviewed?.blockers.filter((blocker) => blocker !== reviewed?.access?.text) ?? [],
+);
+let checking = $state(false);
+let mounted = true;
+onDestroy(() => {
+	mounted = false;
+});
+// Check again records a new snapshot, which every open Review binds, so Review runs again.
+async function checkAgain() {
+	if (checking || pending) return;
+	checking = true;
+	try {
+		const response = await fetch("/providers/inventory", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ scope: "video" }),
+		});
+		const answer: { outcome?: string; message?: string } | null = await response
+			.json()
+			.catch(() => null);
+		// A page left during the check sends nothing more.
+		if (!mounted) return;
+		if (answer?.outcome === "recorded" || answer?.outcome === "superseded") {
+			checking = false;
+			await act(false);
+			return;
+		}
+		notice = answer?.message ?? "The model check is unavailable. Try again.";
+	} catch {
+		notice = "The model check is unavailable. Try again.";
+	} finally {
+		checking = false;
+	}
+}
 let acceptTerms = $state(false);
 let pending = $state(false);
 let notice = $state("");
@@ -249,6 +287,13 @@ async function act(queue: boolean, replay?: string) {
 				return;
 			}
 			if (unclaimed && body === attempt) attempt = null;
+			// A stale refusal carries a fresh Review; its terms need consent again.
+			if (refusal?.error === "stale" && refusal.review?.token) {
+				reviewed = refusal.review;
+				acceptTerms = false;
+				notice = "The terms changed. Check the updated Review before queuing.";
+				return;
+			}
 			edit();
 			notice = "Review the current request and its terms again.";
 			return;
@@ -492,8 +537,25 @@ const frame = css({
 						<li>{disclosure}</li>
 					{/each}
 				</ul>
+				{#if reviewed.access}
+					<div class={style.actions}>
+						<p id="video-access">{reviewed.access.text}</p>
+						<button
+							type="button"
+							class={studioButton({ appearance: "secondary" })}
+							disabled={pending || checking}
+							aria-label={checking
+								? "Checking: ToAPIs model access"
+								: "Check again: ToAPIs model access"}
+							aria-describedby="video-access"
+							onclick={checkAgain}
+						>
+							{checking ? "Checking…" : "Check again"}
+						</button>
+					</div>
+				{/if}
 				<div id="queue-terms">
-					{#each reviewed.blockers as blocker (blocker)}
+					{#each visibleBlockers as blocker (blocker)}
 						<p>{blocker}</p>
 					{/each}
 					<label
@@ -513,7 +575,7 @@ const frame = css({
 					type="button"
 					class={cx(studioButton(), style.queue)}
 					disabled={pending || !acceptTerms || !!reviewed.blockers.length}
-					aria-describedby="queue-terms"
+					aria-describedby={reviewed.access ? "video-access queue-terms" : "queue-terms"}
 					onclick={() => act(true)}
 				>
 					Queue 1 request

@@ -1,5 +1,6 @@
 export type ConnectionCheckResult =
-	| { outcome: "accepted"; seedream: boolean }
+	/** `models` is the listing a ToAPIs check read, which Connect records as its image snapshot. */
+	| { outcome: "accepted"; seedream: boolean; models?: readonly string[] }
 	| { outcome: "rejected" | "unavailable" };
 
 export type ConnectionCheck = (key: string) => Promise<ConnectionCheckResult>;
@@ -7,7 +8,8 @@ export type CheckFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 const maxResponseBytes = 2 * 1024 * 1024;
 
-async function readJson(response: Response): Promise<unknown> {
+/** The JSON body, or null when it is empty or over 2 MiB. A malformed body throws. */
+export async function readJson(response: Response): Promise<unknown> {
 	if (!response.body) return null;
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder();

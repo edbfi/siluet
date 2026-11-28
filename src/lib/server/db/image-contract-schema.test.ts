@@ -8,6 +8,7 @@ import { createInstallation37 } from "../../../../tests/fixtures/db/installation
 import { createOwnerDirectory } from "../../../../tests/fixtures/owner-directory";
 import { imageContractMigrationName } from "./image-contract-schema";
 import { openInstallation } from "./installation";
+import { inventoryMigrationName } from "./inventory-schema";
 import { installationMigrations } from "./migrations";
 import { currentSchema, schemaFingerprint } from "./recovery-schema";
 
@@ -94,8 +95,7 @@ test("the upgrade keeps every job, batch and Gallery row, and adds the contract 
 	}
 });
 
-test("the contract migration sorts after every released one and before G9's inventory", () => {
-	expect(Object.keys(installationMigrations).sort().at(-1)).toBe(imageContractMigrationName);
+test("the contract migration sorts after Gallery WebP and before G9's inventory", () => {
 	expect(imageContractMigrationName > "20261128120000_gallery_webp").toBe(true);
-	expect(imageContractMigrationName < "20261130000000_toapis_inventory").toBe(true);
+	expect(imageContractMigrationName < inventoryMigrationName).toBe(true);
 });

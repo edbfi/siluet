@@ -145,16 +145,29 @@ test("built Image Studio uses eligible connections and keeps drafts in the signe
 			await toapisLink.press("Enter");
 			await expect(toapisLink).toHaveAttribute("aria-current", "page");
 			await saveKey(page, keys.restricted);
-			await expect(page.getByText("Seedream 5.5 access unavailable.")).toBeVisible();
+			await expect(
+				page.getByText(/^ToAPIs did not list doubao-seedream-5-5 for this key at /),
+			).toBeVisible();
 
 			await imageLink.press("Enter");
 			await expect(prompt).toHaveValue("tiny");
 			await expect(prompt).toHaveAttribute("aria-invalid", "true");
 			await prompt.fill(promptText);
-			await expect(providers).toHaveCount(1);
+			// A key ToAPIs did not list for Seedream 5.5 is offered; Review shows its access line
+			// once and Queue stays blocked.
+			await expect(providers).toHaveCount(2);
 			await expect(poyo).toBeChecked();
-			await expect(toapis).toHaveCount(0);
-			await expect(request).toContainText("ToAPIs did not list Seedream 5.5 for this key.");
+			await toapis.check();
+			await review.getByRole("button", { name: "Review request", exact: true }).click();
+			const absentLine = facts.getByText(
+				/^ToAPIs did not list doubao-seedream-5-5 for this key at /,
+			);
+			await expect(absentLine).toBeVisible();
+			await expect(queue(1)).toBeDisabled();
+			await expect(
+				review.getByRole("button", { name: "Check again: ToAPIs model access" }),
+			).toBeVisible();
+			await poyo.check();
 			await expect(facts).toContainText("Access to this model is unconfirmed.");
 			// Shipped rows are declared, so only they say the contract declares the field (D4).
 			await expect(facts).toContainText(
