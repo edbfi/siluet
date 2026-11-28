@@ -12,6 +12,7 @@ import {
 	type ProviderPricingFeed,
 	pricingSourceDate,
 } from "../../../shared/pricing/feeds";
+import type { PoyoPriceBasis } from "../../../shared/pricing/poyo-basis";
 import {
 	decodePoyoV2Feed,
 	type PoyoPricingFeed,
@@ -100,6 +101,11 @@ function serialize(value: unknown): string | undefined {
 /** The SHA-256 a price basis records for its feed: canonical JSON, with no trailing LF. */
 export function poyoFeedSha256(feed: PoyoPricingFeedV2): string {
 	return createHash("sha256").update(canonicalJson(feed)).digest("hex");
+}
+
+/** Whether a basis belongs to this feed: the same revision and the feed's canonical digest. */
+export function poyoBasisPairs(feed: PoyoPricingFeedV2, basis: PoyoPriceBasis): boolean {
+	return basis.revision === feed.revision && basis.feedSha256 === poyoFeedSha256(feed);
 }
 
 /** At one revision, keep every key and every rate that is not `unavailable`. */

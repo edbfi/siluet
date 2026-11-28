@@ -1,6 +1,7 @@
 import { appendFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { decodePricingFeed, parsePricingInstant } from "../../src/lib/shared/pricing/feed";
+import { decodePoyoBasis, poyoBasisByteLimit } from "../../src/lib/shared/pricing/poyo-basis";
 import {
 	decodePoyoPricingFeed,
 	decodePoyoV2Feed,
@@ -12,6 +13,7 @@ import {
 	decodeToapisPricingFeed,
 	toapisFeedExpiryMs,
 } from "../../src/lib/shared/pricing/toapis-feed";
+import { poyoBasisPairs } from "./local-feed";
 
 const day = 24 * 60 * 60 * 1000;
 // Published blobs, trailing LF included, as publish.sh limits them. Bundled files are local.
@@ -28,6 +30,9 @@ export type FreshnessOptions = {
 	toapis?: string;
 	bundledPoyo?: string;
 	bundledToapis?: string;
+	/** The price basis beside the published v2 feed, and beside the bundled feed on main. */
+	poyoBasis?: string;
+	bundledPoyoBasis?: string;
 	warnWithinDays: number;
 	failWithinDays: number;
 };
@@ -110,6 +115,53 @@ function classify(
 	return { level: "notice", message };
 }
 
+const bases = {
+	published: {
+		label: "Published PoYo price basis",
+		byteLimit: poyoBasisByteLimit,
+		feeds: "the published v2 rates",
+		// Review quotes no derived rate from an unpaired basis, so a published gap fails the run.
+		absent: (label: string): FreshnessCheck => ({
+			level: "error",
+			message: `${label} is missing or invalid.`,
+		}),
+		mismatch: "error",
+		remedy: "",
+	},
+	bundled: {
+		label: "Bundled PoYo price basis on main",
+		byteLimit: bundledByteLimit,
+		feeds: "the bundled rates",
+		// Until a re-bundle adds the published basis, derived rows stay unknown-price.
+		absent: (label: string): FreshnessCheck => ({
+			level: "warning",
+			message: `${label} is absent. Derived rows stay unknown-price until a re-bundle adds it.`,
+		}),
+		mismatch: "warning",
+		remedy: " Derived rows stay unknown-price until a re-bundle pairs them.",
+	},
+} as const;
+
+/** Check that a basis pairs with the feed beside it: the same revision and body digest. */
+async function checkBasis(
+	which: keyof typeof bases,
+	feedJson: unknown,
+	path: string,
+): Promise<FreshnessCheck> {
+	const { label, byteLimit, feeds, absent, mismatch, remedy } = bases[which];
+	const json = await readJson(path, byteLimit);
+	if (json === undefined || (which === "published" && json === null)) return absent(label);
+	const basis = decodePoyoBasis(json);
+	const feed = decodePoyoV2Feed(feedJson);
+	if (!basis || !feed || !poyoBasisPairs(feed, basis)) {
+		return { level: mismatch, message: `${label} does not pair with ${feeds}.${remedy}` };
+	}
+	return {
+		level: "notice",
+		message: `${label} pairs with revision ${feed.revision.slice(0, 12)}.`,
+	};
+}
+
 /** Check every requested feed before deciding the combined result. */
 export async function checkPricingFreshness(
 	options: FreshnessOptions,
@@ -123,14 +175,21 @@ export async function checkPricingFreshness(
 	if (options.poyoV2 !== undefined) {
 		const v2 = await readJson(options.poyoV2, feeds.poyoV2.byteLimit);
 		// The published v1 feed deliberately ages once v2 exists.
-		if (v2 !== undefined || options.poyoV1 === undefined)
+		if (v2 !== undefined || options.poyoV1 === undefined) {
 			await check(feeds.poyoV2, options.poyoV2, v2);
-		else await check(feeds.poyoV1, options.poyoV1);
+			if (options.poyoBasis !== undefined)
+				checks.push(await checkBasis("published", v2, options.poyoBasis));
+		} else await check(feeds.poyoV1, options.poyoV1);
 	} else if (options.poyoV1 !== undefined) {
 		await check(feeds.poyoV1, options.poyoV1);
 	}
 	if (options.toapis !== undefined) await check(feeds.toapis, options.toapis);
-	if (options.bundledPoyo !== undefined) await check(feeds.bundledPoyo, options.bundledPoyo);
+	if (options.bundledPoyo !== undefined) {
+		const bundled = await readJson(options.bundledPoyo, feeds.bundledPoyo.byteLimit);
+		await check(feeds.bundledPoyo, options.bundledPoyo, bundled);
+		if (options.bundledPoyoBasis !== undefined)
+			checks.push(await checkBasis("bundled", bundled, options.bundledPoyoBasis));
+	}
 	if (options.bundledToapis !== undefined) await check(feeds.bundledToapis, options.bundledToapis);
 	return checks;
 }
@@ -151,6 +210,8 @@ export function readFreshnessArgs(args: string[]): FreshnessOptions {
 			toapis: { type: "string" },
 			"bundled-poyo": { type: "string" },
 			"bundled-toapis": { type: "string" },
+			"poyo-basis": { type: "string" },
+			"bundled-poyo-basis": { type: "string" },
 			"warn-within-days": { type: "string", default: "14" },
 			"fail-within-days": { type: "string", default: "7" },
 		},
@@ -161,6 +222,8 @@ export function readFreshnessArgs(args: string[]): FreshnessOptions {
 		toapis: values.toapis,
 		bundledPoyo: values["bundled-poyo"],
 		bundledToapis: values["bundled-toapis"],
+		poyoBasis: values["poyo-basis"],
+		bundledPoyoBasis: values["bundled-poyo-basis"],
 		warnWithinDays: days(values["warn-within-days"], "warn-within-days"),
 		failWithinDays: days(values["fail-within-days"], "fail-within-days"),
 	};
@@ -176,6 +239,11 @@ export function readFreshnessArgs(args: string[]): FreshnessOptions {
 			"Choose at least one of --poyo-v2, --poyo-v1, --toapis, --bundled-poyo or --bundled-toapis.",
 		);
 	}
+	// A basis is checked only as one half of a pair.
+	if (options.poyoBasis !== undefined && options.poyoV2 === undefined)
+		throw new Error("--poyo-basis needs --poyo-v2.");
+	if (options.bundledPoyoBasis !== undefined && options.bundledPoyo === undefined)
+		throw new Error("--bundled-poyo-basis needs --bundled-poyo.");
 	if (options.warnWithinDays < options.failWithinDays) {
 		throw new Error("--warn-within-days must be at least --fail-within-days.");
 	}

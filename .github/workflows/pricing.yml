@@ -174,16 +174,20 @@ jobs:
         run: >-
           bash scripts/pricing/stage-feeds.sh "$RUNNER_TEMP/pricing-feeds"
           pricing-data:pricing/v2/poyo.json:poyo-v2.json
+          pricing-data:pricing/v2/poyo-basis.json:poyo-basis.json
           pricing-data:pricing/v1/feed.json:poyo-v1.json
           pricing-data-toapis:pricing/v2/toapis.json:toapis.json
           main:pricing/v2/poyo.json:bundled-poyo.json
+          main:pricing/v2/poyo-basis.json:bundled-poyo-basis.json
           main:pricing/v2/toapis.json:bundled-toapis.json
       - name: Check the published and bundled rates
         if: ${{ !cancelled() }}
         run: >-
           bun scripts/pricing/freshness.ts --fail-within-days 7
           --poyo-v2 "$RUNNER_TEMP/pricing-feeds/poyo-v2.json"
+          --poyo-basis "$RUNNER_TEMP/pricing-feeds/poyo-basis.json"
           --poyo-v1 "$RUNNER_TEMP/pricing-feeds/poyo-v1.json"
           --toapis "$RUNNER_TEMP/pricing-feeds/toapis.json"
           --bundled-poyo "$RUNNER_TEMP/pricing-feeds/bundled-poyo.json"
+          --bundled-poyo-basis "$RUNNER_TEMP/pricing-feeds/bundled-poyo-basis.json"
           --bundled-toapis "$RUNNER_TEMP/pricing-feeds/bundled-toapis.json"

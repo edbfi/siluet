@@ -6,6 +6,7 @@ import {
 	decodeToapisPricingFeed,
 	toapisFeedExpiryMs,
 } from "../../src/lib/shared/pricing/toapis-feed";
+import pair from "../../tests/fixtures/poyo-basis-pair.json";
 import { poyoV1Feed, poyoV2Feed, sizedPoyoV2Feed } from "../../tests/fixtures/poyo-v2-feed";
 import { toapisRates } from "../../tests/fixtures/toapis-feed";
 import { checkPricingFreshness, readFreshnessArgs } from "./freshness";
@@ -223,6 +224,121 @@ test("the command reports every feed before failing and writes the summary", () 
 		/^::(notice|warning|error) title=Pricing freshness::Bundled ToAPIs rates/,
 	);
 	expect(readFileSync(summary, "utf8").trim().split("\n")).toHaveLength(4);
+});
+
+describe("the PoYo price basis", () => {
+	const at = Date.parse(pair.feed.confirmedAt) + day;
+	const published = "Published PoYo price basis";
+	const bundled = "Bundled PoYo price basis on main";
+	beforeEach(() => {
+		writeFileSync(path("pair-feed.json"), JSON.stringify(pair.feed));
+		writeFileSync(path("pair-basis.json"), JSON.stringify(pair.basis));
+	});
+	const basisCheck = async (options: Partial<typeof defaults>) =>
+		(await check(options, at)).find(({ message }) => message.includes("price basis"));
+
+	test("a pair with the same revision and feed digest is healthy, published and bundled", async () => {
+		expect(
+			await check(
+				{
+					poyoV2: path("pair-feed.json"),
+					poyoBasis: path("pair-basis.json"),
+					bundledPoyo: path("pair-feed.json"),
+					bundledPoyoBasis: path("pair-basis.json"),
+				},
+				at,
+			),
+		).toEqual([
+			expect.objectContaining({ level: "notice", message: expect.stringContaining("v2 rates") }),
+			{ level: "notice", message: `${published} pairs with revision 0123456789ab.` },
+			expect.objectContaining({ level: "notice", message: expect.stringContaining("Bundled") }),
+			{ level: "notice", message: `${bundled} pairs with revision 0123456789ab.` },
+		]);
+	});
+
+	test.each([
+		["missing", undefined, "error", `${published} is missing or invalid.`],
+		["invalid", "{", "error", `${published} is missing or invalid.`],
+		[
+			"for another revision",
+			JSON.stringify({ ...pair.basis, revision: "f".repeat(40) }),
+			"error",
+			`${published} does not pair with the published v2 rates.`,
+		],
+		[
+			"for another body",
+			JSON.stringify({ ...pair.basis, feedSha256: "f".repeat(64) }),
+			"error",
+			`${published} does not pair with the published v2 rates.`,
+		],
+	] as const)("an error: the published basis is %s", async (_, content, level, message) => {
+		if (content !== undefined) writeFileSync(path("basis.json"), content);
+		const options = { poyoV2: path("pair-feed.json"), poyoBasis: path("basis.json") };
+		expect(await basisCheck(options)).toEqual({ level, message });
+	});
+
+	test.each([
+		[
+			"unstaged",
+			undefined,
+			`${bundled} is absent. Derived rows stay unknown-price until a re-bundle adds it.`,
+		],
+		[
+			"for another revision",
+			JSON.stringify({ ...pair.basis, revision: "f".repeat(40) }),
+			`${bundled} does not pair with the bundled rates. Derived rows stay unknown-price until a re-bundle pairs them.`,
+		],
+		[
+			"invalid",
+			"{",
+			`${bundled} does not pair with the bundled rates. Derived rows stay unknown-price until a re-bundle pairs them.`,
+		],
+	] as const)("a warning: the bundled basis is %s", async (_, content, message) => {
+		if (content !== undefined) writeFileSync(path("basis.json"), content);
+		const options = { bundledPoyo: path("pair-feed.json"), bundledPoyoBasis: path("basis.json") };
+		expect(await basisCheck(options)).toEqual({ level: "warning", message });
+	});
+
+	test("a v1 bundled feed cannot pair with a basis", async () => {
+		const options = { bundledPoyo: path("v1.json"), bundledPoyoBasis: path("pair-basis.json") };
+		expect(await basisCheck(options)).toMatchObject({ level: "warning" });
+	});
+
+	test("a basis is checked only beside its feed, and without the flags nothing changes", async () => {
+		const options = { poyoV2: path("pair-feed.json"), bundledPoyo: path("pair-feed.json") };
+		expect(await check(options, at)).toHaveLength(2);
+		expect(() => readFreshnessArgs(["--toapis", "t", "--poyo-basis", "x"])).toThrow(
+			/--poyo-basis needs --poyo-v2/,
+		);
+		expect(() => readFreshnessArgs(["--toapis", "t", "--bundled-poyo-basis", "x"])).toThrow(
+			/--bundled-poyo-basis needs --bundled-poyo/,
+		);
+		expect(
+			readFreshnessArgs([
+				"--poyo-v2",
+				"a",
+				"--poyo-basis",
+				"b",
+				"--bundled-poyo",
+				"c",
+				"--bundled-poyo-basis",
+				"d",
+			]),
+		).toMatchObject({ poyoBasis: "b", bundledPoyoBasis: "d" });
+	});
+
+	test("the pricing workflow stages both bases and passes them to the check", () => {
+		const workflow = readFileSync(
+			resolve(import.meta.dir, "../../.github/workflows/pricing.yml"),
+			"utf8",
+		);
+		expect(workflow).toContain("pricing-data:pricing/v2/poyo-basis.json:poyo-basis.json");
+		expect(workflow).toContain("main:pricing/v2/poyo-basis.json:bundled-poyo-basis.json");
+		expect(workflow).toContain('--poyo-basis "$RUNNER_TEMP/pricing-feeds/poyo-basis.json"');
+		expect(workflow).toContain(
+			'--bundled-poyo-basis "$RUNNER_TEMP/pricing-feeds/bundled-poyo-basis.json"',
+		);
+	});
 });
 
 test("arguments require a feed and ordered thresholds", () => {
