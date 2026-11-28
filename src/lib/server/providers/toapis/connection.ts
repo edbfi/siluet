@@ -5,6 +5,7 @@ import {
 	createConnectionCheck,
 	isRecord,
 } from "../connection-check";
+import { readModelList } from "./model-list";
 
 function interpretModels(
 	body: unknown,
@@ -32,16 +33,16 @@ function interpretModels(
 }
 
 export function checkToapisConnection(read: CheckFetch = fetch): ConnectionCheck {
-	const check = createConnectionCheck<{ outcome: "accepted"; listed: boolean }>(
-		`${seedreamRoutes.toapis.origin}/v1/models?type=image`,
-		(body) => interpretModels(body, seedreamRoutes.toapis.model),
-		read,
-	);
+	const list = readModelList(read, { origin: seedreamRoutes.toapis.origin });
 	return async (key) => {
-		const result = await check(key);
-		return result.outcome === "accepted"
-			? { outcome: "accepted", seedream: result.listed }
-			: result;
+		const result = await list(key, "image");
+		if (result.outcome === "succeeded")
+			return {
+				outcome: "accepted",
+				seedream: result.models.includes(seedreamRoutes.toapis.model),
+				models: result.models,
+			};
+		return { outcome: result.outcome === "rejected" ? "rejected" : "unavailable" };
 	};
 }
 

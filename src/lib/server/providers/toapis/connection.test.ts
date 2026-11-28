@@ -22,17 +22,25 @@ test("ToAPIs reads the key's image catalog once and reports access to Seedream 5
 			data: [{ id: "doubao-seedream-5-5", object: "model", owned_by: "fixture-account" }],
 		});
 	});
-	expect(await check(key)).toEqual({ outcome: "accepted", seedream: true });
+	expect(await check(key)).toEqual({
+		outcome: "accepted",
+		seedream: true,
+		models: ["doubao-seedream-5-5"],
+	});
 	expect(reads).toBe(1);
 });
 
-test.each([[], [{ id: "doubao-seedream-5-0" }]])(
+test.each([[], [{ id: "doubao-seedream-5-0" }]] as { id: string }[][])(
 	"ToAPIs accepts valid keys whose image catalog omits Seedream 5.5",
 	async (...models) => {
 		const check = checkToapisConnection(async () =>
 			Response.json({ success: true, object: "list", data: models }),
 		);
-		expect(await check(key)).toEqual({ outcome: "accepted", seedream: false });
+		expect(await check(key)).toEqual({
+			outcome: "accepted",
+			seedream: false,
+			models: models.map(({ id }) => id),
+		});
 	},
 );
 
@@ -50,5 +58,12 @@ test.each([
 	() => Response.json({ success: true, object: "list", data: [], padding: key.repeat(150_000) }),
 ])("ToAPIs leaves an inconclusive or oversized response unavailable", async (reply) => {
 	const check = checkToapisConnection(async () => reply());
+	expect(await check(key)).toEqual({ outcome: "unavailable" });
+});
+
+test("Connect treats an unreachable host as unavailable", async () => {
+	const check = checkToapisConnection(async () => {
+		throw Object.assign(new TypeError("fixture connect failure"), { code: "ECONNREFUSED" });
+	});
 	expect(await check(key)).toEqual({ outcome: "unavailable" });
 });
