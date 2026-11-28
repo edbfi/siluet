@@ -118,7 +118,7 @@ test("four Gallery reads of an 80 MiB file hold two buffers within the ceiling",
 	expect(result.peakMiB).toBeLessThanOrEqual(rssCeilingsMiB.reads);
 }, 60_000);
 
-test("two transfers, one verification, two held reads and one cleanup at once stay within the combined ceiling", async () => {
+test("two transfers, one verification, two held reads, one cleanup and the buffers of two finished reads stay within the combined ceiling", async () => {
 	const { webp20, encodedBound, cleanupJpeg } = bounds.files;
 	const { result } = await measure("combined", [
 		webp20.path,
@@ -126,8 +126,10 @@ test("two transfers, one verification, two held reads and one cleanup at once st
 		encodedBound.path,
 		cleanupJpeg.path,
 	]);
-	expect(result.outcomes).toEqual(["saved", "saved", "read", "read", "prepared"]);
-	// The cleanup decoded while a verification ran and both read buffers were held.
+	// Two reads finished before the saves began, and their buffers were left for the collector;
+	// two more were held throughout.
+	expect(result.outcomes).toEqual(["saved", "saved", "read", "read", "read", "read", "prepared"]);
+	// The cleanup decoded while a verification ran and both held read buffers were held.
 	expect(result.concurrency).toEqual({
 		transfers: 2,
 		verifications: 1,

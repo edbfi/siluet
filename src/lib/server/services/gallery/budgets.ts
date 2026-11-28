@@ -23,6 +23,10 @@ export const rssCeilingsMiB = {
 	 * buffers are still uncollected when the second pair reads.
 	 */
 	reads: 1024,
-	/** Two saves, two held 80 MiB reads and one D7 cleanup at once (820 MiB). */
-	combined: 1664,
+	/**
+	 * Two saves, two held 80 MiB reads and one D7 cleanup at once, after two earlier reads left
+	 * their buffers uncollected (845 MiB). The read permits bound reads in flight; collection, not
+	 * the permits, frees what finished reads leave behind.
+	 */
+	combined: 1696,
 } as const;

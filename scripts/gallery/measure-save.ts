@@ -10,8 +10,9 @@
 //   verification slot.
 // - reads <file>: four concurrent Gallery reads of one saved file through the route's two read
 //   permits and its streamed response.
-// - combined <file> <file> <saved file> <cleanup JPEG>: the two saves, while two reads hold their
-//   buffers and the D7 cleanup slot prepares the JPEG during a verification.
+// - combined <file> <file> <saved file> <cleanup JPEG>: two reads finish and leave their buffers
+//   to the collector, then the two saves run while two more reads hold their buffers and the D7
+//   cleanup slot prepares the JPEG during a verification. Nothing forces a collection between.
 import { createHash } from "node:crypto";
 import { appendFile, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -333,7 +334,12 @@ async function run(
 	const saved = await seedSaved(modules, installation, readPath);
 	await setup();
 	const reads = counter(concurrency, "reads");
-	// Both reads hold their buffers until the saves and the cleanup finish.
+	// The permits bound reads in flight, not the buffers they leave: as with the four-read
+	// pattern, one pair finishes first and its buffers stay resident until a collection.
+	const finished = await Promise.all(
+		(await Promise.all([0, 1].map(() => openRead(modules, gallery, saved.id, reads)))).map(drain),
+	);
+	// The next pair holds its buffers until the saves and the cleanup finish.
 	const held = await Promise.all([0, 1].map(() => openRead(modules, gallery, saved.id, reads)));
 	const cleanup = Promise.withResolvers<string>();
 	let cleaning: Promise<string> | undefined;
@@ -348,7 +354,7 @@ async function run(
 		});
 		const saveOutcomes = await saves;
 		const prepared = await cleanup.promise;
-		const digests = await Promise.all(held.map(drain));
+		const digests = [...finished, ...(await Promise.all(held.map(drain)))];
 		return [
 			...saveOutcomes,
 			...digests.map((digest) => (digest === saved.digest ? "read" : "mismatch")),
