@@ -233,3 +233,10 @@ test("an output format Siluet cannot offer refuses the row with its reason, neve
 		expect(listed?.reason).toBe(plain);
 	}
 });
+
+test("only D4 states the server accepts can queue: an open-absent-fixed row stays out", () => {
+	const row = deriveRows().find((candidate) => candidate.model === "flux-dev") as DerivedRow;
+	const fixed = { ...row, d4: { ...row.d4, d4: "open-absent-fixed" } } as DerivedRow;
+	expect(queueProjection([row]).rows).toHaveLength(1);
+	expect(queueProjection([fixed]).rows).toEqual([]);
+});

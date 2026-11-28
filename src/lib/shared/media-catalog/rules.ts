@@ -526,10 +526,8 @@ const openapiInfo = (path: string, sha256: string) =>
 	({ kind: "openapi-info", spec: `/api-manual/image-series/${path}.json`, sha256 }) as const;
 
 // The eleven rows the G4 plan lists as conditional on their model page stay without a note.
-// Ten of them have their page pinned in page-reviews.json, each silent on the output count.
-// gpt-image-2's page says "Each request returns a single image.", but it is not pinned: without
-// a typed `size`, the row would offer a `resolution` the page says a request without `size`
-// ignores.
+// Their pages are pinned in page-reviews.json: ten are silent on the output count, and
+// gpt-image-2's states one output but the row is held (`outputHolds`).
 export const outputNotes: readonly OutputNote[] = [
 	{
 		model: "qwen-image-2.1",
@@ -550,3 +548,13 @@ export const outputNotes: readonly OutputNote[] = [
 		),
 	},
 ];
+
+/**
+ * Rows whose page states one output but which stay pending for a reviewed reason. gpt-image-2:
+ * "Images with `size` set to `auto` or without a `size` parameter will always use 1K resolution,
+ * regardless of the `resolution` parameter." Its `size` is prose-only (question 11), so the row
+ * would offer a `resolution` Poyo.ai ignores.
+ */
+export const outputHolds: Readonly<Record<string, string>> = {
+	"gpt-image-2": "size not typed (question 11)",
+};

@@ -4,6 +4,7 @@
 // request against. A row joins only when every static Queue condition holds; any other row is
 // pending with the first condition it fails.
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
+import { queueingD4 } from "../../src/lib/shared/media-catalog/eligibility";
 import type { QueueProjection, QueueRow } from "../../src/lib/shared/media-catalog/queue-row";
 import { releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import type { Schema } from "../../src/lib/shared/media-catalog/schema";
@@ -18,7 +19,7 @@ const operation = "text-to-image";
 const verified = new Set<string>(
 	releasedOperations.filter(({ key }) => key.provider === "poyo").map(({ key }) => key.model),
 );
-const queueing = new Set(["declared", "open-absent", "open-absent-fixed"]);
+const queueing = new Set(queueingD4);
 
 export type PendingQueueRow = { model: string; operation: string; reason: string };
 

@@ -5,6 +5,7 @@
 import { writeFileSync } from "node:fs";
 import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
+import { queueingD4 } from "../../src/lib/shared/media-catalog/eligibility";
 import {
 	type CatalogSide,
 	d4Cell,
@@ -15,6 +16,7 @@ import { offeredFormats } from "../../src/lib/shared/media-catalog/formats";
 import { releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import {
 	type OutputNote,
+	outputHolds,
 	outputNotes,
 	type QualifierDisposition,
 	qualifierDispositions,
@@ -310,7 +312,7 @@ const verifiedModels = new Set<string>(
 );
 // Rows whose sources state no output count, held by an open question (spec, question 6).
 const outputQuestions: Record<string, number> = { "qwen-image-3": 6, "qwen-image-3-pro": 6 };
-const queueing = new Set(["declared", "open-absent", "open-absent-fixed"]);
+const queueing = new Set(queueingD4);
 
 /**
  * A schema's top-level `allOf` branches of the form `not {A: one value, B: values}` with both
@@ -580,11 +582,13 @@ export function deriveRow(
 		else if (noted(model, "text-to-image", sources)) count = null;
 		else
 			pending.push(
-				Object.hasOwn(outputQuestions, model)
-					? `no evidence of one output: question ${outputQuestions[model]}`
-					: Object.values(sources.pages ?? {}).some((page) => page.outputs[model] === "silent")
-						? "no evidence of one output (page reviewed, silent)"
-						: "no evidence of one output",
+				Object.hasOwn(outputHolds, model)
+					? `one output held: ${outputHolds[model]}`
+					: Object.hasOwn(outputQuestions, model)
+						? `no evidence of one output: question ${outputQuestions[model]}`
+						: Object.values(sources.pages ?? {}).some((page) => page.outputs[model] === "silent")
+							? "no evidence of one output (page reviewed, silent)"
+							: "no evidence of one output",
 			);
 	}
 

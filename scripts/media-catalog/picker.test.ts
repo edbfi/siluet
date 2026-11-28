@@ -116,6 +116,9 @@ test("every reason a Queue row is refused reads plainly, and an unknown one is r
 	expect(queued("no evidence of one output")).toBe(
 		"Poyo.ai does not document that it returns one image",
 	);
+	expect(queued("one output held: size not typed (question 11)")).toBe(
+		"Poyo.ai ignores resolution unless size is sent, which Siluet cannot send yet",
+	);
 	expect(queued("no prompt field")).toBe("Poyo.ai's schema has no prompt field for it");
 	expect(queued("it offers no size value Siluet can send")).toBe(
 		"Siluet cannot send any value of one of its options yet",

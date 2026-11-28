@@ -636,8 +636,9 @@ test("the pinned rows' one-output evidence: count fields, info quotes, and none 
 		"seedream-5.0-pro",
 	])
 		expect(row(model)?.pending).toEqual(["no evidence of one output (page reviewed, silent)"]);
-	// gpt-image-2's page states one output, but the row is held until its size is typed.
-	expect(row("gpt-image-2")?.pending).toEqual(["no evidence of one output"]);
+	// gpt-image-2's page states one output, but the row is held until its size is typed: a request
+	// without `size` ignores `resolution`, so the row would offer a choice Poyo.ai disregards.
+	expect(row("gpt-image-2")?.pending).toEqual(["one output held: size not typed (question 11)"]);
 	for (const model of ["qwen-image-3", "qwen-image-3-pro"])
 		expect(row(model)?.pending).toEqual(["no evidence of one output: question 6"]);
 	// Verified representatives keep their reviewed descriptors; closed-schema and edit-only rows

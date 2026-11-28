@@ -188,6 +188,15 @@
 			"silent": {
 				"wan2.5-text-to-video": ["negative_prompt"]
 			}
+		},
+		{
+			"url": "https://docs.poyo.ai/api-manual/image-series/gpt-image-2.md",
+			"sha256": "a275bf0e5ef120afd7d08d8880a4492ef7e61f4e5865705a11df4bb90554e3d8",
+			"accessed": "2026-11-27",
+			"silent": {},
+			"outputs": {
+				"gpt-image-2": "Each request returns a single image."
+			}
 		}
 	]
 }

@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { type DerivedWording, derivedWording } from "../../../shared/image-studio/derived-review";
 import { editDisclosure } from "../../../shared/image-studio/edit-disclosure";
 import { zImageDisclosure } from "../../../shared/image-studio/z-image";
+import { queueingD4 } from "../../../shared/media-catalog/eligibility";
 import { queueEvidenceProblem } from "../../../shared/media-catalog/filtering";
 import type { QueueRow } from "../../../shared/media-catalog/queue-row";
 import type { PricingFeeds } from "../../../shared/pricing/feeds";
@@ -81,8 +82,7 @@ export async function createSubmissionQueue(
 	// Only declared and open-absent rows queue in this release, whatever wording another state
 	// binds. A derived Review binds its row's D4 wording, so an open-absent row needs its disclosure.
 	const derivedBlocked = (row: QueueRow, bound: DerivedWording) =>
-		(row.d4.d4 !== "declared" && row.d4.d4 !== "open-absent") ||
-		queueEvidenceProblem(row.d4, "poyo", bound.d4) !== null;
+		!queueingD4.includes(row.d4.d4) || queueEvidenceProblem(row.d4, "poyo", bound.d4) !== null;
 	const derivedCredential = (live: DerivedLiveRequest) =>
 		credential("poyo", undefined, imageCredentialAccess("poyo", live.key.model));
 

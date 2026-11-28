@@ -400,6 +400,11 @@ test("the committed baseline watches every reviewed REST page and both ToAPIs mo
 			sha256: "0fab78a7b724775e707a12c485848b9c87b79dca6992b0487d10e9207f315858",
 			note: "one output: nano-banana silent",
 		},
+		{
+			url: `${image}/gpt-image-2.md`,
+			sha256: "a275bf0e5ef120afd7d08d8880a4492ef7e61f4e5865705a11df4bb90554e3d8",
+			note: 'one output: gpt-image-2 "Each request returns a single image."',
+		},
 	]);
 	// The ledger's ToAPIs model list and public catalog, as Markdown, at the digests read on the
 	// baseline date.
@@ -832,4 +837,10 @@ test("a 4 MiB malformed catalog entry and a flood of findings keep the report sm
 	expect(big).toContain("- and 4900 more findings.");
 	expect(big).toContain("- and 4900 more sources.");
 	expect(big.length).toBeLessThan(128 * 1024);
+});
+
+test("drift watches gpt-image-2's page, whose one-output quote is recorded but held", () => {
+	const url = "https://docs.poyo.ai/api-manual/image-series/gpt-image-2.md";
+	const page = committedBaseline().pages.find((candidate) => candidate.url === url);
+	expect(page?.sha256).toBe("a275bf0e5ef120afd7d08d8880a4492ef7e61f4e5865705a11df4bb90554e3d8");
 });

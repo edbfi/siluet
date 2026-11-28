@@ -39,3 +39,6 @@ export const unqualifiedClass = (name: string) => `class not yet qualified: ${na
 /** Shown on every derived Poyo.ai Review (spec, condition 5). */
 export const poyoAccessNote =
 	"Poyo.ai does not publish per-key model access. Siluet has checked only that this key works.";
+
+/** The D4 states a derived row may queue in; the server refuses every other (`submission.ts`). */
+export const queueingD4: readonly string[] = ["declared", "open-absent"];
