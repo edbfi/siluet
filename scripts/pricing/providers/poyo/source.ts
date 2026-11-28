@@ -1,11 +1,28 @@
+import {
+	canonicalJson,
+	poyoFeedSha256,
+} from "../../../../src/lib/server/services/pricing/local-feed.ts";
 import { parsePricingInstant } from "../../../../src/lib/shared/pricing/feed.ts";
+import {
+	type PoyoPriceBasis,
+	poyoBasisByteLimit,
+} from "../../../../src/lib/shared/pricing/poyo-basis.ts";
 import {
 	decodePoyoV2Feed,
 	type PoyoPricingFeedV2,
 } from "../../../../src/lib/shared/pricing/poyo-feed.ts";
-import { normalizeRates, type ReportGap } from "./catalog.ts";
+import { derivedRateKeys, normalizeRates, type ReportGap } from "./catalog.ts";
 
 const catalogPath = "artifacts/capability-catalog.json";
+// The workflow hands the pair to the publisher in one environment string, which Linux caps at
+// 128 KiB (MAX_ARG_STRLEN). The feed's own blob limit is 64 KiB, as publish.sh applies it.
+export const poyoHandoffByteLimit = 120 * 1024;
+const feedByteLimit = 64 * 1024;
+
+/** What the collector hands to `publish.sh poyo`: the v2 feed and the basis that pairs with it. */
+export type PoyoPricingHandoff = { feed: PoyoPricingFeedV2; basis: PoyoPriceBasis };
+
+const byteLength = (text: string) => new TextEncoder().encode(text).byteLength;
 const upstream = "PoyoAPI/poyo-devtools";
 
 type SourceFetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -51,7 +68,8 @@ export async function collectPoyoPricing(
 	reportGap?: ReportGap,
 	now: () => number = Date.now,
 	githubToken = "",
-): Promise<PoyoPricingFeedV2> {
+	derivedKeys: readonly string[] = derivedRateKeys,
+): Promise<PoyoPricingHandoff> {
 	// This history check is the confirmation, so one clock reading dates both.
 	const checkedMs = Math.floor(now() / 1000) * 1000;
 	// Filter the default branch history by artifact path and fetch raw files
@@ -94,7 +112,7 @@ export async function collectPoyoPricing(
 	const catalog = await getText(fetchSource, rawBase + catalogPath, "catalog", 4 * 1024 * 1024);
 	const license = await getText(fetchSource, `${rawBase}LICENSE`, "license", 8 * 1024);
 	if (license !== expectedLicense) throw new Error("The upstream PoYo license changed.");
-	const rates = normalizeRates(catalog, reportGap);
+	const { rates, digests } = normalizeRates(catalog, reportGap, derivedKeys);
 	const feed = decodePoyoV2Feed({
 		version: 2,
 		provider: "poyo",
@@ -104,5 +122,13 @@ export async function collectPoyoPricing(
 		rates,
 	});
 	if (!feed) throw new Error("The normalized PoYo rates failed feed validation.");
-	return feed;
+	const basis = { revision: feed.revision, feedSha256: poyoFeedSha256(feed), digests };
+	if (byteLength(JSON.stringify({ feed, basis })) > poyoHandoffByteLimit)
+		throw new Error("The PoYo pricing handoff exceeds 120 KiB.");
+	// Published blobs carry a trailing LF.
+	if (byteLength(canonicalJson(feed)) + 1 > feedByteLimit)
+		throw new Error("The PoYo pricing feed exceeds 64 KiB.");
+	if (byteLength(canonicalJson(basis)) + 1 > poyoBasisByteLimit)
+		throw new Error("The PoYo price basis exceeds 32 KiB.");
+	return { feed, basis };
 }

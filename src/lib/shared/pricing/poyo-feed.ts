@@ -31,7 +31,23 @@ export type PerSecondRate = Readonly<{
 	kind: "per-second-by-resolution";
 	resolutions: Readonly<Record<string, string>>;
 }>;
-export type PoyoRate = FixedRate | ReferenceRate | PerSecondRate | Unavailable | UnfamiliarRate;
+/**
+ * Credits per resolution tier, charged per request or, with one image per request, per image.
+ * Tier keys are normalised with `poyoTierKey` and matched case-insensitively.
+ */
+export type TierRate = Readonly<{
+	kind: "per-request-by-resolution" | "per-image-by-resolution";
+	resolutions: Readonly<Record<string, string>>;
+}>;
+/** A rate the collector emits for a derived row: a fixed charge or a resolution tier. */
+export type DerivedRate = FixedRate | TierRate;
+export type PoyoRate =
+	| FixedRate
+	| ReferenceRate
+	| PerSecondRate
+	| TierRate
+	| Unavailable
+	| UnfamiliarRate;
 
 export type PoyoPricingFeedV2 = Readonly<{
 	version: 2;
@@ -86,6 +102,29 @@ function decodePerSecondRate(value: Record<string, unknown>): PerSecondRate | un
 	return { kind: "per-second-by-resolution", resolutions };
 }
 
+/** A tier name as the feed keys it: Poyo.ai's `480*832` becomes `480x832`. */
+export function poyoTierKey(tier: string): string {
+	return tier.replaceAll("*", "x");
+}
+
+const tierKinds = ["per-request-by-resolution", "per-image-by-resolution"];
+
+/** A tier rate in its exact shape; any other shape stays an unfamiliar, unquotable rate. */
+function decodeTierRate(value: Record<string, unknown>): TierRate | undefined {
+	const { kind } = value;
+	if (kind !== "per-request-by-resolution" && kind !== "per-image-by-resolution") return;
+	if (!hasKeys(value, ["kind", "resolutions"]) || !isPricingRecord(value.resolutions)) return;
+	const entries = Object.entries(value.resolutions);
+	const names = new Set(entries.map(([key]) => key.toLowerCase()));
+	if (entries.length < 1 || names.size !== entries.length) return;
+	const resolutions: Record<string, string> = Object.create(null);
+	for (const [key, credits] of entries) {
+		if (!poyoRateKey.test(key) || !isCreditRate(credits)) return;
+		resolutions[key] = credits;
+	}
+	return { kind, resolutions };
+}
+
 export function decodePoyoRate(value: unknown): PoyoRate | undefined {
 	if (!isPricingRecord(value)) return;
 	switch (value.kind) {
@@ -97,6 +136,9 @@ export function decodePoyoRate(value: unknown): PoyoRate | undefined {
 			return decodeReferenceRate(value);
 		case "per-second-by-resolution":
 			return decodePerSecondRate(value);
+		case "per-request-by-resolution":
+		case "per-image-by-resolution":
+			return decodeTierRate(value) ?? decodeUnfamiliarRate(value);
 		default:
 			return decodeUnfamiliarRate(value);
 	}
@@ -112,6 +154,11 @@ export function isReferenceRate(rate: PoyoRate): rate is ReferenceRate {
 
 export function isPerSecondRate(rate: PoyoRate): rate is PerSecondRate {
 	return rate.kind === "per-second-by-resolution";
+}
+
+/** A tier rate in its exact shape. An unfamiliar rate that reuses a tier kind is not one. */
+export function isTierRate(rate: PoyoRate): rate is TierRate {
+	return tierKinds.includes(rate.kind) && decodeTierRate(rate) !== undefined;
 }
 
 function decodeRates(value: unknown): Record<string, PoyoRate> | undefined {

@@ -4,6 +4,7 @@ import {
 	type PricingPaths,
 	pricingFileLocation,
 	loadBundledPricing as readBundledPricing,
+	loadLocalPoyoPricing as resolveLocalPoyoPricing,
 	loadLocalPricing as resolveLocalPricing,
 } from "../../src/lib/server/services/pricing/local-feed";
 import type { PricingProvider } from "../../src/lib/shared/pricing/feeds";
@@ -14,6 +15,9 @@ export {
 	decodePricingFile,
 	type PricingFile,
 	type PricingPaths,
+	poyoBasisPairs,
+	poyoBasisPath,
+	poyoFeedSha256,
 	poyoV2FileByteLimit,
 	pricingCachePath,
 	pricingFeedByteLimit,
@@ -43,4 +47,16 @@ export function loadLocalPricing(
 	}: PricingPaths = {},
 ) {
 	return resolveLocalPricing(nowMs, { provider, bundledPath, v2BundledPath, ...paths });
+}
+
+/** The selected Poyo.ai feed and the basis it pairs with, from the checkout and the cache. */
+export function loadLocalPoyoPricing(
+	nowMs: number,
+	{
+		bundledPath = pricingBundledPath("poyo"),
+		v2BundledPath = pricingBundledPath("poyo-v2"),
+		...paths
+	}: Omit<PricingPaths, "provider"> = {},
+) {
+	return resolveLocalPoyoPricing(nowMs, { bundledPath, v2BundledPath, ...paths });
 }

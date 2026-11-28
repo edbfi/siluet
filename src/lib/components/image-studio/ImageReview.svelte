@@ -4,7 +4,6 @@ import { onDestroy, tick } from "svelte";
 import type { DerivedDraft } from "#lib/shared/image-studio/derived.ts";
 import {
 	type DerivedWording,
-	derivedQuote,
 	derivedWording,
 	refusalNote,
 } from "#lib/shared/image-studio/derived-review.ts";
@@ -34,6 +33,7 @@ import type { FilteringEvidence } from "#lib/shared/media-catalog/filtering.ts";
 import type { QueueKey, QueueRow } from "#lib/shared/media-catalog/queue-row.ts";
 import { type ReleasedImageOperation, zImageModel } from "#lib/shared/media-catalog/registry.ts";
 import { sumAmounts } from "#lib/shared/pricing/decimal.ts";
+import { estimateDerivedPrice } from "#lib/shared/pricing/derived-estimate.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
 import type { PricingFeeds, PricingProvider } from "#lib/shared/pricing/feeds.ts";
 import { goto } from "$app/navigation";
@@ -210,11 +210,17 @@ onDestroy(() => {
 	mounted = false;
 });
 const terms = $derived(authorized?.request === request ? authorized.terms : null);
-// No derived rate basis is published yet (G4b), so a derived row's price is unknown.
+// A derived row quotes only from a feed the server paired with its price basis.
 const offlineQuote = $derived(
 	review &&
 		(catalogRow
-			? derivedQuote
+			? // A derived row's composer hands Review its derived draft.
+				estimateDerivedPrice(
+					feeds,
+					catalogRow,
+					(draft as DerivedDraft).options,
+					browserNow ?? nowMs,
+				)
 			: estimateReviewPrice(feeds, review.pricing, batch, browserNow ?? nowMs)),
 );
 const expiry = $derived.by(() => {

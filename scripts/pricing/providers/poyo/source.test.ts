@@ -1,4 +1,10 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { queueRows } from "../../../../src/lib/shared/media-catalog/image-queue.ts";
+import { estimatePrice } from "../../../../src/lib/shared/pricing/estimate.ts";
+import { decodePoyoV2Feed } from "../../../../src/lib/shared/pricing/poyo-feed.ts";
+import pinned from "../../../media-catalog/sources/poyo-ec73207.json";
+import { canonicalJson } from "../../local-feed.ts";
 import h3Contract from "./h3-max-contract.json";
 import { collectPoyoPricing } from "./source.ts";
 
@@ -150,9 +156,23 @@ function source(
 	};
 }
 
+type Gap = NonNullable<Parameters<typeof collectPoyoPricing>[2]>;
+
+/** The feed alone, collected without derived rate keys. */
+function collectFeed(
+	fetchSource: Parameters<typeof collectPoyoPricing>[0],
+	reportGap?: Gap,
+	now?: () => number,
+	githubToken?: string,
+) {
+	return collectPoyoPricing(fetchSource, license, reportGap, now, githubToken, []).then(
+		({ feed }) => feed,
+	);
+}
+
 test("collects the whole supported set with exact decimals and the path commit date", async () => {
 	const upstream = source();
-	const feed = await collectPoyoPricing(upstream.fetch, license, undefined, clock);
+	const feed = await collectFeed(upstream.fetch, undefined, clock);
 
 	expect(feed).toEqual({
 		version: 2,
@@ -178,16 +198,16 @@ test("collects the whole supported set with exact decimals and the path commit d
 		`${rawBase}artifacts/capability-catalog.json`,
 		`${rawBase}LICENSE`,
 	]);
-	expect(await collectPoyoPricing(source().fetch, license, undefined, clock)).toEqual(feed);
+	expect(await collectFeed(source().fetch, undefined, clock)).toEqual(feed);
 });
 
 test("authenticates only the history request when a GitHub token is set", async () => {
 	const token = "fixture-github-token";
 	const upstream = source(undefined, {}, token);
-	await collectPoyoPricing(upstream.fetch, license, undefined, clock, token);
+	await collectFeed(upstream.fetch, undefined, clock, token);
 	expect(upstream.seen).toHaveLength(3);
 	const anonymous = source();
-	await collectPoyoPricing(anonymous.fetch, license, undefined, clock, "");
+	await collectFeed(anonymous.fetch, undefined, clock, "");
 	expect(anonymous.seen).toHaveLength(3);
 });
 
@@ -196,15 +216,13 @@ test("rejects a catalog commit dated after the confirmation clock", async () => 
 		[commitsUrl]: () =>
 			Response.json([{ sha: revision, commit: { committer: { date: "2026-11-22T13:30:01Z" } } }]),
 	});
-	await expect(collectPoyoPricing(upstream.fetch, license, undefined, clock)).rejects.toThrow(
-		"future",
-	);
+	await expect(collectFeed(upstream.fetch, undefined, clock)).rejects.toThrow("future");
 	expect(upstream.seen).toEqual([commitsUrl]);
 	const atClock = source(undefined, {
 		[commitsUrl]: () =>
 			Response.json([{ sha: revision, commit: { committer: { date: confirmedAt } } }]),
 	});
-	expect(await collectPoyoPricing(atClock.fetch, license, undefined, clock)).toMatchObject({
+	expect(await collectFeed(atClock.fetch, undefined, clock)).toMatchObject({
 		sourceDate: confirmedAt,
 		confirmedAt,
 	});
@@ -214,7 +232,7 @@ test("allows reviewed rate fields to change without changing the rules", async (
 	const { catalog, zImage, seedream } = fixture();
 	zImage.billing.credits = 12;
 	seedream.billing.resolution_credits["1.5K"] = 6.5;
-	const feed = await collectPoyoPricing(source(JSON.stringify(catalog)).fetch, license);
+	const feed = await collectFeed(source(JSON.stringify(catalog)).fetch);
 
 	expect(feed.rates["z-image"]).toEqual({ kind: "per-request", credits: "12" });
 	expect(feed.rates["seedream-5.5"]).toMatchObject({ resolutions: { "1.5K": "6.5" } });
@@ -262,9 +280,9 @@ test.each([
 	async (_case, change) => {
 		const input = fixture();
 		change(input);
-		await expect(
-			collectPoyoPricing(source(JSON.stringify(input.catalog)).fetch, license),
-		).rejects.toThrow("catalog");
+		await expect(collectFeed(source(JSON.stringify(input.catalog)).fetch)).rejects.toThrow(
+			"catalog",
+		);
 	},
 );
 
@@ -401,10 +419,8 @@ test.each([
 		const input = fixture();
 		change(input);
 		const gaps: string[] = [];
-		const feed = await collectPoyoPricing(
-			source(JSON.stringify(input.catalog)).fetch,
-			license,
-			(model) => gaps.push(model),
+		const feed = await collectFeed(source(JSON.stringify(input.catalog)).fetch, (model) =>
+			gaps.push(model),
 		);
 		const otherModel = model === "z-image" ? "seedream-5.5" : "z-image";
 
@@ -419,7 +435,7 @@ test("rejects rate syntax or precision outside the feed contract", async () => {
 	const catalog = JSON.stringify(fixture().catalog);
 	for (const invalid of ['"3.25"', "3.2500000000000000000001", "3.25e0", "-0"]) {
 		const upstream = source(catalog.replace("3.25", invalid));
-		const feed = await collectPoyoPricing(upstream.fetch, license);
+		const feed = await collectFeed(upstream.fetch);
 		expect(feed.rates["z-image"]).toEqual({ kind: "unavailable" });
 	}
 });
@@ -430,7 +446,7 @@ test("rejects invalid commit provenance before fetching the raw URL", async () =
 			[commitsUrl]: () =>
 				Response.json([{ sha, commit: { committer: { date: "2026-02-30T00:00:00Z" } } }]),
 		});
-		await expect(collectPoyoPricing(upstream.fetch, license)).rejects.toThrow("commit provenance");
+		await expect(collectFeed(upstream.fetch)).rejects.toThrow("commit provenance");
 		expect(upstream.seen).toEqual([commitsUrl]);
 	}
 });
@@ -440,7 +456,7 @@ test("rejects a future path commit date before requesting the raw artifact", asy
 	const upstream = source(undefined, {
 		[commitsUrl]: () => Response.json([{ sha: revision, commit: { committer: { date: future } } }]),
 	});
-	await expect(collectPoyoPricing(upstream.fetch, license)).rejects.toThrow("future");
+	await expect(collectFeed(upstream.fetch)).rejects.toThrow("future");
 	expect(upstream.seen).toEqual([commitsUrl]);
 });
 
@@ -452,9 +468,7 @@ test("rejects failed downloads, oversized bodies, malformed JSON, and changes to
 		[{ [artifactUrl]: () => new Response("{") }, "invalid JSON"],
 		[{ [`${rawBase}LICENSE`]: () => new Response("License changed") }, "license"],
 	] as const) {
-		await expect(collectPoyoPricing(source(undefined, override).fetch, license)).rejects.toThrow(
-			message,
-		);
+		await expect(collectFeed(source(undefined, override).fetch)).rejects.toThrow(message);
 	}
 });
 
@@ -493,9 +507,8 @@ test.each([
 	const { catalog, video } = fixture();
 	change(video);
 	const gaps: string[] = [];
-	const feed = await collectPoyoPricing(
+	const feed = await collectFeed(
 		source(JSON.stringify(catalog)).fetch,
-		license,
 		(model) => gaps.push(model),
 		clock,
 	);
@@ -505,3 +518,183 @@ test.each([
 });
 
 type H3Row = ReturnType<typeof fixture>["video"];
+
+const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+const shipped = ["z-image", "seedream-5.5", "h3-max"];
+
+/** The fixture catalog with more rows, each given the output schema every catalog row has. */
+function withEntries(entries: readonly object[]) {
+	const { catalog } = fixture();
+	catalog.items.push(
+		...entries.map((entry) => ({ output_schema: { type: "object" }, ...entry }) as never),
+	);
+	return JSON.stringify(catalog);
+}
+
+function pinnedEntry(model: string) {
+	const entry = pinned.entries.find(({ model_id }) => model_id === model);
+	if (!entry) throw new Error(`${model} is not in the pinned catalog.`);
+	return entry;
+}
+
+function imageEntry(model_id: string, billing: Record<string, unknown>) {
+	const route = { category: "image", service_type: "generate", execution_mode: "async" };
+	return { model_id, ...route, status: "stable", input_schema: { type: "object" }, billing };
+}
+
+const derivedRates = (rates: Readonly<Record<string, unknown>>) =>
+	Object.fromEntries(Object.entries(rates).filter(([key]) => !shipped.includes(key)));
+
+test("rates each queued row whose billing fits a kind exactly and binds the row's own basis", async () => {
+	const gaps: [string, string][] = [];
+	const { feed, basis } = await collectPoyoPricing(
+		source(withEntries(queueRows.map(({ rateKey }) => pinnedEntry(rateKey)))).fetch,
+		license,
+		(model, reason) => gaps.push([model, reason]),
+		clock,
+	);
+	const perRequest = (credits: string) => ({ kind: "per-request", credits });
+	const derived = derivedRates(feed.rates);
+	expect(derived).toEqual({
+		"flux-3-klein": {
+			kind: "per-image-by-resolution",
+			resolutions: { "1K": "1.8", "2K": "2.8", "4K": "7.2" },
+		},
+		"gpt-4o-image": perRequest("4"),
+		"gpt-image-1.5": perRequest("2"),
+		"kling-o3-image": {
+			kind: "per-request-by-resolution",
+			resolutions: { "1K": "3.5", "2K": "3.5", "4K": "7" },
+		},
+		"nano-banana-2": perRequest("8"),
+		"nano-banana-pro": {
+			kind: "per-request-by-resolution",
+			resolutions: { "1K": "18", "2K": "18", "4K": "35" },
+		},
+		"qwen-image-2.1": { kind: "per-request-by-resolution", resolutions: { "1K": "6", "2K": "10" } },
+		"seedream-4": perRequest("5"),
+		"seedream-4.5": perRequest("5"),
+		"seedream-5.0-flash": perRequest("4"),
+		"seedream-5.0-lite": perRequest("5"),
+		"wan-2.7-image": perRequest("4.2"),
+		"wan-2.7-image-pro": perRequest("10.5"),
+	});
+	const dynamic = "Its price depends on usage that Siluet does not evaluate.";
+	const references = "Its price depends on reference images, which Siluet does not evaluate.";
+	expect(gaps).toEqual([
+		["flux-dev", dynamic],
+		["flux-schnell", dynamic],
+		["grok-imagine-image-2.0", references],
+		["grok-imagine-image-quality", references],
+	]);
+	// An unchanged entry's digest is the projection's basis, so its rate applies to the row.
+	expect(basis.digests).toEqual(
+		Object.fromEntries(
+			queueRows.filter(({ rateKey }) => rateKey in derived).map((row) => [row.rateKey, row.basis]),
+		),
+	);
+	expect(basis.revision).toBe(feed.revision);
+	expect(basis.feedSha256).toBe(sha256(canonicalJson(decodePoyoV2Feed(feed))));
+	expect(basis.feedSha256).not.toBe(sha256(`${canonicalJson(feed)}\n`));
+});
+
+test("normalises tier keys and reports every other billing as a gap with its reason", async () => {
+	const none = { credits: null, input_credits: null, output_credits: null };
+	const tiers = (resolution_credits: Record<string, number>) => ({
+		type: "tiered",
+		unit: "request",
+		...none,
+		formula: "resolution_credits[resolution]",
+		resolution_credits,
+	});
+	const entries = [
+		imageEntry("star-tiers", tiers({ "480*832": 2, "832*480": 2.5 })),
+		imageEntry("fixed-image", { type: "fixed", unit: "image", credits: 2 }),
+		imageEntry("case-tiers", tiers({ "1080p": 2, "1080P": 3 })),
+		imageEntry("unreviewed-field", { type: "fixed", unit: "request", credits: 2, minimum: 1 }),
+		imageEntry("zero-tier", tiers({ "1K": 0 })),
+		pinnedEntry("gpt-image-2"),
+	];
+	const gaps: [string, string][] = [];
+	const { feed, basis } = await collectPoyoPricing(
+		source(withEntries(entries)).fetch,
+		license,
+		(model, reason) => gaps.push([model, reason]),
+		clock,
+		"",
+		[...entries.map(({ model_id }) => model_id), "missing-model"],
+	);
+	expect(derivedRates(feed.rates)).toEqual({
+		"star-tiers": {
+			kind: "per-request-by-resolution",
+			resolutions: { "480x832": "2", "832x480": "2.5" },
+		},
+	});
+	const unfit = "Its billing does not fit a rate kind Siluet quotes.";
+	expect(gaps).toEqual([
+		["fixed-image", unfit],
+		["case-tiers", "Two of its resolution tiers normalise to the same key."],
+		["unreviewed-field", unfit],
+		["zero-tier", "The rate is outside the reviewed positive decimal format."],
+		[
+			"gpt-image-2",
+			"Its price depends on quality and billable resolution, which Siluet does not evaluate.",
+		],
+		["missing-model", "The model is missing from the complete catalog."],
+	]);
+	expect(Object.keys(basis.digests)).toEqual(["star-tiers"]);
+});
+
+test("an older build keeps a feed with new kinds, 2K tiers and a three-level table, and quotes none of them", async () => {
+	const { feed } = await collectPoyoPricing(
+		source(withEntries([pinnedEntry("kling-o3-image")])).fetch,
+		license,
+		undefined,
+		clock,
+		"",
+		["kling-o3-image"],
+	);
+	const table = { kind: "per-image-by-quality", table: { "2K": { low: "12", medium: "16" } } };
+	const wire = JSON.parse(
+		JSON.stringify({ ...feed, rates: { ...feed.rates, "grok-imagine-image-2.0": table } }),
+	);
+	const decoded = decodePoyoV2Feed(wire);
+	expect<unknown>(decoded?.rates["kling-o3-image"]).toEqual(feed.rates["kling-o3-image"]);
+	expect<unknown>(decoded?.rates["grok-imagine-image-2.0"]).toEqual(table);
+	const now = Date.parse(confirmedAt);
+	const request = { provider: "poyo", operation: "generate", sourceCount: 0, count: 1 };
+	for (const model of ["kling-o3-image", "grok-imagine-image-2.0"]) {
+		const options = { resolution: "2K" };
+		expect(estimatePrice(wire, { ...request, model, options, retryLimit: 0 }, now)).toMatchObject({
+			status: "unknown",
+		});
+	}
+	const zImage = { ...request, model: "z-image", options: { size: "1:1" }, retryLimit: 0 };
+	expect(estimatePrice(wire, zImage, now)).toMatchObject({ status: "known", perRequest: "3.25" });
+});
+
+test("refuses a handoff over the environment cap and a basis over its own limit", async () => {
+	const fixed = (model: string) =>
+		imageEntry(model, { type: "fixed", unit: "request", credits: 1 });
+	const keys = (count: number, length: number) =>
+		Array.from({ length: count }, (_, index) => `m${String(index).padStart(length - 1, "0")}`);
+	for (const [models, message] of [
+		[keys(900, 128), "The PoYo pricing handoff exceeds 120 KiB."],
+		[keys(300, 60), "The PoYo price basis exceeds 32 KiB."],
+	] as const) {
+		const upstream = source(withEntries(models.map(fixed))).fetch;
+		await expect(
+			collectPoyoPricing(upstream, license, undefined, clock, "", models),
+		).rejects.toThrow(message);
+	}
+	const fits = keys(200, 60);
+	const { basis } = await collectPoyoPricing(
+		source(withEntries(fits.map(fixed))).fetch,
+		license,
+		undefined,
+		clock,
+		"",
+		fits,
+	);
+	expect(Object.keys(basis.digests)).toHaveLength(200);
+});

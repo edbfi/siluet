@@ -8,6 +8,11 @@ import {
 	type ProviderPricingFeed,
 	pricingSourceDate,
 } from "../../src/lib/shared/pricing/feeds";
+import {
+	decodePoyoBasis,
+	type PoyoPriceBasis,
+	poyoBasisByteLimit,
+} from "../../src/lib/shared/pricing/poyo-basis";
 import { poyoConfirmationMs, poyoFeedExpiryMs } from "../../src/lib/shared/pricing/poyo-feed";
 import { toapisFeedExpiryMs } from "../../src/lib/shared/pricing/toapis-feed";
 import {
@@ -16,6 +21,8 @@ import {
 	decodePricingFile,
 	type PricingFile,
 	type PricingPaths,
+	poyoBasisPairs,
+	poyoBasisPath,
 	poyoV2FileByteLimit,
 	pricingBundledPath,
 	pricingCachePath,
@@ -28,6 +35,9 @@ export const pricingFeedUrl =
 	"https://raw.githubusercontent.com/edbfi/siluet/pricing-data/pricing/v1/feed.json";
 export const poyoV2PricingFeedUrl =
 	"https://raw.githubusercontent.com/edbfi/siluet/pricing-data/pricing/v2/poyo.json";
+/** The price basis published beside the v2 feed. */
+export const poyoBasisPricingUrl =
+	"https://raw.githubusercontent.com/edbfi/siluet/pricing-data/pricing/v2/poyo-basis.json";
 export const toapisPricingFeedUrl =
 	"https://raw.githubusercontent.com/edbfi/siluet/pricing-data-toapis/pricing/v2/toapis.json";
 const refreshTimeoutMs = 5_000;
@@ -56,16 +66,16 @@ type RefreshOptions = PricingPaths & {
 
 type RefreshResult = CachedPricingFeed & { status: "updated" | "unchanged"; cachePath: string };
 
-async function readFeed(
-	file: PricingFile,
+/** The parsed JSON of a successful response of at most `byteLimit` bytes. */
+async function readJsonBody(
 	response: Response,
+	byteLimit: number,
 	signal: AbortSignal,
-): Promise<ProviderPricingFeed> {
+): Promise<unknown> {
 	if (response.status !== 200 || response.redirected || !response.body) {
 		void response.body?.cancel().catch(() => {});
 		throw new Error(`Pricing feed request failed (HTTP ${response.status}).`);
 	}
-	const byteLimit = refreshFiles[file].wireLimit;
 	if (Number(response.headers.get("content-length")) > byteLimit) {
 		void response.body.cancel().catch(() => {});
 		throw new Error("Pricing feed exceeds the size limit.");
@@ -96,15 +106,44 @@ async function readFeed(
 		reader.releaseLock();
 	}
 
-	let feed: ProviderPricingFeed | undefined;
 	try {
-		const json = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, length));
-		feed = decodePricingFile(file, JSON.parse(json));
+		return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, length)));
 	} catch {
 		throw new Error("Pricing feed is not valid UTF-8 JSON.");
 	}
+}
+
+async function readFeed(
+	file: PricingFile,
+	response: Response,
+	signal: AbortSignal,
+): Promise<ProviderPricingFeed> {
+	const feed = decodePricingFile(
+		file,
+		await readJsonBody(response, refreshFiles[file].wireLimit, signal),
+	);
 	if (!feed) throw new Error("Pricing feed has an invalid schema.");
 	return feed;
+}
+
+/**
+ * The price basis beside a v2 feed, read with the published basis limit and checked against the
+ * feed, or `null` while none is published.
+ */
+async function readBasis(
+	feed: ProviderPricingFeed,
+	response: Response,
+	signal: AbortSignal,
+): Promise<PoyoPriceBasis | null> {
+	if (response.status === 404) {
+		void response.body?.cancel().catch(() => {});
+		return null;
+	}
+	const basis = decodePoyoBasis(await readJsonBody(response, poyoBasisByteLimit, signal));
+	if (!basis) throw new Error("Pricing basis has an invalid schema.");
+	if (feed.provider !== "poyo" || feed.version !== 2 || !poyoBasisPairs(feed, basis))
+		throw new Error("Pricing basis does not pair with the feed.");
+	return basis;
 }
 
 /** Serialise a cache entry, refusing one the reader would reject for its size. */
@@ -114,6 +153,15 @@ export function encodeCacheEntry(file: PricingFile, entry: CachedPricingFeed): s
 	const text = `${json}\n`;
 	if (new TextEncoder().encode(text).byteLength > refreshFiles[file].cacheLimit) {
 		throw new Error("Pricing cache entry exceeds the size limit.");
+	}
+	return text;
+}
+
+/** Serialise a cached basis, refusing one the reader would reject for its size. */
+export function encodeBasisCache(basis: PoyoPriceBasis): string {
+	const text = `${canonicalJson(basis)}\n`;
+	if (new TextEncoder().encode(text).byteLength > poyoBasisByteLimit) {
+		throw new Error("Pricing basis cache entry exceeds the size limit.");
 	}
 	return text;
 }
@@ -146,6 +194,7 @@ async function saveFeed(
 	bundledPath: string,
 	feed: ProviderPricingFeed,
 	nowMs: number,
+	basis?: { path: string; basis: PoyoPriceBasis | null },
 ): Promise<RefreshResult> {
 	const cacheDirectory = dirname(cachePath);
 	await mkdir(cacheDirectory, { recursive: true, mode: 0o700 });
@@ -189,7 +238,14 @@ async function saveFeed(
 		const previous = cache?.feed ?? bundled;
 		const status = canonicalJson(feed) === canonicalJson(previous) ? "unchanged" : "updated";
 		const checkedAt = new Date(nowMs).toISOString();
-		await replaceCache(cachePath, encodeCacheEntry(file, { checkedAt, feed }));
+		// Encode both before either lands, so a size refusal replaces neither file.
+		const feedText = encodeCacheEntry(file, { checkedAt, feed });
+		const basisText = basis?.basis && encodeBasisCache(basis.basis);
+		await replaceCache(cachePath, feedText);
+		// The feed lands first. A stop before the basis lands leaves an unpaired basis, which the
+		// reader ignores, so derived rates stay unknown until the next refresh.
+		if (basis && basisText) await replaceCache(basis.path, basisText);
+		else if (basis) await rm(basis.path, { force: true });
 		return { status, checkedAt, feed, cachePath };
 	} finally {
 		await rmdir(lock);
@@ -197,11 +253,12 @@ async function saveFeed(
 }
 
 function requestFeed(
-	file: PricingFile,
+	file: PricingFile | "poyo-basis",
 	fetchFeed: NonNullable<RefreshOptions["fetchFeed"]>,
 	signal: AbortSignal,
 ) {
-	return fetchFeed(refreshFiles[file].url, {
+	const url = file === "poyo-basis" ? poyoBasisPricingUrl : refreshFiles[file].url;
+	return fetchFeed(url, {
 		method: "GET",
 		redirect: "error",
 		credentials: "omit",
@@ -215,6 +272,7 @@ export async function refreshPricingFeed({
 	cachePath = pricingCachePath(undefined, provider),
 	v2BundledPath = pricingBundledPath("poyo-v2"),
 	v2CachePath = pricingCachePath(undefined, "poyo-v2"),
+	basisCachePath = poyoBasisPath(v2CachePath),
 	fetchFeed = fetch,
 	now = Date.now,
 	timeoutMs = refreshTimeoutMs,
@@ -243,12 +301,24 @@ export async function refreshPricingFeed({
 		throw new Error("ToAPIs v2 rates are not published yet; bundled rates stay in use.");
 	}
 	const feed = await readFeed(file, response, signal);
+	// Both v2 files are fetched and paired before either cached file is replaced.
+	const basis =
+		file === "poyo-v2"
+			? await readBasis(feed, await requestFeed("poyo-basis", fetchFeed, signal), signal)
+			: undefined;
 	const nowMs = now();
 	if (!isPricingClock(nowMs)) throw new Error("Local pricing clock is invalid.");
 	if (evidenceMs(feed) > nowMs) throw new Error("Pricing feed is dated in the future.");
 	const expiresAt = feed.provider === "poyo" ? poyoFeedExpiryMs(feed) : toapisFeedExpiryMs(feed);
 	if (nowMs >= expiresAt) throw new Error("Pricing feed has expired.");
-	return saveFeed(file, paths[file].cachePath, paths[file].bundledPath, feed, nowMs);
+	return saveFeed(
+		file,
+		paths[file].cachePath,
+		paths[file].bundledPath,
+		feed,
+		nowMs,
+		basis === undefined ? undefined : { path: basisCachePath, basis },
+	);
 }
 
 /** Describe a refresh with the dates Review uses. */

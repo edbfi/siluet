@@ -20,7 +20,7 @@ case "$#:$provider" in
     data_ref=refs/heads/pricing-data-toapis
     label=ToAPIs
     ;;
-  *) fail "Usage: publish.sh poyo LICENSE.poyo < poyo.json | publish.sh toapis < toapis.json" ;;
+  *) fail "Usage: publish.sh poyo LICENSE.poyo < handoff.json | publish.sh toapis < toapis.json" ;;
 esac
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -50,30 +50,51 @@ canonical_feed() {
   printf '%s\n' "$feed"
 }
 
+# The PoYo price basis: the same canonical form, checked by the basis rule.
+canonical_basis() {
+  local feed
+  feed=$(head -c "$((32768 + 1))" | jq -RsceS -L "$script_dir" '
+    include "publish-validation";
+    read_feed(32768)
+    | if basis then . else error("Invalid PoYo price basis handoff") end')
+  ((${#feed} + 1 <= 32768)) || fail "The price basis exceeds the size limit."
+  printf '%s\n' "$feed"
+}
+
 field() {
   jq -r --arg field "$1" '.[$field]' "$2"
 }
 
+# The SHA-256 of a canonical file without its trailing LF, as the basis records it.
+sha256_body() {
+  local body
+  body=$(<"$1")
+  printf '%s' "$body" | sha256sum | cut -d' ' -f1
+}
+
 # Construct the exact data-only tree without checking out the branch. Each feed is optional,
-# and the PoYo license accompanies each PoYo feed.
+# the PoYo license accompanies each PoYo feed, and the price basis sits beside the v2 feed.
 # https://git-scm.com/docs/git-mktree
 version_tree() {
-  local feed=$1 name=$2 license=$3
+  local feed=$1 name=$2 license=$3 basis=${4:-}
   {
     if [[ -n $license ]]; then
       printf '100644 blob %s\tLICENSE.poyo\n' "$license"
     fi
     printf '100644 blob %s\t%s\n' "$feed" "$name"
+    if [[ -n $basis ]]; then
+      printf '100644 blob %s\tpoyo-basis.json\n' "$basis"
+    fi
   } | git mktree
 }
 
 build_tree() {
-  local v1_feed=$1 license=$2 v2_feed=${3:-} v1_tree='' v2_tree='' pricing_tree
+  local v1_feed=$1 license=$2 v2_feed=${3:-} basis=${4:-} v1_tree='' v2_tree='' pricing_tree
   if [[ -n $v1_feed ]]; then
     v1_tree=$(version_tree "$v1_feed" "$v1_name" "$license") || return
   fi
   if [[ -n $v2_feed ]]; then
-    v2_tree=$(version_tree "$v2_feed" "$v2_name" "$license") || return
+    v2_tree=$(version_tree "$v2_feed" "$v2_name" "$license" "$basis") || return
   fi
   pricing_tree=$({
     if [[ -n $v1_tree ]]; then
@@ -92,7 +113,20 @@ now_seconds=$(date -u -d "$now" '+%s')
 if [[ $provider == poyo ]]; then
   v1_name=feed.json
   v2_name=poyo.json
-  canonical_feed providers/poyo/publish-v2.jq 65536 >"$work/candidate.json"
+  # The collector hands off {feed, basis} in one environment string, which Linux caps at
+  # 128 KiB, so 120 KiB leaves room for the variable name. Split it, then check each member.
+  head -c "$((122880 + 1))" >"$work/handoff.json"
+  (($(wc -c <"$work/handoff.json") <= 122880)) || fail "The pricing handoff exceeds the size limit."
+  jq -se 'length == 1 and (.[0] | type == "object" and keys == ["basis", "feed"])' \
+    "$work/handoff.json" >/dev/null 2>&1 || fail "Invalid PoYo pricing handoff"
+  jq -c '.feed' "$work/handoff.json" |
+    canonical_feed providers/poyo/publish-v2.jq 65536 >"$work/candidate.json"
+  jq -c '.basis' "$work/handoff.json" | canonical_basis >"$work/basis.json"
+  [[ $(field revision "$work/basis.json") == "$(field revision "$work/candidate.json")" ]] ||
+    fail "The PoYo price basis names another revision."
+  # publish-v2.jq accepts only feeds that decode unchanged, so this is the reader's digest.
+  [[ $(field feedSha256 "$work/basis.json") == "$(sha256_body "$work/candidate.json")" ]] ||
+    fail "The PoYo price basis does not match the feed."
   source_date=$(field sourceDate "$work/candidate.json")
   confirmed_at=$(field confirmedAt "$work/candidate.json")
   license_blob=$(git hash-object --no-filters -w -- "$2")
@@ -109,6 +143,7 @@ fi
 parents=()
 old_v1=''
 old_v2=''
+old_basis=''
 old_license=''
 if git ls-remote --exit-code --refs origin "$data_ref" >/dev/null; then
   git fetch --no-tags --depth=1 origin "$data_ref"
@@ -121,7 +156,11 @@ if git ls-remote --exit-code --refs origin "$data_ref" >/dev/null; then
     old_v1=$(git rev-parse --verify --quiet "$parent:pricing/v1/$v1_name" || true)
   fi
   old_v2=$(git rev-parse --verify --quiet "$parent:pricing/v2/$v2_name" || true)
-  expected_tree=$(build_tree "$old_v1" "$old_license" "$old_v2")
+  if [[ $provider == poyo ]]; then
+    old_basis=$(git rev-parse --verify --quiet "$parent:pricing/v2/poyo-basis.json" || true)
+  fi
+  # A basis without a v2 feed leaves it out of the expected tree, so the check below fails.
+  expected_tree=$(build_tree "$old_v1" "$old_license" "$old_v2" "$old_basis")
   [[ $(git rev-parse "$parent^{tree}") == "$expected_tree" ]] ||
     fail "Unexpected contents in the $data_ref branch."
   if [[ -n $old_v1 ]]; then
@@ -133,15 +172,51 @@ if git ls-remote --exit-code --refs origin "$data_ref" >/dev/null; then
   elif [[ -n $old_v2 ]]; then
     git cat-file blob "$old_v2" | canonical_feed providers/toapis/publish-v2.jq 4096 >"$work/previous-v2.json"
   fi
+  if [[ -n $old_basis ]]; then
+    git cat-file blob "$old_basis" | canonical_basis >"$work/previous-basis.json"
+  fi
 else
   [[ $? == 2 ]] || fail "Could not determine whether the $data_ref branch exists."
 fi
 
+if [[ $provider == poyo && -n $old_v2 && -n $old_basis ]]; then
+  # Derived rates follow main's queue, but readers refuse a revision that loses a rate. At the
+  # same revision, keep each published rate its paired basis binds and the candidate dropped.
+  carried=$(jq -c --slurpfile old "$work/previous-v2.json" \
+    --slurpfile old_basis "$work/previous-basis.json" \
+    --arg old_sha "$(sha256_body "$work/previous-v2.json")" '
+    if .revision == $old[0].revision and $old_basis[0].revision == .revision
+      and $old_basis[0].feedSha256 == $old_sha then
+      . as $new
+      | [$old_basis[0].digests | keys[]
+        | select(. as $key | ($new.rates | has($key) | not) and ($old[0].rates | has($key)))]
+    else [] end' "$work/candidate.json")
+  if [[ $carried != '[]' ]]; then
+    jq -c --slurpfile old "$work/previous-v2.json" --argjson keys "$carried" \
+      '.rates += ($old[0].rates | with_entries(select(.key as $key | $keys | index($key))))' \
+      "$work/candidate.json" | canonical_feed providers/poyo/publish-v2.jq 65536 >"$work/merged.json"
+    mv "$work/merged.json" "$work/candidate.json"
+    jq -c --slurpfile old_basis "$work/previous-basis.json" --argjson keys "$carried" \
+      --arg sha "$(sha256_body "$work/candidate.json")" '
+      .digests += ($old_basis[0].digests | with_entries(select(.key as $key | $keys | index($key))))
+      | .feedSha256 = $sha' "$work/basis.json" | canonical_basis >"$work/merged.json"
+    mv "$work/merged.json" "$work/basis.json"
+  fi
+fi
+
 if [[ $provider == poyo ]]; then
-  # A rerun of the same collection publishes nothing.
-  if [[ -n $old_v2 && $license_blob == "$old_license" ]] &&
-    cmp -s "$work/candidate.json" "$work/previous-v2.json"; then
+  # A rerun of the same collection publishes nothing. Both files must be unchanged.
+  if [[ -n $old_v2 && -n $old_basis && $license_blob == "$old_license" ]] &&
+    cmp -s "$work/candidate.json" "$work/previous-v2.json" &&
+    cmp -s "$work/basis.json" "$work/previous-basis.json"; then
     skip "PoYo pricing is unchanged."
+  fi
+  # The feed digest follows confirmedAt, so only the revision and rate digests count here.
+  basis_changed=true
+  if [[ -n $old_basis ]] &&
+    jq -ne --slurpfile new "$work/basis.json" --slurpfile old "$work/previous-basis.json" \
+      '($new[0] | del(.feedSha256)) == ($old[0] | del(.feedSha256))' >/dev/null; then
+    basis_changed=false
   fi
   # Only this run's history check mints a confirmation, so it must be current.
   confirmed_seconds=$(date -u -d "$confirmed_at" '+%s')
@@ -160,7 +235,7 @@ if [[ $provider == poyo ]]; then
       -L "$script_dir" -f "$script_dir/providers/poyo/order.jq" "$work/candidate.json") ||
       fail "PoYo pricing ordering validation failed."
     # Publish at most one confirmation-only update per UTC day.
-    if [[ -n $old_v2 && $update == confirmation &&
+    if [[ -n $old_v2 && $update == confirmation && $basis_changed == false &&
       ${confirmed_at:0:10} == "$(field confirmedAt "$previous" | cut -c1-10)" ]]; then
       skip "PoYo pricing was already confirmed today."
     fi
@@ -174,6 +249,7 @@ if [[ $provider == poyo ]]; then
     v1_blob=$(git hash-object -w -- "$work/projection.json")
   fi
   v2_blob=$(git hash-object -w -- "$work/candidate.json")
+  basis_blob=$(git hash-object -w -- "$work/basis.json")
   revision=$(field revision "$work/candidate.json")
   outcome="PoYo pricing published: revision ${revision:0:12}, source $source_date, confirmed $confirmed_at."
 else
@@ -202,11 +278,13 @@ else
   fi
   v1_blob=$old_v1
   v2_blob=$(git hash-object -w -- "$work/candidate.json")
+  basis_blob=''
   outcome="ToAPIs pricing published: observed $source_date."
 fi
 
 # https://git-scm.com/docs/git-commit-tree
-tree=$(build_tree "$v1_blob" "$license_blob" "$v2_blob")
+# The feed and its basis land in this one commit, or neither does.
+tree=$(build_tree "$v1_blob" "$license_blob" "$v2_blob" "$basis_blob")
 export GIT_AUTHOR_NAME='github-actions[bot]' GIT_COMMITTER_NAME='github-actions[bot]'
 export GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com'
 export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"

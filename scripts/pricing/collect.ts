@@ -5,7 +5,7 @@ if (import.meta.main) {
 		const licenseFile = new URL("../../pricing/v1/LICENSE.poyo", import.meta.url);
 		const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 		const expectedLicense = decoder.decode(await Bun.file(licenseFile).bytes());
-		const feed = await collectPoyoPricing(
+		const handoff = await collectPoyoPricing(
 			fetch,
 			expectedLicense,
 			(model, reason) =>
@@ -13,7 +13,7 @@ if (import.meta.main) {
 			Date.now,
 			process.env.GITHUB_TOKEN,
 		);
-		console.log(JSON.stringify(feed, null, "\t"));
+		console.log(JSON.stringify(handoff, null, "\t"));
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : "Pricing collection failed.");
 		process.exitCode = 1;

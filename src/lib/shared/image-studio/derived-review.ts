@@ -7,7 +7,6 @@ import { poyoAccessNote } from "../media-catalog/eligibility";
 import { d4Wording } from "../media-catalog/filtering";
 import { queueRevision, queueRevisionDate } from "../media-catalog/image-queue";
 import type { QueueRow } from "../media-catalog/queue-row";
-import type { PriceEstimate } from "../pricing/estimate";
 
 /** Gallery's image limit today: 16,000,000 pixels (G13 raises it). */
 export const galleryMegapixels = 16;
@@ -47,16 +46,6 @@ export function derivedWording(row: QueueRow): DerivedWording {
 		access: poyoAccessNote,
 	};
 }
-
-/**
- * A derived row's price in this release: no derived rate basis is published yet (G4b), so the
- * price is unknown and Queue needs the creator's acceptance (spec, condition 3).
- */
-export const derivedQuote: PriceEstimate = {
-	status: "unknown",
-	reason: "rate-unavailable",
-	maxAttempts: 1,
-};
 
 /** Review's note for a refusal Poyo.ai confirmed for this key; it never blocks Queue. */
 export const refusalNote = (refusedAt: number) =>

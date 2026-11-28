@@ -1,6 +1,14 @@
+import { createHash } from "node:crypto";
+import { canonicalJson as catalogJson } from "../../../../src/lib/shared/media-catalog/canonical.ts";
+import { queueRows } from "../../../../src/lib/shared/media-catalog/image-queue.ts";
 import { isCreditRate } from "../../../../src/lib/shared/pricing/decimal.ts";
 import { isPricingRecord, type PricingFeed } from "../../../../src/lib/shared/pricing/feed.ts";
-import type { PerSecondRate } from "../../../../src/lib/shared/pricing/poyo-feed.ts";
+import {
+	type DerivedRate,
+	type PerSecondRate,
+	poyoRateKey,
+	poyoTierKey,
+} from "../../../../src/lib/shared/pricing/poyo-feed.ts";
 import h3Contract from "./h3-max-contract.json";
 
 const numberToken = Symbol("JSON number token");
@@ -11,9 +19,12 @@ const h3Resolutions = ["480p", "768p"] as const;
 
 type Model = (typeof models)[number];
 type Unavailable = { kind: "unavailable" };
-type Rates = PricingFeed["rates"] & { "h3-max": PerSecondRate | Unavailable };
-type ModelRate<T extends Model> = Exclude<Rates[T], Unavailable>;
-export type ReportGap = (model: Model, reason: string) => void;
+type ShippedRates = PricingFeed["rates"] & { "h3-max": PerSecondRate | Unavailable };
+type Rates = ShippedRates & Record<string, DerivedRate | ShippedRates[Model]>;
+type ModelRate<T extends Model> = Exclude<ShippedRates[T], Unavailable>;
+export type ReportGap = (model: string, reason: string) => void;
+/** The rate keys of the derived Queue rows, which `bun run catalog:derive` writes. */
+export const derivedRateKeys: readonly string[] = queueRows.map(({ rateKey }) => rateKey);
 
 function hasKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
 	return (
@@ -285,16 +296,114 @@ function catalogRows(text: string): Map<string, Record<string, unknown>> {
 	return rows;
 }
 
-export function normalizeRates(text: string, reportGap?: ReportGap): Rates {
+const noCredits = { credits: null, input_credits: null, output_credits: null };
+const unfit = "Its billing does not fit a rate kind Siluet quotes.";
+// The billing formulas of a tier per resolution, by the unit each charges. Siluet pins `n` to 1.
+const tierFormulas = {
+	request: ["resolution_credits[resolution]", "per-request-by-resolution"],
+	image: ["n * resolution_credits[resolution]", "per-image-by-resolution"],
+} as const;
+
+/** The billing fields beyond `type` and `unit`: each listed one is present, the rest absent. */
+function billingFields(
+	billing: Record<string, unknown>,
+	required: readonly string[],
+	optional: Readonly<Record<string, unknown>>,
+) {
+	const allowed = ["type", "unit", ...required, ...Object.keys(optional)];
+	return (
+		required.every((key) => Object.hasOwn(billing, key)) &&
+		Object.keys(billing).every((key) => allowed.includes(key)) &&
+		Object.entries(optional).every(
+			([key, value]) => !Object.hasOwn(billing, key) || billing[key] === value,
+		)
+	);
+}
+
+/** Credits per resolution tier, keyed as the feed and the lookup normalise them. */
+function tierCredits(value: unknown): Record<string, string> {
+	if (!isPricingRecord(value) || Object.keys(value).length === 0) throw new ModelDrift(unfit);
+	const tiers: Record<string, string> = Object.create(null);
+	const seen = new Set<string>();
+	for (const [tier, amount] of Object.entries(value)) {
+		const key = poyoTierKey(tier);
+		if (!poyoRateKey.test(key)) throw new ModelDrift("Its resolution tiers have unusable names.");
+		if (seen.has(key.toLowerCase()))
+			throw new ModelDrift("Two of its resolution tiers normalise to the same key.");
+		seen.add(key.toLowerCase());
+		tiers[key] = credits(amount);
+	}
+	return tiers;
+}
+
+/**
+ * A derived row's rate where its billing fits a kind exactly: a fixed charge per request, or a
+ * tier per resolution charged per request or per image. Everything else is a gap with its reason.
+ */
+function derivedRate(row: Record<string, unknown>): DerivedRate {
+	const billing = row.billing;
+	if (!isPricingRecord(billing)) throw new ModelDrift(unfit);
+	const formula = typeof billing.formula === "string" ? billing.formula : "";
+	if (billing.type === "dynamic")
+		throw new ModelDrift("Its price depends on usage that Siluet does not evaluate.");
+	if (/reference_image_count|input_image/.test(formula))
+		throw new ModelDrift("Its price depends on reference images, which Siluet does not evaluate.");
+	if (formula === "price_table[quality][billable_resolution]")
+		throw new ModelDrift(
+			"Its price depends on quality and billable resolution, which Siluet does not evaluate.",
+		);
+	if (billing.type === "fixed" && billing.unit === "request") {
+		if (!billingFields(billing, ["credits"], { input_credits: null, output_credits: null }))
+			throw new ModelDrift(unfit);
+		return { kind: "per-request", credits: credits(billing.credits) };
+	}
+	const tier =
+		billing.type === "tiered" && (billing.unit === "request" || billing.unit === "image")
+			? tierFormulas[billing.unit]
+			: undefined;
+	if (
+		!tier ||
+		formula !== tier[0] ||
+		!billingFields(billing, ["formula", "resolution_credits"], {
+			...noCredits,
+			parameters: billing.parameters,
+		}) ||
+		(billing.parameters !== undefined &&
+			(!isPricingRecord(billing.parameters) ||
+				!Object.values(billing.parameters).every((text) => typeof text === "string")))
+	)
+		throw new ModelDrift(unfit);
+	return { kind: tier[1], resolutions: tierCredits(billing.resolution_credits) };
+}
+
+const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/** The SHA-256 of an entry's canonical billing and input schema, as `catalog:derive` binds it. */
+function entryDigest(row: Record<string, unknown>) {
+	return sha256(catalogJson({ billing: row.billing, input_schema: row.input_schema }));
+}
+
+/** Plain catalog rows, numbers included, keyed by model ID, for the basis digests. */
+function plainRows(text: string): Map<string, Record<string, unknown>> {
+	const { items } = JSON.parse(text) as { items: Record<string, unknown>[] };
+	return new Map(items.map((item) => [item.model_id as string, item]));
+}
+
+export function normalizeRates(
+	text: string,
+	reportGap?: ReportGap,
+	derivedKeys: readonly string[] = derivedRateKeys,
+): { rates: Rates; digests: Record<string, string> } {
 	const rows = catalogRows(text);
 	function rateFor<Rate>(
-		model: Model,
+		model: string,
 		extract: (row: Record<string, unknown>) => Rate,
+		review?: (row: Record<string, unknown>) => void,
 	): Rate | { kind: "unavailable" } {
 		try {
 			const row = rows.get(model);
 			if (!row) throw new ModelDrift("The model is missing from the complete catalog.");
-			reviewedInputs(row, model);
+			review?.(row);
 			return extract(row);
 		} catch (error) {
 			if (!(error instanceof ModelDrift)) throw error;
@@ -302,9 +411,22 @@ export function normalizeRates(text: string, reportGap?: ReportGap): Rates {
 			return { kind: "unavailable" };
 		}
 	}
-	return {
-		"z-image": rateFor("z-image", zImageRate),
-		"seedream-5.5": rateFor("seedream-5.5", seedreamRate),
-		"h3-max": rateFor("h3-max", h3MaxRate),
+	const rates: Rates = {
+		"z-image": rateFor("z-image", zImageRate, (row) => reviewedInputs(row, "z-image")),
+		"seedream-5.5": rateFor("seedream-5.5", seedreamRate, (row) =>
+			reviewedInputs(row, "seedream-5.5"),
+		),
+		"h3-max": rateFor("h3-max", h3MaxRate, (row) => reviewedInputs(row, "h3-max")),
 	};
+	// A derived rate applies to its row only while this digest equals the row's own basis.
+	const plain = plainRows(text);
+	const digests: Record<string, string> = {};
+	for (const model of new Set(derivedKeys)) {
+		if (Object.hasOwn(rates, model)) continue;
+		const rate = rateFor(model, derivedRate);
+		if (rate.kind === "unavailable") continue;
+		rates[model] = rate;
+		digests[model] = entryDigest(plain.get(model) as Record<string, unknown>);
+	}
+	return { rates, digests };
 }

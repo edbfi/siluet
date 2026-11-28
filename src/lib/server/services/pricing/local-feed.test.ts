@@ -1,13 +1,25 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import poyoFeed from "../../../../../pricing/v1/feed.json";
 import poyoV2Bundle from "../../../../../pricing/v2/poyo.json";
 import toapisFeed from "../../../../../pricing/v2/toapis.json";
 import h3Fixture from "../../../../../tests/fixtures/h3-rate.v2.json";
+import pair from "../../../../../tests/fixtures/poyo-basis-pair.json";
+import { queueRows } from "../../../shared/media-catalog/image-queue";
+import { estimateDerivedPrice } from "../../../shared/pricing/derived-estimate";
+import { estimatePrice } from "../../../shared/pricing/estimate";
+import { decodePoyoBasis, poyoBasisByteLimit } from "../../../shared/pricing/poyo-basis";
 import { decodePoyoV2Feed } from "../../../shared/pricing/poyo-feed";
-import { pricingCachePath, pricingFeedConflict } from "./local-feed";
+import {
+	loadLocalPoyoPricing,
+	poyoBasisPairs,
+	poyoBasisPath,
+	poyoFeedSha256,
+	pricingCachePath,
+	pricingFeedConflict,
+} from "./local-feed";
 import { loadStudioPricingFeeds } from "./studio-feeds";
 
 const day = 24 * 60 * 60 * 1000;
@@ -189,5 +201,184 @@ describe("confirmed PoYo v2 cache", () => {
 		const bytes = 256 * 1024 + 1;
 		await writeCache(v2Path(), `${JSON.stringify({ checkedAt, feed: later })}${" ".repeat(bytes)}`);
 		expect<unknown>(await studio()).toEqual(bundled);
+	});
+});
+
+describe("the Poyo.ai price basis", () => {
+	const feed = decodePoyoV2Feed(pair.feed);
+	const basis = decodePoyoBasis(pair.basis);
+	if (!feed || !basis) throw new Error("The basis fixture does not decode.");
+	const now = Date.parse(feed.confirmedAt) + day;
+	const checkedAt = new Date(now).toISOString();
+	const found = queueRows.find(({ rateKey }) => rateKey === "gpt-4o-image");
+	if (!found) throw new Error("gpt-4o-image is not a queue row.");
+	const target = found;
+	const zImage = {
+		provider: "poyo",
+		model: "z-image",
+		operation: "generate",
+		options: { size: "1:1" },
+		sourceCount: 0,
+		count: 1,
+		retryLimit: 0,
+	};
+	const paths = () => ({
+		v2CachePath: pricingCachePath(directory, "poyo-v2"),
+		cachePath: pricingCachePath(directory, "poyo"),
+		bundledFeeds: { "poyo-v2": feed, "poyo-basis": basis },
+	});
+	const basisCache = () => poyoBasisPath(pricingCachePath(directory, "poyo-v2"));
+	/** What Review sees: the derived quote, and the verified Z-Image quote beside it. */
+	async function quotes(options: Parameters<typeof loadLocalPoyoPricing>[1] = paths()) {
+		const pricing = await loadLocalPoyoPricing(now, options);
+		const feeds = { poyo: pricing.feed, poyoBasis: pricing.basis };
+		return {
+			pricing,
+			derived: estimateDerivedPrice(feeds, target, {}, now).status,
+			verified: estimatePrice(pricing.feed, zImage, now).status,
+		};
+	}
+	const later = { ...feed, confirmedAt: iso(Date.parse(feed.confirmedAt) + 1000) };
+	const laterBasis = { ...basis, feedSha256: poyoFeedSha256(later) };
+
+	test("the basis sits beside the v2 file it pairs with", () => {
+		expect(poyoBasisPath("/custom/cache/siluet/pricing/v2/poyo.json")).toBe(
+			"/custom/cache/siluet/pricing/v2/poyo-basis.json",
+		);
+		expect(poyoBasisPairs(feed, basis)).toBe(true);
+		expect(poyoBasisPairs(later, basis)).toBe(false);
+	});
+
+	test("a derived row quotes from the bundled pair", async () => {
+		expect(await quotes()).toEqual({
+			pricing: { feed, basis },
+			derived: "known",
+			verified: "known",
+		});
+	});
+
+	test("a cached pair replaces the bundled pair, and a restart reads it again", async () => {
+		await writeCache(pricingCachePath(directory, "poyo-v2"), { checkedAt, feed: later });
+		await writeCache(basisCache(), laterBasis);
+		for (let run = 0; run < 2; run++) {
+			expect(await quotes()).toEqual({
+				pricing: { feed: later, basis: laterBasis },
+				derived: "known",
+				verified: "known",
+			});
+		}
+	});
+
+	test.each([
+		["a missing bundled basis", () => ({ ...paths(), bundledFeeds: { "poyo-v2": feed } })],
+		[
+			"a bundled basis for another revision",
+			() => ({
+				...paths(),
+				bundledFeeds: { "poyo-v2": feed, "poyo-basis": { ...basis, revision: "f".repeat(40) } },
+			}),
+		],
+		[
+			"a bundled basis for another body",
+			() => ({
+				...paths(),
+				bundledFeeds: { "poyo-v2": feed, "poyo-basis": { ...basis, feedSha256: "f".repeat(64) } },
+			}),
+		],
+	])("%s makes derived rates unknown while verified rates quote", async (_, options) => {
+		const { pricing, derived, verified } = await quotes(options());
+		expect(pricing).toEqual({ feed });
+		expect([derived, verified]).toEqual(["unknown", "known"]);
+	});
+
+	test("a cached feed never pairs with the bundled basis", async () => {
+		await writeCache(pricingCachePath(directory, "poyo-v2"), { checkedAt, feed: later });
+		// The bundled basis would pair with the cached feed if the sources could mix.
+		const options = { ...paths(), bundledFeeds: { "poyo-v2": feed, "poyo-basis": laterBasis } };
+		const { pricing, derived, verified } = await quotes(options);
+		expect(pricing).toEqual({ feed: later });
+		expect([derived, verified]).toEqual(["unknown", "known"]);
+	});
+
+	test("a refresh that stopped between the two files leaves derived rates unknown", async () => {
+		// The new feed landed, and the basis beside it still pairs with the earlier feed.
+		await writeCache(pricingCachePath(directory, "poyo-v2"), { checkedAt, feed: later });
+		await writeCache(basisCache(), basis);
+		const { pricing, derived, verified } = await quotes();
+		expect(pricing).toEqual({ feed: later });
+		expect([derived, verified]).toEqual(["unknown", "known"]);
+		await writeCache(basisCache(), "{");
+		expect((await quotes()).pricing).toEqual({ feed: later });
+	});
+
+	test("a cached basis pairs up to the basis limit and not one byte more", async () => {
+		await writeCache(pricingCachePath(directory, "poyo-v2"), { checkedAt, feed: later });
+		const json = JSON.stringify(laterBasis);
+		const pad = (bytes: number) => `${json}${" ".repeat(bytes - json.length)}`;
+		await writeCache(basisCache(), pad(poyoBasisByteLimit));
+		expect((await quotes()).pricing).toEqual({ feed: later, basis: laterBasis });
+		await writeCache(basisCache(), pad(poyoBasisByteLimit + 1));
+		expect((await quotes()).pricing).toEqual({ feed: later });
+	});
+
+	test("a selected v1 feed carries no basis", async () => {
+		const v1 = {
+			version: 1,
+			provider: "poyo",
+			revision: "d".repeat(40),
+			sourceDate: iso(Date.parse(feed.sourceDate) + 1000),
+			rates: { "z-image": feed.rates["z-image"], "seedream-5.5": feed.rates["seedream-5.5"] },
+		};
+		await writeCache(pricingCachePath(directory, "poyo"), { checkedAt, feed: v1 });
+		const { pricing, derived, verified } = await quotes();
+		expect<unknown>(pricing).toEqual({ feed: v1 });
+		expect([derived, verified]).toEqual(["unknown", "known"]);
+	});
+
+	test("Studio offers the basis only with the feed it pairs with", async () => {
+		const bundled = decodePoyoV2Feed(poyoV2Bundle);
+		if (!bundled) throw new Error("Invalid bundled v2 feed");
+		const confirmed = Date.parse(bundled.confirmedAt) + day;
+		const at = confirmed + day;
+		const cached = {
+			...bundled,
+			confirmedAt: iso(confirmed),
+			rates: { ...bundled.rates, "gpt-4o-image": { kind: "per-request", credits: "4" } },
+		};
+		const cachedBasis = {
+			revision: cached.revision,
+			feedSha256: poyoFeedSha256(cached),
+			digests: { "gpt-4o-image": target.basis },
+		};
+		await writeCache(pricingCachePath(directory, "poyo-v2"), {
+			checkedAt: new Date(at).toISOString(),
+			feed: cached,
+		});
+		expect(await loadStudioPricingFeeds(at, directory)).toMatchObject({ poyo: cached });
+		expect((await loadStudioPricingFeeds(at, directory)).poyoBasis).toBeUndefined();
+		await writeCache(basisCache(), cachedBasis);
+		const feeds = await loadStudioPricingFeeds(at, directory);
+		expect(feeds).toMatchObject({ poyo: cached, poyoBasis: cachedBasis });
+		expect(estimateDerivedPrice(feeds, target, {}, at)).toMatchObject({
+			status: "known",
+			perRequest: "4",
+		});
+	});
+
+	// Until pricing-data publishes a basis and a re-bundle brings it to main, no basis is bundled.
+	// The first re-bundle PR makes this test require the file unconditionally.
+	test("a bundled basis on main pairs with the bundled v2 feed and is embedded", async () => {
+		const bundledBasis = new URL("../../../../../pricing/v2/poyo-basis.json", import.meta.url);
+		const studio = await loadStudioPricingFeeds(Date.parse(poyoV2Bundle.confirmedAt), directory);
+		if (!(await Bun.file(bundledBasis).exists())) {
+			expect(studio.poyoBasis).toBeUndefined();
+			return;
+		}
+		const decoded = decodePoyoBasis(JSON.parse(await readFile(bundledBasis, "utf8")));
+		const bundledFeed = decodePoyoV2Feed(poyoV2Bundle);
+		if (!decoded || !bundledFeed) throw new Error("The bundled pair does not decode.");
+		expect(decoded.revision).toBe(bundledFeed.revision);
+		expect(decoded.feedSha256).toBe(poyoFeedSha256(bundledFeed));
+		expect(studio.poyoBasis).toEqual(decoded);
 	});
 });
