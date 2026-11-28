@@ -108,8 +108,12 @@ test("the inventory CHECKs refuse every malformed row", async () => {
 			sql`INSERT INTO provider_inventory_generation VALUES ('toapis','https://toapis.com','image',0)`,
 			sql`INSERT INTO provider_inventory_generation VALUES ('poyo','https://toapis.com','image',1)`,
 			sql`INSERT INTO provider_inventory_generation VALUES ('toapis','https://toapis.com','text',1)`,
-		])
-			expect(await refused(statement)).toBeInstanceOf(Error);
+		]) {
+			// A CHECK failure, never a JSON parse error: malformed JSON such as `x` must reach the
+			// COALESCE form and fail the constraint.
+			const error = await refused(statement);
+			expect(String((error as Error | null)?.cause)).toMatch(/CHECK constraint failed/i);
+		}
 		for (const statement of [
 			row("toapis", "image", "succeeded", "[]"),
 			row("toapis", "video", "succeeded", '["a"]'),

@@ -305,4 +305,18 @@ describe("the SQL twin", () => {
 		);
 		expect(read).toEqual(expected);
 	});
+
+	test("a readable revision other than the saved one is disconnected", async () => {
+		const [fresh] = cases;
+		const inputs = inputsOf(fresh.inputs);
+		await seed(inputs, fresh.scope);
+		const read = await db.use((conn) =>
+			inventoryAccess(
+				conn,
+				{ origin, scope: fresh.scope, key: fresh.key, readable: (inputs.revision ?? 0) + 1 },
+				now,
+			),
+		);
+		expect(read).toMatchObject({ state: "disconnected", revision: null });
+	});
 });
