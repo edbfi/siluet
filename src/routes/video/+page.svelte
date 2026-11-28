@@ -544,7 +544,9 @@ const frame = css({
 							type="button"
 							class={studioButton({ appearance: "secondary" })}
 							disabled={pending || checking}
-							aria-label="Check again: ToAPIs model access"
+							aria-label={checking
+								? "Checking: ToAPIs model access"
+								: "Check again: ToAPIs model access"}
 							aria-describedby="video-access"
 							onclick={checkAgain}
 						>

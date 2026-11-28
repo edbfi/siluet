@@ -193,7 +193,9 @@ function save(
 										<button
 											type="button"
 											class={cx(studioButton({ appearance: "secondary" }), styles.action)}
-											aria-label={section.action}
+											aria-label={checkingInventory[section.scope]
+												? section.action.replace("Check again", "Checking")
+												: section.action}
 											aria-disabled={!!checkingInventory[section.scope]}
 											onclick={() => checkInventory(section.scope)}
 										>

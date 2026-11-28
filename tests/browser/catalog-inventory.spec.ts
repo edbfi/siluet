@@ -156,7 +156,10 @@ test("Settings and Review show listed, absent or unknown per exact ToAPIs model,
 			slow = Promise.withResolvers<void>();
 			const gate = slow;
 			await reviewCheck.press("Enter");
-			await expect(reviewCheck).toHaveText("Checking…");
+			// While it runs, the name follows the visible text (WCAG 2.5.3).
+			await expect(
+				review.getByRole("button", { name: "Checking: ToAPIs model access" }),
+			).toHaveText("Checking…");
 			slow = null;
 			gate.resolve();
 			await expect(facts.getByText(listed("doubao-seedream-5-5"))).toBeVisible();
