@@ -3,7 +3,15 @@
 // its credential revision is still the saved one and its generation is newer than the stored
 // snapshot's, so a late or superseded answer is discarded.
 import { sql } from "drizzle-orm";
-import type { InventoryScope } from "../../shared/providers/inventory";
+import {
+	type InventoryKey,
+	type InventoryScope,
+	inventoryFreshMs,
+	type ModelAccess,
+	preSnapshotScope,
+	preSnapshotVideoModel,
+	resolveAccess,
+} from "../../shared/providers/inventory";
 import type { Installation, InstallationTransaction } from "./installation";
 
 type Statements = Pick<InstallationTransaction, "get" | "run">;
@@ -73,6 +81,63 @@ export async function currentSnapshot(
 		JOIN provider_credential c ON c.provider=i.provider AND c.revision=i.revision AND c.ciphertext IS NOT NULL
 		WHERE i.provider='toapis' AND i.origin=${origin} AND i.scope=${scope}`);
 	return row ? { ...row, models: row.models === null ? null : JSON.parse(row.models) } : null;
+}
+
+type AccessQuery = { origin: string; scope: InventoryScope; key: InventoryKey };
+
+/**
+ * The SQL twin of `accessQueues(resolveAccess(...))` over the provider_credential row `c`: a
+ * fresh snapshot for `c`'s revision lists the exact model, or the frozen pre-snapshot exception
+ * holds because no snapshot exists for that revision.
+ */
+export function inventoryListedSql({ origin, scope, key }: AccessQuery, now: number) {
+	const snapshot = sql`provider_inventory i WHERE i.provider='toapis' AND i.origin=${origin}
+		AND i.scope=${scope} AND i.revision=c.revision`;
+	const evidence =
+		preSnapshotScope(key) !== scope
+			? sql`0`
+			: scope === "image"
+				? sql`c.seedream=1`
+				: sql`EXISTS(SELECT 1 FROM model_access a WHERE a.provider='toapis'
+					AND a.model=${preSnapshotVideoModel} AND a.revision=c.revision AND a.state='eligible')`;
+	return sql`(c.provider='toapis' AND c.ciphertext IS NOT NULL AND (EXISTS(SELECT 1 FROM ${snapshot}
+		AND i.outcome='succeeded' AND i.checked_at<=${now} AND i.checked_at>${now - inventoryFreshMs}
+		AND EXISTS(SELECT 1 FROM json_each(i.models) WHERE json_each.value=${key.model}))
+		OR (NOT EXISTS(SELECT 1 FROM ${snapshot}) AND ${evidence})))`;
+}
+
+/**
+ * Reads one model's access evidence, inside the caller's transaction at a claim. `readable` is
+ * the revision of the key the caller decrypted, or null when none could be read.
+ */
+export async function inventoryAccess(
+	tx: Pick<InstallationTransaction, "get">,
+	{ origin, scope, key, readable }: AccessQuery & { readable: number | null },
+	now: number,
+): Promise<ModelAccess> {
+	const row = await tx.get<{
+		revision: number;
+		seedream: number;
+		accessRevision: number | null;
+		accessState: string | null;
+	}>(sql`SELECT c.revision, c.seedream, a.revision AS accessRevision, a.state AS accessState
+		FROM provider_credential c LEFT JOIN model_access a ON a.provider=c.provider AND a.model=${preSnapshotVideoModel}
+		WHERE c.provider='toapis' AND c.ciphertext IS NOT NULL`);
+	const revision = row && row.revision === readable ? row.revision : null;
+	return resolveAccess(
+		key,
+		scope,
+		{
+			revision,
+			snapshot: revision === null ? null : await currentSnapshot(tx, origin, scope),
+			seedream: row?.seedream === 1,
+			modelAccess:
+				row?.accessRevision != null && row.accessState !== null
+					? { revision: row.accessRevision, state: row.accessState }
+					: null,
+		},
+		now,
+	);
 }
 
 export function inventoryStore({ use }: Installation) {
