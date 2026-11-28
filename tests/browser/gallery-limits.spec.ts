@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, rm } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { galleryStatement } from "../../src/lib/shared/image-studio/derived-review";
 import { createSeedreamDraft } from "../../src/lib/shared/image-studio/seedream";
@@ -228,7 +228,7 @@ test("a 20 MP PNG from nano-banana-pro 4K saves under Review's statement, reopen
 	}
 });
 
-test("flux-3-klein's 4K tier saves a 4096 × 4096 image and downloads it unchanged", async ({
+test("flux-3-klein's 4K tier saves a 4096 × 4096 image, reopens offline and downloads it unchanged", async ({
 	page,
 }) => {
 	test.setTimeout(180_000);
@@ -240,11 +240,13 @@ test("flux-3-klein's 4K tier saves a 4096 × 4096 image and downloads it unchang
 	try {
 		studio = await openStudio(page, provider);
 		const jobId = await queueDerived(page, studio.origin, "flux-3-klein", "4K");
+		expect(provider.transfers()).toBe(1);
+		await restartOffline(studio, provider);
 		await page.goto(`${studio.origin}/gallery/${jobId}`);
 		await expect(page.getByText("PNG · 4096 × 4096")).toBeVisible();
 		const viewer = page.getByRole("link", { name: "Download image", exact: true });
 		expect(await download(page, viewer)).toEqual(expected(flux4k));
-		expect(provider.transfers()).toBe(1);
+		expect(studio.outbound).toEqual([]);
 	} finally {
 		await cleanup(studio, provider);
 	}
@@ -270,6 +272,7 @@ test("an image of exactly 80 MiB saves, reopens offline and downloads unchanged"
 		const viewer = page.getByRole("link", { name: "Download image", exact: true });
 		expect(await download(page, viewer)).toEqual(expected(encodedBound));
 		expect(provider.transfers()).toBe(1);
+		expect(studio.outbound).toEqual([]);
 	} finally {
 		await cleanup(studio, provider);
 	}
@@ -294,6 +297,7 @@ test("an 80 MiB image arriving at 2 MiB/s, past the old 30 s deadline, saves fro
 		await page.goto(`${studio.origin}/gallery/${jobId}`);
 		const viewer = page.getByRole("link", { name: "Download image", exact: true });
 		expect(await download(page, viewer)).toEqual(expected(encodedBound));
+		expect(studio.outbound).toEqual([]);
 	} finally {
 		await cleanup(studio, provider);
 	}
@@ -378,26 +382,31 @@ function watchReads() {
 }
 
 /**
- * Linux Chromium only: the peak resident memory of each browser process this worker launched,
- * read from `/proc` and recorded, never gated.
+ * Linux Chromium only: the peak resident memory of the browser this worker launched and of every
+ * process in its tree (renderers, GPU and utility processes, whatever their names), read from
+ * `/proc`, largest first. Recorded, never gated.
  */
 async function recordBrowserMemory() {
 	if (process.platform !== "linux") return null;
-	const children = async (parent: number): Promise<number[]> => {
-		const listed = await readFile(`/proc/${parent}/task/${parent}/children`, "utf8").catch(
-			() => "",
-		);
-		const direct = listed.split(/\s+/).filter(Boolean).map(Number);
-		return [...direct, ...(await Promise.all(direct.map(children))).flat()];
+	const proc = (path: string) => readFile(`/proc/${path}`, "utf8").catch(() => "");
+	// Each thread lists the children it started, so read every thread's list.
+	const children = async (parent: number) => {
+		const threads = await readdir(`/proc/${parent}/task`).catch(() => []);
+		const lists = await Promise.all(threads.map((task) => proc(`${parent}/task/${task}/children`)));
+		return lists.join(" ").split(/\s+/).filter(Boolean).map(Number);
 	};
 	const peaks: number[] = [];
-	for (const child of await children(process.pid)) {
-		const name = await readFile(`/proc/${child}/comm`, "utf8").catch(() => "");
-		if (!/chrom|headless/i.test(name)) continue;
-		const status = await readFile(`/proc/${child}/status`, "utf8").catch(() => "");
-		const kib = status.match(/^VmHWM:\s+(\d+) kB$/m)?.[1];
-		if (kib) peaks.push(Math.ceil(Number(kib) / 1024));
-	}
+	// The browser's root is the first Chromium process below this worker; below it, every
+	// descendant belongs to the browser.
+	const walk = async (parent: number, inBrowser: boolean): Promise<void> => {
+		for (const pid of await children(parent)) {
+			const browser = inBrowser || /chrom|headless/i.test(await proc(`${pid}/comm`));
+			const kib = browser && (await proc(`${pid}/status`)).match(/^VmHWM:\s+(\d+) kB$/m)?.[1];
+			if (kib) peaks.push(Math.ceil(Number(kib) / 1024));
+			await walk(pid, browser);
+		}
+	};
+	await walk(process.pid, false);
 	return peaks.sort((a, b) => b - a);
 }
 
@@ -524,6 +533,7 @@ test("complete images over 20 MP, up to 25 MP, are held as unsupported, never as
 		await expect(page.getByText("Download failed")).toHaveCount(0);
 		// Each was read once and classified, not retried as a failed download.
 		expect(provider.transfers()).toBe(2);
+		expect(studio.outbound).toEqual([]);
 	} finally {
 		await cleanup(studio, provider);
 	}

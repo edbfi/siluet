@@ -42,10 +42,15 @@ export function createSlots(count: number) {
 
 	return {
 		take,
-		/** Run `work` in a slot, releasing it however `work` ends. */
+		/**
+		 * Run `work` in a slot, releasing it however `work` ends. A slot handed over after
+		 * `signal` aborted is released at once, and `work` never runs.
+		 */
 		async run<T>(signal: AbortSignal, work: () => Promise<T>) {
+			signal.throwIfAborted();
 			const release = await take(signal);
 			try {
+				signal.throwIfAborted();
 				return await work();
 			} finally {
 				release();

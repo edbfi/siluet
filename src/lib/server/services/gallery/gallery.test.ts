@@ -380,6 +380,44 @@ test("an aborted request cancels its queued wait for a permit", async () => {
 	next?.release();
 });
 
+test("a permit handed to an aborted request, or held while its request aborts during the read, is released", async () => {
+	const ids = await savedImages(3);
+	const [first, second] = await Promise.all(
+		ids.slice(0, 2).map((id) => gallery.openImage(id, live())),
+	);
+	const handed = new AbortController();
+	const queued = gallery.openImage(ids[2], handed.signal);
+	// The permit passes to the queued request just as it aborts.
+	first?.release();
+	handed.abort(new Error("The client went away."));
+	await expect(queued).rejects.toThrow("The client went away.");
+	second?.release();
+
+	const probe = await open(directory, "r");
+	const proto = Object.getPrototypeOf(probe);
+	await probe.close();
+	const readFileBytes = proto.readFile;
+	const reading = new AbortController();
+	const read = spyOn(proto, "readFile").mockImplementation(async function (
+		this: typeof probe,
+		...args: unknown[]
+	) {
+		reading.abort(new Error("The client left mid-read."));
+		return readFileBytes.apply(this, args);
+	});
+	try {
+		await expect(gallery.openImage(ids[0], reading.signal)).rejects.toThrow(
+			"The client left mid-read.",
+		);
+	} finally {
+		read.mockRestore();
+	}
+	// Both permits are free: two reads open at once without waiting.
+	const again = await Promise.all(ids.slice(0, 2).map((id) => gallery.openImage(id, live())));
+	expect(again.map((image) => image?.bytes)).toEqual([referencePng, referencePng]);
+	for (const image of again) image?.release();
+});
+
 test("an image read leaves the installation connection free during file I/O", async () => {
 	const [id] = await savedImages(1);
 	const probe = await open(directory, "r");

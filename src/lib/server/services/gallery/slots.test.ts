@@ -64,3 +64,18 @@ test("an aborted caller leaves the queue at once, and an aborted signal never ta
 	expect(ran).toBe(false);
 	expect(await slots.run(open(), async () => "next")).toBe("next");
 });
+
+test("a slot handed to a caller whose signal has just aborted is released, and its work never runs", async () => {
+	const slots = createSlots(1);
+	const release = await slots.take(open());
+	const stop = new AbortController();
+	let ran = false;
+	const waiting = slots.run(stop.signal, async () => {
+		ran = true;
+	});
+	// The holder hands the slot over, and the waiter's signal aborts before it can run.
+	release();
+	stop.abort(new Error("The client went away."));
+	await expect(waiting).rejects.toThrow("The client went away.");
+	expect([ran, slots.held()]).toEqual([false, 0]);
+});

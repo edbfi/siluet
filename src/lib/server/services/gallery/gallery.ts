@@ -20,12 +20,15 @@ export function createGallery(installation: RuntimeInstallation) {
 		headImage: storage.headImage,
 		/**
 		 * Read a saved image under one of the route's permits, waiting for one unless `signal`
-		 * aborts. The caller releases the permit once the response is done with the bytes.
+		 * aborts; a request that aborts before or during the read releases its permit. The caller
+		 * releases it once the response is done with the bytes.
 		 */
 		async openImage(id: string, signal: AbortSignal): Promise<OpenedImage | null> {
 			const release = await reads.take(signal);
 			try {
+				signal.throwIfAborted();
 				const image = await storage.read(id);
+				signal.throwIfAborted();
 				if (image)
 					return { mime: image.mime, size: image.bytes.length, bytes: image.bytes, release };
 			} catch (error) {

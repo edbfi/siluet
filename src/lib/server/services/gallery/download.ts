@@ -30,31 +30,49 @@ async function readImage(response: Response) {
 		throw invalid();
 	}
 	const reader = response.body.getReader();
-	// A declared length sizes the buffer once; only an undeclared body grows a sink.
-	const declared = length === null ? null : Number(length);
-	const buffer = declared === null ? null : Buffer.allocUnsafe(declared);
-	const sink = buffer ? null : new Bun.ArrayBufferSink();
-	sink?.start({});
-	let total = 0;
 	try {
-		while (true) {
-			const chunk = await reader.read();
-			if (chunk.done) break;
-			const offset = total;
-			total += chunk.value.byteLength;
-			if (total > encodedLimit || (declared !== null && total > declared)) throw invalid();
-			if (buffer) buffer.set(chunk.value, offset);
-			else sink?.write(chunk.value);
-		}
-		if (total === 0 || (declared !== null && declared !== total)) throw invalid();
-		if (buffer) return buffer;
-		const bytes = sink?.end() ?? new ArrayBuffer(0);
-		return bytes instanceof ArrayBuffer
-			? Buffer.from(bytes)
-			: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+		return length === null
+			? await readUndeclared(reader)
+			: await readDeclared(reader, Number(length));
 	} finally {
 		await reader.cancel();
 	}
+}
+
+type ByteReader = ReadableStreamDefaultReader<Uint8Array>;
+
+/** A declared length sizes the buffer once; the body must fill it exactly. */
+async function readDeclared(reader: ByteReader, declared: number) {
+	const buffer = Buffer.allocUnsafe(declared);
+	let total = 0;
+	while (true) {
+		const chunk = await reader.read();
+		if (chunk.done) break;
+		if (total + chunk.value.byteLength > declared) throw invalid();
+		buffer.set(chunk.value, total);
+		total += chunk.value.byteLength;
+	}
+	if (total === 0 || total !== declared) throw invalid();
+	return buffer;
+}
+
+/** Only an undeclared body grows a sink, up to the encoded limit. */
+async function readUndeclared(reader: ByteReader) {
+	const sink = new Bun.ArrayBufferSink();
+	sink.start({});
+	let total = 0;
+	while (true) {
+		const chunk = await reader.read();
+		if (chunk.done) break;
+		total += chunk.value.byteLength;
+		if (total > encodedLimit) throw invalid();
+		sink.write(chunk.value);
+	}
+	if (total === 0) throw invalid();
+	const bytes = sink.end();
+	return bytes instanceof ArrayBuffer
+		? Buffer.from(bytes)
+		: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
 export class DeliveryUnavailable extends Error {}

@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import ledger from "../../docs/media-catalog.v1.json";
+import { galleryImageLimits } from "../../src/lib/shared/gallery/limits";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import { d4States } from "../../src/lib/shared/media-catalog/filtering";
 import {
@@ -794,7 +795,7 @@ describe("listed sizes and the Gallery envelope", () => {
 		});
 		// The long edge is 4096 px, so 4096×4096 at 1:1 is its largest output.
 		expect(tier?.pixels).toBe(4096 * 4096);
-		expect(tier?.pixels).toBeLessThanOrEqual(20_000_000);
+		expect(tier?.pixels).toBeLessThanOrEqual(galleryImageLimits.pixels);
 		const entry = catalogSource.entries.find((item) => item.model_id === "flux-3-klein");
 		if (!entry) throw new Error("flux-3-klein has no catalog entry.");
 		// The pinned entries are a union of every schema; read this one's resolution alone.

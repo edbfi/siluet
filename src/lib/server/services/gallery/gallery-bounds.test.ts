@@ -98,5 +98,5 @@ test("the current-bound and D7 fixtures stay within today's 32 MiB and cleanup's
 test("removing the fixtures deletes their directory", async () => {
 	const set = await generateGalleryBounds(["current"]);
 	await set.remove();
-	expect(stat(set.directory)).rejects.toMatchObject({ code: "ENOENT" });
+	await expect(stat(set.directory)).rejects.toMatchObject({ code: "ENOENT" });
 }, 60_000);
