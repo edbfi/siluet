@@ -5,13 +5,11 @@ import { defineConfig } from "vite";
 
 import { clientBudget } from "./scripts/bundle-budget.ts";
 import { checkPublicAssets, guardPublicAssets } from "./scripts/public-assets.ts";
+import { serverEnvPrefix, serverOptions } from "./scripts/server-options.ts";
 
 checkPublicAssets("static");
 
-const bunAdapter = adapter({
-	envPrefix: "SILUET_SERVER_",
-	serverOptions: { hostname: "127.0.0.1" },
-});
+const bunAdapter = adapter({ envPrefix: serverEnvPrefix, serverOptions });
 
 export default defineConfig({
 	plugins: [

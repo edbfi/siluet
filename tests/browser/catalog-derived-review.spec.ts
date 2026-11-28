@@ -13,7 +13,7 @@ const samePath =
 const access =
 	"Poyo.ai does not publish per-key model access. Siluet has checked only that this key works.";
 const gallery =
-	"Gallery saves images up to 16 megapixels. A completed billable image over that stays with the provider.";
+	"Gallery saves images up to 20 megapixels. A completed billable image over that stays with the provider.";
 
 test("a Queue-eligible derived row composes from its row and Review states what it binds", async ({
 	page,
@@ -122,8 +122,19 @@ test("a Queue-eligible derived row composes from its row and Review states what 
 			"The model contract declares input.enable_safety_checker: false.",
 		);
 		await expect(review.getByRole("list", { name: "Provider disclosure" })).toHaveCount(0);
-		await expect(page.getByLabel("Size", { exact: true }).locator("option")).not.toContainText([
+		// G13 offers its 4K tier with Review's Gallery statement, as no source documents its output
+		// size, and never a custom size.
+		await expect(page.getByLabel("Size", { exact: true }).locator("option")).toHaveText([
+			"2K",
 			"4K",
+			"1:1",
+			"4:3",
+			"3:4",
+			"16:9",
+			"9:16",
+			"3:2",
+			"2:3",
+			"21:9",
 		]);
 		await expect(fact("Expected type")).toContainText("The provider's choice.");
 

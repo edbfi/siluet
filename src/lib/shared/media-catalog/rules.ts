@@ -136,15 +136,53 @@ export const reviewedRules: readonly ReviewedRule[] = [
 ];
 
 /**
- * Option values over Gallery's image limits until G13 raises them (spec, "Gallery size limits"):
- * a 4K tier's output (4096×4096) is over 16,000,000 pixels, and 8K more so. On image rows they
- * are never offered and stay tag-blocking envelope items.
+ * Option values over Gallery's image limits (spec, "Gallery size limits"): `kling-4.0-image`'s
+ * 8K tier ("8K is 8192x8192 at 1:1", 67,108,864 px) is over G13's 20,000,000 pixels. On image
+ * rows it is never offered and stays a tag-blocking envelope item of G13b, which measures it.
  */
 export const galleryEnvelope = {
 	fields: ["resolution", "size"],
-	values: ["4K", "8K"],
-	reason: "G13: over Gallery's image limits",
+	values: ["8K"],
+	slice: "G13b",
+	reason: "G13b: 8K is over Gallery's image limits",
 } as const;
+
+/**
+ * Tiers offered on image rows although no source documents their output size: Review states
+ * Gallery's limit (S:264), and coverage keeps each offered one without a covered path under
+ * question 11. A tier documented within the limit is listed in `documentedTiers` instead.
+ */
+export const undocumentedTiers = {
+	fields: ["resolution", "size"],
+	values: ["4K"],
+	reason: "4K: output size not documented; Review states Gallery's limit",
+	question: 11,
+} as const;
+
+/** A tier whose largest output the provider documents within Gallery's limit, on one schema. */
+export type DocumentedTier = {
+	readonly model: string;
+	readonly operation: string;
+	readonly field: string;
+	readonly value: string;
+	readonly schemaSha256: string;
+	/** The largest output the quote allows. */
+	readonly pixels: number;
+	readonly quote: string;
+};
+
+export const documentedTiers: readonly DocumentedTier[] = [
+	{
+		model: "flux-3-klein",
+		operation: "text-to-image",
+		field: "resolution",
+		value: "4K",
+		schemaSha256: "6b2cc771fdd5b78bc6d461bf3fa7c33fd3414d3843046d43554b4aeb8224593e",
+		// 4096×4096 at 1:1; every other ratio is smaller.
+		pixels: 4096 * 4096,
+		quote: "For an aspect ratio, the long edge is 1024, 2048, or 4096 pixels",
+	},
+];
 
 /** A reviewed narrowing of one option's documented domain on one operation. */
 export type ReviewedOverride = {

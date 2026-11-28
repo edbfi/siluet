@@ -1,4 +1,5 @@
 import type { Attachment } from "svelte/attachments";
+import { galleryImageLimits } from "#lib/shared/gallery/limits.ts";
 import type { SessionInit } from "#lib/shared/owner/authenticated-fetch.ts";
 import { sessionClient } from "#lib/shared/owner/session-client.ts";
 
@@ -7,17 +8,27 @@ import { sessionClient } from "#lib/shared/owner/session-client.ts";
  * could open ([browser key sessions](../../../../docs/SPEC-browser-key.md#media)).
  */
 const MiB = 1024 * 1024;
-export const mediaLimits = { video: 64 * MiB, image: 32 * MiB, staged: 32_000_000 } as const;
+export const mediaLimits = {
+	video: 64 * MiB,
+	image: galleryImageLimits.bytes,
+	staged: 32_000_000,
+} as const;
 export type MediaKind = keyof typeof mediaLimits;
 /** Per tab: reads in flight and bytes held. */
 const maxReads = 4;
-const maxBytes = 192 * MiB;
 /**
- * Shown files keep one read: downloads take at most three, and pin at most 128 MiB so the
- * largest shown file still fits.
+ * The tab's read cap: bytes held and in flight. A measured constant (D5), at least twice the
+ * largest kind, so a shown file and a download always fit. Gallery pages render it as
+ * `data-read-cap`.
+ */
+export const readCap = 240 * MiB;
+const largestKind = Math.max(...Object.values(mediaLimits));
+/**
+ * Shown files keep one read: downloads take at most three, and pin at most the cap less the
+ * largest kind (160 MiB), so the largest shown file still fits.
  */
 const maxDownloadReads = maxReads - 1;
-const maxPinned = maxBytes - mediaLimits.video;
+export const downloadCap = readCap - largestKind;
 /** A download link outlives its click long enough for the browser to start saving. */
 const downloadMs = 60000;
 
@@ -78,7 +89,7 @@ function admit() {
 		if (turn) {
 			const shown = shownBlob(turn.src);
 			const need = shown ? shown.size : mediaLimits[turn.kind];
-			const fits = (shown && downloads.includes(shown)) || pinned() + need <= maxPinned;
+			const fits = (shown && downloads.includes(shown)) || pinned() + need <= downloadCap;
 			// A shown file goes first unless no download is reading, so neither can starve.
 			const read =
 				reads < maxReads &&
@@ -156,8 +167,8 @@ function makeRoom(size: number, keep: Holder | null) {
 		.sort((a, b) => a.visibleAt - b.visibleAt);
 	const evictable = new Set(others.flatMap((h) => (h.blob ? [h.blob] : [])));
 	const freeable = [...evictable].reduce((sum, blob) => sum + blob.size, 0);
-	if (held() - freeable + size > maxBytes) return;
-	while (held() + size > maxBytes && others.length) others.shift()?.evict();
+	if (held() - freeable + size > readCap) return;
+	while (held() + size > readCap && others.length) others.shift()?.evict();
 }
 /** Reads waiting for other reads or download links to release their bytes. */
 const roomWaiters = new Set<() => void>();
@@ -189,13 +200,24 @@ async function reserve(size: number, keep: Holder | null, signal: AbortSignal) {
 	for (;;) {
 		signal.throwIfAborted();
 		makeRoom(size, keep);
-		if (held() + size <= maxBytes) {
+		if (held() + size <= readCap) {
 			reserved += size;
 			return;
 		}
 		await roomFreed(signal);
 	}
 }
+/**
+ * The byte length a response declares: `X-Siluet-Length` when present, which the Gallery's
+ * streamed image GET sends because Bun drops a streamed body's `Content-Length`, else
+ * `Content-Length`. A malformed value declares nothing, and a malformed Siluet value never
+ * falls back to `Content-Length`.
+ */
+function declaredLength(headers: Headers) {
+	const value = (headers.get("x-siluet-length") ?? headers.get("content-length"))?.trim();
+	return value && /^\d+$/.test(value) ? Number(value) : Number.NaN;
+}
+
 /** The session a read belongs to, captured before it waits for a read. */
 const currentSession = () => sessionClient().bound()?.sessionId;
 
@@ -224,8 +246,7 @@ async function read(
 		if (!response.ok || !response.body) throw new TypeError("The file could not be read.");
 		const body = response.body;
 		const limit = mediaLimits[kind];
-		const length = response.headers.get("content-length")?.trim();
-		const declared = length && /^\d+$/.test(length) ? Number(length) : Number.NaN;
+		const declared = declaredLength(response.headers);
 		if (declared > limit) {
 			await body.cancel().catch(() => {});
 			throw new MediaUnavailable();
@@ -252,12 +273,17 @@ async function read(
 			const { done, value } = await reader.read();
 			if (done) break;
 			size += value.byteLength;
-			if (size > limit) {
+			if (size > expected) {
 				await reader.cancel();
+				// A body longer than its declared length is a failed read, as a shorter one is; an
+				// undeclared one past the kind's limit is unavailable.
+				if (Number.isFinite(declared)) throw new TypeError("The file could not be read.");
 				throw new MediaUnavailable();
 			}
 			chunks.push(value);
 		}
+		if (Number.isFinite(declared) && size !== declared)
+			throw new TypeError("The file could not be read.");
 		const blob = new Blob(chunks, { type: mime });
 		if (!signal.aborted) {
 			if (Array.isArray(owner)) owner.push(blob);

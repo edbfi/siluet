@@ -21,6 +21,7 @@ import { openRuntimeInstallation, type RuntimeInstallation } from "../../db/runt
 import { saveIntentStore } from "../../db/save-intent";
 import { verifyVideoFile } from "../video-media/verify-video";
 import { createGallery } from "./gallery";
+import { imageResponse } from "./image-response";
 import { galleryStorage } from "./storage";
 import { verifyImage } from "./verify-image";
 
@@ -290,4 +291,177 @@ test("video identity reconciliation leaves the installation connection available
 	await writeFile(path, Buffer.alloc(bytes.length));
 	expect(await gallery.openVideo(jobId)).toBeNull();
 	expect((await gallery.get(jobId))?.available).toBe(false);
+});
+
+/** Publish `count` saved images, each a distinct job, and return their IDs. */
+async function savedImages(count: number) {
+	const ids = Array.from({ length: count }, () => crypto.randomUUID());
+	for (const id of ids) expect(await publishImage(await claim(id), id)).toBe("saved");
+	return ids;
+}
+const live = () => new AbortController().signal;
+/** Wait until `done()` holds, then a little longer so nothing past it can slip in. */
+async function until(done: () => boolean) {
+	for (let i = 0; i < 400 && !done(); i++) await Bun.sleep(5);
+	await Bun.sleep(25);
+}
+
+test("one stalled reader holds one permit while other reads proceed through the other", async () => {
+	const [stalled, ...others] = await savedImages(4);
+	const held = await gallery.openImage(stalled, live());
+	expect(held).toMatchObject({ mime: "image/png", size: referencePng.length });
+	for (const id of others) {
+		const image = await gallery.openImage(id, live());
+		expect(image?.bytes).toEqual(referencePng);
+		image?.release();
+	}
+	held?.release();
+});
+
+test("six concurrent reads never hold more than two buffers, and each body matches its saved file", async () => {
+	const ids = await savedImages(6);
+	let holding = 0;
+	let peak = 0;
+	const responses = ids.map(async (id) => {
+		const image = await gallery.openImage(id, live());
+		if (!image) throw new Error("Expected a saved image.");
+		peak = Math.max(peak, ++holding);
+		const release = image.release;
+		image.release = () => {
+			holding--;
+			release();
+		};
+		return imageResponse(image, new URL(`http://studio.test/gallery/${id}/media`), "a.png");
+	});
+	await until(() => holding === 2);
+	expect(holding).toBe(2);
+	for (const response of responses) {
+		const answer = await response;
+		const body = Buffer.from(await answer.arrayBuffer());
+		expect(answer.headers.get("x-siluet-length")).toBe(String(body.length));
+		expect(digest(body)).toBe(digest(referencePng));
+	}
+	expect([peak, holding]).toEqual([2, 0]);
+});
+
+test("a finished or cancelled body releases its permit and drops its buffer", async () => {
+	const [first, second, third] = await savedImages(3);
+	const url = new URL("http://studio.test/gallery/x/media");
+	const finished = await gallery.openImage(first, live());
+	const cancelled = await gallery.openImage(second, live());
+	if (!finished || !cancelled) throw new Error("Expected saved images.");
+	let admitted = false;
+	const waiting = gallery.openImage(third, live()).then((image) => {
+		admitted = true;
+		return image;
+	});
+	await (await imageResponse(finished, url, "a.png")).arrayBuffer();
+	expect(finished.bytes).toBeNull();
+	await until(() => admitted);
+	expect(admitted).toBe(true);
+	await imageResponse(cancelled, url, "a.png").body?.cancel();
+	expect(cancelled.bytes).toBeNull();
+	(await waiting)?.release();
+	// Both permits are free again.
+	const again = await Promise.all([first, second].map((id) => gallery.openImage(id, live())));
+	for (const image of again) image?.release();
+});
+
+test("an aborted request cancels its queued wait for a permit", async () => {
+	const ids = await savedImages(3);
+	const held = await Promise.all(ids.slice(0, 2).map((id) => gallery.openImage(id, live())));
+	const request = new AbortController();
+	const queued = gallery.openImage(ids[2], request.signal);
+	request.abort(new Error("The client went away."));
+	await expect(queued).rejects.toThrow("The client went away.");
+	for (const image of held) image?.release();
+	const next = await gallery.openImage(ids[2], live());
+	expect(next?.bytes).toEqual(referencePng);
+	next?.release();
+});
+
+test("a permit handed to an aborted request, or held while its request aborts during the read, is released", async () => {
+	const ids = await savedImages(3);
+	const [first, second] = await Promise.all(
+		ids.slice(0, 2).map((id) => gallery.openImage(id, live())),
+	);
+	const handed = new AbortController();
+	const queued = gallery.openImage(ids[2], handed.signal);
+	// The permit passes to the queued request just as it aborts.
+	first?.release();
+	handed.abort(new Error("The client went away."));
+	await expect(queued).rejects.toThrow("The client went away.");
+	second?.release();
+
+	const probe = await open(directory, "r");
+	const proto = Object.getPrototypeOf(probe);
+	await probe.close();
+	const readFileBytes = proto.readFile;
+	const reading = new AbortController();
+	const read = spyOn(proto, "readFile").mockImplementation(async function (
+		this: typeof probe,
+		...args: unknown[]
+	) {
+		reading.abort(new Error("The client left mid-read."));
+		return readFileBytes.apply(this, args);
+	});
+	try {
+		await expect(gallery.openImage(ids[0], reading.signal)).rejects.toThrow(
+			"The client left mid-read.",
+		);
+	} finally {
+		read.mockRestore();
+	}
+	// Both permits are free: two reads open at once without waiting.
+	const again = await Promise.all(ids.slice(0, 2).map((id) => gallery.openImage(id, live())));
+	expect(again.map((image) => image?.bytes)).toEqual([referencePng, referencePng]);
+	for (const image of again) image?.release();
+});
+
+test("an image read leaves the installation connection free during file I/O", async () => {
+	const [id] = await savedImages(1);
+	const probe = await open(directory, "r");
+	const proto = Object.getPrototypeOf(probe);
+	await probe.close();
+	const readFileBytes = proto.readFile;
+	let connectionAvailable = false;
+	const read = spyOn(proto, "readFile").mockImplementation(async function (
+		this: typeof probe,
+		...args: unknown[]
+	) {
+		connectionAvailable = await Promise.race([
+			installation.use(async () => true),
+			new Promise<false>((resolve) => setImmediate(() => resolve(false))),
+		]);
+		return readFileBytes.apply(this, args);
+	});
+	try {
+		const image = await gallery.openImage(id, live());
+		expect(image?.bytes).toEqual(referencePng);
+		image?.release();
+		expect(connectionAvailable).toBe(true);
+		connectionAvailable = false;
+		expect((await gallery.read(id))?.bytes).toEqual(referencePng);
+		expect(connectionAvailable).toBe(true);
+	} finally {
+		read.mockRestore();
+	}
+});
+
+test("HEAD checks the row and the file size and reads no file body", async () => {
+	const [id, missing] = await savedImages(2);
+	const probe = await open(directory, "r");
+	const proto = Object.getPrototypeOf(probe);
+	await probe.close();
+	const reads = [spyOn(proto, "read"), spyOn(proto, "readFile")];
+	try {
+		expect(await gallery.headImage(id)).toEqual({ mime: "image/png", size: referencePng.length });
+		await rm(join(directory, `gallery-${digest(missing)}`));
+		expect(await gallery.headImage(missing)).toBeNull();
+		expect(await gallery.headImage(crypto.randomUUID())).toBeNull();
+		for (const spy of reads) expect(spy).not.toHaveBeenCalled();
+	} finally {
+		for (const spy of reads) spy.mockRestore();
+	}
+	expect((await gallery.get(missing))?.available).toBe(false);
 });

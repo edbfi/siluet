@@ -10,7 +10,7 @@ import {
 } from "#lib/components/gallery/gallery-styles.ts";
 import PrivateDownload from "#lib/components/gallery/PrivateDownload.svelte";
 import SavedImageDetails from "#lib/components/gallery/SavedImageDetails.svelte";
-import { privateSource } from "#lib/components/media/private-media.ts";
+import { privateSource, readCap } from "#lib/components/media/private-media.ts";
 import { mediaFileName } from "#lib/shared/gallery/file-name.ts";
 import type { PageProps } from "./$types";
 
@@ -19,7 +19,8 @@ const unavailable = $state<Record<string, boolean>>({});
 </script>
 
 <svelte:head><title>Gallery · Siluet</title></svelte:head>
-<section class={page} aria-labelledby="gallery-title">
+<!-- The tab's read cap, which browser journeys read from the built page (D5). -->
+<section class={page} aria-labelledby="gallery-title" data-read-cap={readCap}>
 	<h1 id="gallery-title">Gallery</h1>
 	{#if data.images.length}
 		<ul class={grid} aria-label="Saved media">

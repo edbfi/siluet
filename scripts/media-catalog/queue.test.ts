@@ -89,11 +89,11 @@ test("an unqualified class keeps the row pending with its class", () => {
 	expect(row("flux-2-pro")).toBeUndefined();
 });
 
-test("Seedream 4.5 and 5.0 Lite listed sizes qualify as an enum, without 4K", () => {
+test("Seedream 4.5 and 5.0 Lite listed sizes qualify as an enum, 4.5's 4K included", () => {
 	expect(row("seedream-4.5")?.fields.find((field) => field.wire === "size")).toEqual({
 		wire: "size",
 		kind: "enum",
-		values: ["2K", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"],
+		values: ["2K", "4K", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"],
 		preselect: "1:1",
 	});
 	expect(row("seedream-5.0-lite")?.fields.find((field) => field.wire === "size")?.values).toContain(
@@ -112,7 +112,11 @@ test("flux-3-klein queues with its ratios while its custom size stays unqualifie
 		"3:2",
 		"2:3",
 	]);
-	expect(klein?.fields.find((field) => field.wire === "resolution")?.values).toEqual(["1K", "2K"]);
+	expect(klein?.fields.find((field) => field.wire === "resolution")?.values).toEqual([
+		"1K",
+		"2K",
+		"4K",
+	]);
 	expect(klein?.count).toBe(1);
 });
 

@@ -1,11 +1,21 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { setSessionClient } from "#lib/shared/owner/session-client.ts";
-import { downloadPrivate, privateSource, readPrivate } from "./private-media";
+import {
+	downloadCap,
+	downloadPrivate,
+	type MediaKind,
+	MediaUnavailable,
+	mediaLimits,
+	privateSource,
+	readCap,
+	readPrivate,
+} from "./private-media";
 
 // The tab's media limits ([browser key sessions](../../../../docs/SPEC-browser-key.md#media)):
-// four reads at a time and 192 MiB held, against a fake studio whose answers the test releases.
+// four reads at a time and 240 MiB held, against a fake studio whose answers the test releases.
+// Images are the largest kind (80 MiB), so the cases read them; 40 MiB is half of one.
 const MiB = 1024 * 1024;
-const bytes = new Uint8Array(64 * MiB);
+const bytes = new Uint8Array(80 * MiB);
 let session: string | null = "s1";
 let remountKey = 0;
 let leaving = false;
@@ -38,6 +48,10 @@ const sizes = new Map<string, number>();
 const bodies = new Map<string, () => void>();
 /** Sources whose answer declares no length. */
 const undeclared = new Set<string>();
+/** Sources whose answer sends these headers instead of a `Content-Length` of its size. */
+const declared = new Map<string, Record<string, string>>();
+/** Sources whose body stays open after its bytes until the reader cancels it. */
+const unending = new Set<string>();
 /** Sources whose body the reader cancelled. */
 const cancelled = new Set<string>();
 // Bun shares globals across test files; the originals come back after this one.
@@ -57,19 +71,21 @@ globalThis.fetch = ((input: RequestInfo | URL, init: Call["init"] = {}) => {
 		const streamed = Promise.withResolvers<void>();
 		bodies.set(src, streamed.resolve);
 		if (!sizes.has(src)) streamed.resolve();
+		let sent = false;
 		const body = new ReadableStream<Uint8Array>({
 			async pull(controller) {
+				if (sent) return new Promise<void>(() => {});
 				await streamed.promise;
-				controller.enqueue(bytes.subarray(0, size));
-				controller.close();
+				sent = true;
+				controller.enqueue(size > bytes.length ? new Uint8Array(size) : bytes.subarray(0, size));
+				if (!unending.has(src)) controller.close();
 			},
 			cancel() {
 				cancelled.add(src);
 			},
 		});
-		const headers: Record<string, string> = undeclared.has(src)
-			? {}
-			: { "content-length": String(size) };
+		const headers: Record<string, string> =
+			declared.get(src) ?? (undeclared.has(src) ? {} : { "content-length": String(size) });
 		return new Response(body, { headers });
 	});
 }) as typeof fetch;
@@ -98,7 +114,7 @@ function show(src: string) {
 			element.src = "";
 		},
 	};
-	const cleanup = privateSource(src, "video/mp4", "video")(element as never) as () => void;
+	const cleanup = privateSource(src, "image/png", "image")(element as never) as () => void;
 	cleanups.push(cleanup);
 	return element;
 }
@@ -113,6 +129,8 @@ afterEach(async () => {
 	sizes.clear();
 	bodies.clear();
 	undeclared.clear();
+	declared.clear();
+	unending.clear();
 	cancelled.clear();
 	session = "s1";
 	remountKey = 0;
@@ -170,15 +188,24 @@ async function deliver(src: string) {
 	await tick();
 }
 
-test("reads in flight count against the tab's 192 MiB, evicting the least recently visible file", async () => {
-	for (const src of ["/v1", "/v2", "/v3", "/v4"]) sizes.set(src, 64 * MiB);
+test("the per-tab cap is 240 MiB, at least twice the largest kind, and downloads pin at most 160 MiB", () => {
+	const largest = Math.max(...Object.values(mediaLimits));
+	expect(largest).toBe(mediaLimits.image);
+	expect(readCap).toBe(240 * MiB);
+	expect(readCap).toBeGreaterThanOrEqual(2 * largest);
+	expect(downloadCap).toBe(readCap - largest);
+	expect(downloadCap).toBe(160 * MiB);
+});
+
+test("reads in flight count against the tab's 240 MiB, evicting the least recently visible file", async () => {
+	for (const src of ["/v1", "/v2", "/v3", "/v4"]) sizes.set(src, 80 * MiB);
 	const v1 = show("/v1");
 	const v2 = show("/v2");
 	await tick();
 	await deliver("/v1");
 	await deliver("/v2");
 	expect([v1.src, v2.src].every(Boolean)).toBe(true);
-	// Two more declare 64 MiB each; until their bodies arrive the tab already holds 256 MiB.
+	// Two more declare 80 MiB each; until their bodies arrive the tab already holds 320 MiB.
 	show("/v3");
 	show("/v4");
 	await tick();
@@ -193,8 +220,8 @@ test("a download's blob counts until its link is revoked", async () => {
 	const realTimeout = globalThis.setTimeout;
 	globalThis.setTimeout = ((callback: () => void) => revoke.push(callback)) as never;
 	try {
-		sizes.set("/download", 64 * MiB);
-		const download = downloadPrivate("/download", "video/mp4", "video", "clip.mp4");
+		sizes.set("/download", 80 * MiB);
+		const download = downloadPrivate("/download", "image/png", "image", "a.png");
 		await tick();
 		await deliver("/download");
 		await download;
@@ -207,8 +234,8 @@ test("a download's blob counts until its link is revoked", async () => {
 		for (const src of sources) await deliver(src);
 		return shown;
 	};
-	for (const src of ["/w1", "/w2", "/w3", "/x1", "/x2", "/x3"]) sizes.set(src, 64 * MiB);
-	// 64 MiB still downloading plus three shown files: the first shown one gives way.
+	for (const src of ["/w1", "/w2", "/w3", "/x1", "/x2", "/x3"]) sizes.set(src, 80 * MiB);
+	// 80 MiB still linked plus three shown files: the first shown one gives way.
 	const shown = await showAll(["/w1", "/w2", "/w3"]);
 	expect(shown.map((element) => element.src !== "")).toEqual([false, true, true]);
 	for (const cleanup of cleanups.splice(0)) cleanup();
@@ -219,24 +246,24 @@ test("a download's blob counts until its link is revoked", async () => {
 	expect(after.map((element) => element.src !== "")).toEqual([true, true, true]);
 });
 
-test("downloads past their 128 MiB share wait for an earlier link to be revoked", async () => {
+test("downloads past their 160 MiB share wait for an earlier link to be revoked", async () => {
 	const revoke: (() => void)[] = [];
 	const realTimeout = globalThis.setTimeout;
 	globalThis.setTimeout = ((callback: () => void) => revoke.push(callback)) as never;
 	try {
-		for (const src of ["/d1", "/d2", "/d3"]) sizes.set(src, 64 * MiB);
+		for (const src of ["/d1", "/d2", "/d3"]) sizes.set(src, 80 * MiB);
 		for (const src of ["/d1", "/d2"]) {
-			const download = downloadPrivate(src, "video/mp4", "video", "clip.mp4");
+			const download = downloadPrivate(src, "image/png", "image", "a.png");
 			await tick();
 			await deliver(src);
 			await download;
 		}
-		// Two links hold 128 MiB, leaving 64 MiB for a shown video: the third download sends
+		// Two links hold 160 MiB, leaving 80 MiB for a shown image: the third download sends
 		// nothing and evicts nothing while it waits.
 		const shown = show("/kept");
 		await tick();
 		await deliver("/kept");
-		const third = downloadPrivate("/d3", "video/mp4", "video", "clip.mp4");
+		const third = downloadPrivate("/d3", "image/png", "image", "a.png");
 		await tick();
 		expect(revoke).toHaveLength(2);
 		expect(calls.some((call) => call.src === "/d3")).toBe(false);
@@ -252,8 +279,33 @@ test("downloads past their 128 MiB share wait for an earlier link to be revoked"
 	}
 });
 
+test("one shown 80 MiB image and two 80 MiB downloads proceed, and a third waits within the cap", async () => {
+	await withLinks(async (revoke) => {
+		for (const src of ["/shown80", "/dl1", "/dl2", "/dl3"]) sizes.set(src, 80 * MiB);
+		const shown = show("/shown80");
+		await tick();
+		await deliver("/shown80");
+		const downloads = ["/dl1", "/dl2", "/dl3"].map((src) =>
+			downloadPrivate(src, "image/png", "image", "a.png"),
+		);
+		await tick();
+		expect(calls.map((call) => call.src)).toEqual(["/shown80", "/dl1", "/dl2"]);
+		for (const src of ["/dl1", "/dl2"]) await deliver(src);
+		await Promise.all(downloads.slice(0, 2));
+		// 80 MiB shown and 160 MiB linked fill the 240 MiB cap; the third download sends nothing.
+		expect(shown.src).not.toBe("");
+		expect(clicks).toBe(2);
+		expect(calls.some((call) => call.src === "/dl3")).toBe(false);
+		revoke[0]();
+		await tick();
+		await deliver("/dl3");
+		await downloads[2];
+		expect([clicks, shown.src !== ""]).toEqual([3, true]);
+	});
+});
+
 test("a read that declares no length reserves its kind's whole limit", async () => {
-	for (const src of ["/u1", "/u2"]) sizes.set(src, 64 * MiB);
+	for (const src of ["/u1", "/u2"]) sizes.set(src, 80 * MiB);
 	const u1 = show("/u1");
 	const u2 = show("/u2");
 	await tick();
@@ -265,16 +317,141 @@ test("a read that declares no length reserves its kind's whole limit", async () 
 	await tick();
 	calls.find((call) => call.src === "/unknown")?.answer();
 	await tick();
-	// 128 MiB shown plus 64 MiB reserved fits; the shown files stay.
+	// 160 MiB shown plus 80 MiB reserved fits; the shown files stay.
 	expect([u1.src, u2.src].every(Boolean)).toBe(true);
-	sizes.set("/next", 64 * MiB);
+	sizes.set("/next", 80 * MiB);
 	show("/next");
 	await tick();
 	calls.find((call) => call.src === "/next")?.answer();
 	await tick();
-	// The next 64 MiB evicts the least recently visible shown file.
+	// The next 80 MiB evicts the least recently visible shown file.
 	expect(u1.src).toBe("");
 	expect(u2.src).not.toBe("");
+});
+
+// The Gallery's image GET streams its body, and Bun then drops a set `Content-Length`; it
+// declares the verified length as `X-Siluet-Length` instead, which the tab prefers.
+const siluet = (length: number | string, extra: Record<string, string> = {}) => ({
+	"x-siluet-length": String(length),
+	...extra,
+});
+
+test("twelve 2 MiB tiles declared only by X-Siluet-Length all stay shown", async () => {
+	const tiles = Array.from({ length: 12 }, (_, i) => {
+		const src = `/tile${i}`;
+		sizes.set(src, 2 * MiB);
+		declared.set(src, siluet(2 * MiB));
+		return show(src);
+	});
+	// Answer every request before its body streams, so four reads are in flight at once.
+	for (let round = 0; round < 6; round++) {
+		for (const call of calls) call.answer();
+		await tick();
+		for (const body of bodies.values()) body();
+		await tick();
+	}
+	expect(calls).toHaveLength(12);
+	expect(tiles.filter((tile) => tile.src !== "")).toHaveLength(12);
+});
+
+test.each([
+	["longer", 40 * MiB + 1],
+	["shorter", 40 * MiB - 1],
+])("a body %s than its X-Siluet-Length fails and releases its reservation", async (_, size) => {
+	sizes.set("/mismatch", size);
+	declared.set("/mismatch", siluet(40 * MiB));
+	// A longer body is cancelled at its first extra byte; a shorter one fails when it ends.
+	if (size > 40 * MiB) unending.add("/mismatch");
+	const read = readPrivate("/mismatch", "image/png", "image", new AbortController().signal);
+	const failure = read.catch((error: unknown) => error);
+	await tick();
+	await deliver("/mismatch");
+	expect(await failure).toBeInstanceOf(TypeError);
+	expect(cancelled.has("/mismatch")).toBe(size > 40 * MiB);
+	// A leaked 40 MiB would leave no room for three 80 MiB files.
+	const shown = ["/r1", "/r2", "/r3"].map((src) => {
+		sizes.set(src, 80 * MiB);
+		return show(src);
+	});
+	await tick();
+	for (const src of ["/r1", "/r2", "/r3"]) await deliver(src);
+	expect(shown.every((element) => element.src !== "")).toBe(true);
+});
+
+test("an X-Siluet-Length over the kind's limit is unavailable and cancels the body", async () => {
+	sizes.set("/huge", 1);
+	declared.set("/huge", siluet(mediaLimits.image + 1, { "content-length": "1" }));
+	unending.add("/huge");
+	const read = readPrivate("/huge", "image/png", "image", new AbortController().signal);
+	const failure = read.catch((error: unknown) => error);
+	await tick();
+	await deliver("/huge");
+	expect(await failure).toBeInstanceOf(MediaUnavailable);
+	expect(cancelled.has("/huge")).toBe(true);
+});
+
+/**
+ * Show two 80 MiB files, answer `src` with its body held, then answer a 1-byte read: it evicts
+ * the older shown file only if `src` reserved 80 MiB.
+ */
+async function reservesWhole(src: string, headers: Record<string, string>, size: number) {
+	for (const shown of ["/s1", "/s2"]) sizes.set(shown, 80 * MiB);
+	const s1 = show("/s1");
+	const s2 = show("/s2");
+	await tick();
+	await deliver("/s1");
+	await deliver("/s2");
+	sizes.set(src, size);
+	declared.set(src, headers);
+	show(src);
+	await tick();
+	calls.find((call) => call.src === src)?.answer();
+	await tick();
+	sizes.set("/byte", 1);
+	declared.set("/byte", siluet(1, { "content-length": "1" }));
+	show("/byte");
+	await tick();
+	calls.find((call) => call.src === "/byte")?.answer();
+	await tick();
+	expect(s2.src).not.toBe("");
+	return s1.src === "";
+}
+
+test.each(["", "2 MiB", "-1", "1.5", "0x10"])(
+	"a malformed X-Siluet-Length %p reserves the kind's limit, never the Content-Length",
+	async (value) => {
+		expect(await reservesWhole("/malformed", siluet(value, { "content-length": "1" }), 1)).toBe(
+			true,
+		);
+	},
+);
+
+test("with both headers, X-Siluet-Length decides the reservation", async () => {
+	expect(await reservesWhole("/both", siluet(80 * MiB, { "content-length": "1" }), 80 * MiB)).toBe(
+		true,
+	);
+});
+
+test("a download's share shrinks to its X-Siluet-Length", async () => {
+	await withLinks(async () => {
+		sizes.set("/small", 2 * MiB);
+		declared.set("/small", siluet(2 * MiB));
+		sizes.set("/large", 78 * MiB);
+		sizes.set("/third", 80 * MiB);
+		const downloads = ["/small", "/large", "/third"].map((src) =>
+			downloadPrivate(src, "image/png", "image", "a.png"),
+		);
+		await tick();
+		calls.find((call) => call.src === "/large")?.answer();
+		await tick();
+		// 80 MiB reserved for the undeclared small one and 78 MiB leave no room for the third.
+		expect(calls.map((call) => call.src)).toEqual(["/small", "/large"]);
+		calls.find((call) => call.src === "/small")?.answer();
+		await tick();
+		expect(calls.map((call) => call.src)).toEqual(["/small", "/large", "/third"]);
+		for (const src of ["/small", "/large", "/third"]) await deliver(src);
+		await Promise.all(downloads);
+	});
 });
 
 /** Run `body` with link timers captured instead of scheduled, then revoke every link. */
@@ -293,23 +470,23 @@ async function withLinks(body: (revoke: (() => void)[]) => Promise<void>) {
 test("a read that eviction cannot make room for waits without evicting what is shown", async () => {
 	await withLinks(async () => {
 		for (const src of ["/e1", "/e2"]) {
-			sizes.set(src, 64 * MiB);
-			const download = downloadPrivate(src, "video/mp4", "video", "clip.mp4");
+			sizes.set(src, 80 * MiB);
+			const download = downloadPrivate(src, "image/png", "image", "a.png");
 			await tick();
 			await deliver(src);
 			await download;
 		}
-		sizes.set("/shown", 32 * MiB);
+		sizes.set("/shown", 40 * MiB);
 		const shown = show("/shown");
 		await tick();
 		await deliver("/shown");
-		sizes.set("/streaming", 32 * MiB);
+		sizes.set("/streaming", 40 * MiB);
 		show("/streaming");
 		await tick();
 		calls.find((call) => call.src === "/streaming")?.answer();
 		await tick();
-		// 128 MiB of links, 32 shown and 32 streaming: evicting the shown file cannot fit 64 more.
-		sizes.set("/waiting", 64 * MiB);
+		// 160 MiB of links, 40 shown and 40 streaming: evicting the shown file cannot fit 80 more.
+		sizes.set("/waiting", 80 * MiB);
 		show("/waiting");
 		await tick();
 		calls.find((call) => call.src === "/waiting")?.answer();
@@ -320,9 +497,9 @@ test("a read that eviction cannot make room for waits without evicting what is s
 
 test("a download whose session ended while it waited saves nothing, and a second click joins the first", async () => {
 	await withLinks(async () => {
-		sizes.set("/mine", 64 * MiB);
-		const first = downloadPrivate("/mine", "video/mp4", "video", "clip.mp4");
-		const second = downloadPrivate("/mine", "video/mp4", "video", "clip.mp4");
+		sizes.set("/mine", 80 * MiB);
+		const first = downloadPrivate("/mine", "image/png", "image", "a.png");
+		const second = downloadPrivate("/mine", "image/png", "image", "a.png");
 		expect(second).toBe(first);
 		await tick();
 		expect(calls.filter((call) => call.src === "/mine")).toHaveLength(1);
@@ -335,9 +512,9 @@ test("a download whose session ended while it waited saves nothing, and a second
 
 test("eviction skips a shown file a download link still holds, which would free nothing", async () => {
 	await withLinks(async () => {
-		sizes.set("/p1", 64 * MiB);
-		sizes.set("/p2", 64 * MiB);
-		sizes.set("/p3", 32 * MiB);
+		sizes.set("/p1", 80 * MiB);
+		sizes.set("/p2", 80 * MiB);
+		sizes.set("/p3", 40 * MiB);
 		const p1 = show("/p1");
 		await tick();
 		await deliver("/p1");
@@ -348,8 +525,8 @@ test("eviction skips a shown file a download link still holds, which would free 
 		await tick();
 		await deliver("/p3");
 		// The oldest shown file is also being downloaded.
-		await downloadPrivate("/p1", "video/mp4", "video", "clip.mp4");
-		sizes.set("/n", 64 * MiB);
+		await downloadPrivate("/p1", "image/png", "image", "a.png");
+		sizes.set("/n", 80 * MiB);
 		show("/n");
 		await tick();
 		calls.find((call) => call.src === "/n")?.answer();
@@ -440,8 +617,9 @@ test("with no download reading, the oldest waiting download takes the next free 
 
 test("downloads hold at most three of the tab's four reads, so a shown file always gets one", async () => {
 	await withLinks(async () => {
+		// Staged files' 32,000,000-byte limit lets four downloads' shares fit; only reads are short.
 		const downloads = ["/g1", "/g2", "/g3", "/g4"].map((src) =>
-			downloadPrivate(src, "image/png", "image", "a.png"),
+			downloadPrivate(src, "image/png", "staged", "a.png"),
 		);
 		await tick();
 		expect(calls.map((call) => call.src)).toEqual(["/g1", "/g2", "/g3"]);
@@ -463,9 +641,9 @@ test("downloads hold at most three of the tab's four reads, so a shown file alwa
 
 test("a shown file is linked for download only within the downloads' share", async () => {
 	await withLinks(async (revoke) => {
-		for (const src of ["/s1", "/s2", "/big"]) sizes.set(src, 64 * MiB);
+		for (const src of ["/s1", "/s2", "/big"]) sizes.set(src, 80 * MiB);
 		for (const src of ["/s1", "/s2"]) {
-			const download = downloadPrivate(src, "video/mp4", "video", "clip.mp4");
+			const download = downloadPrivate(src, "image/png", "image", "a.png");
 			await tick();
 			await deliver(src);
 			await download;
@@ -474,7 +652,7 @@ test("a shown file is linked for download only within the downloads' share", asy
 		await tick();
 		await deliver("/big");
 		const reads = calls.length;
-		const download = downloadPrivate("/big", "video/mp4", "video", "clip.mp4");
+		const download = downloadPrivate("/big", "image/png", "image", "a.png");
 		await tick();
 		expect([clicks, revoke.length]).toEqual([2, 2]);
 		revoke.shift()?.();
@@ -486,9 +664,9 @@ test("a shown file is linked for download only within the downloads' share", asy
 
 test("a download keeps the session it was clicked under while it waits for its share", async () => {
 	await withLinks(async (revoke) => {
-		for (const src of ["/t1", "/t2", "/gone"]) sizes.set(src, 64 * MiB);
+		for (const src of ["/t1", "/t2", "/gone"]) sizes.set(src, 80 * MiB);
 		for (const src of ["/t1", "/t2"]) {
-			const download = downloadPrivate(src, "video/mp4", "video", "clip.mp4");
+			const download = downloadPrivate(src, "image/png", "image", "a.png");
 			await tick();
 			await deliver(src);
 			await download;
@@ -496,7 +674,7 @@ test("a download keeps the session it was clicked under while it waits for its s
 		show("/gone");
 		await tick();
 		await deliver("/gone");
-		const download = downloadPrivate("/gone", "video/mp4", "video", "clip.mp4");
+		const download = downloadPrivate("/gone", "image/png", "image", "a.png");
 		await tick();
 		session = "s2";
 		// The shown file goes before the share frees, so the download reads it once it may.
@@ -517,22 +695,25 @@ test("a download keeps the session it was clicked under while it waits for its s
 });
 
 /** Download `src` and keep its link, holding its bytes against the downloads' share. */
-async function link(src: string, size: number, kind: "video" | "image") {
+async function link(src: string, size: number, kind: MediaKind) {
 	sizes.set(src, size);
 	const download = downloadPrivate(src, "video/mp4", kind, "a");
 	await tick();
 	await deliver(src);
 	await download;
 }
-/** Fill the downloads' 128 MiB share with links of these sizes, oldest first. */
-async function fill(...sizes: number[]) {
-	for (const [i, size] of sizes.entries())
-		await link(`/link${i}`, size, size > 32 * MiB ? "video" : "image");
+/** Fill the downloads' 160 MiB share with links of these sizes and kinds, oldest first. */
+async function fill(...links: [number, MediaKind][]) {
+	for (const [i, [size, kind]] of links.entries()) await link(`/link${i}`, size, kind);
 }
+const twoImages: [number, "image"][] = [
+	[80 * MiB, "image"],
+	[80 * MiB, "image"],
+];
 
 test("a download waiting for its share has sent nothing and leaves every read to shown files", async () => {
 	await withLinks(async () => {
-		await fill(64 * MiB, 64 * MiB);
+		await fill(...twoImages);
 		const before = calls.length;
 		const waiting = downloadPrivate("/waits", "image/png", "image", "a.png");
 		await tick();
@@ -552,9 +733,10 @@ test.each([
 	["a shown file", true],
 ])("a newer, smaller download waits behind an older one, as %s", async (_, reuse) => {
 	await withLinks(async (revoke) => {
-		await fill(64 * MiB, 32 * MiB, 32 * MiB);
-		sizes.set("/older", 64 * MiB);
-		sizes.set("/newer", 32 * MiB);
+		// Each link first reserves its kind's limit, so the smallest comes first.
+		await fill([16 * MiB, "staged"], [64 * MiB, "video"], [80 * MiB, "image"]);
+		sizes.set("/older", 80 * MiB);
+		sizes.set("/newer", 40 * MiB);
 		if (reuse) {
 			show("/newer");
 			await tick();
@@ -562,24 +744,25 @@ test.each([
 		}
 		const before = calls.length;
 		const order: string[] = [];
-		const older = downloadPrivate("/older", "video/mp4", "video", "a").then(() =>
+		const older = downloadPrivate("/older", "image/png", "image", "a").then(() =>
 			order.push("older"),
 		);
-		const newer = downloadPrivate("/newer", "image/png", "image", "a").then(() =>
+		// A fresh read of the newer one reserves a video's 64 MiB until it declares its length.
+		const newer = downloadPrivate("/newer", "video/mp4", "video", "a").then(() =>
 			order.push("newer"),
 		);
 		await tick();
-		// 32 MiB frees: enough for the newer download, not the older one, which keeps its turn.
+		// 64 MiB frees: enough for the newer download, not the older one, which keeps its turn.
 		revoke[1]();
 		await tick();
 		await deliver("/newer");
 		expect(calls.slice(before)).toEqual([]);
 		expect(order).toEqual([]);
-		revoke[2]();
+		revoke[0]();
 		await tick();
 		await deliver("/older");
 		await older;
-		revoke[0]();
+		revoke[2]();
 		await tick();
 		await deliver("/newer");
 		await newer;
@@ -588,17 +771,17 @@ test.each([
 });
 
 test("a read that stops while waiting for room cancels the body it was answered with", async () => {
-	for (const src of ["/h1", "/h2", "/h3", "/h4"]) sizes.set(src, 64 * MiB);
+	for (const src of ["/h1", "/h2", "/h3", "/h4"]) sizes.set(src, 80 * MiB);
 	const signal = () => new AbortController().signal;
 	const first = ["/h1", "/h2", "/h3"].map((src) =>
-		readPrivate(src, "video/mp4", "video", signal()),
+		readPrivate(src, "image/png", "image", signal()),
 	);
 	await tick();
 	for (const call of calls) call.answer();
 	await tick();
-	// Three reads stream 192 MiB, which nothing can evict; the fourth waits for room.
+	// Three reads stream 240 MiB, which nothing can evict; the fourth waits for room.
 	const stopped = new AbortController();
-	const fourth = readPrivate("/h4", "video/mp4", "video", stopped.signal);
+	const fourth = readPrivate("/h4", "image/png", "image", stopped.signal);
 	await tick();
 	calls[3].answer();
 	await tick();
@@ -611,7 +794,7 @@ test("a read that stops while waiting for room cancels the body it was answered 
 
 test("a remount drops a waiting download at once, and it sends nothing later", async () => {
 	await withLinks(async (revoke) => {
-		await fill(64 * MiB, 64 * MiB);
+		await fill(...twoImages);
 		const before = calls.length;
 		let settled = false;
 		const waiting = downloadPrivate("/dropped", "image/png", "image", "a.png").then(() => {
@@ -631,7 +814,7 @@ test("a remount drops a waiting download at once, and it sends nothing later", a
 
 test("a download waiting while the tab leaves sends nothing once its share frees", async () => {
 	await withLinks(async (revoke) => {
-		await fill(64 * MiB, 64 * MiB);
+		await fill(...twoImages);
 		const before = calls.length;
 		const waiting = downloadPrivate("/left", "image/png", "image", "a.png");
 		await tick();
@@ -645,8 +828,8 @@ test("a download waiting while the tab leaves sends nothing once its share frees
 
 test("a download of a shown file that the tab drops while it waits sends nothing", async () => {
 	await withLinks(async (revoke) => {
-		await fill(64 * MiB, 64 * MiB);
-		sizes.set("/kept", 32 * MiB);
+		await fill(...twoImages);
+		sizes.set("/kept", 40 * MiB);
 		show("/kept");
 		await tick();
 		await deliver("/kept");

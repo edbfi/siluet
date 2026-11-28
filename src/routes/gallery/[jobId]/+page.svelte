@@ -4,7 +4,7 @@ import { link, meta, page, viewer, viewerActions } from "#lib/components/gallery
 import PrivateDownload from "#lib/components/gallery/PrivateDownload.svelte";
 import { playability } from "#lib/components/gallery/playability.ts";
 import SavedImageDetails from "#lib/components/gallery/SavedImageDetails.svelte";
-import { privateSource } from "#lib/components/media/private-media.ts";
+import { privateSource, readCap } from "#lib/components/media/private-media.ts";
 import { mediaFileName } from "#lib/shared/gallery/file-name.ts";
 import type { PageProps } from "./$types";
 
@@ -33,7 +33,8 @@ let missing = $state<string | null>(null);
 </script>
 
 <svelte:head><title>Saved {kind} · Siluet</title></svelte:head>
-<section class={page} aria-labelledby="image-title">
+<!-- The tab's read cap, which browser journeys read from the built page (D5). -->
+<section class={page} aria-labelledby="image-title" data-read-cap={readCap}>
 	<a class={link} href="/gallery">Back to Gallery</a>
 	<h1 id="image-title">{video ? "Video" : "Image"} {data.image.jobId.slice(0, 8)}</h1>
 	{#if data.image.available && missing === data.image.jobId}

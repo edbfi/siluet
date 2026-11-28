@@ -1,5 +1,6 @@
 import { crc32 } from "node:zlib";
 import sharp from "sharp";
+import { galleryImageLimits } from "../../../shared/gallery/limits";
 import { hasCompleteGifStream } from "../../../shared/image-studio/gif";
 import { walkWebp } from "./webp";
 
@@ -8,10 +9,10 @@ import { walkWebp } from "./webp";
 // https://sharp.pixelplumbing.com/api-utility/#cache
 sharp.cache(false);
 
-const maxPixels = 16_000_000;
-const maxEdge = 16_384;
-// Allow a bounded decode beyond the publication profile to classify complete results.
-const verificationPixels = 20_000_000;
+const { pixels: maxPixels, edge: maxEdge } = galleryImageLimits;
+// Allow a bounded decode beyond the publication profile to classify complete results: a
+// complete image up to 1.25 × Gallery's pixels is held as unsupported rather than retried.
+export const verificationPixels = 25_000_000;
 const verificationEdge = 32_768;
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const invalid = () => new Error("The result is not a complete supported image.");
@@ -155,13 +156,12 @@ export async function verifyImage(bytes: Buffer) {
 		throw invalid();
 	// Gallery saves one still canvas; the WebP walk already refused animation chunks.
 	if (galleryFormat && pages > 1) throw new UnsupportedGalleryImage();
-	if (!galleryFormat || width > maxEdge || height > maxEdge || width * height > maxPixels) {
-		// Read every pixel for decoder errors, keeping one byte a pixel of output.
-		await decoder.extractChannel(0).raw({ depth: "uchar" }).toBuffer();
-		if (warned) throw invalid();
-		throw new UnsupportedGalleryImage();
-	}
-	await decoder.raw().toBuffer();
+	const saved =
+		galleryFormat && width <= maxEdge && height <= maxEdge && width * height <= maxPixels;
+	// Read every pixel for decoder errors, keeping one byte a pixel of output whatever the
+	// image's bit depth and channels.
+	await decoder.extractChannel(0).raw({ depth: "uchar" }).toBuffer();
 	if (warned) throw invalid();
+	if (!saved) throw new UnsupportedGalleryImage();
 	return { mime: galleryMime[expected], width, height };
 }

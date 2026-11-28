@@ -16,6 +16,7 @@ import { downloadVideo } from "../video-media/download";
 import { createAutoSave } from "./auto-save";
 import { downloadImage, type Transport } from "./download";
 import { createGallery } from "./gallery";
+import { verifyImage } from "./verify-image";
 
 const start = 1_800_000_000_000;
 const credential = "fixture-key-sentinel";
@@ -245,6 +246,109 @@ test("duplicate handoffs transfer once and at most two images and one video run 
 	await settle();
 	expect(peak).toEqual({ image: 2, video: 1 });
 	expect(transfers.sort()).toEqual([...ids].sort());
+	for (const id of ids) expect((await summary(id))?.library, id).toBe("saved");
+});
+
+/** Polls a condition so a loaded host cannot outrun a fixed sleep. */
+async function until(condition: () => boolean | Promise<boolean>, timeout = 5_000) {
+	const deadline = performance.now() + timeout;
+	while (!(await condition())) {
+		if (performance.now() > deadline) throw new Error("condition not met in time");
+		await Bun.sleep(5);
+	}
+}
+
+/** A transfer and a verification that each count how many run together, held at a gate. */
+function overlapProbe() {
+	const transfers = { running: 0, peak: 0, finished: 0, gate: Promise.withResolvers<void>() };
+	const verifications = { running: 0, peak: 0, started: 0, gate: Promise.withResolvers<void>() };
+	const firstVerification = Promise.withResolvers<void>();
+	return {
+		transfers,
+		verifications,
+		firstVerification: firstVerification.promise,
+		overrides: {
+			transferImage: async (url, t, signal) => {
+				transfers.peak = Math.max(transfers.peak, ++transfers.running);
+				try {
+					await transfers.gate.promise;
+					return await downloadImage(url, t, signal);
+				} finally {
+					transfers.running--;
+					transfers.finished++;
+				}
+			},
+			verify: async (bytes) => {
+				verifications.started++;
+				verifications.peak = Math.max(verifications.peak, ++verifications.running);
+				firstVerification.resolve();
+				try {
+					await verifications.gate.promise;
+					return await verifyImage(bytes);
+				} finally {
+					verifications.running--;
+				}
+			},
+		} satisfies Overrides,
+	};
+}
+
+test("two image saves overlap their transfers while only one verifies at a time", async () => {
+	const probe = overlapProbe();
+	runtime = open(probe.overrides);
+	await runtime.start();
+	for (const id of ["image-1", "image-2"]) await insert(id);
+	for (const id of ["image-1", "image-2"]) await runtime.jobs.refresh(id);
+	await Bun.sleep(20);
+	expect(probe.transfers.running).toBe(2);
+	probe.transfers.gate.resolve();
+	await probe.firstVerification;
+	// Both transfers finish; the second verification waits for the first.
+	await until(() => probe.transfers.finished === 2);
+	await Bun.sleep(20);
+	expect(transfers.sort()).toEqual(["image-1", "image-2"]);
+	expect(probe.verifications).toMatchObject({ running: 1, started: 1 });
+	probe.verifications.gate.resolve();
+	await settle();
+	expect(probe.transfers.peak).toBe(2);
+	expect(probe.verifications).toMatchObject({ peak: 1, started: 2 });
+	for (const id of ["image-1", "image-2"]) expect((await summary(id))?.library, id).toBe("saved");
+});
+
+test("shutdown rejects a save waiting to verify at once and releases both claims", async () => {
+	const probe = overlapProbe();
+	probe.transfers.gate.resolve();
+	runtime = open(probe.overrides);
+	await runtime.start();
+	const ids = ["image-1", "image-2"];
+	for (const id of ids) await insert(id);
+	for (const id of ids) await runtime.jobs.refresh(id);
+	await probe.firstVerification;
+	await until(() => probe.transfers.finished === 2);
+	expect(transfers.sort()).toEqual(ids);
+	const claimed = async () =>
+		(await Promise.all(ids.map(job))).filter((row) => row?.save_attempt).length;
+	expect(await claimed()).toBe(2);
+	let closed = false;
+	const closing = runtime.autoSave.close().then(() => {
+		closed = true;
+	});
+	// The waiting save leaves at once; the running verification finishes before close resolves.
+	await until(async () => (await claimed()) === 1);
+	expect(closed).toBe(false);
+	probe.verifications.gate.resolve();
+	await closing;
+	expect(probe.verifications.started).toBe(1);
+	for (const id of ids)
+		expect(await job(id)).toEqual({
+			save_due: start,
+			save_hold: null,
+			save_attempt: null,
+			save_tries: 0,
+		});
+	expect(await runtime.gallery.list()).toEqual([]);
+	now += 5_000;
+	await reopen();
 	for (const id of ids) expect((await summary(id))?.library, id).toBe("saved");
 });
 

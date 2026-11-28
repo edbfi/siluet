@@ -135,6 +135,11 @@ jobs:
       - name: Provision the pinned ExifTool for independent inspection
         run: bun scripts/media-cleanup/exiftool.ts >> "$GITHUB_ENV"
       - run: bun test --timeout 60000 ./src/lib/server/services/media-cleanup ./src/lib/server/services/media-staging ./src/lib/server/db/runtime-installation.test.ts ./src/lib/server/db/recovery-lock.test.ts ./src/lib/server/db/media-cleaning.test.ts ./src/lib/server/db/file-attempt.test.ts ./src/lib/server/db/poyo-upload-window.test.ts ./src/lib/server/services/file-edit
+      # Gallery's peak-memory budgets on arm64 (D5). x64 runs them in `checks` and macOS in
+      # `native-owner`; each run appends its figures to the job summary.
+      - name: Measure Gallery's peak memory at its bounds
+        if: matrix.runner == 'ubuntu-24.04-arm'
+        run: bun test --timeout 60000 ./src/lib/server/services/gallery/budget.test.ts
       - run: bun run --bun build
       - name: Drive staging, shutdown and restart on the built server
         run: bun test --timeout 60000 ./tests/media-cleanup

@@ -405,7 +405,7 @@ describe("derived text-to-image Review", () => {
 			samePath: samePathSentence,
 			d4: [d4Disclosure("poyo")],
 			gallery:
-				"Gallery saves images up to 16 megapixels. A completed billable image over that stays with the provider.",
+				"Gallery saves images up to 20 megapixels. A completed billable image over that stays with the provider.",
 			access:
 				"Poyo.ai does not publish per-key model access. Siluet has checked only that this key works.",
 		});

@@ -121,6 +121,33 @@ export function galleryStorage({ directory, use }: Installation) {
 		await markUnavailable(update, row);
 		return null;
 	}
+	// Only the row lookup holds the installation connection; the file is opened, read and
+	// hashed outside it, as a video is.
+	async function imageRow(id: string) {
+		const row = await use((db) => db.get<Row>(rowQuery(id)));
+		return row?.state === "saved" && row.mime !== "video/mp4" ? row : null;
+	}
+	async function checkedImage(row: Row) {
+		try {
+			const file = await open(
+				pathFor(row.job_id),
+				constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+			);
+			try {
+				const info = await file.stat();
+				if (info.isFile() && info.size === row.size) {
+					const bytes = await file.readFile();
+					if (hash(bytes) === row.digest) return bytes;
+				}
+			} finally {
+				await file.close();
+			}
+		} catch (error) {
+			if (!absent(error)) throw error;
+		}
+		await markUnavailable(liveUpdate, row);
+		return null;
+	}
 	async function entry(update: Update, row: Row) {
 		let available = row.state === "saved";
 		if (available && row.mime === "video/mp4") {
@@ -266,30 +293,25 @@ export function galleryStorage({ directory, use }: Installation) {
 				? checkedVideo(liveUpdate, row, metadataOnly)
 				: null;
 		},
-		read(id: string) {
-			return use(async (db) => {
-				const row = await db.get<Row>(rowQuery(id));
-				if (row?.state !== "saved" || row.mime === "video/mp4") return null;
-				try {
-					const file = await open(
-						pathFor(id),
-						constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-					);
-					try {
-						const info = await file.stat();
-						if (info.isFile() && info.size === row.size) {
-							const bytes = await file.readFile();
-							if (hash(bytes) === row.digest) return { mime: row.mime, bytes };
-						}
-					} finally {
-						await file.close();
-					}
-				} catch (error) {
-					if (!absent(error)) throw error;
-				}
-				await markUnavailable((statement) => db.get(statement), row);
-				return null;
-			});
+		/** A saved image's bytes after its digest check, or null once it is unavailable. */
+		async read(id: string) {
+			const row = await imageRow(id);
+			const bytes = row && (await checkedImage(row));
+			return row && bytes ? { mime: row.mime as ImageInfo["mime"], bytes } : null;
+		},
+		/** A saved image's type and size from its row and file metadata, never its bytes. */
+		async headImage(id: string) {
+			const row = await imageRow(id);
+			if (!row) return null;
+			try {
+				const stat = await lstat(pathFor(id), { bigint: true });
+				if (stat.isFile() && stat.size === BigInt(row.size))
+					return { mime: row.mime as ImageInfo["mime"], size: row.size };
+			} catch (error) {
+				if (!absent(error)) throw error;
+			}
+			await markUnavailable(liveUpdate, row);
+			return null;
 		},
 		async remove(id: string) {
 			// Commit deletion intent before unlink. Recovery completes either remaining step.

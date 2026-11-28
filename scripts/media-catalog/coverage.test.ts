@@ -81,18 +81,99 @@ test("the tag-blocking count matches the ledger", () => {
 	expect(
 		result.items.filter((item) => item.option === undefined && item.state === "unknown"),
 	).toHaveLength(4);
-	// H3 Max's prompt envelope, and the 4K tier left on each covered option until G13.
-	expect(result.blocking.envelope).toBe(7);
+	// H3 Max's prompt envelope, and kling-4.0-image's 8K tier, split to G13b on each operation
+	// whose slice offers it. Its image-set operation keeps 8K inside its Phase 3 item.
+	expect(result.blocking.envelope).toBe(3);
 	expect(
-		result.items.filter((item) => item.envelope).map(({ model, reason }) => [model, reason]),
+		result.items
+			.filter((item) => item.envelope)
+			.map(({ model, operation, slice, values, reason }) => [
+				model,
+				operation,
+				slice,
+				values,
+				reason,
+			]),
 	).toEqual([
-		["flux-3-klein", "G13: over Gallery's image limits"],
-		["kling-o3-image", "G13: over Gallery's image limits"],
-		["nano-banana-2", "G13: over Gallery's image limits"],
-		["nano-banana-pro", "G13: over Gallery's image limits"],
-		["seedream-4", "G13: over Gallery's image limits"],
-		["seedream-4.5", "G13: over Gallery's image limits"],
-		["h3-max", "Siluet's 4000-byte envelope excludes the documented 50000 characters"],
+		["kling-4.0-image", "text-to-image", "G13b", '"8K"', "G13b: 8K is over Gallery's image limits"],
+		[
+			"kling-4.0-image",
+			"reference-image-edit",
+			"G13b",
+			'"8K"',
+			"G13b: 8K is over Gallery's image limits",
+		],
+		[
+			"h3-max",
+			"text-to-video",
+			"G7",
+			"up to 50000 characters",
+			"Siluet's 4000-byte envelope excludes the documented 50000 characters",
+		],
+	]);
+	// The 4K tiers whose output size no source documents are offered with Gallery's statement
+	// and stay without a covered path under question 11.
+	const undocumented = "4K: output size not documented; Review states Gallery's limit";
+	expect(
+		result.items
+			.filter((item) => item.reason === undocumented)
+			.map(({ model, option, values, state, question }) => [
+				model,
+				option,
+				values,
+				state,
+				question,
+			]),
+	).toEqual([
+		["kling-o3-image", "resolution", '"4K"', "unknown", 11],
+		["nano-banana-2", "resolution", '"4K"', "unknown", 11],
+		["nano-banana-pro", "resolution", '"4K"', "unknown", 11],
+		["seedream-4", "resolution", '"4K"', "unknown", 11],
+		["seedream-4.5", "size", '"4K"', "unknown", 11],
+	]);
+});
+
+test("G13 moves the image 4K tiers out of the envelope and splits kling-4.0-image's 8K to G13b", () => {
+	// Against G4a's merged figures: 2148 blocking, 7 of them envelope items and 137 without a
+	// path. flux-3-klein's documented 4K is covered (-1), five undocumented 4K tiers move from
+	// the envelope to question 11 (0), and each G13b split adds an item (+2).
+	expect(result.blocking.envelope).toBe(7 - 6 + 2);
+	expect(result.blocking.withoutPath).toBe(137 + 5);
+	expect(result.tagBlocking).toBe(2148 - 1 + 2);
+	const kling = (operation: string) =>
+		result.items
+			.filter(
+				(item) =>
+					item.model === "kling-4.0-image" &&
+					item.operation === operation &&
+					item.option === "resolution",
+			)
+			.map(({ slice, values, state, reason, envelope }) => [
+				slice,
+				values,
+				state,
+				reason,
+				envelope,
+			]);
+	for (const operation of ["text-to-image", "reference-image-edit"])
+		expect(kling(operation)).toEqual([
+			["G13b", '"8K"', "pending", "G13b: 8K is over Gallery's image limits", true],
+			["G6", '"2K", "4K"', "pending", "G6", undefined],
+		]);
+	expect(kling("sequential-image-set")).toEqual([
+		[
+			"P3 · multi-output and image sets",
+			'"2K", "4K", "8K"',
+			"pending",
+			"P3 · multi-output and image sets; 8K: G13b",
+			undefined,
+		],
+	]);
+	const klein = result.items.filter(
+		(item) => item.model === "flux-3-klein" && item.option === "resolution",
+	);
+	expect(klein.map(({ values, state }) => [values, state])).toEqual([
+		['"1K", "2K", "4K"', "contract-covered"],
 	]);
 });
 
@@ -202,9 +283,10 @@ test("each key has an assignment and the inventory regenerates unchanged", () =>
 test("closed-absent image keys are assigned to G6, where their acknowledgement lands", () => {
 	const closed = rows.filter((row) => row.media === "image" && row.d4.d4 === "closed-absent");
 	expect(closed.length).toBeGreaterThan(0);
+	// Only an envelope value leaves for its own slice.
 	for (const row of closed)
 		for (const item of result.items.filter((candidate) => candidate.model === row.model))
-			if (/^G[45]$/.test(assignment(item))) expect(item.slice).toBe("G6");
+			if (/^G[45]$/.test(assignment(item))) expect(item.slice).toBe(item.envelope ? "G13b" : "G6");
 	const key = (model: string, operation: string) =>
 		result.items.find(
 			(item) => item.model === model && item.operation === operation && !item.option,
@@ -229,7 +311,7 @@ test("closed-absent image keys are assigned to G6, where their acknowledgement l
 	).toBe("G7");
 });
 
-test("a covered option leaves its 4K tier to G13 and its custom sizes to their own state", () => {
+test("a covered option states an offered undocumented 4K tier under question 11 and leaves custom sizes to their own state", () => {
 	const key = (model: string) => ({
 		provider: "poyo" as const,
 		model,
@@ -250,17 +332,19 @@ test("a covered option leaves its 4K tier to G13 and its custom sizes to their o
 			],
 		);
 	};
-	const listed = ["2K", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"];
+	const ratios = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"];
+	const listed = ["2K", "4K", ...ratios];
+	const quoted = (values: string[]) => values.map((value) => JSON.stringify(value)).join(", ");
+	const undocumented = "4K: output size not documented; Review states Gallery's limit";
 	expect(items("seedream-4.5", listed)).toEqual([
-		['"4K"', "pending", "G13: over Gallery's image limits", undefined, true],
+		['"4K"', "unknown", undocumented, 11, undefined],
 		["custom sizes", "unknown", "custom sizes: no documented range or tier", 11, undefined],
-		[
-			listed.map((value) => JSON.stringify(value)).join(", "),
-			"verified",
-			"offered in full",
-			undefined,
-			undefined,
-		],
+		[quoted(["2K", ...ratios]), "verified", "offered in full", undefined, undefined],
+	]);
+	// A composer that leaves the tier out omits it, like any other value.
+	expect(items("seedream-4.5", ["2K", ...ratios])).toEqual([
+		["custom sizes", "unknown", "custom sizes: no documented range or tier", 11, undefined],
+		[quoted(listed), "pending", 'composer omits "4K"', undefined, undefined],
 	]);
 	expect(items("flux-3-klein", ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"])).toEqual([
 		["custom sizes", "pending", "class not yet qualified: custom size", undefined, undefined],
@@ -310,9 +394,15 @@ test("Queue-eligible keys and their fully offered options are contract-covered",
 	expect(option("flux-dev", "output_format")).toEqual([
 		['"jpeg", "png"', "contract-covered", "offered in full", undefined, undefined],
 	]);
-	// A 4K tier stays with G13 and a custom size with its own state.
+	// An undocumented 4K tier is offered under question 11, and a custom size keeps its own state.
 	expect(option("kling-o3-image", "resolution")).toEqual([
-		['"4K"', "pending", "G13: over Gallery's image limits", undefined, true],
+		[
+			'"4K"',
+			"unknown",
+			"4K: output size not documented; Review states Gallery's limit",
+			11,
+			undefined,
+		],
 		['"1K", "2K"', "contract-covered", "offered in full", undefined, undefined],
 	]);
 	expect(option("flux-3-klein", "size")[0]).toEqual([
@@ -350,7 +440,25 @@ test("removing an option from a contract-covered composer leaves a blocker; fixe
 			: entry,
 	);
 	const removed = coverage({ rows, contract });
-	expect(removed.tagBlocking).toBe(result.tagBlocking + 1);
+	// The listed sizes become a blocker, and the offered 4K tier joins them, no longer offered.
+	expect(removed.blocking.pending).toBe(result.blocking.pending + 1);
+	expect(removed.blocking.withoutPath).toBe(result.blocking.withoutPath - 1);
+	expect(
+		removed.items
+			.filter(
+				(item) =>
+					item.model === "seedream-4.5" &&
+					item.operation === "text-to-image" &&
+					item.option === "size" &&
+					item.state === "pending",
+			)
+			.map(({ values, reason }) => [values, reason]),
+	).toEqual([
+		[
+			'"2K", "4K", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"',
+			"not offered by the composer",
+		],
+	]);
 	const fixed = result.items.filter(
 		(item) =>
 			["flux-dev", "seedream-4.5", "nano-banana-2"].includes(item.model) &&

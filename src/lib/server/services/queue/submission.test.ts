@@ -1079,6 +1079,34 @@ describe("derived text-to-image rows", () => {
 		expect(await db.use((conn) => conn.all(sql`SELECT id FROM image_job`))).toEqual([]);
 	});
 
+	test("raising Gallery's limit stales an unclaimed Review bound to the old statement, and a claimed one replays", async () => {
+		const before = await derivedQueue({
+			wording: (row) => ({
+				...derivedWording(row),
+				gallery:
+					"Gallery saves images up to 16 megapixels. A completed billable image over that stays with the provider.",
+			}),
+		});
+		const claimedInput = derivedInput("flux-dev");
+		const waitingInput = derivedInput("flux-dev", "A second paper crane");
+		const [claimedReview, waitingReview] = await Promise.all([
+			before.review("owner", claimedInput),
+			before.review("owner", waitingInput),
+		]);
+		if (!("token" in claimedReview) || !("token" in waitingReview))
+			throw new Error("Expected Reviews.");
+		const claimed = await before.submit("owner", click(claimedInput, claimedReview.token));
+		if (!("jobId" in claimed)) throw new Error("Expected a claim.");
+		expect(sent).toHaveLength(1);
+		const after = await derivedQueue();
+		expect(derivedWording(rowOf("flux-dev")).gallery).toContain("up to 20 megapixels");
+		expect(await after.submit("owner", click(waitingInput, waitingReview.token))).toMatchObject({
+			error: "stale",
+		});
+		expect(await after.submit("owner", click(claimedInput, claimedReview.token))).toEqual(claimed);
+		expect(sent).toHaveLength(1);
+	});
+
 	test("a claimed Review replays after a re-pin removes or narrows its row; an unclaimed one is stale", async () => {
 		const api = await derivedQueue();
 		const claimedInput = derivedInput("flux-dev");
