@@ -15,8 +15,8 @@ import { UnsupportedVideoError } from "../video-media/errors";
 import { saveBounds } from "../video-media/limits";
 import { verifyVideoFile } from "../video-media/verify-video";
 import { direct, downloadImage, type Transport } from "./download";
+import { createSlots } from "./slots";
 import { galleryStorage, type Publication, unremovedScratch } from "./storage";
-import { createVerificationSlot } from "./verification-slot";
 import { UnsupportedGalleryImage, verifyImage } from "./verify-image";
 
 type AutoSaveDependencies = {
@@ -36,7 +36,7 @@ type AutoSaveDependencies = {
 };
 
 // At most two image and one video transfer at a time; the rest wait. The two image transfers
-// verify one at a time (verification-slot.ts).
+// verify one at a time.
 const caps = { image: 2, video: 1 };
 // The longest delay setTimeout accepts; a longer one fires at once.
 const timerLimit = 2_147_483_647;
@@ -82,7 +82,7 @@ export function createAutoSave(
 	const deliveries = new Map<string, VideoDelivery>();
 	const active = new Map<string, { video: boolean; token: string; done: Promise<void> }>();
 	const shutdown = new AbortController();
-	const verifyInTurn = createVerificationSlot();
+	const verification = createSlots(1);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	// A later look after a failed outcome write; nothing else may wake the worker.
 	let recheck: ReturnType<typeof setTimeout> | undefined;
@@ -101,7 +101,7 @@ export function createAutoSave(
 		const { signal } = shutdown;
 		if (!isVideoJob(job)) {
 			const bytes = await transferImage(delivery.url, transport, signal);
-			const info = await verifyInTurn(signal, () => verify(bytes));
+			const info = await verification.run(signal, () => verify(bytes));
 			// Shutdown releases a save it stopped during verification, as it does a transfer.
 			signal.throwIfAborted();
 			return storage.publish(job.id, token, bytes, info);
