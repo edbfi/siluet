@@ -118,8 +118,9 @@ function classify(
 const bases = {
 	published: {
 		label: "Published PoYo price basis",
-		byteLimit: poyoBasisByteLimit,
 		feeds: "the published v2 rates",
+		// An unreadable or oversized published file counts as missing.
+		unreadableIsAbsent: true,
 		// Review quotes no derived rate from an unpaired basis, so a published gap fails the run.
 		absent: (label: string): FreshnessCheck => ({
 			level: "error",
@@ -130,8 +131,8 @@ const bases = {
 	},
 	bundled: {
 		label: "Bundled PoYo price basis on main",
-		byteLimit: poyoBasisByteLimit,
 		feeds: "the bundled rates",
+		unreadableIsAbsent: false,
 		// Until a re-bundle adds the published basis, derived rows stay unknown-price.
 		absent: (label: string): FreshnessCheck => ({
 			level: "warning",
@@ -148,9 +149,9 @@ async function checkBasis(
 	feedJson: unknown,
 	path: string,
 ): Promise<FreshnessCheck> {
-	const { label, byteLimit, feeds, absent, mismatch, remedy } = bases[which];
-	const json = await readJson(path, byteLimit);
-	if (json === undefined || (which === "published" && json === null)) return absent(label);
+	const { label, feeds, unreadableIsAbsent, absent, mismatch, remedy } = bases[which];
+	const json = await readJson(path, poyoBasisByteLimit);
+	if (json === undefined || (unreadableIsAbsent && json === null)) return absent(label);
 	const basis = decodePoyoBasis(json);
 	const feed = decodePoyoV2Feed(feedJson);
 	if (!basis || !feed || !poyoBasisPairs(feed, basis)) {
