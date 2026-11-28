@@ -214,6 +214,35 @@ test("a stale Review shows the newer check that superseded its automatic one", a
 	});
 });
 
+test("an unreachable automatic check is not reported once a newer check has answered", async () => {
+	const { store, inventory } = setup();
+	await store.save("toapis", "fixture-key", now, false, 0);
+	await inventory.check("image");
+	now += inventoryFreshMs;
+	const answers: PromiseWithResolvers<Response>[] = [];
+	reply = () => {
+		const answer = Promise.withResolvers<Response>();
+		answers.push(answer);
+		return answer.promise;
+	};
+	const sentAll = async (count: number) => {
+		while (calls.length < count) await Bun.sleep(1);
+	};
+	const review = inventory.review(seedream, "image");
+	await sentAll(2);
+	const manual = inventory.check("image");
+	await sentAll(3);
+	answers[1].resolve(list("doubao-seedream-5-5"));
+	expect(await manual).toMatchObject({ outcome: "recorded" });
+	answers[0].reject(
+		Object.assign(new TypeError("fixture connect failure"), { code: "ECONNREFUSED" }),
+	);
+	expect(await review).toEqual({
+		access: { state: "listed", revision: 1, checkedAt: now, basis: "snapshot" },
+		skipped: false,
+	});
+});
+
 test("a stale Review whose automatic check cannot reach ToAPIs stays stale and records nothing", async () => {
 	const { store, inventory, snapshots } = setup();
 	await store.save("toapis", "fixture-key", now, false, 0);

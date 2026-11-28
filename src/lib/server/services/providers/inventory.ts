@@ -144,8 +144,11 @@ export function createInventory(
 			const current = await access(key, scope);
 			if (current.state !== "stale") return { access: current, skipped: false };
 			const checked = await check(scope, "automatic");
-			// A newer check or a key change may have answered first, so read what is saved now.
-			return { access: await access(key, scope), skipped: checked.outcome === "skipped" };
+			// A newer check or a key change may have answered first, so read what is saved now, and
+			// report an unreachable check only while the same stale snapshot is still the answer.
+			const after = await access(key, scope);
+			const unchanged = after.state === "stale" && after.checkedAt === current.checkedAt;
+			return { access: after, skipped: checked.outcome === "skipped" && unchanged };
 		},
 	};
 }
