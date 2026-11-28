@@ -171,7 +171,14 @@ test("Settings and Review show listed, absent or unknown per exact ToAPIs model,
 			await openImageReview();
 			await expect(facts.getByText(absent("doubao-seedream-5-5"))).toBeVisible();
 			const reads = count("/toapis/models");
+			// The absent line is already shown, so wait for the check and the Review it refreshes.
+			const pathOf = (response: { url(): string }) => new URL(response.url()).pathname;
+			const checked = page.waitForResponse(
+				(response) => pathOf(response) === "/providers/inventory",
+			);
+			const refreshed = page.waitForResponse((response) => pathOf(response) === "/image/review");
 			await reviewCheck.press("Enter");
+			await Promise.all([checked, refreshed]);
 			await expect(facts.getByText(absent("doubao-seedream-5-5"))).toBeVisible();
 			expect(count("/toapis/models")).toBe(reads + 1);
 			await expect(queue).toBeDisabled();

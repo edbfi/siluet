@@ -258,6 +258,8 @@ async function checkAgain() {
 		const answer: { outcome?: string; message?: string } | null = await response
 			.json()
 			.catch(() => null);
+		// A Review closed during the check sends nothing more.
+		if (!mounted) return;
 		if (answer?.outcome === "recorded" || answer?.outcome === "superseded") {
 			checking = false;
 			await inspect();
