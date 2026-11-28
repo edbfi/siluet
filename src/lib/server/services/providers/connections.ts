@@ -80,6 +80,7 @@ export function createProviderConnections(
 					checked.seedream,
 					revision,
 					!warningSeen,
+					checked.models,
 				);
 				if (saved === "job-warning") return saved;
 				return saved ? "connected" : "superseded";

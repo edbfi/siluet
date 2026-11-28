@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
+import { seedreamRoutes } from "../../shared/media-catalog/registry";
 import {
 	type ProviderConnectionStatus,
 	type ProviderId,
@@ -12,6 +13,7 @@ import {
 	jobsNeedCredential,
 } from "./image-job-store";
 import type { Installation } from "./installation";
+import { issueGeneration, recordSnapshot } from "./inventory-store";
 import { clearRefusals } from "./model-refusal";
 import { ProviderKeyPolicyError, prepareProviderKey, readProviderKey } from "./provider-key";
 
@@ -182,6 +184,8 @@ export function providerStore(installation: Installation) {
 			seedream: boolean,
 			expectedRevision: number,
 			guardActiveJobs = false,
+			/** The image listing a ToAPIs Connect read, recorded as the new revision's snapshot. */
+			models?: readonly string[],
 		) {
 			for (let attempt = 0; attempt < 2; attempt++) {
 				const prepared = await prepareProviderKey(directory);
@@ -208,6 +212,15 @@ export function providerStore(installation: Installation) {
 									verified_at=${verifiedAt}, seedream=${Number(seedream)} WHERE provider=${id}`);
 								// A new key revision clears the refusals recorded against the old one.
 								await clearRefusals(tx, id, revision);
+								if (id === "toapis" && models)
+									await recordSnapshot(tx, {
+										origin: seedreamRoutes.toapis.origin,
+										scope: "image",
+										revision,
+										generation: await issueGeneration(tx, seedreamRoutes.toapis.origin, "image"),
+										checkedAt: verifiedAt,
+										result: { outcome: "succeeded", models },
+									});
 								return true;
 							},
 							{ behavior: "immediate" },

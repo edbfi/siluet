@@ -148,3 +148,26 @@ test("a storage error releases the provider for retry and exposes no exception t
 	expect(await service.connect("poyo", "fixture-another")).toBe("connected");
 	expect(await service.remove("poyo")).toBe("storage-unavailable");
 });
+
+test("Connect hands the ToAPIs listing it read to the saved key's snapshot", async () => {
+	const listings: (readonly string[] | undefined)[] = [];
+	const service = createProviderConnections(
+		{
+			revision: async () => 0,
+			checkKeyStorage: async () => {},
+			statuses: async () => [],
+			save: async (_id, _key, _verifiedAt, _seedream, _revision, _guard, models) => {
+				listings.push(models);
+				return true;
+			},
+			remove: async () => {},
+		},
+		{
+			poyo: async () => ({ outcome: "accepted", seedream: true }),
+			toapis: async () => ({ outcome: "accepted", seedream: false, models: ["fixture-model"] }),
+		},
+	);
+	expect(await service.connect("toapis", "fixture-toapis")).toBe("connected");
+	expect(await service.connect("poyo", "fixture-poyo")).toBe("connected");
+	expect(listings).toEqual([["fixture-model"], undefined]);
+});
