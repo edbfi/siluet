@@ -427,9 +427,14 @@ describe("PoYo v2 publication", () => {
 			cachePath: resolve(client, "v1.json"),
 			v2BundledPath: resolve(client, "bundled-v2.json"),
 			v2CachePath: resolve(client, "v2.json"),
-			fetchFeed: async () => new Response(body),
+			// The published basis pairs with the published feed as refresh reads it.
+			fetchFeed: async (url) =>
+				new Response(url.endsWith("/poyo-basis.json") ? show(basisPath) : body),
 		});
 		expect<unknown>(refreshed.feed).toEqual(largest);
+		expect(JSON.parse(readFileSync(resolve(client, "poyo-basis.json"), "utf8"))).toEqual(
+			JSON.parse(show(basisPath)),
+		);
 		const published = head();
 		const over = publish(sizedPoyoV2Feed(65_537, { base: v2 }));
 		expect(over.err).toMatch(/size limit/);

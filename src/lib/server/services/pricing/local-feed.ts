@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import {
 	decodePricingFeed,
 	isPricingClock,
@@ -12,7 +12,7 @@ import {
 	type ProviderPricingFeed,
 	pricingSourceDate,
 } from "../../../shared/pricing/feeds";
-import type { PoyoPriceBasis } from "../../../shared/pricing/poyo-basis";
+import { decodePoyoBasis, type PoyoPriceBasis } from "../../../shared/pricing/poyo-basis";
 import {
 	decodePoyoV2Feed,
 	type PoyoPricingFeed,
@@ -29,9 +29,11 @@ import {
  * `toapis` is the v2 ToAPIs feed. The frozen v1 ToAPIs feed is never read.
  */
 export type PricingFile = PricingProvider | "poyo-v2";
-/** Feeds already in memory, such as those embedded in the Studio build. */
+/** Feeds already in memory, such as those embedded in the Studio build, and the v2 basis. */
 export type BundledPricingFeeds = Readonly<
-	Partial<Record<PricingFile, ProviderPricingFeed | undefined>>
+	Partial<Record<PricingFile, ProviderPricingFeed | undefined>> & {
+		"poyo-basis"?: PoyoPriceBasis | undefined;
+	}
 >;
 export type PricingPaths = {
 	provider?: PricingProvider;
@@ -42,17 +44,32 @@ export type PricingPaths = {
 	/** Poyo.ai only: the v2 files, selected alongside the v1 files above. */
 	v2BundledPath?: string;
 	v2CachePath?: string;
+	/** Poyo.ai only: the price basis beside each v2 file, by default `poyo-basis.json` there. */
+	basisBundledPath?: string;
+	basisCachePath?: string;
 };
 export type CachedPricingFeed = { checkedAt: string; feed: ProviderPricingFeed };
 export const pricingFeedByteLimit = 16 * 1024;
 /** Bundled and cached v2 files leave room for the cache wrapper around a 64 KiB feed. */
 export const poyoV2FileByteLimit = 256 * 1024;
+/** A cached or bundled basis is read with the feed's own 64 KiB wire limit. */
+export const poyoBasisFileByteLimit = 64 * 1024;
 
 const pricingFiles = {
 	poyo: { directory: "v1", name: "feed.json", byteLimit: pricingFeedByteLimit },
 	"poyo-v2": { directory: "v2", name: "poyo.json", byteLimit: poyoV2FileByteLimit },
 	toapis: { directory: "v2", name: "toapis.json", byteLimit: pricingFeedByteLimit },
 } as const satisfies Record<PricingFile, unknown>;
+
+/** The price basis that pairs with a v2 file: `poyo-basis.json` in the same directory. */
+export function poyoBasisPath(v2Path: string): string {
+	return join(dirname(v2Path), "poyo-basis.json");
+}
+
+/** Read a price basis file: `undefined` when it is absent, unreadable or invalid. */
+export async function readPoyoBasis(path: string): Promise<PoyoPriceBasis | undefined> {
+	return decodePoyoBasis(await readLocalJson(path, poyoBasisFileByteLimit));
+}
 
 export function pricingFileLocation(file: PricingFile): string {
 	const { directory, name } = pricingFiles[file];
@@ -243,15 +260,25 @@ export async function loadBundledPricing(
 	return preferPoyoFeed(v1, v2);
 }
 
+/** The selected local feed and whether it came from the cache. */
+async function selectLocalSource(
+	file: PricingFile,
+	bundledSource: BundledSource,
+	cachePath: string,
+): Promise<{ feed: ProviderPricingFeed; cached: boolean } | undefined> {
+	const { bundled, cache } = await readLocalPricing(bundledSource, cachePath, file);
+	if (!cache || (bundled && pricingFeedConflict(cache.feed, bundled)))
+		return bundled && { feed: bundled, cached: false };
+	// Keep the newest source after a clock correction. The calculator checks source time itself.
+	return { feed: cache.feed, cached: true };
+}
+
 async function selectLocalFile(
 	file: PricingFile,
 	bundledSource: BundledSource,
 	cachePath: string,
 ): Promise<ProviderPricingFeed | undefined> {
-	const { bundled, cache } = await readLocalPricing(bundledSource, cachePath, file);
-	if (!cache || (bundled && pricingFeedConflict(cache.feed, bundled))) return bundled;
-	// Keep the newest source after a clock correction. The calculator checks source time itself.
-	return cache.feed;
+	return (await selectLocalSource(file, bundledSource, cachePath))?.feed;
 }
 
 export async function loadLocalPricing(
@@ -261,17 +288,46 @@ export async function loadLocalPricing(
 		bundledFeeds,
 		bundledPath,
 		cachePath = pricingCachePath(undefined, provider),
-		v2BundledPath,
-		v2CachePath = pricingCachePath(undefined, "poyo-v2"),
+		...paths
 	}: PricingPaths = {},
 ): Promise<ProviderPricingFeed | undefined> {
 	if (!isPricingClock(nowMs)) return;
 	if (provider === "toapis") {
 		return selectLocalFile(provider, bundledPath ?? bundledFeeds?.toapis, cachePath);
 	}
+	return (await loadLocalPoyoPricing(nowMs, { bundledFeeds, bundledPath, cachePath, ...paths }))
+		.feed;
+}
+
+/**
+ * The selected Poyo.ai feed and, for a v2 feed, the price basis from the same source, cache or
+ * bundled, offered only when it pairs with that feed. A cached feed never pairs with the bundled
+ * basis, and a refresh that stopped between the two files leaves no pair.
+ */
+export async function loadLocalPoyoPricing(
+	nowMs: number,
+	{
+		bundledFeeds,
+		bundledPath,
+		cachePath = pricingCachePath(undefined, "poyo"),
+		v2BundledPath,
+		v2CachePath = pricingCachePath(undefined, "poyo-v2"),
+		basisBundledPath = v2BundledPath && poyoBasisPath(v2BundledPath),
+		basisCachePath = poyoBasisPath(v2CachePath),
+	}: Omit<PricingPaths, "provider"> = {},
+): Promise<{ feed?: PoyoPricingFeed; basis?: PoyoPriceBasis }> {
+	if (!isPricingClock(nowMs)) return {};
 	const [v1, v2] = await Promise.all([
 		selectLocalFile("poyo", bundledPath ?? bundledFeeds?.poyo, cachePath),
-		selectLocalFile("poyo-v2", v2BundledPath ?? bundledFeeds?.["poyo-v2"], v2CachePath),
+		selectLocalSource("poyo-v2", v2BundledPath ?? bundledFeeds?.["poyo-v2"], v2CachePath),
 	]);
-	return preferPoyoFeed(v1, v2);
+	const feed = preferPoyoFeed(v1, v2?.feed);
+	if (feed?.provider !== "poyo") return {};
+	if (feed !== v2?.feed || feed.version !== 2) return { feed };
+	const basis = v2.cached
+		? await readPoyoBasis(basisCachePath)
+		: basisBundledPath
+			? await readPoyoBasis(basisBundledPath)
+			: bundledFeeds?.["poyo-basis"];
+	return basis && poyoBasisPairs(feed, basis) ? { feed, basis } : { feed };
 }

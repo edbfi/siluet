@@ -210,11 +210,12 @@ onDestroy(() => {
 	mounted = false;
 });
 const terms = $derived(authorized?.request === request ? authorized.terms : null);
-// No derived rate basis is published yet (G4b), so a derived row's price is unknown.
+// A derived row quotes only from a feed the server paired with its price basis.
 const offlineQuote = $derived(
 	review &&
 		(catalogRow
-			? derivedQuote
+			? // A derived row's composer hands Review its derived draft.
+				derivedQuote(feeds, catalogRow, draft as DerivedDraft, browserNow ?? nowMs)
 			: estimateReviewPrice(feeds, review.pricing, batch, browserNow ?? nowMs)),
 );
 const expiry = $derived.by(() => {

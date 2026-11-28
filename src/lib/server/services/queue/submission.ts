@@ -99,6 +99,7 @@ export async function createSubmissionQueue(
 			bound,
 			feeds,
 			saved.revision,
+			now(),
 		);
 		const id = crypto.randomUUID();
 		return {
@@ -145,10 +146,17 @@ export async function createSubmissionQueue(
 					}>(sql`SELECT c.revision FROM provider_credential c
 						WHERE c.provider='poyo' AND c.ciphertext IS NOT NULL AND ${credentialPermitsImage(live.key.model)}`);
 					if (current?.revision !== saved.revision) return stale;
-					const reviewed = derivedTerms({ ...live, row }, request, bound, feeds, saved.revision);
+					const time = now();
+					const reviewed = derivedTerms(
+						{ ...live, row },
+						request,
+						bound,
+						feeds,
+						saved.revision,
+						time,
+					);
 					if (reviewed.terms !== terms) return stale;
 					if (reviewed.requiresConsent && !live.acceptUnknown) return invalid;
-					const time = now();
 					const until = await nextProviderStart(tx, "poyo", "submit", time);
 					if (until > time) return { error: "cooldown" as const, until };
 					const format = request.body.input.output_format;

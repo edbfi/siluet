@@ -2,15 +2,26 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, rm, rmdir, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { queueRows } from "../../src/lib/shared/media-catalog/image-queue";
+import { estimateDerivedPrice } from "../../src/lib/shared/pricing/derived-estimate";
 import { estimatePrice } from "../../src/lib/shared/pricing/estimate";
 import type { PricingFeed } from "../../src/lib/shared/pricing/feed";
 import h3Fixture from "../../tests/fixtures/h3-rate.v2.json";
+import pair from "../../tests/fixtures/poyo-basis-pair.json";
 import { poyoV2Feed, sizedPoyoV2Feed } from "../../tests/fixtures/poyo-v2-feed";
 import { toapisRates } from "../../tests/fixtures/toapis-feed";
-import { loadLocalPricing, pricingCachePath } from "./local-feed";
+import {
+	canonicalJson,
+	loadLocalPoyoPricing,
+	loadLocalPricing,
+	poyoBasisPath,
+	poyoFeedSha256,
+	pricingCachePath,
+} from "./local-feed";
 import {
 	describeRefresh,
 	encodeCacheEntry,
+	poyoBasisPricingUrl,
 	poyoV2PricingFeedUrl,
 	pricingFeedUrl,
 	refreshPricingFeed,
@@ -483,6 +494,8 @@ test("rejects newer ToAPIs wrappers over older model or conversion evidence", as
 	).toMatchObject({ status: "updated", feed: { observedAt: "2026-11-21T12:00:00Z" } });
 });
 
+const notFound = Symbol("not published");
+
 describe("confirmed PoYo v2 refresh", () => {
 	const v2Now = Date.parse("2026-11-25T00:00:00Z");
 	const v2CheckedAt = new Date(v2Now).toISOString();
@@ -493,7 +506,8 @@ describe("confirmed PoYo v2 refresh", () => {
 		await writeFile(v2BundledPath, JSON.stringify(bundledV2));
 	});
 
-	function refreshV2(reply: unknown, at = v2Now) {
+	/** Serve `reply` as the v2 feed and `basis` as its price basis, which is unpublished by default. */
+	function refreshV2(reply: unknown, at = v2Now, basis: unknown = notFound) {
 		const requests: string[] = [];
 		const result = refreshPricingFeed({
 			...poyoPaths(),
@@ -501,7 +515,9 @@ describe("confirmed PoYo v2 refresh", () => {
 			async fetchFeed(url, init) {
 				requests.push(url);
 				expect(init).toMatchObject({ method: "GET", redirect: "error", credentials: "omit" });
-				return reply instanceof Response ? reply : Response.json(reply);
+				const body = url === poyoBasisPricingUrl ? basis : reply;
+				if (body === notFound) return new Response("404: Not Found", { status: 404 });
+				return body instanceof Response ? body : Response.json(body);
 			},
 		});
 		return { result, requests };
@@ -517,6 +533,7 @@ describe("confirmed PoYo v2 refresh", () => {
 		});
 		expect(requests).toEqual([
 			"https://raw.githubusercontent.com/edbfi/siluet/pricing-data/pricing/v2/poyo.json",
+			"https://raw.githubusercontent.com/edbfi/siluet/pricing-data/pricing/v2/poyo-basis.json",
 		]);
 		const saved = await readFile(v2CachePath, "utf8");
 		expect(saved).toBe(`${JSON.stringify({ checkedAt: v2CheckedAt, feed: confirmed })}\n`);
@@ -620,6 +637,89 @@ describe("confirmed PoYo v2 refresh", () => {
 		expect(result).toMatchObject({ status: "updated" });
 		expect(JSON.parse(await readFile(v2CachePath, "utf8")).feed).toEqual(h3Fixture);
 		expect<unknown>(await loadLocalPricing(v2Now, poyoPaths())).toEqual(h3Fixture);
+	});
+
+	describe("with its price basis", () => {
+		const feed = { ...pair.feed, confirmedAt: "2026-11-24T13:30:00Z" };
+		const basis = { ...pair.basis, feedSha256: poyoFeedSha256(feed as never) };
+		const basisCache = () => poyoBasisPath(v2CachePath);
+		const target = queueRows.find(({ rateKey }) => rateKey === "gpt-4o-image");
+		if (!target) throw new Error("gpt-4o-image is not a queue row.");
+		const zImage = {
+			provider: "poyo",
+			model: "z-image",
+			operation: "generate",
+			options: { size: "1:1" },
+			sourceCount: 0,
+			count: 1,
+			retryLimit: 0,
+		};
+		/** What a Review after this point quotes: the derived row and verified Z-Image. */
+		async function quotes() {
+			const pricing = await loadLocalPoyoPricing(v2Now, poyoPaths());
+			const feeds = { poyo: pricing.feed, poyoBasis: pricing.basis };
+			return [
+				estimateDerivedPrice(feeds, target as never, {}, v2Now).status,
+				estimatePrice(pricing.feed, zImage, v2Now).status,
+			];
+		}
+		beforeEach(async () => {
+			await writeFile(
+				v2BundledPath,
+				JSON.stringify({ ...pair.feed, confirmedAt: pair.feed.sourceDate }),
+			);
+		});
+
+		test("fetches both files, caches the pair and quotes a derived row after a restart", async () => {
+			const { result, requests } = refreshV2(feed, v2Now, basis);
+			expect(await result).toMatchObject({ status: "updated", feed });
+			expect(requests).toEqual([poyoV2PricingFeedUrl, poyoBasisPricingUrl]);
+			expect(await readFile(basisCache(), "utf8")).toBe(`${canonicalJson(basis)}\n`);
+			// Each load reads the cache afresh, as a restarted Studio does.
+			expect(await quotes()).toEqual(["known", "known"]);
+			expect(await quotes()).toEqual(["known", "known"]);
+		});
+
+		test("an unpublished basis refreshes the feed alone and drops the cached basis", async () => {
+			await refreshV2(feed, v2Now, basis).result;
+			const next = { ...feed, confirmedAt: "2026-11-24T14:30:00Z" };
+			expect(await refreshV2(next).result).toMatchObject({ status: "updated", feed: next });
+			expect(await Bun.file(basisCache()).exists()).toBe(false);
+			expect(await quotes()).toEqual(["unknown", "known"]);
+		});
+
+		test.each([
+			["another revision", () => ({ ...basis, revision: "f".repeat(40) }), /does not pair/],
+			["another body", () => ({ ...basis, feedSha256: "f".repeat(64) }), /does not pair/],
+			["an invalid schema", () => ({ ...basis, digests: [] }), /invalid schema/],
+			["a server error", () => new Response("error", { status: 503 }), /HTTP 503/],
+			[
+				"one byte over the feed's limit",
+				() => new Response(`${JSON.stringify(basis)}${" ".repeat(64 * 1024)}`),
+				/size/,
+			],
+		])("a basis with %s replaces neither cached file", async (_, reply, reason) => {
+			await refreshV2(feed, v2Now, basis).result;
+			const saved = [await readFile(v2CachePath, "utf8"), await readFile(basisCache(), "utf8")];
+			const next = { ...feed, confirmedAt: "2026-11-24T14:30:00Z" };
+			await expect(refreshV2(next, v2Now, reply()).result).rejects.toThrow(reason);
+			expect([await readFile(v2CachePath, "utf8"), await readFile(basisCache(), "utf8")]).toEqual(
+				saved,
+			);
+			expect(await quotes()).toEqual(["known", "known"]);
+		});
+
+		test("a refresh interrupted between the two files leaves derived rates unknown", async () => {
+			await refreshV2(feed, v2Now, basis).result;
+			// The basis cannot be replaced, so the refresh stops after writing the feed.
+			await rm(basisCache());
+			await mkdir(join(basisCache(), "blocked"), { recursive: true });
+			const next = { ...feed, confirmedAt: "2026-11-24T14:30:00Z" };
+			const nextBasis = { ...basis, feedSha256: poyoFeedSha256(next as never) };
+			await expect(refreshV2(next, v2Now, nextBasis).result).rejects.toThrow();
+			expect(JSON.parse(await readFile(v2CachePath, "utf8")).feed).toEqual(next);
+			expect(await quotes()).toEqual(["unknown", "known"]);
+		});
 	});
 
 	test("reports the source, confirmation and expiry", async () => {

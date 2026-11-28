@@ -4,6 +4,7 @@ import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
+import pair from "../../../../../tests/fixtures/poyo-basis-pair.json";
 import { toapisRates } from "../../../../../tests/fixtures/toapis-feed";
 import { createDerivedDraft } from "../../../shared/image-studio/derived";
 import { derivedWording } from "../../../shared/image-studio/derived-review";
@@ -12,8 +13,13 @@ import { zImageDisclosure } from "../../../shared/image-studio/z-image";
 import { d4Disclosure, type FilteringEvidence } from "../../../shared/media-catalog/filtering";
 import type { QueueKey, QueueRow } from "../../../shared/media-catalog/queue-row";
 import { pricingMaxAgeMs } from "../../../shared/pricing/feed";
-import { pricingSourceDate } from "../../../shared/pricing/feeds";
-import { poyoConfirmationMs, poyoFeedExpiryMs } from "../../../shared/pricing/poyo-feed";
+import { type PricingFeeds, pricingSourceDate } from "../../../shared/pricing/feeds";
+import { decodePoyoBasis } from "../../../shared/pricing/poyo-basis";
+import {
+	decodePoyoV2Feed,
+	poyoConfirmationMs,
+	poyoFeedExpiryMs,
+} from "../../../shared/pricing/poyo-feed";
 import { decodeToapisPricingFeed } from "../../../shared/pricing/toapis-feed";
 import { type Installation, openInstallation } from "../../db/installation";
 import { providerKeyFilename } from "../../db/provider-key";
@@ -916,15 +922,19 @@ describe("derived text-to-image rows", () => {
 		return parsed;
 	};
 	const sent: { key: string; request: unknown }[] = [];
-	const derivedQueue = (options: Parameters<typeof createSubmissionQueue>[7] = {}) =>
+	const derivedQueue = (
+		options: Parameters<typeof createSubmissionQueue>[7] = {},
+		feeds: () => PricingFeeds = () => ({}),
+		now = Date.now,
+	) =>
 		createSubmissionQueue(
 			db,
 			providerStore(db).credential,
 			async (_id, _provider, key, request) => {
 				sent.push({ key, request });
 			},
-			async () => ({}),
-			Date.now,
+			async () => feeds(),
+			now,
 			undefined,
 			undefined,
 			options,
@@ -1081,6 +1091,57 @@ describe("derived text-to-image rows", () => {
 			).toMatchObject({ error: "stale" });
 		}
 		expect(sent).toHaveLength(1);
+	});
+
+	test("a derived row with a paired rate shows its estimate in place of consent", async () => {
+		const feed = decodePoyoV2Feed(pair.feed);
+		const basis = decodePoyoBasis(pair.basis);
+		if (!feed || !basis) throw new Error("The basis fixture does not decode.");
+		const time = Date.parse(feed.confirmedAt) + 1000;
+		let feeds: PricingFeeds = { poyo: feed, poyoBasis: basis };
+		const api = await derivedQueue(
+			{},
+			() => feeds,
+			() => time,
+		);
+		const input = derivedInput("gpt-4o-image");
+		const review = await api.review("owner", input);
+		if (!("token" in review)) throw new Error("Expected Review.");
+		expect(review.quote).toMatchObject({ status: "known", perRequest: "4", maxAttempts: 1 });
+		expect(review.requiresConsent).toBe(false);
+		// The same Review without the basis is unknown-price again, so the claim is stale.
+		feeds = { poyo: feed };
+		const unpaired = await api.submit("owner", click(input, review.token, false));
+		expect(unpaired).toMatchObject({
+			error: "stale",
+			review: { requiresConsent: true, quote: { status: "unknown", reason: "rate-unavailable" } },
+		});
+		feeds = { poyo: feed, poyoBasis: basis };
+		expect(await api.submit("owner", click(input, review.token, false))).toHaveProperty("jobId");
+		expect(sent).toHaveLength(1);
+	});
+
+	test("a derived quote that expires between Review and Queue goes stale with zero POSTs", async () => {
+		const feed = decodePoyoV2Feed(pair.feed);
+		const basis = decodePoyoBasis(pair.basis);
+		if (!feed || !basis) throw new Error("The basis fixture does not decode.");
+		let time = poyoFeedExpiryMs(feed) - 1000;
+		const api = await derivedQueue(
+			{},
+			() => ({ poyo: feed, poyoBasis: basis }),
+			() => time,
+		);
+		const input = derivedInput("kling-o3-image");
+		const review = await api.review("owner", input);
+		if (!("token" in review)) throw new Error("Expected Review.");
+		expect(review.quote).toMatchObject({ status: "known", perRequest: "3.5" });
+		time += 1000;
+		const expired = await api.submit("owner", click(input, review.token, false));
+		expect(expired).toMatchObject({
+			error: "stale",
+			review: { requiresConsent: true, quote: { status: "unknown", reason: "expired-feed" } },
+		});
+		expect(sent).toEqual([]);
 	});
 
 	test("a tampered draft, another owner and a bad signature are refused before the lookup", async () => {

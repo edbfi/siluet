@@ -103,8 +103,9 @@ export function reviewBinding(
 	}
 	/**
 	 * derived-terms-v1 binds the exact wire body, the row's contract digest and every bound
-	 * statement. It is computed at Review and at a new claim, while the row exists. Every derived
-	 * row's price is unknown until its rate basis is published (G4b), so Review asks for consent.
+	 * statement. It is computed at Review and at a new claim, while the row exists. It binds the
+	 * quote with the feed and the price basis it came from: an unknown price asks for consent, and
+	 * a quote that changes or expires before the claim makes the Review stale.
 	 */
 	function derivedTerms(
 		live: DerivedLiveRequest & { row: NonNullable<DerivedLiveRequest["row"]> },
@@ -112,12 +113,20 @@ export function reviewBinding(
 		wording: DerivedWording,
 		feeds: PricingFeeds,
 		revision: number,
+		time: number,
 	) {
-		const quote = derivedQuote;
-		const priceTerms = [revision, quote, true, feeds.poyo ?? null];
+		const quote = derivedQuote(feeds, live.row, live.draft, time);
+		const requiresConsent = quote.status === "unknown";
+		const priceTerms = [
+			revision,
+			quote,
+			requiresConsent,
+			feeds.poyo ?? null,
+			feeds.poyoBasis ?? null,
+		];
 		return {
 			quote,
-			requiresConsent: true,
+			requiresConsent,
 			wording,
 			terms: digest("derived-terms-v1", ...priceTerms, request.body, live.row.contract, wording),
 		};

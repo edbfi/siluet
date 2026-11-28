@@ -7,12 +7,18 @@ import { decodePoyoV2Feed } from "../../../shared/pricing/poyo-feed";
 import { decodeToapisPricingFeed } from "../../../shared/pricing/toapis-feed";
 import {
 	type BundledPricingFeeds,
+	loadLocalPoyoPricing,
 	loadLocalPricing,
 	pricingCachePath,
 	loadBundledPricing as selectBundledPricing,
 } from "./local-feed";
 
-/** The rates embedded in the Studio build. The CLI reads the checkout's files instead. */
+/**
+ * The rates embedded in the Studio build. The CLI reads the checkout's files instead. No price
+ * basis is bundled until pricing-data publishes one: the first re-bundle adds
+ * `pricing/v2/poyo-basis.json` and embeds it here as `"poyo-basis"`, decoded with
+ * `decodePoyoBasis`, so derived rows stay unknown-price until then.
+ */
 const embeddedFeeds: BundledPricingFeeds = {
 	poyo: decodePricingFeed(poyoFeed),
 	"poyo-v2": decodePoyoV2Feed(poyoV2Feed),
@@ -29,8 +35,7 @@ export async function loadStudioPricingFeeds(
 	cacheHome?: string,
 ): Promise<PricingFeeds> {
 	const [poyo, toapis] = await Promise.all([
-		loadLocalPricing(nowMs, {
-			provider: "poyo",
+		loadLocalPoyoPricing(nowMs, {
 			bundledFeeds: embeddedFeeds,
 			cachePath: pricingCachePath(cacheHome, "poyo"),
 			v2CachePath: pricingCachePath(cacheHome, "poyo-v2"),
@@ -42,7 +47,8 @@ export async function loadStudioPricingFeeds(
 		}),
 	]);
 	return {
-		poyo: poyo?.provider === "poyo" ? poyo : undefined,
+		poyo: poyo.feed,
+		...(poyo.basis && { poyoBasis: poyo.basis }),
 		toapis: toapis?.provider === "toapis" ? toapis : undefined,
 	};
 }

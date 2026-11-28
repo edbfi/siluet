@@ -471,6 +471,11 @@ describe("derived text-to-image Review", () => {
 				enable_safety_checker: false,
 			},
 		});
-		expect(derivedQuote).toEqual({ status: "unknown", reason: "rate-unavailable", maxAttempts: 1 });
+		// No feed means no rate, and a v2 feed without a paired basis quotes no derived row.
+		expect(derivedQuote({}, target, validated.draft, Date.now())).toEqual({
+			status: "unknown",
+			reason: "missing-feed",
+			maxAttempts: 1,
+		});
 	});
 });
