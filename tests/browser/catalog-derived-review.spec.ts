@@ -122,7 +122,8 @@ test("a Queue-eligible derived row composes from its row and Review states what 
 			"The model contract declares input.enable_safety_checker: false.",
 		);
 		await expect(review.getByRole("list", { name: "Provider disclosure" })).toHaveCount(0);
-		// G13 offers its 4K tier within Gallery's 20 MP, and never a custom size.
+		// G13 offers its 4K tier with Review's Gallery statement, as no source documents its output
+		// size, and never a custom size.
 		await expect(page.getByLabel("Size", { exact: true }).locator("option")).toHaveText([
 			"2K",
 			"4K",
