@@ -1,13 +1,16 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createOwnerDirectory } from "../../../../../tests/fixtures/owner-directory";
 import { toapisRates } from "../../../../../tests/fixtures/toapis-feed";
+import { createDerivedDraft } from "../../../shared/image-studio/derived";
+import { derivedWording } from "../../../shared/image-studio/derived-review";
 import { createSeedreamDraft } from "../../../shared/image-studio/seedream";
 import { zImageDisclosure } from "../../../shared/image-studio/z-image";
-import type { FilteringEvidence } from "../../../shared/media-catalog/filtering";
+import { d4Disclosure, type FilteringEvidence } from "../../../shared/media-catalog/filtering";
+import type { QueueKey, QueueRow } from "../../../shared/media-catalog/queue-row";
 import { pricingMaxAgeMs } from "../../../shared/pricing/feed";
 import { pricingSourceDate } from "../../../shared/pricing/feeds";
 import { poyoConfirmationMs, poyoFeedExpiryMs } from "../../../shared/pricing/poyo-feed";
@@ -17,6 +20,7 @@ import { providerKeyFilename } from "../../db/provider-key";
 import { providerStore } from "../../db/provider-store";
 import { loadBundledPricing } from "../pricing/studio-feeds";
 import { createProviderConnections } from "../providers/connections";
+import { derivedRows, parseDerivedRequest } from "./derived";
 import { parseQueueRequest } from "./request";
 import { createSubmissionQueue } from "./submission";
 
@@ -71,6 +75,44 @@ beforeEach(async () => {
 afterEach(async () => {
 	await db.close();
 	await rm(dir, { recursive: true, force: true });
+});
+
+test("a claimed Poyo.ai image job stores its recoverable contract; a ToAPIs job keeps the shipped path", async () => {
+	const api = await queue();
+	const contracts: Record<string, unknown> = {};
+	for (const provider of ["poyo", "toapis"] as const) {
+		const input = makeInput(provider);
+		const reviewed = await api.review("owner", input);
+		if (!("token" in reviewed)) throw new Error("Expected Review");
+		const claimed = await api.submit("owner", {
+			...input,
+			token: reviewed.token,
+			acceptUnknown: true,
+		});
+		if (!("jobId" in claimed)) throw new Error(`Expected a ${provider} claim`);
+		const row = await db.use((conn) =>
+			conn.get<{ contract: string | null }>(
+				sql`SELECT contract FROM image_job WHERE id=${claimed.jobId}`,
+			),
+		);
+		contracts[provider] = row?.contract === null ? null : JSON.parse(row?.contract ?? "");
+	}
+	expect(contracts.toapis).toBeNull();
+	expect(contracts.poyo).toEqual({
+		v: 1,
+		operationKey: {
+			provider: "poyo",
+			model: "seedream-5.5",
+			route: "POST /api/generate/submit",
+			operation: "text-to-image",
+		},
+		revision: "ec7320720913a55f955e1bf6a651e9c38bd356c5",
+		rowDigest: null,
+		adapter: "poyo-image-v1",
+		statusRoute: "GET /api/generate/status/{task_id}",
+		result: { envelope: "poyo-image-v1", responseModel: "none" },
+		formats: { sent: "png", expected: "image/png" },
+	});
 });
 
 test("a legacy generation body with ignored fields can replay only an authenticated existing claim", async () => {
@@ -829,3 +871,237 @@ test.each(["generate", "edit"] as const)(
 		expect(posted).toHaveLength(1);
 	},
 );
+
+describe("derived text-to-image rows", () => {
+	const derivedPrompt = "A paper crane on a windowsill";
+	const rowOf = (model: string) => {
+		const found = derivedRows.row({
+			provider: "poyo",
+			model,
+			route: "POST /api/generate/submit",
+			operation: "text-to-image",
+		});
+		if (!found) throw new Error(`${model} is not a queue row.`);
+		return found;
+	};
+	const derivedInput = (model: string, prompt = derivedPrompt) => {
+		const row = rowOf(model);
+		const parsed = parseDerivedRequest(
+			{
+				draft: { ...createDerivedDraft(row), prompt },
+				operationKey: row.key,
+				count: 1,
+				retryLimit: 0,
+				acceptUnknown: false,
+			},
+			"review",
+		);
+		if (!parsed) throw new Error(`Invalid ${model} request fixture.`);
+		return parsed;
+	};
+	// What a submit click carries: the same body, parsed structurally.
+	const click = (input: ReturnType<typeof derivedInput>, token: string, accept = true) => {
+		const parsed = parseDerivedRequest(
+			{
+				draft: input.draft,
+				operationKey: input.key,
+				count: 1,
+				retryLimit: 0,
+				acceptUnknown: accept,
+				token,
+			},
+			"submit",
+		);
+		if (!parsed) throw new Error("Invalid click fixture.");
+		return parsed;
+	};
+	const sent: { key: string; request: unknown }[] = [];
+	const derivedQueue = (options: Parameters<typeof createSubmissionQueue>[7] = {}) =>
+		createSubmissionQueue(
+			db,
+			providerStore(db).credential,
+			async (_id, _provider, key, request) => {
+				sent.push({ key, request });
+			},
+			async () => ({}),
+			Date.now,
+			undefined,
+			undefined,
+			options,
+		);
+	const withRow = (model: string, change: (row: QueueRow) => QueueRow | undefined) => ({
+		row: (key: QueueKey) => (key.model === model ? change(rowOf(model)) : derivedRows.row(key)),
+		schemas: derivedRows.schemas,
+	});
+	beforeEach(() => {
+		sent.length = 0;
+	});
+
+	test("a declared row queues one POST on a balance-verified key and stores its contract", async () => {
+		expect(await providerStore(db).save("poyo", "fixture-poyo", 124, false, 1)).toBe(true);
+		const api = await derivedQueue();
+		const input = derivedInput("seedream-4.5");
+		const review = await api.review("owner", input);
+		if (!("token" in review)) throw new Error(`Expected Review, got ${JSON.stringify(review)}`);
+		expect(review.requiresConsent).toBe(true);
+		expect(review.quote).toMatchObject({ status: "unknown" });
+		expect(review.wording).toEqual(derivedWording(rowOf("seedream-4.5")));
+		expect(review.wording.d4).toEqual([]);
+		expect(await api.submit("owner", click(input, review.token, false))).toEqual({
+			error: "invalid",
+		});
+		const claimed = await api.submit("owner", click(input, review.token));
+		if (!("jobId" in claimed)) throw new Error(`Expected a claim, got ${JSON.stringify(claimed)}`);
+		expect(sent).toEqual([{ key: "fixture-poyo", request: input.request }]);
+		const job = await db.use((conn) =>
+			conn.get<{ model: string; operation: string; contract: string }>(
+				sql`SELECT model, operation, contract FROM image_job WHERE id=${claimed.jobId}`,
+			),
+		);
+		expect(job).toMatchObject({ model: "seedream-4.5", operation: "text-to-image" });
+		expect(JSON.parse(job?.contract ?? "")).toMatchObject({
+			operationKey: rowOf("seedream-4.5").key,
+			rowDigest: rowOf("seedream-4.5").contract,
+			formats: { sent: null, expected: null },
+		});
+		// Shipped Seedream 5.5 still needs the key's Seedream check.
+		const seedream = await api.review("owner", makeInput("poyo"));
+		expect(seedream).toEqual({ error: "stale" });
+	});
+
+	test("an open-absent row queues only with its bound disclosure and sends the D4 field as false", async () => {
+		const input = derivedInput("flux-dev");
+		const api = await derivedQueue();
+		const review = await api.review("owner", input);
+		if (!("token" in review)) throw new Error("Expected Review.");
+		expect(review.wording.d4).toEqual([d4Disclosure("poyo")]);
+		const withoutDisclosure = await derivedQueue({
+			wording: (row) => ({ ...derivedWording(row), d4: [] }),
+		});
+		expect(await withoutDisclosure.review("owner", input)).toEqual({ error: "invalid" });
+		expect(await withoutDisclosure.submit("owner", click(input, review.token))).toEqual({
+			error: "invalid",
+		});
+		expect(sent).toEqual([]);
+		expect(await api.submit("owner", click(input, review.token))).toHaveProperty("jobId");
+		expect(sent).toHaveLength(1);
+		expect(
+			(sent[0].request as { body: { input: Record<string, unknown> } }).body.input,
+		).toMatchObject({
+			n: 1,
+			enable_safety_checker: false,
+		});
+	});
+
+	test("a derived Review and a new claim refuse every D4 state but declared and open-absent", async () => {
+		const input = derivedInput("flux-dev");
+		const review = await (await derivedQueue()).review("owner", input);
+		if (!("token" in review)) throw new Error("Expected Review.");
+		const states: FilteringEvidence[] = [
+			{ d4: "closed-absent", closedBy: "api" },
+			{ d4: "open-absent-fixed" },
+			{ d4: "contradiction" },
+			{ d4: "refused" },
+			{ d4: "unknown" },
+		];
+		for (const d4 of states) {
+			// The default wording binds each state's own acknowledgement or disclosure.
+			const api = await derivedQueue({ rows: withRow("flux-dev", (row) => ({ ...row, d4 })) });
+			expect([d4.d4, await api.review("owner", input)]).toEqual([d4.d4, { error: "invalid" }]);
+			expect([d4.d4, await api.submit("owner", click(input, review.token))]).toEqual([
+				d4.d4,
+				{ error: "invalid" },
+			]);
+		}
+		expect(sent).toEqual([]);
+	});
+
+	test("a changed body, wording, Gallery statement, contract digest or credential revision is stale", async () => {
+		const input = derivedInput("flux-dev");
+		const review = await (await derivedQueue()).review("owner", input);
+		if (!("token" in review)) throw new Error("Expected Review.");
+		const variants: Parameters<typeof createSubmissionQueue>[7][] = [
+			{ rows: withRow("flux-dev", (row) => ({ ...row, count: null })) },
+			{ rows: withRow("flux-dev", (row) => ({ ...row, contract: "0".repeat(64) })) },
+			{ wording: (row) => ({ ...derivedWording(row), samePath: "Another sentence." }) },
+			{ wording: (row) => ({ ...derivedWording(row), gallery: "Gallery saves anything." }) },
+			{ wording: (row) => ({ ...derivedWording(row), access: "Another access note." }) },
+			{
+				wording: (row) => ({
+					...derivedWording(row),
+					d4: [d4Disclosure("poyo"), "Another bound sentence."],
+				}),
+			},
+		];
+		for (const options of variants) {
+			const result = await (await derivedQueue(options)).submit(
+				"owner",
+				click(input, review.token),
+			);
+			expect(result).toMatchObject({ error: "stale" });
+		}
+		expect(await providerStore(db).save("poyo", "fixture-poyo", 125, true, 1)).toBe(true);
+		expect(await (await derivedQueue()).submit("owner", click(input, review.token))).toMatchObject({
+			error: "stale",
+		});
+		expect(sent).toEqual([]);
+		expect(await db.use((conn) => conn.all(sql`SELECT id FROM image_job`))).toEqual([]);
+	});
+
+	test("a claimed Review replays after a re-pin removes or narrows its row; an unclaimed one is stale", async () => {
+		const api = await derivedQueue();
+		const claimedInput = derivedInput("flux-dev");
+		const waitingInput = derivedInput("flux-dev", "A second paper crane");
+		const [claimedReview, waitingReview] = await Promise.all([
+			api.review("owner", claimedInput),
+			api.review("owner", waitingInput),
+		]);
+		if (!("token" in claimedReview) || !("token" in waitingReview))
+			throw new Error("Expected Reviews.");
+		const claimed = await api.submit("owner", click(claimedInput, claimedReview.token));
+		if (!("jobId" in claimed)) throw new Error("Expected a claim.");
+		expect(sent).toHaveLength(1);
+		const removed = await derivedQueue({ rows: withRow("flux-dev", () => undefined) });
+		const narrowed = await derivedQueue({
+			rows: withRow("flux-dev", (row) => ({
+				...row,
+				fields: row.fields.map((field) =>
+					field.wire === "output_format"
+						? { ...field, values: ["jpeg"], preselect: "jpeg" }
+						: field,
+				),
+			})),
+		});
+		for (const repinned of [removed, narrowed]) {
+			expect(await repinned.submit("owner", click(claimedInput, claimedReview.token))).toEqual(
+				claimed,
+			);
+			expect(
+				await repinned.submit("owner", click(waitingInput, waitingReview.token)),
+			).toMatchObject({ error: "stale" });
+		}
+		expect(sent).toHaveLength(1);
+	});
+
+	test("a tampered draft, another owner and a bad signature are refused before the lookup", async () => {
+		const api = await derivedQueue();
+		const input = derivedInput("flux-dev");
+		const review = await api.review("owner", input);
+		if (!("token" in review)) throw new Error("Expected Review.");
+		const claimed = await api.submit("owner", click(input, review.token));
+		expect(claimed).toHaveProperty("jobId");
+		const tampered = click(input, review.token);
+		tampered.draft = { ...tampered.draft, prompt: `${derivedPrompt} at night` };
+		const [id, terms, signed] = review.token.split(".");
+		for (const [owner, value] of [
+			["owner", tampered],
+			["other", click(input, review.token)],
+			[
+				"owner",
+				click(input, `${id}.${terms}.${signed.slice(0, -1)}${signed.endsWith("0") ? "1" : "0"}`),
+			],
+		] as const)
+			expect(await api.submit(owner, value)).toEqual({ error: "invalid" });
+		expect(sent).toHaveLength(1);
+	});
+});

@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
 import { d4States } from "../../src/lib/shared/media-catalog/filtering";
+import {
+	type QualifierDisposition,
+	reviewedOverrides,
+} from "../../src/lib/shared/media-catalog/rules";
 import type { ReviewedRule, Schema } from "../../src/lib/shared/media-catalog/schema";
 import {
 	type CatalogEntry,
@@ -11,15 +17,107 @@ import {
 	deriveRow,
 	deriveRows,
 	isMedia,
+	narrowedDomain,
+	offeredDomain,
+	qualifierProblems,
 	type RowSources,
 	renderRows,
 	rowsPath,
+	staleBindings,
 } from "./derive";
 import { sha256 } from "./project";
-import { verifiedOptions } from "./verified";
+import { verifiedOptions as optionsOf } from "./verified";
 
 const committed = readFileSync(rowsPath, "utf8");
 const rows = deriveRows();
+const root = resolve(import.meta.dir, "../..");
+
+/** Every file one module reaches through static imports and re-exports, type-only included. */
+function staticImports(entry: string) {
+	const reached = new Map<string, string[]>([[entry, [entry]]]);
+	const queue = [entry];
+	const resolveSpecifier = (from: string, specifier: string) => {
+		const base = specifier.startsWith(".")
+			? resolve(dirname(from), specifier)
+			: specifier.startsWith("#lib/") || specifier.startsWith("$lib/")
+				? join(root, "src/lib", specifier.slice(5))
+				: null;
+		if (!base) return null;
+		for (const candidate of [base, `${base}.ts`, `${base}.js`, join(base, "index.ts")])
+			if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+		throw new Error(`${relative(root, from)} imports ${specifier}, which does not resolve.`);
+	};
+	while (queue.length) {
+		const file = queue.shift() as string;
+		if (file.endsWith(".json")) continue;
+		const source = readFileSync(file, "utf8")
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.replace(/^\s*\/\/.*$/gm, "");
+		for (const [, specifier] of source.matchAll(
+			/(?:^|[;\s])(?:import|export)\s+(?:type\s+)?(?:[^"'`;]*?\sfrom\s+)?["']([^"']+)["']/g,
+		)) {
+			const target = resolveSpecifier(file, specifier);
+			if (!target || reached.has(target)) continue;
+			reached.set(target, [...(reached.get(file) as string[]), target]);
+			queue.push(target);
+		}
+	}
+	return reached;
+}
+
+// Generated projections, matched by pattern so projections added later are covered too.
+const generated = [
+	/^src\/lib\/shared\/media-catalog\/poyo-[^/]*\.json$/,
+	/^src\/lib\/server\/providers\/poyo\/queue-schemas\.json$/,
+];
+const projections = (entry: string) =>
+	[...staticImports(join(root, entry)).entries()]
+		.filter(([file]) => generated.some((pattern) => pattern.test(relative(root, file))))
+		.map(([, chain]) => chain.map((file) => relative(root, file)).join(" → "));
+
+test("neither the deriver nor the verified options reach a generated projection", () => {
+	// The walker sees through re-exports and type-only edges: the browser's formats reader
+	// does reach its projection.
+	expect(projections("src/lib/shared/media-catalog/poyo-formats.ts")).toEqual([
+		"src/lib/shared/media-catalog/poyo-formats.ts → src/lib/shared/media-catalog/poyo-formats.json",
+	]);
+	expect(projections("scripts/media-catalog/derive.ts")).toEqual([]);
+	expect(projections("scripts/media-catalog/verified.ts")).toEqual([]);
+});
+
+test("the rows derive whether the formats projection is missing or stale", () => {
+	const run = (contents: string | null) => {
+		const directory = mkdtempSync(join(tmpdir(), "siluet-derive-"));
+		const plugin = join(directory, "formats-plugin.ts");
+		writeFileSync(
+			plugin,
+			`Bun.plugin({ name: "formats", setup(build) { build.onLoad({ filter: /poyo-formats\\.json$/ }, () => { ${
+				contents === null
+					? 'throw new Error("poyo-formats.json is missing");'
+					: `return { contents: ${JSON.stringify(contents)}, loader: "json" };`
+			} }); } });`,
+		);
+		try {
+			return Bun.spawnSync(
+				[
+					process.execPath,
+					"--preload",
+					plugin,
+					"-e",
+					'import { renderRows } from "./scripts/media-catalog/derive"; process.stdout.write(renderRows());',
+				],
+				{ cwd: root },
+			);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	};
+	for (const contents of [null, '{"rows":[]}']) {
+		const { exitCode, stdout } = run(contents);
+		expect(exitCode).toBe(0);
+		expect(stdout.toString()).toBe(committed);
+	}
+});
 
 test("derivation reproduces the committed rows byte for byte, canonical and under 500 KB", () => {
 	expect(renderRows()).toBe(committed);
@@ -129,7 +227,7 @@ test("a documented ID the pinned catalog lacks is pending and takes the REST sta
 
 test("verified representatives are cross-checked and never rewritten", () => {
 	expect(() => crossCheck(rows)).not.toThrow();
-	const tampered = verifiedOptions.map((entry) =>
+	const tampered = optionsOf(rows).map((entry) =>
 		entry.key.model === "seedream-5.5"
 			? { ...entry, offered: { ...entry.offered, resolution: { values: ["1K", "4K"] } } }
 			: entry,
@@ -199,6 +297,8 @@ describe("fixture rows", () => {
 		route: "POST /api/generate/submit",
 		operations: ["text-to-image"],
 	};
+	// A video row needs no one-output evidence, so its pending reasons are the schema's alone.
+	const videoRow = { ...ledgerRow, media: "video", operations: ["text-to-video"] };
 	const entry = (input_schema: Schema, extra: Partial<CatalogEntry> = {}): CatalogEntry => ({
 		model_id: "fixture",
 		category: "text2img",
@@ -223,7 +323,7 @@ describe("fixture rows", () => {
 	});
 
 	test("a declared fixture with a valid minimal request has nothing pending", () => {
-		expect(deriveRow(ledgerRow, "fixture", entry(declared), none)).toMatchObject({
+		expect(deriveRow(videoRow, "fixture", entry(declared), none)).toMatchObject({
 			d4: { d4: "declared", catalogOnly: true },
 			pending: [],
 		});
@@ -236,7 +336,7 @@ describe("fixture rows", () => {
 				prompt: { type: "string", minLength: 5, maxLength: 2 },
 			},
 		};
-		expect(deriveRow(ledgerRow, "fixture", entry(impossible), none).pending).toEqual([
+		expect(deriveRow(videoRow, "fixture", entry(impossible), none).pending).toEqual([
 			"no valid minimal request: catalog: prompt is longer than 2 characters",
 		]);
 	});
@@ -245,16 +345,16 @@ describe("fixture rows", () => {
 			...declared,
 			properties: { ...declared.properties, prompt: { type: "string", const: "x" } },
 		};
-		expect(deriveRow(ledgerRow, "fixture", entry(constant), none).pending).toEqual([
+		expect(deriveRow(videoRow, "fixture", entry(constant), none).pending).toEqual([
 			"required input uses prompt const",
 		]);
 	});
 	test("a route other than generate/async keeps the row pending", () => {
 		expect(
-			deriveRow(ledgerRow, "fixture", entry(declared, { execution_mode: "sync" }), none).pending,
+			deriveRow(videoRow, "fixture", entry(declared, { execution_mode: "sync" }), none).pending,
 		).toEqual(["service generate/sync"]);
 		expect(
-			deriveRow(ledgerRow, "fixture", entry(declared, { service_type: "chat" }), none).pending,
+			deriveRow(videoRow, "fixture", entry(declared, { service_type: "chat" }), none).pending,
 		).toEqual(["service chat/async"]);
 	});
 	test("a D4 contradiction keeps the row pending", () => {
@@ -264,7 +364,7 @@ describe("fixture rows", () => {
 			properties: { prompt },
 			additionalProperties: false,
 		};
-		const row = deriveRow(ledgerRow, "fixture", entry(declared), withApi(closedApi));
+		const row = deriveRow(videoRow, "fixture", entry(declared), withApi(closedApi));
 		expect(row.d4).toEqual({ d4: "contradiction" });
 		expect(row.pending).toEqual(["D4 contradiction"]);
 	});
@@ -368,6 +468,122 @@ describe("fixture rows", () => {
 			"The kling-4.0-image n count note no longer matches its description",
 		);
 	});
+	test("an output format Gallery cannot save, or one without a typed enum, is pending with its reason", () => {
+		const formatted = (output_format: Schema) =>
+			deriveRow(
+				ledgerRow,
+				"fixture",
+				entry({ ...declared, properties: { ...declared.properties, output_format } }),
+				none,
+			).options.find((option) => option.field === "output_format")?.gap;
+		expect(formatted({ type: "string", enum: ["gif"] })).toEqual({
+			state: "pending",
+			reason: "Gallery saves none of its output formats",
+		});
+		expect(formatted({ type: "integer", enum: [1, 2] })).toEqual({
+			state: "pending",
+			reason: "output format is not a typed enum",
+		});
+		expect(formatted({ type: "string", enum: ["png", "gif"] })).toBeUndefined();
+	});
+	describe("one output per request", () => {
+		const counted = {
+			...declared,
+			properties: {
+				...declared.properties,
+				n: { type: "integer", minimum: 1, maximum: 4, description: "Number of output images." },
+			},
+		};
+		const info = "The Fixture API generates one image from text.";
+		const sources = (outputNotes: RowSources["outputNotes"], extra: Partial<RowSources> = {}) => ({
+			...withApi(declared),
+			descriptions: { "/fixture.json": info },
+			manifest: { "/fixture.json": "a".repeat(64) },
+			pages: { "https://docs.poyo.ai/fixture.md": { sha256: "b".repeat(64), outputs: {} } },
+			outputNotes,
+			...extra,
+		});
+		const infoNote = (quote = "generates one image from text", sha256 = "a".repeat(64)) => ({
+			model: "fixture",
+			operation: "text-to-image",
+			quote,
+			source: { kind: "openapi-info" as const, spec: "/fixture.json", sha256 },
+		});
+		test("a count field that accepts 1 sends n: 1", () => {
+			const row = deriveRow(ledgerRow, "fixture", entry(counted), withApi(counted));
+			expect(row.count).toBe(1);
+			expect(row.pending).toEqual([]);
+		});
+		test("a one-output quote in the spec's info.description gives count null", () => {
+			const row = deriveRow(ledgerRow, "fixture", entry(declared), sources([infoNote()]));
+			expect(row.count).toBeNull();
+			expect(row.pending).toEqual([]);
+		});
+		test("a quote the bound description lacks fails; a changed spec digest makes it stale", () => {
+			expect(() =>
+				deriveRow(ledgerRow, "fixture", entry(declared), sources([infoNote("one output")])),
+			).toThrow("The fixture text-to-image output note quotes text its source lacks");
+			const stale = deriveRow(
+				ledgerRow,
+				"fixture",
+				entry(declared),
+				sources([infoNote(undefined, "c".repeat(64))]),
+			);
+			expect(stale.count).toBeUndefined();
+			expect(stale.pending).toEqual(["no evidence of one output"]);
+		});
+		test("a page note counts only while the page review records its quote at the bound digest", () => {
+			const pageNote = (sha256: string) => ({
+				model: "fixture",
+				operation: "text-to-image",
+				quote: "Each request returns a single image.",
+				source: { kind: "page" as const, url: "https://docs.poyo.ai/fixture.md", sha256 },
+			});
+			const reviewed = {
+				"https://docs.poyo.ai/fixture.md": {
+					sha256: "b".repeat(64),
+					outputs: { fixture: "Each request returns a single image." },
+				},
+			};
+			expect(
+				deriveRow(
+					ledgerRow,
+					"fixture",
+					entry(declared),
+					sources([pageNote("b".repeat(64))], { pages: reviewed }),
+				).count,
+			).toBeNull();
+			expect(
+				deriveRow(
+					ledgerRow,
+					"fixture",
+					entry(declared),
+					sources([pageNote("d".repeat(64))], { pages: reviewed }),
+				).pending,
+			).toEqual(["no evidence of one output"]);
+			expect(() =>
+				deriveRow(ledgerRow, "fixture", entry(declared), sources([pageNote("b".repeat(64))])),
+			).toThrow("The fixture text-to-image output note quotes text its source lacks");
+		});
+		test("a page reviewed and silent on the count names that review in the pending reason", () => {
+			const silent = {
+				"https://docs.poyo.ai/fixture.md": {
+					sha256: "b".repeat(64),
+					outputs: { fixture: "silent" },
+				},
+			};
+			expect(
+				deriveRow(ledgerRow, "fixture", entry(declared), sources([], { pages: silent })).pending,
+			).toEqual(["no evidence of one output (page reviewed, silent)"]);
+		});
+		test("a text-to-image row without either is pending, and a video row is never asked", () => {
+			expect(deriveRow(ledgerRow, "fixture", entry(declared), none).pending).toEqual([
+				"no evidence of one output",
+			]);
+			const video = { ...ledgerRow, media: "video", operations: ["text-to-video"] };
+			expect(deriveRow(video, "fixture", entry(declared), none).pending).toEqual([]);
+		});
+	});
 	test("a field only one source owns is never found on the other's prototype", () => {
 		const closed = { ...declared, additionalProperties: false };
 		const own = (properties: string) =>
@@ -402,6 +618,332 @@ describe("fixture rows", () => {
 	});
 });
 
+test("the pinned rows' one-output evidence: count fields, info quotes, and none on the conditional pages", () => {
+	const row = (model: string) => rows.find((candidate) => candidate.model === model);
+	for (const model of ["flux-dev", "nano-banana-2", "seedream-4.5", "wan-2.7-image"])
+		expect(row(model)?.count).toBe(1);
+	for (const model of ["qwen-image-2.1", "seedream-5.0-flash"]) {
+		expect(row(model)?.count).toBeNull();
+		expect(row(model)?.pending).toEqual([]);
+	}
+	// Each conditional page was read and is silent on the output count (page-reviews.json).
+	for (const model of [
+		"flux-2-flex",
+		"flux-2-pro",
+		"flux-kontext-max",
+		"flux-kontext-pro",
+		"grok-imagine-image",
+		"nano-banana",
+		"nano-banana-2-lite",
+		"nano-banana-2-new",
+		"nano-banana-2-official",
+		"seedream-5.0-pro",
+	])
+		expect(row(model)?.pending).toEqual(["no evidence of one output (page reviewed, silent)"]);
+	// gpt-image-2's page states one output, but the row is held until its size is typed: a request
+	// without `size` ignores `resolution`, so the row would offer a choice Poyo.ai disregards.
+	expect(row("gpt-image-2")?.pending).toEqual(["one output held: size not typed (question 11)"]);
+	for (const model of ["qwen-image-3", "qwen-image-3-pro"])
+		expect(row(model)?.pending).toEqual(["no evidence of one output: question 6"]);
+	// Verified representatives keep their reviewed descriptors; closed-schema and edit-only rows
+	// wait for the slices that own them (G5, G6).
+	for (const model of ["z-image", "seedream-5.5", "mai-image-2.7", "flux-2-flex-edit"])
+		expect(row(model)?.pending.join()).not.toContain("one output");
+	// gpt-image-2's page is not pinned, so its prose size has no documented domain.
+	expect(row("gpt-image-2")?.options.find((option) => option.field === "size")?.gap).toEqual({
+		state: "unknown",
+		reason: "domain only in prose",
+		question: 11,
+	});
+});
+
+describe("model-scoped narrowings", () => {
+	const row = (model: string) => {
+		const found = rows.find((candidate) => candidate.model === model);
+		if (!found) throw new Error(`${model} has no derived row.`);
+		return found;
+	};
+	const fields = (model: string) => row(model).options.map(({ field }) => field);
+	const offered = (model: string, field: string, operation = row(model).operations[0]) => {
+		const option = row(model).options.find((candidate) => candidate.field === field);
+		if (!option) throw new Error(`${model} has no ${field}.`);
+		return narrowedDomain(row(model), option, operation).values;
+	};
+	test("Nano Banana 2 and its edit drop the Pro-only fields and Pro's `auto`", () => {
+		for (const model of ["nano-banana-2", "nano-banana-2-edit"]) {
+			expect(fields(model)).not.toContain("enable_web_search");
+			expect(fields(model)).not.toContain("output_format");
+			expect(offered(model, "size")).not.toContain("auto");
+		}
+		for (const model of ["nano-banana-pro", "nano-banana-pro-edit"]) {
+			expect(fields(model)).toContain("enable_web_search");
+			expect(fields(model)).toContain("output_format");
+			expect(offered(model, "size")).toContain("auto");
+		}
+	});
+	test("Nano Banana 2 New and its edit drop the Official-only fields and values", () => {
+		for (const model of ["nano-banana-2-new", "nano-banana-2-new-edit"]) {
+			expect(fields(model)).not.toContain("seed");
+			expect(fields(model)).not.toContain("output_format");
+			expect(offered(model, "resolution")).toEqual(["1K", "2K", "4K"]);
+			for (const size of ["auto", "4:1", "1:4", "8:1", "1:8"])
+				expect(offered(model, "size")).not.toContain(size);
+		}
+		for (const model of ["nano-banana-2-official", "nano-banana-2-official-edit"]) {
+			expect(fields(model)).toContain("seed");
+			expect(offered(model, "resolution")).toContain("0.5K");
+			expect(offered(model, "size")).toContain("1:8");
+		}
+	});
+	test("`auto` leaves the text-to-image sizes that need an input image, and stays on their edits", () => {
+		for (const model of ["kling-o3-image", "flux-2-flex", "flux-2-pro"])
+			expect(offered(model, "size")).not.toContain("auto");
+		expect(offered("qwen-image-2.1", "size", "text-to-image")).not.toContain("auto");
+		expect(offered("qwen-image-2.1", "size", "reference-image-edit")).toContain("auto");
+		for (const model of ["kling-o3-image-edit", "flux-2-flex-edit", "flux-2-pro-edit"])
+			expect(offered(model, "size")).toContain("auto");
+	});
+	test("qwen-image-2.1 records its transparent and jpeg combination rule", () => {
+		expect(row("qwen-image-2.1").combinations).toEqual([
+			{ when: { background: "transparent" }, refuses: { output_format: ["jpeg"] } },
+		]);
+	});
+	test("the formats projection never sees an excluded field", () => {
+		for (const model of ["nano-banana-2", "nano-banana-2-edit", "nano-banana-2-new"])
+			expect(row(model).options.some(({ field }) => field === "output_format")).toBe(false);
+	});
+	test("every only or also-supports description in a shared schema has its disposition", () => {
+		expect(qualifierProblems()).toEqual([]);
+	});
+});
+
+describe("listed sizes and the Gallery envelope", () => {
+	const row = (model: string) => {
+		const found = rows.find((candidate) => candidate.model === model);
+		if (!found) throw new Error(`${model} has no derived row.`);
+		return found;
+	};
+	const option = (model: string, field: string) => {
+		const found = row(model).options.find((candidate) => candidate.field === field);
+		if (!found) throw new Error(`${model} has no ${field}.`);
+		return found;
+	};
+	const offered = (model: string, field: string) =>
+		offeredDomain(row(model), option(model, field), row(model).operations[0]).values;
+	test("Seedream 4.5 and 5.0 Lite offer their listed sizes, without a 4K tier", () => {
+		expect(option("seedream-4.5", "size")).toMatchObject({ kind: "rule" });
+		expect(option("seedream-4.5", "size").gap).toBeUndefined();
+		expect(offered("seedream-4.5", "size")).toEqual([
+			"2K",
+			"1:1",
+			"4:3",
+			"3:4",
+			"16:9",
+			"9:16",
+			"3:2",
+			"2:3",
+			"21:9",
+		]);
+		expect(offered("seedream-5.0-lite", "size")).toEqual([
+			"2K",
+			"3K",
+			"1:1",
+			"4:3",
+			"3:4",
+			"16:9",
+			"9:16",
+			"3:2",
+			"2:3",
+			"21:9",
+		]);
+	});
+	test("no 4K or 8K tier is offered on an image row until G13", () => {
+		for (const candidate of rows.filter((item) => item.media === "image"))
+			for (const item of candidate.options)
+				for (const operation of candidate.operations)
+					expect(
+						(offeredDomain(candidate, item, operation).values ?? []).filter(
+							(value) => value === "4K" || value === "8K",
+						),
+					).toEqual([]);
+		expect(
+			narrowedDomain(row("seedream-4"), option("seedream-4", "resolution"), "text-to-image").values,
+		).toContain("4K");
+	});
+	test("flux-3-klein offers its seven ratios and no custom WIDTHxHEIGHT", () => {
+		expect(offered("flux-3-klein", "size")).toEqual([
+			"1:1",
+			"4:3",
+			"3:4",
+			"16:9",
+			"9:16",
+			"3:2",
+			"2:3",
+		]);
+		expect(option("flux-3-klein", "size").custom).toEqual({
+			state: "pending",
+			reason: "class not yet qualified: custom size",
+		});
+	});
+});
+
+describe("narrowing fixtures", () => {
+	const ledgerRow = {
+		media: "image",
+		route: "POST /api/generate/submit",
+		operations: ["text-to-image"],
+	};
+	const shared = {
+		type: "object",
+		required: ["prompt"],
+		properties: {
+			prompt: { type: "string", maxLength: 100 },
+			enable_safety_checker: { type: "boolean" },
+			web: { type: "boolean", description: "Fixture Pro only. Search first." },
+			size: {
+				type: "string",
+				enum: ["1:1", "auto"],
+				description: "Fixture Pro also supports `auto`.",
+			},
+			background: { type: "string", enum: ["opaque", "transparent"] },
+			output_format: { type: "string", enum: ["png", "jpeg"] },
+		},
+		allOf: [
+			{
+				not: {
+					properties: { background: { enum: ["transparent"] }, output_format: { enum: ["jpeg"] } },
+					required: ["background", "output_format"],
+				},
+			},
+		],
+	};
+	const digest = sha256(canonicalJson(shared));
+	const entry = (model: string): CatalogEntry => ({
+		model_id: model,
+		category: "text2img",
+		status: "stable",
+		service_type: "generate",
+		execution_mode: "async",
+		input_schema: shared,
+		billing: { type: "fixed" },
+	});
+	const exclusion = (quote = "Fixture Pro only", schemaSha256 = digest) => ({
+		model: "fixture",
+		operation: "text-to-image",
+		field: "web",
+		schemaSha256,
+		quote,
+	});
+	const sources = (fieldExclusions: RowSources["fieldExclusions"]): RowSources => ({
+		models: {},
+		schemas: {},
+		rules: [],
+		fieldExclusions,
+	});
+	test("a field exclusion removes the field; a changed hash leaves it; a missing quote fails", () => {
+		const fields = (s: RowSources) =>
+			deriveRow(ledgerRow, "fixture", entry("fixture"), s).options.map(({ field }) => field);
+		expect(fields(sources([exclusion()]))).not.toContain("web");
+		expect(fields(sources([exclusion(undefined, "0".repeat(64))]))).toContain("web");
+		expect(() => fields(sources([exclusion("Fixture Max only")]))).toThrow(
+			"The fixture web exclusion quotes text its field's description lacks",
+		);
+	});
+	test("a value exclusion narrows only its own operation, and a changed hash leaves the value", () => {
+		const derived = deriveRow(
+			{ ...ledgerRow, operations: ["text-to-image", "reference-image-edit"] },
+			"fixture",
+			entry("fixture"),
+			sources([]),
+		);
+		const size = derived.options.find(({ field }) => field === "size");
+		if (!size) throw new Error("No size option.");
+		const override = {
+			model: "fixture",
+			operation: "text-to-image",
+			field: "size",
+			schemaSha256: digest,
+			excludes: ["auto"],
+			quote: "Fixture Pro also supports `auto`.",
+		};
+		expect(narrowedDomain(derived, size, "text-to-image", [override]).values).toEqual(["1:1"]);
+		expect(narrowedDomain(derived, size, "reference-image-edit", [override]).values).toEqual([
+			"1:1",
+			"auto",
+		]);
+		expect(
+			narrowedDomain(derived, size, "text-to-image", [
+				{ ...override, schemaSha256: "0".repeat(64) },
+			]).values,
+		).toEqual(["1:1", "auto"]);
+	});
+	test("a not {A, B} allOf branch projects as a combination rule", () => {
+		expect(deriveRow(ledgerRow, "fixture", entry("fixture"), sources([])).combinations).toEqual([
+			{ when: { background: "transparent" }, refuses: { output_format: ["jpeg"] } },
+		]);
+	});
+	test("an unreviewed qualifier in a shared schema fails; a disposition or a changed hash decides", () => {
+		const entries = [entry("fixture"), entry("fixture-pro")];
+		const none = { models: {}, schemas: {} };
+		const problems = (dispositions: readonly QualifierDisposition[]) =>
+			qualifierProblems({ entries, openapi: none, dispositions, exclusions: [], overrides: [] });
+		expect(problems([])).toEqual([
+			`catalog ${digest.slice(0, 12)} properties/size (fixture, fixture-pro): "Fixture Pro also supports \`auto\`."`,
+			`catalog ${digest.slice(0, 12)} properties/web (fixture, fixture-pro): "Fixture Pro only. Search first."`,
+		]);
+		const every = (path: string, quote: string, schemaSha256 = digest) => ({
+			schemaSha256,
+			path,
+			quote,
+			applies: { to: "every-model" as const, reason: "fixture" },
+		});
+		expect(
+			problems([every("properties/size", "also supports"), every("properties/web", "Pro only")]),
+		).toEqual([]);
+		expect(
+			problems([
+				every("properties/size", "also supports", "0".repeat(64)),
+				every("properties/web", "Pro only"),
+			]),
+		).toHaveLength(1);
+		// A narrowing disposition holds only while each named model has an exclusion with its quote.
+		const narrowed = {
+			schemaSha256: digest,
+			path: "properties/web",
+			quote: "Fixture Pro only",
+			applies: { to: "narrowed" as const, models: ["fixture"] },
+		};
+		expect(
+			qualifierProblems({
+				entries,
+				openapi: none,
+				dispositions: [every("properties/size", "also supports"), narrowed],
+				exclusions: [],
+				overrides: [],
+			}),
+		).toEqual([
+			`catalog ${digest.slice(0, 12)} properties/web: fixture has no exclusion quoting "Fixture Pro only"`,
+		]);
+		expect(
+			qualifierProblems({
+				entries,
+				openapi: none,
+				dispositions: [every("properties/size", "also supports"), narrowed],
+				exclusions: [exclusion()],
+				overrides: [],
+			}),
+		).toEqual([]);
+	});
+});
+
+test("an unbounded seed stays an offered integer; only coverage holds it under question 11", () => {
+	for (const model of ["qwen-image-2.1", "wan-2.7-image"]) {
+		const seed = rows.find((row) => row.model === model)?.options.find((o) => o.field === "seed");
+		expect(seed).toMatchObject({ kind: "integer", domain: {} });
+		expect(seed?.gap).toBeUndefined();
+	}
+});
+
 test("an ID documented in two ledger rows fails the derivation", () => {
 	const documented = ledger.providers.poyo.rows.filter((row) => row.contract === "documented");
 	expect(() => deriveRows([...documented, documented[0]])).toThrow(
@@ -414,4 +956,15 @@ test("an array of URIs is a media input whatever its name; an array of other val
 	expect(isMedia("images", uris)).toBe(true);
 	expect(isMedia("image_urls", { type: "array", items: { type: "string" } })).toBe(true);
 	expect(isMedia("colors", { type: "array", items: { type: "object" } })).toBe(false);
+});
+
+test("a reviewed override or field exclusion that binds to no row's catalog hash fails derivation", () => {
+	const rows = deriveRows();
+	expect(staleBindings(rows)).toEqual([]);
+	const [first] = reviewedOverrides;
+	const stale = { ...first, schemaSha256: "0".repeat(64) };
+	expect(staleBindings(rows, [stale])).toEqual([`${first.model} ${first.field}`]);
+	expect(staleBindings(rows, [{ ...first, model: "no-such-model" }])).toEqual([
+		`no-such-model ${first.field}`,
+	]);
 });

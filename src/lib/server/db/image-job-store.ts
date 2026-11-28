@@ -18,6 +18,7 @@ import {
 } from "./image-credential-access";
 import { imageJobPollingWindowMs } from "./image-job-schema";
 import type { Installation, InstallationTransaction } from "./installation";
+import { recordRefusal } from "./model-refusal";
 import { nextProviderStart, recordProviderStart } from "./provider-gate";
 import { videoJobPollingWindowMs } from "./video-schema";
 
@@ -27,7 +28,8 @@ export type StatusNote =
 	| "credential-changed"
 	| "temporary"
 	| "result-unavailable"
-	| "unsupported-video-result";
+	| "unsupported-video-result"
+	| "multiple-image-result";
 
 export type SaveHold = "removed" | "unsupported" | "webm" | "failed";
 
@@ -96,6 +98,8 @@ export type ImageJob = {
 	wallet_before_at: number | null;
 	wallet_after: string | null;
 	wallet_after_at: number | null;
+	/** The claimed Poyo.ai image job's recoverable contract (JSON), or NULL for shipped paths. */
+	contract: string | null;
 };
 
 type JobKind = Partial<Pick<ImageJob, "business_id" | "video_terms">>;
@@ -289,7 +293,8 @@ export function imageJobStore({ use }: Installation) {
 						if (job.batch_id && rejection)
 							await tx.run(sql`UPDATE image_batch SET closed_reason='rejection', closed_at=${now}
 					WHERE id=${job.batch_id} AND closed_reason IS NULL`);
-						return tx.get<ImageJob>(sql`UPDATE image_job SET state=${state}, task_id=${taskId},
+						const recorded =
+							await tx.get<ImageJob>(sql`UPDATE image_job SET state=${state}, task_id=${taskId},
 					file_phase=${fileOwner ? (state === "unknown" ? "edit-unknown" : "edit-recorded") : null},
 					rejection=${rejection}, next_read_at=CASE WHEN business_id IS NOT NULL THEN MAX(COALESCE(next_read_at,0),${now + initialWait}) ELSE ${taskId ? now + initialWait : null} END,
 				video_poll_deadline=CASE WHEN business_id IS NOT NULL AND ${taskId} IS NOT NULL THEN ${now + videoJobPollingWindowMs} END,
@@ -301,6 +306,15 @@ export function imageJobStore({ use }: Installation) {
 					WHERE id=${id} AND dispatch_started_at IS NOT NULL AND submission_recorded_at IS NULL
 						AND ${fileOwner ? sql`file_owner=${fileOwner} AND file_phase='editing'` : sql`file_phase IS NULL`}
 						AND state IN ('submitting','unknown') AND task_id IS NULL RETURNING *`);
+						// A Poyo.ai image permission refusal is kept for the job's key revision.
+						if (
+							recorded &&
+							rejection === "permission" &&
+							job.provider === "poyo" &&
+							!isVideoJob(job)
+						)
+							await recordRefusal(tx, id, now);
+						return recorded;
 					},
 					{ behavior: "immediate" },
 				),

@@ -100,13 +100,15 @@ export function statusUpdate(
 			if (state === "completed") {
 				const expired = expiresAt !== null && expiresAt <= now;
 				resultUrl = expired ? null : observation.resultUrl;
+				const unsupported = observation.unsupportedVideoResult || observation.multipleImageResult;
 				if (!resultUrl)
 					note = observation.unsupportedVideoResult
 						? "unsupported-video-result"
-						: "result-unavailable";
+						: observation.multipleImageResult
+							? "multiple-image-result"
+							: "result-unavailable";
 				// A link-less first completion shows its final state at once; the worker clears an expired one.
-				if (!resultUrl && !expired)
-					saveHold = observation.unsupportedVideoResult ? "unsupported" : "failed";
+				if (!resultUrl && !expired) saveHold = unsupported ? "unsupported" : "failed";
 			}
 		} else {
 			note = "unknown-status";

@@ -1,7 +1,18 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { toapisRates } from "../../../../tests/fixtures/toapis-feed";
+import { contractDeclaresField, d4Disclosure } from "../media-catalog/filtering";
+import queue from "../media-catalog/poyo-queue.json";
+import type { QueueRow } from "../media-catalog/queue-row";
 import type { PricingFeed } from "../pricing/feed";
 import { decodePricingFeeds } from "../pricing/feeds";
+import { buildDerivedRequest, createDerivedDraft, validateDerivedDraft } from "./derived";
+import {
+	derivedQuote,
+	derivedWording,
+	refusalNote,
+	refusedValues,
+	samePathSentence,
+} from "./derived-review";
 import { createImageReview, type ReviewReference } from "./review";
 import {
 	estimateReviewPrice,
@@ -372,4 +383,94 @@ test("Review shows the type the request's output format asks for, or none when i
 		name: "PNG",
 	});
 	expect(createImageReview(toapisInput, toapisWire).expected).toBeNull();
+});
+
+describe("derived text-to-image Review", () => {
+	const rows = queue.rows as unknown as QueueRow[];
+	const row = (model: string) => rows.find((entry) => entry.key.model === model) as QueueRow;
+
+	test("Review names the verified path, the schema revision and date, and that the model was not tested", () => {
+		expect(samePathSentence).toBe(
+			"Same request path as verified Seedream 5.5 on Poyo.ai. Options from Poyo.ai's schema dated 2026-11-26 (ec73207). This model was not tested individually.",
+		);
+	});
+
+	test("a verified representative names itself as verified for its classes, never as untested", () => {
+		const { samePath } = derivedWording(row("qwen-image-2.1"));
+		expect(samePath).toBe(
+			"qwen-image-2.1 is verified on Poyo.ai for boolean and integer options. Options from Poyo.ai's schema dated 2026-11-26 (ec73207).",
+		);
+		expect(samePath).not.toContain("not tested");
+		expect(derivedWording(row("flux-dev")).samePath).toBe(samePathSentence);
+	});
+
+	test("an open-absent row binds its disclosure; a declared row binds none and says declares", () => {
+		const open = derivedWording(row("flux-dev"));
+		expect(open).toEqual({
+			samePath: samePathSentence,
+			d4: [d4Disclosure("poyo")],
+			gallery:
+				"Gallery saves images up to 16 megapixels. A completed billable image over that stays with the provider.",
+			access:
+				"Poyo.ai does not publish per-key model access. Siluet has checked only that this key works.",
+		});
+		const declared = row("seedream-4.5");
+		expect(derivedWording(declared).d4).toEqual([]);
+		expect(contractDeclaresField(declared.d4)).toBe(true);
+		expect(contractDeclaresField(row("flux-dev").d4)).toBe(false);
+	});
+
+	test("a recorded refusal reads with its date, and Review stays informational", () => {
+		expect(refusalNote(Date.UTC(2026, 10, 27, 15, 4))).toBe(
+			"Poyo.ai refused this model for this key on 2026-11-27.",
+		);
+	});
+
+	test("a combination rule disables the refused values while its condition holds", () => {
+		const fixture = {
+			...row("seedream-5.0-flash"),
+			fields: [
+				{
+					wire: "background",
+					kind: "enum",
+					values: ["opaque", "transparent"],
+					preselect: "opaque",
+				},
+				{ wire: "output_format", kind: "enum", values: ["png", "jpeg"], preselect: "png" },
+			],
+			combinations: [{ when: { background: "transparent" }, refuses: { output_format: ["jpeg"] } }],
+		} as QueueRow;
+		expect(refusedValues(fixture, { background: "opaque", output_format: "png" })).toEqual({});
+		expect(refusedValues(fixture, { background: "transparent", output_format: "png" })).toEqual({
+			output_format: ["jpeg"],
+		});
+		expect(refusedValues(row("flux-dev"), { output_format: "png" })).toEqual({});
+	});
+
+	test("the presentation reads the derived request: expected type, pricing and redacted body", () => {
+		const target = row("flux-dev");
+		const validated = validateDerivedDraft(target, {
+			...createDerivedDraft(target),
+			prompt: "See https://private.example/secret?sig=1",
+			options: { output_format: "jpeg" },
+		});
+		if (!validated.ok) throw new Error("Expected a valid draft.");
+		const request = buildDerivedRequest(target, validated.draft);
+		const review = createImageReview(
+			{ provider: "poyo", operation: "generate", references: [], outputFormat: "jpeg" },
+			request,
+		);
+		expect(review.expected).toEqual({ format: "jpeg", type: "image/jpeg", name: "JPEG" });
+		expect(review.pricing).toMatchObject({ provider: "poyo", model: "flux-dev", sourceCount: 0 });
+		expect(review.outgoing.body).toEqual({
+			model: "flux-dev",
+			input: {
+				prompt: "See [URL hidden]",
+				output_format: "jpeg",
+				n: 1,
+				enable_safety_checker: false,
+			},
+		});
+		expect(derivedQuote).toEqual({ status: "unknown", reason: "rate-unavailable", maxAttempts: 1 });
+	});
 });

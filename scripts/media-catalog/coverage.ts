@@ -3,9 +3,18 @@
 // `--write` regenerates the generated sections of docs/catalog-engine-inventory.md.
 import { readFileSync, writeFileSync } from "node:fs";
 import ledger from "../../docs/media-catalog.v1.json";
-import { reviewedOverrides } from "../../src/lib/shared/media-catalog/rules";
-import { type DerivedOption, type DerivedRow, type Domain, deriveRows } from "./derive";
-import { type Offered, type VerifiedOptions, verifiedOptions } from "./verified";
+import type { D4State } from "../../src/lib/shared/media-catalog/filtering";
+import { galleryEnvelope } from "../../src/lib/shared/media-catalog/rules";
+import {
+	type DerivedOption,
+	type DerivedRow,
+	type Domain,
+	deriveRows,
+	envelopeValues,
+	narrowedDomain,
+} from "./derive";
+import { queueProjection } from "./queue";
+import { type Offered, queueRowOffered, type VerifiedOptions, verifiedOptions } from "./verified";
 
 type Provider = keyof typeof ledger.providers;
 type Row = (typeof ledger.providers)[Provider]["rows"][number];
@@ -154,8 +163,11 @@ const assignments: Record<Provider, Record<string, string>> = {
 	},
 };
 
-/** The slice, Phase 3 family or evidence question that holds one key. */
-export function assignment({ provider, route, operation }: Key) {
+/**
+ * The slice, Phase 3 family or evidence question that holds one key. A closed-absent Poyo.ai
+ * image row queues only after the acknowledgement, which lands with G6.
+ */
+export function assignment({ provider, route, operation }: Key, d4?: D4State) {
 	if (provider === "toapis" && route.startsWith("POST /v1/midjourney/"))
 		return p3("Midjourney actions");
 	if (
@@ -166,7 +178,7 @@ export function assignment({ provider, route, operation }: Key) {
 		return p3("ToAPIs /v1/videos envelope, remix and extend");
 	const label = assignments[provider][operation];
 	if (!label) throw new Error(`No assignment for ${provider} ${operation}.`);
-	return label;
+	return provider === "poyo" && d4 === "closed-absent" && /^G[45]$/.test(label) ? "G6" : label;
 }
 
 export const coverageStates = [
@@ -178,6 +190,8 @@ export const coverageStates = [
 ] as const;
 export type CoverageState = (typeof coverageStates)[number];
 export type CoverageItem = Key & {
+	/** The slice, Phase 3 family or question that holds the item's key. */
+	slice: string;
 	/** The option, and the values this item covers, or none for the key itself. */
 	option?: string;
 	values?: string;
@@ -197,26 +211,19 @@ const range = (domain: Domain) =>
 			? `up to ${domain.maxLength} characters`
 			: `${domain.minimum ?? "…"}–${domain.maximum ?? "…"}`;
 
-/** The documented domain of one option on one operation, after reviewed narrowings. */
-function documented(row: DerivedRow, option: DerivedOption, operation: string): Domain {
-	const excludes = reviewedOverrides
-		.filter(
-			(override) =>
-				override.model === row.model &&
-				override.operation === operation &&
-				override.field === option.field &&
-				override.schemaSha256 === row.catalog,
-		)
-		.flatMap(({ excludes }) => excludes);
-	if (!excludes.length || !option.domain.values) return option.domain;
-	return { ...option.domain, values: option.domain.values.filter((v) => !excludes.includes(v)) };
-}
-
-/** Why a verified composer does not offer the whole documented domain, or null when it does. */
-export function offerGap(domain: Domain, offered: Offered | undefined) {
+/**
+ * Why a verified composer does not offer the whole documented domain, or null when it does. A
+ * boolean's domain is both values, though its schema lists none.
+ */
+export function offerGap(
+	domain: Domain,
+	offered: Offered | undefined,
+	kind?: DerivedOption["kind"],
+) {
 	if (!offered) return "not offered by the composer";
 	if ("values" in offered) {
-		const missing = (domain.values ?? []).filter((value) => !offered.values.includes(value));
+		const values = kind === "boolean" ? [false, true] : (domain.values ?? []);
+		const missing = values.filter((value) => !offered.values.includes(value));
 		return missing.length
 			? `composer omits ${missing.map((v) => JSON.stringify(v)).join(", ")}`
 			: null;
@@ -286,16 +293,36 @@ function disputedTails(option: DerivedOption): { values: string }[] {
 	return tails;
 }
 
-/** One creator option's obligations on one key; fixed values add none. */
+/**
+ * The composer choices of every Queue-eligible derived key that is not verified: each is
+ * contract-covered through its family's verified adapter.
+ */
+export function contractOptions(rows: DerivedRow[]): readonly VerifiedOptions[] {
+	return queueProjection(rows)
+		.rows.filter(({ key }) => !verifiedOptions(rows).some((entry) => sameKey(entry.key, key)))
+		.map((queued) => ({ key: queued.key, offered: queueRowOffered(queued) }));
+}
+
+const sameKey = (a: Omit<Key, "provider"> & { provider: string }, b: typeof a) =>
+	a.provider === b.provider &&
+	a.model === b.model &&
+	a.route === b.route &&
+	a.operation === b.operation;
+
+/**
+ * One creator option's obligations on one key; fixed values add none. `covered` names the
+ * key's covered path: its verified composer, or the contract-covered derived composer.
+ */
 export function optionObligations(
 	key: Key & { verified: boolean },
 	row: DerivedRow,
 	option: DerivedOption,
 	offered: Record<string, Offered> | undefined,
 	slice: string,
+	covered: "verified" | "contract-covered" | null = key.verified ? "verified" : null,
 ): CoverageItem[] {
-	const base = { ...key, option: option.field };
-	const domain = documented(row, option, key.operation);
+	const base = { ...key, slice, option: option.field };
+	const domain = narrowedDomain(row, option, key.operation);
 	const disputed: CoverageItem[] = disputedTails(option).map(({ values }) => ({
 		...base,
 		values,
@@ -339,19 +366,46 @@ export function optionObligations(
 		items.push(first);
 		return items;
 	}
-	if (key.verified) {
+	// An integer with no documented maximum is unknown, as a count without one is, even when the
+	// composer offers it (question 11).
+	if (option.kind === "integer" && domain.maximum === undefined) {
+		items.push({
+			...base,
+			values,
+			state: "unknown",
+			reason: "no documented maximum",
+			question: 11,
+		});
+		return items;
+	}
+	if (covered) {
+		// A covered option leaves its envelope values and custom branch to their own items.
+		const withheld = envelopeValues(row, option, domain);
+		if (withheld.length)
+			items.push({
+				...base,
+				values: range({ values: withheld }),
+				state: "pending",
+				reason: galleryEnvelope.reason,
+				envelope: true,
+			});
+		if (option.custom) items.push({ ...base, values: "custom sizes", ...option.custom });
+		const remaining = withheld.length
+			? { ...domain, values: domain.values?.filter((value) => !withheld.includes(value)) }
+			: domain;
+		const listed = range(remaining);
 		const choice = offered?.[option.field];
-		const gap = offerGap(domain, choice);
+		const gap = offerGap(remaining, choice, option.kind);
 		items.push(
 			gap
 				? {
 						...base,
-						values,
+						values: listed,
 						state: "pending",
 						reason: gap,
 						...(choice && "maxBytes" in choice && { envelope: true as const }),
 					}
-				: { ...base, values, state: "verified", reason: "offered in full" },
+				: { ...base, values: listed, state: covered, reason: "offered in full" },
 		);
 		return items;
 	}
@@ -361,37 +415,50 @@ export function optionObligations(
 
 export function coverage({
 	rows = deriveRows(),
-	offered = verifiedOptions,
+	offered = verifiedOptions(rows),
+	contract = contractOptions(rows),
 }: {
 	rows?: DerivedRow[];
 	offered?: readonly VerifiedOptions[];
+	contract?: readonly VerifiedOptions[];
 } = {}) {
 	const derived = new Map(rows.map((row) => [row.model, row]));
 	const items: CoverageItem[] = [];
 	for (const key of expandKeys()) {
-		const slice = assignment(key);
 		const row = key.provider === "poyo" ? derived.get(key.model) : undefined;
-		if (key.verified) items.push({ ...key, state: "verified", reason: "shipped operation" });
+		const slice = assignment(key, row?.d4.d4);
+		const eligible = key.verified ? undefined : contract.find((entry) => sameKey(entry.key, key));
+		if (key.verified) items.push({ ...key, slice, state: "verified", reason: "shipped operation" });
+		else if (eligible)
+			items.push({
+				...key,
+				slice,
+				state: "contract-covered",
+				reason: "Queue-eligible through the family's verified adapter",
+			});
 		else if (slice.startsWith("Q ·"))
-			items.push({ ...key, state: "unknown", reason: slice, question: slice.slice(4) });
+			items.push({ ...key, slice, state: "unknown", reason: slice, question: slice.slice(4) });
 		else
 			items.push({
 				...key,
+				slice,
 				state: "pending",
 				reason: row?.pending.length ? `${slice}; ${row.pending.join("; ")}` : slice,
 			});
 		if (row) {
-			const choices = offered.find(
+			const choices = (eligible ? [eligible] : offered).find(
 				(entry) =>
 					entry.key.provider === key.provider &&
 					entry.key.model === key.model &&
 					entry.key.operation === key.operation,
 			)?.offered;
+			const covered = key.verified ? "verified" : eligible ? "contract-covered" : null;
 			for (const option of row.options)
-				items.push(...optionObligations(key, row, option, choices, slice));
+				items.push(...optionObligations(key, row, option, choices, slice, covered));
 		} else if (key.verified)
 			items.push({
 				...key,
+				slice,
 				option: "*",
 				state: "pending",
 				reason: "page options not yet typed in a descriptor (G10a, G11a)",
@@ -435,9 +502,9 @@ export function summary(items: readonly CoverageItem[]) {
 	const placeholders = items.filter((item) => item.option === "*");
 	const byProvider = (provider: Provider) => keys.filter((key) => key.provider === provider);
 	const verified = (list: CoverageItem[]) => count(list, ({ state }) => state === "verified");
-	const engine = count(keys, (key) => /^G\d/.test(assignment(key)));
-	const phase3 = count(keys, (key) => assignment(key).startsWith("P3"));
-	const questions = count(keys, (key) => assignment(key).startsWith("Q"));
+	const engine = count(keys, (key) => /^G\d/.test(key.slice));
+	const phase3 = count(keys, (key) => key.slice.startsWith("P3"));
+	const questions = count(keys, (key) => key.slice.startsWith("Q"));
 	const { blocking, tagBlocking } = tally(items);
 	const states = (list: CoverageItem[]) =>
 		coverageStates
@@ -461,7 +528,7 @@ function operationsTable(items: readonly CoverageItem[]) {
 	>();
 	for (const item of items) {
 		if (item.option !== undefined) continue;
-		const label = assignment(item);
+		const label = item.slice;
 		const id = `${label}\n${item.provider}\n${item.operation}`;
 		const group = groups.get(id) ?? {
 			reason: label,
@@ -502,9 +569,14 @@ function operationsTable(items: readonly CoverageItem[]) {
 function optionGaps(items: readonly CoverageItem[]) {
 	const byModel = new Map<string, Map<string, Set<string>>>();
 	for (const item of items) {
-		if (item.provider !== "poyo" || item.option === undefined || item.state === "verified")
+		if (
+			item.provider !== "poyo" ||
+			item.option === undefined ||
+			item.state === "verified" ||
+			item.state === "contract-covered"
+		)
 			continue;
-		if (item.state === "pending" && item.reason === assignment(item)) continue;
+		if (item.state === "pending" && item.reason === item.slice) continue;
 		const reasons = byModel.get(item.model) ?? new Map<string, Set<string>>();
 		const reason =
 			item.state === "unknown" ? `question ${item.question}: ${item.reason}` : item.reason;

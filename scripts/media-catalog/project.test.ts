@@ -102,6 +102,16 @@ test("the OpenAPI projection holds the full manifest and only in-scope inputs", 
 		"sync-lipsync-3",
 		"veo3.1-extend",
 	]);
+	// Each in-scope spec's own `info.description`, keyed by its path, so reviewers' one-output
+	// quotes are substring-checked offline.
+	const specs = new Set(Object.values(projection.models).map((m) => (m as { spec: string }).spec));
+	expect(Object.keys(projection.descriptions).every((path) => specs.has(path))).toBe(true);
+	expect(projection.descriptions["/api-manual/image-series/qwen-image-2-1.json"]).toStartWith(
+		"The Qwen Image 2.1 API generates one image from text",
+	);
+	expect(projection.descriptions["/api-manual/image-series/seedream-5-0-flash.json"]).toStartWith(
+		"The Seedream 5.0 Flash API generates one image from text",
+	);
 	const used = new Set(Object.values(projection.models).map((m) => (m as { input: string }).input));
 	expect(Object.keys(projection.schemas).sort()).toEqual([...used].sort());
 	for (const [digest, schema] of Object.entries(projection.schemas))
@@ -174,7 +184,10 @@ test("a re-pin fixture projects deterministically and keeps only in-scope entrie
 	expect(projectCatalog(fixtureCatalog, "f00")).toBe(projected);
 	expect(() => projectCatalog(JSON.stringify({ has_more: true, items: [] }), "f00")).toThrow();
 	const files: Record<string, string> = {
-		"/one.json": spec(["fixture-image", "other"], { $ref: "#/components/schemas/Shared" }),
+		"/one.json": JSON.stringify({
+			...JSON.parse(spec(["fixture-image", "other"], { $ref: "#/components/schemas/Shared" })),
+			info: { description: "The Fixture API generates one image from text." },
+		}),
 		"/zh/one.json": "{}",
 	};
 	const openapi = JSON.parse(
@@ -195,6 +208,9 @@ test("a re-pin fixture projects deterministically and keeps only in-scope entrie
 		"/zh/one.json",
 	]);
 	expect(Object.keys(openapi.models)).toEqual(["fixture-image"]);
+	expect(openapi.descriptions).toEqual({
+		"/one.json": "The Fixture API generates one image from text.",
+	});
 	expect(openapi.models["fixture-image"].shared).toBe(true);
 	expect(Object.values(openapi.schemas)).toEqual([
 		{ type: "object", properties: { prompt: { type: "string" } } },

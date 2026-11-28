@@ -2,7 +2,11 @@
 import type { Snippet } from "svelte";
 import type { SeedreamReference } from "#lib/shared/image-studio/references.ts";
 import type { SeedreamOperation } from "#lib/shared/image-studio/seedream.ts";
-import { reviewOnlyFamily, reviewOnlyImageRows } from "#lib/shared/media-catalog/picker.ts";
+import {
+	queueImageRows,
+	reviewOnlyFamily,
+	reviewOnlyImageRows,
+} from "#lib/shared/media-catalog/picker.ts";
 import { releasedImageModels, zImageModel } from "#lib/shared/media-catalog/registry.ts";
 import { css } from "#styled-system/css";
 import { studioPanel } from "#styled-system/recipes";
@@ -131,6 +135,12 @@ export function focusPreview() {
 							<option value={choice.id}>{choice.label}</option>
 						</optgroup>
 					{/each}
+					<!-- Derived rows whose text-to-image operation can Queue, then the Review-only rows. -->
+					<optgroup label={`${reviewOnlyFamily("image")} · Queue`}>
+						{#each queueImageRows as row (row.model)}
+							<option value={row.model}>{row.model}</option>
+						{/each}
+					</optgroup>
 					<optgroup label={reviewOnlyFamily("image")}>
 						{#each reviewOnlyImageRows as row (row.model)}
 							<option value={row.model}>{row.model} (Review only: {row.reason})</option>

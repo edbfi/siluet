@@ -1,4 +1,5 @@
-import { offeredFormats, poyoOutputFormats } from "../media-catalog/formats";
+import { offeredFormats } from "../media-catalog/formats";
+import { poyoOutputFormats } from "../media-catalog/poyo-formats";
 import {
 	type ReleasedImageOperation,
 	releasedProviders,
@@ -7,7 +8,6 @@ import {
 	seedreamRoutes,
 } from "../media-catalog/registry";
 import { seedream55Page } from "../media-catalog/toapis/seedream-5.5";
-import type { ProviderId } from "../providers/connections";
 import {
 	maxSeedreamReferences,
 	parseReferenceUrl,
@@ -16,25 +16,16 @@ import {
 	type SeedreamReference,
 } from "./references";
 
-export type SeedreamProvider = ProviderId;
+import {
+	type poyoAspectRatios,
+	poyoPromptLimits,
+	type SeedreamProvider,
+	type seedreamBackgrounds,
+	type seedreamResolutions,
+	toapisPixelLimits,
+} from "./seedream-options";
+
 export type { SeedreamOperation } from "../media-catalog/registry";
-
-export const seedreamProviderNames = { poyo: "Poyo.ai", toapis: "ToAPIs" } as const;
-
-export const poyoAspectRatios = [
-	"1:1",
-	"4:3",
-	"3:4",
-	"16:9",
-	"9:16",
-	"3:2",
-	"2:3",
-	"21:9",
-] as const;
-export const seedreamResolutions = ["1K", "1.5K", "2K"] as const;
-export const seedreamBackgrounds = ["auto", "opaque", "transparent"] as const;
-export const toapisPixelLimits = { minArea: 921_600, maxArea: 4_624_220, maxRatio: 16 } as const;
-export const poyoPromptLimits = { min: 5, max: 5000 } as const;
 
 type AspectRatio = (typeof poyoAspectRatios)[number] | "auto";
 type Resolution = (typeof seedreamResolutions)[number];
@@ -87,9 +78,10 @@ const formats = {
 
 /** The output formats Seedream offers on a provider, with the one the composer preselects. */
 export function seedreamFormats(provider: SeedreamProvider) {
-	const { values, preselected } = formats[provider] ?? {};
-	if (!values || !preselected) throw new Error(`Seedream on ${provider} offers no output format.`);
-	return { values, preselected };
+	const offered = formats[provider];
+	if (offered.state !== "offered")
+		throw new Error(`Seedream on ${provider} offers no output format.`);
+	return { values: offered.values, preselected: offered.preselected };
 }
 
 type DraftErrors = Partial<

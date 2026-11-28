@@ -156,11 +156,15 @@ const statusNotes: Record<StatusNote, string> = {
 		"The provider could not find this task. Check provider history before reviewing another request.",
 	"unknown-status":
 		"The provider returned an unrecognized task status. Refresh status to check again.",
+	"held-contract":
+		"A newer version of Siluet recorded this job. Update Siluet to check its status.",
 	"credential-changed":
 		"Status and downloads of unsaved results require the original API key for this job.",
 	temporary: "The provider status is temporarily unavailable.",
 	"unsupported-video-result":
 		"The provider returned an unsupported video result. Check provider history.",
+	"multiple-image-result":
+		"Poyo.ai returned more than one image for a one-image request, so Siluet saved none of them. Check provider history.",
 	"result-unavailable":
 		"The provider has no usable image link. Try again or check provider history.",
 };

@@ -1,6 +1,13 @@
 <script lang="ts">
 import { Tabs } from "@ark-ui/svelte/tabs";
 import { onDestroy, tick } from "svelte";
+import type { DerivedDraft } from "#lib/shared/image-studio/derived.ts";
+import {
+	type DerivedWording,
+	derivedQuote,
+	derivedWording,
+	refusalNote,
+} from "#lib/shared/image-studio/derived-review.ts";
 import {
 	fileByteLimit,
 	fileLimitMessage,
@@ -23,6 +30,8 @@ import {
 } from "#lib/shared/image-studio/review-price.ts";
 import type { SeedreamDraft } from "#lib/shared/image-studio/seedream.ts";
 import { type ZImageDraft, zImageDisclosure } from "#lib/shared/image-studio/z-image.ts";
+import type { FilteringEvidence } from "#lib/shared/media-catalog/filtering.ts";
+import type { QueueKey, QueueRow } from "#lib/shared/media-catalog/queue-row.ts";
 import { type ReleasedImageOperation, zImageModel } from "#lib/shared/media-catalog/registry.ts";
 import { sumAmounts } from "#lib/shared/pricing/decimal.ts";
 import type { PriceEstimate } from "#lib/shared/pricing/estimate.ts";
@@ -47,13 +56,16 @@ let {
 	operation = "generate",
 	headingId = "studio-review-title",
 	localCopies = undefined,
+	catalogRow = null,
+	refusedAt = null,
 	pending = $bindable(null),
 }: {
 	modelId: string;
 	connected: boolean;
-	entry: ReleasedImageOperation | null;
+	/** The exact operation and its D4 evidence: a released operation or a derived row's. */
+	entry: { key: ReleasedImageOperation["key"] | QueueKey; evidence: FilteringEvidence } | null;
 	review: ImageReviewData | null;
-	draft: SeedreamDraft | ZImageDraft;
+	draft: SeedreamDraft | ZImageDraft | DerivedDraft;
 	referenceLabels: readonly string[];
 	duplicateWarning: string | null;
 	feeds: PricingFeeds;
@@ -63,9 +75,16 @@ let {
 	headingId?: string;
 	/** The staged copies of the attached JPEG and PNG files, which Review and Queue send in order. */
 	localCopies?: LocalCopies;
+	/** A Queue-eligible derived row. */
+	catalogRow?: QueueRow | null;
+	/** The date Poyo.ai refused this model for this key, if it did. It never blocks Queue. */
+	refusedAt?: number | null;
 	/** The Review or Queue in flight. */
 	pending?: "review" | "queue" | null;
 } = $props();
+// What a derived Review states and binds, shown offline before any Review request.
+const bound = $derived(catalogRow ? derivedWording(catalogRow) : null);
+const references = $derived("references" in draft ? draft.references : []);
 
 const providerNames = { poyo: "Poyo.ai", toapis: "ToAPIs" };
 const tabs = [
@@ -74,8 +93,12 @@ const tabs = [
 	{ value: "outgoing", label: "Outgoing request" },
 ];
 const panelId = (value: string) => `${headingId}-${value}`;
-let count = $state(1);
-let retryLimit = $state(0);
+// The Batch tab's choices. A derived row queues one request with zero retries, so they never
+// follow the creator from a Seedream batch to it.
+let batchCount = $state(1);
+let batchRetries = $state(0);
+const count = $derived(catalogRow ? 1 : batchCount);
+const retryLimit = $derived(catalogRow ? 0 : batchRetries);
 let browserNow = $state<number>();
 const batch = $derived({ count, retryLimit });
 const maxAttempts = $derived(maximumReviewAttempts(batch));
@@ -84,8 +107,8 @@ const providerName = $derived(selectedProvider && providerNames[selectedProvider
 const isEdit = $derived((review?.pricing.operation ?? operation) === "edit");
 type FileReference = { kind: "url"; url: string } | { kind: "file"; stage: StageDescriptor };
 type QueueInput = {
-	operationKey: ReleasedImageOperation["key"];
-	draft: SeedreamDraft | ZImageDraft | FileDraft;
+	operationKey: ReleasedImageOperation["key"] | QueueKey;
+	draft: SeedreamDraft | ZImageDraft | FileDraft | DerivedDraft;
 	count: number;
 	retryLimit: number;
 	/** The staged files a file edit reviews, in reference order. */
@@ -113,10 +136,16 @@ type ReviewTerms = {
 	requiresConsent: boolean;
 	editDisclosure?: readonly string[];
 	disclosure?: readonly string[];
+	/** What a derived Review bound. */
+	wording?: DerivedWording;
 };
-const filtering = $derived(entry && imageReviewFiltering(entry.evidence, entry.key.provider));
+// A derived Review binds its D4 wording, so an open-absent row can queue with its disclosure.
+const filtering = $derived(
+	entry && imageReviewFiltering(entry.evidence, entry.key.provider, bound?.d4),
+);
 const unavailable = $derived.by(() => {
-	if (!connected && modelId === zImageModel.id) return "Connect Poyo.ai in Settings to queue.";
+	if (!connected && (modelId === zImageModel.id || catalogRow))
+		return "Connect Poyo.ai in Settings to queue.";
 	if (filtering?.unavailable) return filtering.unavailable;
 	if (isEdit && duplicateWarning) return duplicateWarning;
 	if (localFiles) {
@@ -131,13 +160,13 @@ const unavailable = $derived.by(() => {
 	}
 	if (modelId === zImageModel.id && (count !== 1 || retryLimit !== 0))
 		return "Z-Image Queue supports one request and zero additional attempts.";
-	if (modelId === zImageModel.id && isEdit && draft.references.length !== 1)
+	if (modelId === zImageModel.id && isEdit && references.length !== 1)
 		return "Add one public image URL to review this edit.";
 	if (
 		isEdit &&
-		(draft.references.length < 1 ||
-			draft.references.length > maxSeedreamReferences ||
-			draft.references.some((reference) => reference.kind !== "url"))
+		(references.length < 1 ||
+			references.length > maxSeedreamReferences ||
+			references.some((reference) => reference.kind !== "url"))
 	) {
 		return `Queue requires 1–${maxSeedreamReferences} public image URLs or local JPEG and PNG files. Other formats stay available for offline Review.`;
 	}
@@ -145,7 +174,8 @@ const unavailable = $derived.by(() => {
 });
 const request = $derived.by((): QueueInput | null => {
 	if (!review || !entry || unavailable) return null;
-	const snapshot = $state.snapshot(draft);
+	// Typed through object: a derived draft's recursive option values defeat Snapshot's inference.
+	const snapshot = $state.snapshot(draft as object) as QueueInput["draft"];
 	if (!fileStages || modelId === zImageModel.id)
 		return { operationKey: entry.key, draft: snapshot, count, retryLimit };
 	// Each reference in order: its exact URL, or its file's staged descriptor.
@@ -180,8 +210,12 @@ onDestroy(() => {
 	mounted = false;
 });
 const terms = $derived(authorized?.request === request ? authorized.terms : null);
+// No derived rate basis is published yet (G4b), so a derived row's price is unknown.
 const offlineQuote = $derived(
-	review && estimateReviewPrice(feeds, review.pricing, batch, browserNow ?? nowMs),
+	review &&
+		(catalogRow
+			? derivedQuote
+			: estimateReviewPrice(feeds, review.pricing, batch, browserNow ?? nowMs)),
 );
 const expiry = $derived.by(() => {
 	const price = reviewPriceExpiry(terms?.quote ?? offlineQuote ?? undefined);
@@ -192,11 +226,14 @@ const expiry = $derived.by(() => {
 const expired = $derived(expiry !== undefined && (browserNow ?? nowMs) >= expiry);
 const current = $derived(!expired ? terms : null);
 const quote = $derived(current?.quote ?? offlineQuote);
-const disclosure = $derived(
-	modelId === zImageModel.id
+// Once authorised, Review shows what the server bound, which is what Queue claims.
+const wording = $derived(bound && (current?.wording ?? bound));
+const disclosure = $derived.by(() => {
+	if (wording) return wording.d4.length ? wording.d4 : undefined;
+	return modelId === zImageModel.id
 		? (current?.disclosure ?? zImageDisclosure(operation))
-		: current?.editDisclosure,
-);
+		: current?.editDisclosure;
+});
 const canQueue = $derived(current && (!current.requiresConsent || acceptedToken === current.token));
 const fileWord = $derived(localCopies?.cleaned === false ? "file" : "cleaned copy");
 // One upload per file and one edit, each potentially billable.
@@ -258,6 +295,26 @@ function renewFiles(input: QueueInput, positions: readonly number[]) {
 }
 
 function applyTerms(input: QueueInput, terms: ReviewTerms) {
+	// A derived Review must carry what it bound, including an open-absent row's disclosure.
+	if (catalogRow) {
+		const lines = terms.wording?.d4;
+		const shown = [terms.wording?.samePath, terms.wording?.access, terms.wording?.gallery];
+		if (
+			!Array.isArray(lines) ||
+			!lines.every((line) => typeof line === "string" && line.trim()) ||
+			!shown.every((text) => typeof text === "string" && text.trim()) ||
+			(catalogRow.d4.d4 !== "declared" && lines.length === 0)
+		) {
+			authorized = null;
+			feedback = {
+				request: input,
+				message: "Provider disclosure is unavailable. Review again before queuing.",
+			};
+			return false;
+		}
+		authorized = { request: input, terms };
+		return true;
+	}
 	const zImage = input.operationKey.model === zImageModel.id;
 	const disclosure = zImage ? terms.disclosure : terms.editDisclosure;
 	if (
@@ -600,7 +657,25 @@ $effect(() => {
 					<dt class={styles.term}>API provider</dt>
 					<dd class={styles.detail}>{providerName ?? "None connected"}</dd>
 				</div>
-				{#if entry && connected}
+				{#if wording}
+					<!-- Shown offline: what Siluet checked, and the path this model shares. -->
+					<div class={styles.fact}>
+						<dt class={styles.term}>Route evidence</dt>
+						<dd class={styles.detail} data-studio-route-evidence>
+							<p>{wording.access}</p>
+							{#if filtering?.declaredField}
+								<p>The model contract declares <code>{filtering.declaredField}: false</code>.</p>
+							{/if}
+							{#if refusedAt}
+								<p data-studio-refusal>{refusalNote(refusedAt)}</p>
+							{/if}
+						</dd>
+					</div>
+					<div class={styles.fact}>
+						<dt class={styles.term}>Contract</dt>
+						<dd class={styles.detail} data-studio-contract>{wording.samePath}</dd>
+					</div>
+				{:else if entry && connected}
 					<div class={styles.fact}>
 						<dt class={styles.term}>Route evidence</dt>
 						<dd class={styles.detail}>
@@ -609,6 +684,9 @@ $effect(() => {
 								: "The global image model list included this model for this key."}
 							{#if filtering?.declaredField}
 								The model contract declares <code>{filtering.declaredField}: false</code>.
+							{/if}
+							{#if refusedAt}
+								<p data-studio-refusal>{refusalNote(refusedAt)}</p>
 							{/if}
 						</dd>
 					</div>
@@ -640,7 +718,7 @@ $effect(() => {
 						{#if isEdit && selectedProvider && "aspectRatio" in draft.options}
 							<ImageReferenceGuidance
 								provider={selectedProvider}
-								autoFraming={draft.references.length > 1 && draft.options.aspectRatio === "auto"}
+								autoFraming={references.length > 1 && draft.options.aspectRatio === "auto"}
 							/>
 						{/if}
 					</dd>
@@ -659,6 +737,9 @@ $effect(() => {
 							Save records the type Gallery verifies: PNG, JPEG or still WebP. Any other type stays
 							in Jobs.
 						</p>
+						{#if wording}
+							<p class={styles.note} data-studio-gallery>{wording.gallery}</p>
+						{/if}
 					</dd>
 				</div>
 				<div class={styles.fact}>
@@ -749,7 +830,11 @@ $effect(() => {
 			<div class={styles.batch}>
 				<label class={styles.batchLabel}>
 					Batch count
-					<select class={styles.batchSelect} bind:value={count}>
+					<select
+						class={styles.batchSelect}
+						bind:value={() => count, (value) => (batchCount = value)}
+						disabled={!!catalogRow}
+					>
 						{#each reviewBatchCounts as requests (requests)}
 							<option value={requests}>{requests} {requests === 1 ? "request" : "requests"}</option>
 						{/each}
@@ -757,7 +842,11 @@ $effect(() => {
 				</label>
 				<label class={styles.batchLabel}>
 					Additional attempts per request
-					<select class={styles.batchSelect} bind:value={retryLimit}>
+					<select
+						class={styles.batchSelect}
+						bind:value={() => retryLimit, (value) => (batchRetries = value)}
+						disabled={!!catalogRow}
+					>
 						{#each reviewRetryLimits as retries (retries)}
 							<option value={retries}>{retries}</option>
 						{/each}
@@ -765,9 +854,11 @@ $effect(() => {
 				</label>
 			</div>
 			<p class={styles.note}>
-				{modelId === zImageModel.id
-					? "Z-Image batches are available for offline estimates. Queue supports one request with zero retries."
-					: "Each request runs independently. Initial batch estimates exclude retries."}
+				{catalogRow
+					? "This model queues one request with zero additional attempts."
+					: modelId === zImageModel.id
+						? "Z-Image batches are available for offline estimates. Queue supports one request with zero retries."
+						: "Each request runs independently. Initial batch estimates exclude retries."}
 			</p>
 		</Tabs.Content>
 

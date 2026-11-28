@@ -352,7 +352,60 @@ test("the committed baseline watches every reviewed REST page and both ToAPIs mo
 	expect(rest.map(({ url, sha256 }) => ({ url, sha256 }))).toEqual(
 		reviews.pages.map(({ url, sha256 }: WatchedPage) => ({ url, sha256 })),
 	);
-	expect(rest[0].note).toBe("question 10: flux-3-klein prompt, flux-3-klein-edit prompt");
+	expect(rest.find((page) => page.url.endsWith("/flux-3-klein.md"))?.note).toBe(
+		"question 10: flux-3-klein prompt, flux-3-klein-edit prompt",
+	);
+	// A page reviewed for one-output evidence names that review, so a change to it fails drift
+	// with what it was reviewed for.
+	const pro = rest.find((page) => page.url.endsWith("/seedream-5-0-pro.md"));
+	expect(pro?.note).toBe(
+		"question 10: seedream-5.0-pro prompt, seedream-5.0-pro-edit prompt; one output: seedream-5.0-pro silent",
+	);
+	const changed = drift(baseline, (path) =>
+		pro && path === mirrorPath(pro.url) ? "changed page" : undefined,
+	);
+	expect(changed.findings.find((finding) => finding.subject === pro?.url)?.detail).toContain(
+		"one output: seedream-5.0-pro silent",
+	);
+	// The conditional one-output pages, each at the digest read anonymously on 2026-11-27, and
+	// silent on the count. A page with no prompt question names only its output review.
+	const image = "https://docs.poyo.ai/api-manual/image-series";
+	expect(
+		rest
+			.filter((page) => !page.note.startsWith("question 10"))
+			.map(({ url, sha256, note }) => ({ url, sha256, note })),
+	).toEqual([
+		{
+			url: `${image}/flux-2.md`,
+			sha256: "33176c65c6127a4b6c4211635da5b47cc7c7f8e2a8478fed767f8e57b381df3a",
+			note: "one output: flux-2-flex silent, flux-2-pro silent",
+		},
+		{
+			url: `${image}/flux-kontext.md`,
+			sha256: "9e8a3e2b273a0b49e0550accc3cc71da322cab2b9142d8118e61a7cc589fea20",
+			note: "one output: flux-kontext-max silent, flux-kontext-pro silent",
+		},
+		{
+			url: `${image}/grok-imagine-image.md`,
+			sha256: "289491a065f6e1ee1167ddec81e5f75a94496bf2b467e038db387b7dadef1189",
+			note: "one output: grok-imagine-image silent",
+		},
+		{
+			url: `${image}/nano-banana-2-new.md`,
+			sha256: "7db9ccc323b66a6ab1d56a90c263a224713f0800598c16c03a764cd764707e03",
+			note: "one output: nano-banana-2-new silent, nano-banana-2-official silent",
+		},
+		{
+			url: `${image}/nano-banana.md`,
+			sha256: "0fab78a7b724775e707a12c485848b9c87b79dca6992b0487d10e9207f315858",
+			note: "one output: nano-banana silent",
+		},
+		{
+			url: `${image}/gpt-image-2.md`,
+			sha256: "a275bf0e5ef120afd7d08d8880a4492ef7e61f4e5865705a11df4bb90554e3d8",
+			note: 'one output: gpt-image-2 "Each request returns a single image."',
+		},
+	]);
 	// The ledger's ToAPIs model list and public catalog, as Markdown, at the digests read on the
 	// baseline date.
 	const ledger = read("../../docs/media-catalog.v1.json").providers.toapis.sources;
@@ -784,4 +837,10 @@ test("a 4 MiB malformed catalog entry and a flood of findings keep the report sm
 	expect(big).toContain("- and 4900 more findings.");
 	expect(big).toContain("- and 4900 more sources.");
 	expect(big.length).toBeLessThan(128 * 1024);
+});
+
+test("drift watches gpt-image-2's page, whose one-output quote is recorded but held", () => {
+	const url = "https://docs.poyo.ai/api-manual/image-series/gpt-image-2.md";
+	const page = committedBaseline().pages.find((candidate) => candidate.url === url);
+	expect(page?.sha256).toBe("a275bf0e5ef120afd7d08d8880a4492ef7e61f4e5865705a11df4bb90554e3d8");
 });

@@ -6,6 +6,7 @@ import { fileEditMigration } from "./file-edit-schema";
 import { gallerySchema } from "./gallery-schema";
 import { galleryWebpMigration } from "./gallery-webp-schema";
 import { imageBatchSchema } from "./image-batch-schema";
+import { imageContractMigration } from "./image-contract-schema";
 import { imageJobOperationMigration } from "./image-job-operation-migration";
 import { imageJobSchema } from "./image-job-schema";
 import { orderedFileMigration } from "./ordered-file-schema";
@@ -66,6 +67,7 @@ export const installationMigrations = {
 	"20261126120000_video_save_limits": videoSaveLimitMigration,
 	"20261127120000_browser_key_sessions": browserKeyMigration,
 	"20261128120000_gallery_webp": galleryWebpMigration,
+	"20261129120000_image_contract": imageContractMigration,
 };
 
 export async function migrateInstallation(

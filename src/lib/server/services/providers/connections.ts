@@ -1,5 +1,5 @@
 import type { ProviderId } from "#lib/shared/providers/connections.ts";
-import { seedreamProviderNames } from "../../../shared/image-studio/seedream";
+import { seedreamProviderNames } from "../../../shared/image-studio/seedream-options";
 import { zImageEligible } from "../../../shared/image-studio/z-image";
 import { ProviderKeyPolicyError } from "../../db/provider-key";
 import type { providerStore } from "../../db/provider-store";

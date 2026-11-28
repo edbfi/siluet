@@ -33,6 +33,7 @@ test("every derived row is listed once, unless a shipped Poyo.ai operation alrea
 			model: row.model,
 			media: derived?.media as "image" | "video",
 			operations: derived?.operations as string[],
+			...(row.queue && { queue: ["text-to-image"] }),
 			reason: expect.any(String),
 		});
 		expect(row.reason.length).toBeGreaterThan(0);
@@ -50,6 +51,9 @@ test("each reason names the row's first blocker: its schema, its D4 state or its
 	expect(reason("flux-3-max/keyframes-to-video")).toBe(
 		"a required input takes a form Siluet does not read yet",
 	);
+	// A text-to-image row with no documented count and no evidence of one output.
+	expect(reason("flux-2-pro")).toBe("Poyo.ai does not document that it returns one image");
+	expect(reason("qwen-image-3")).toBe("Poyo.ai does not document that it returns one image");
 	// Otherwise the slice that holds the row's first operation, as catalog:coverage assigns it.
 	expect(reason("flux-dev")).toBe("Poyo.ai text-to-image is not verified yet (G4)");
 	expect(reason("wan2.5-text-to-video")).toBe("Poyo.ai text-to-video is not verified yet (G7)");
@@ -93,4 +97,37 @@ test("a blocking D4 state reads plainly", () => {
 	expect(reviewOnlyReason({ ...row, pending: ["D4 refused"] })).toBe(
 		"Poyo.ai refuses the filtering field",
 	);
+});
+
+test("every reason a Queue row is refused reads plainly, and an unknown one is refused", () => {
+	const row = rows.find(({ model }) => model === "flux-dev");
+	if (!row) throw new Error("flux-dev has no derived row.");
+	const queued = (reason: string) =>
+		reviewOnlyReason(row, { model: "flux-dev", operation: "text-to-image", reason });
+	expect(queued("class not yet qualified: number")).toBe(
+		"its number options are not qualified yet (G4)",
+	);
+	expect(queued("Gallery saves none of its output formats")).toBe(
+		"Gallery cannot save the image types this model offers",
+	);
+	expect(queued("output format is not a typed enum")).toBe(
+		"Siluet cannot read this model's output format option yet",
+	);
+	expect(queued("no evidence of one output")).toBe(
+		"Poyo.ai does not document that it returns one image",
+	);
+	expect(queued("one output held: size not typed (question 11)")).toBe(
+		"Poyo.ai ignores resolution unless size is sent, which Siluet cannot send yet",
+	);
+	expect(queued("no documented limit: read the model page")).toBe(
+		"Siluet has not reviewed this model's prompt limit yet",
+	);
+	expect(queued("no prompt field")).toBe("Poyo.ai's schema has no prompt field for it");
+	expect(queued("it offers no size value Siluet can send")).toBe(
+		"Siluet cannot send any value of one of its options yet",
+	);
+	expect(queued("the preselected request does not validate: /input/size must be string")).toBe(
+		"Siluet cannot build a valid request from Poyo.ai's schemas yet",
+	);
+	expect(() => queued("schema drifted")).toThrow("No plain reason for flux-dev (schema drifted).");
 });

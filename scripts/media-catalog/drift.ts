@@ -95,9 +95,30 @@ export function committedBaseline(): Baseline {
 			kind: "rest",
 			url: page.url,
 			sha256: page.sha256,
-			note: `question 10: ${Object.entries(page.silent)
-				.flatMap(([model, fields]) => (fields as string[]).map((field) => `${model} ${field}`))
-				.join(", ")}`,
+			note: [
+				// A page read only for one-output evidence has no question-10 fields.
+				...(Object.keys(page.silent).length
+					? [
+							`question 10: ${Object.entries(page.silent)
+								.flatMap(([model, fields]) =>
+									(fields as string[]).map((field) => `${model} ${field}`),
+								)
+								.join(", ")}`,
+						]
+					: []),
+				...("outputs" in page && page.outputs
+					? [
+							`one output: ${Object.entries(
+								page.outputs as Readonly<Record<string, string | undefined>>,
+							)
+								.map(
+									([model, quote]) =>
+										`${model} ${quote === "silent" ? "silent" : JSON.stringify(quote)}`,
+								)
+								.join(", ")}`,
+						]
+					: []),
+			].join("; "),
 		}),
 	);
 	// The ledger's ToAPIs model list and public catalog, as Markdown, at their recorded digests.

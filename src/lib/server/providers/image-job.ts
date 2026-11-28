@@ -1,9 +1,10 @@
+import type { buildDerivedRequest } from "../../shared/image-studio/derived";
 import type { buildSeedreamRequest } from "../../shared/image-studio/seedream";
 import type { buildZImageRequest } from "../../shared/image-studio/z-image";
 import type { CheckFetch } from "./connection-check";
 
 export type ReviewedImageRequest = ReturnType<
-	typeof buildSeedreamRequest | typeof buildZImageRequest
+	typeof buildSeedreamRequest | typeof buildZImageRequest | typeof buildDerivedRequest
 >;
 
 export type Rejection =
@@ -22,7 +23,8 @@ export type Submission =
 
 export type TaskState = "waiting" | "running" | "completed" | "failed";
 export type TaskFailureReason = "reference_media_unreadable";
-export type StatusPause = "authorization" | "missing-task" | "unknown-status";
+/** `held-contract` is Siluet's own pause: a newer adapter version wrote the job's contract. */
+export type StatusPause = "authorization" | "missing-task" | "unknown-status" | "held-contract";
 export type TaskBilling =
 	| { status: "reported"; credits: string }
 	| { status: "settled" | "refunded"; credits: string | null; usd: string | null }
@@ -38,6 +40,8 @@ export type TaskObservation = { retryAfter: string | null; queryAfter?: number }
 			billing: TaskBilling | null;
 			resultUrl: string | null;
 			unsupportedVideoResult?: true;
+			/** A completed image task returned more than one image: held, never saved. */
+			multipleImageResult?: true;
 			expiresAt: number | null;
 	  }
 	| { kind: "paused"; reason: StatusPause }

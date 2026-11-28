@@ -36,6 +36,15 @@ function resultUrl(files: unknown, media: PoyoMedia) {
 	return entries.length === 1 ? imageResultUrl(entries[0].file_url) : null;
 }
 
+// A one-image request that completed with several images is held, never saved (spec, "One
+// output per request").
+function multipleImages(files: unknown) {
+	return (
+		Array.isArray(files) &&
+		files.filter((entry) => isRecord(entry) && entry.file_type === "image").length > 1
+	);
+}
+
 function unsupportedVideo(files: unknown) {
 	return (
 		files != null &&
@@ -77,6 +86,9 @@ export async function readPoyoStatus(
 		...(media === "video" &&
 			completed &&
 			unsupportedVideo(data.files) && { unsupportedVideoResult: true as const }),
+		...(media === "image" &&
+			completed &&
+			multipleImages(data.files) && { multipleImageResult: true as const }),
 		billing: credits === null ? null : { status: "reported", credits },
 		resultUrl: completed ? resultUrl(data.files, media) : null,
 		expiresAt: null,

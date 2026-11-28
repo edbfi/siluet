@@ -1,4 +1,4 @@
-import { type SeedreamProvider, seedreamProviderNames } from "./seedream";
+import { type SeedreamProvider, seedreamProviderNames } from "./seedream-options";
 
 const recipients = {
 	poyo: "Poyo.ai and its upstream model services may process these inputs and fetch the referenced images.",

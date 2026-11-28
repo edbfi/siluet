@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import { offeredFormats, poyoOutputFormats } from "../media-catalog/formats";
+import { offeredFormats } from "../media-catalog/formats";
+import rows from "../media-catalog/poyo-rows.json";
 import { seedream55Page } from "../media-catalog/toapis/seedream-5.5";
 import { parseReferenceUrl, referenceFileError } from "./references";
+import * as seedreamModule from "./seedream";
 import {
 	buildSeedreamRequest,
 	createSeedreamDraft,
@@ -344,10 +346,23 @@ test.each(["poyo", "toapis"] as const)(
 	"%s Seedream offers and preselects the formats its row data documents, and refuses any other",
 	(provider) => {
 		const formats = seedreamFormats(provider);
-		expect<unknown>(formats).toEqual(
-			provider === "poyo"
-				? poyoOutputFormats("seedream-5.5")
-				: offeredFormats(seedream55Page.outputFormat),
+		// The composer offers what the pure projection of the row's own data offers, the same
+		// call the verified options make for Poyo.ai.
+		type Option = {
+			field: string;
+			domain: { values?: unknown[] };
+			default: { state: string; value?: unknown };
+		};
+		const row = rows.rows.find((candidate) => candidate.model === "seedream-5.5");
+		const option = (row?.options as Option[] | undefined)?.find(
+			(candidate) => candidate.field === "output_format",
+		);
+		const poyo = {
+			values: option?.domain.values as string[],
+			...(option?.default.state === "resolved" && { default: option.default.value as string }),
+		};
+		expect<unknown>({ state: "offered", ...formats }).toEqual(
+			offeredFormats(provider === "poyo" ? poyo : seedream55Page.outputFormat),
 		);
 		expect(formats).toEqual({ values: ["png", "jpeg"], preselected: "png" });
 		const draft = { ...createSeedreamDraft(provider), prompt };
@@ -366,3 +381,11 @@ test.each(["poyo", "toapis"] as const)(
 		expect("input" in body ? body.input : body.metadata).toMatchObject({ output_format: "jpeg" });
 	},
 );
+
+test("Seedream's provider names and type live in the catalog-free options module", async () => {
+	const options = await import("./seedream-options");
+	expect(options.seedreamProviderNames).toEqual({ poyo: "Poyo.ai", toapis: "ToAPIs" });
+	expect(Object.keys(seedreamModule)).not.toContain("seedreamProviderNames");
+	for (const name of ["poyoAspectRatios", "seedreamResolutions", "seedreamBackgrounds"])
+		expect(Object.keys(seedreamModule)).not.toContain(name);
+});

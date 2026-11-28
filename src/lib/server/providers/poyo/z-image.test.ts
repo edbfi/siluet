@@ -10,7 +10,7 @@ import {
 	zImageDisclosure,
 	zImageEligible,
 } from "../../../shared/image-studio/z-image";
-import { poyoOutputFormats } from "../../../shared/media-catalog/formats";
+import { poyoOutputFormats } from "../../../shared/media-catalog/poyo-formats";
 import { zImageModel } from "../../../shared/media-catalog/registry";
 import { decodePricingFeeds } from "../../../shared/pricing/feeds";
 import { decodePoyoV2Feed, poyoFeedExpiryMs } from "../../../shared/pricing/poyo-feed";
@@ -156,7 +156,7 @@ test("a balance check can succeed before Z-Image denies model permission", async
 			[
 				403,
 				{ code: 403, error: { type: "permission_denied_error" } },
-				{ kind: "rejected", reason: "authorization" },
+				{ kind: "rejected", reason: "permission" },
 			],
 			[
 				200,
@@ -215,6 +215,8 @@ test("Z-Image polls only the accepted task and offers exactly one completed imag
 				data: { task_id: taskId, status, files, credits_amount: 1.75, error_message: signed },
 			});
 		});
+		// Two images for one request are held, never saved (one output per request).
+		const multiple = state === "completed" && files.length === 2 && files[1] === image;
 		expect(await adapter.status("fixture-key", taskId)).toEqual({
 			kind: "observed",
 			state,
@@ -223,6 +225,7 @@ test("Z-Image polls only the accepted task and offers exactly one completed imag
 			expiresAt: null,
 			retryAfter: null,
 			failureReason: null,
+			...(multiple && { multipleImageResult: true }),
 		});
 		expect(await adapter.status("fixture-key", "different")).toMatchObject({
 			kind: "paused",
@@ -235,7 +238,8 @@ test("Z-Image polls only the accepted task and offers exactly one completed imag
 });
 
 test("Z-Image's row documents no output format, so it sends none and Review expects any type", () => {
-	expect(poyoOutputFormats(zImageModel.id)).toBeNull();
+	// Review's expected type comes from Z-Image's own row, which has no format option.
+	expect(poyoOutputFormats(zImageModel.id)).toEqual({ state: "none" });
 	for (const draft of [create, edit]) {
 		const { request, review } = reviewed(draft);
 		expect(request.body.input).not.toHaveProperty("output_format");

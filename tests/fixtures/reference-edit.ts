@@ -1,4 +1,4 @@
-import type { SeedreamProvider } from "../../src/lib/shared/image-studio/seedream";
+import type { SeedreamProvider } from "../../src/lib/shared/image-studio/seedream-options";
 import { startProviderFixtures } from "./provider-connections";
 
 export const referenceHost = "93.184.216.34";

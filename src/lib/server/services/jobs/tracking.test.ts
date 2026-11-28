@@ -388,6 +388,146 @@ test("unknown status and authorization pause reads while keeping the last provid
 	expect(await jobs.needsCredential("toapis")).toBe(false);
 });
 
+test("a stored contract selects its adapter; an unknown adapter version is held with no read", async () => {
+	const statusReads: string[] = [];
+	const jobs = makeTracking(async (url, request) => {
+		if (request.method === "POST") return Response.json({ code: 200, data: { task_id: taskId } });
+		if (String(url).includes("/api/user/balance"))
+			return Response.json({ code: 200, data: { credits_amount: 10 } });
+		statusReads.push(String(url));
+		return Response.json({ code: 200, data: { task_id: taskId, status: "running" } });
+	});
+	await jobs.resume();
+	const contract = (adapter: string) =>
+		JSON.stringify({
+			v: 1,
+			adapter,
+			statusRoute: "GET /api/generate/status/{task_id}",
+		});
+	for (const [id, stored] of [
+		["shipped", null],
+		["current", contract("poyo-image-v1")],
+		["newer", contract("poyo-image-v9")],
+	] as const) {
+		await insert(id, "poyo");
+		await installation.use((db) =>
+			db.run(sql`UPDATE image_job SET contract=${stored} WHERE id=${id}`),
+		);
+		await dispatch("poyo", id);
+	}
+	// Poyo.ai reads are spaced, so each refresh waits out the one before.
+	for (const id of ["shipped", "current", "newer"]) {
+		now += 10_000;
+		await jobs.refresh(id);
+	}
+	// A NULL contract keeps the shipped path; the current version reads the same status route.
+	expect(statusReads).toEqual([
+		`https://api.poyo.ai/api/generate/status/${taskId}`,
+		`https://api.poyo.ai/api/generate/status/${taskId}`,
+	]);
+	expect(await latest("shipped")).toMatchObject({ state: "running" });
+	expect(await latest("current")).toMatchObject({ state: "running" });
+	expect(await latest("newer")).toMatchObject({
+		tracking: "paused",
+		state: "waiting",
+		message: "A newer version of Siluet recorded this job. Update Siluet to check its status.",
+	});
+});
+
+test("a derived job whose row a re-pin removed dispatches, recovers and delivers from its contract", async () => {
+	const posts: unknown[] = [];
+	const jobs = makeTracking(async (url, request) => {
+		if (request.method === "POST") {
+			posts.push(JSON.parse(String(request.body)));
+			return Response.json({ code: 200, data: { task_id: taskId } });
+		}
+		if (String(url).includes("/api/user/balance"))
+			return Response.json({ code: 200, data: { credits_amount: 10 } });
+		return Response.json({
+			code: 200,
+			data: {
+				task_id: taskId,
+				status: "finished",
+				files: [{ file_type: "image", file_url: signedUrl }],
+			},
+		});
+	});
+	// A balance-verified Poyo.ai key without the Seedream check serves every derived row.
+	expect(await providerStore(installation).save("poyo", credential, now, false, 1)).toBe(true);
+	await jobs.resume();
+	// No projection lists this model: the claim's stored contract is all recovery needs.
+	await insert("retired", "poyo", "retired-derived-model", 2);
+	await installation.use((db) =>
+		db.run(
+			sql`UPDATE image_job SET contract=${JSON.stringify({
+				v: 1,
+				adapter: "poyo-image-v1",
+				statusRoute: "GET /api/generate/status/{task_id}",
+			})} WHERE id='retired'`,
+		),
+	);
+	const request = {
+		method: "POST",
+		url: "https://api.poyo.ai/api/generate/submit",
+		body: {
+			model: "retired-derived-model",
+			input: { prompt, n: 1, enable_safety_checker: false },
+		},
+	} as const;
+	if (!tracker) throw new Error("No tracker.");
+	await tracker.dispatch("retired", "poyo", credential, request);
+	expect(posts).toEqual([request.body]);
+	now += 10_000;
+	await jobs.refresh("retired");
+	expect(await latest("retired")).toMatchObject({ state: "completed" });
+	now += 10_000;
+	expect(await jobs.readForSave("retired")).toEqual({
+		kind: "delivered",
+		delivery: { url: signedUrl, fallback: null },
+	});
+	expect(posts).toHaveLength(1);
+});
+
+test("a Poyo.ai permission refusal rejects one job, keeps the key and records the refusal", async () => {
+	let posts = 0;
+	const jobs = makeTracking(async (_url, request) => {
+		if (request.method === "POST") {
+			posts++;
+			return Response.json(
+				{ code: 403, error: { type: "permission_denied_error", message: "not enabled" } },
+				{ status: 403 },
+			);
+		}
+		return Response.json({ code: 200, data: { credits_amount: 10 } });
+	});
+	await jobs.resume();
+	const before = await installation.use((db) =>
+		db.get(
+			sql`SELECT revision, ciphertext, verified_at FROM provider_credential WHERE provider='poyo'`,
+		),
+	);
+	await insert("refused", "poyo", "flux-dev");
+	await dispatch("poyo", "refused");
+	expect(posts).toBe(1);
+	expect(await latest("refused")).toMatchObject({
+		state: "rejected",
+		message: "Poyo.ai refused this model for this key. The saved key is unchanged.",
+	});
+	expect(
+		await installation.use((db) =>
+			db.get(
+				sql`SELECT revision, ciphertext, verified_at FROM provider_credential WHERE provider='poyo'`,
+			),
+		),
+	).toEqual(before);
+	expect(await jobs.needsCredential("poyo")).toBe(false);
+	expect(
+		await installation.use((db) =>
+			db.all(sql`SELECT provider, model, credential_revision, job_id FROM model_refusal`),
+		),
+	).toEqual([{ provider: "poyo", model: "flux-dev", credential_revision: 1, job_id: "refused" }]);
+});
+
 test("Poyo wallet comparison stays separate from task credits and omits account details", async () => {
 	let balances = 0;
 	const jobs = makeTracking(async (url, request) => {

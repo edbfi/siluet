@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, type Page } from "@playwright/test";
 import poyoBundle from "../../pricing/v2/poyo.json";
 import toapisBundle from "../../pricing/v2/toapis.json";
-import type { SeedreamProvider } from "../../src/lib/shared/image-studio/seedream";
+import type { SeedreamProvider } from "../../src/lib/shared/image-studio/seedream-options";
 import { localFilenameMarker, localImageMarker } from "../fixtures/local-image";
 import { createOwnerDirectory } from "../fixtures/owner-directory";
 import { providerFixtureKeys } from "../fixtures/provider-connections";

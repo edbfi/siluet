@@ -5,6 +5,7 @@ import { reviewedOverrides } from "../../src/lib/shared/media-catalog/rules";
 import {
 	assignment,
 	type CoverageItem,
+	contractOptions,
 	coverage,
 	coverageStates,
 	expandKeys,
@@ -16,9 +17,10 @@ import {
 	tally,
 } from "./coverage";
 import { type DerivedOption, type DerivedRow, deriveRows } from "./derive";
-import { verifiedOptions } from "./verified";
+import { verifiedOptions as optionsOf } from "./verified";
 
 const rows = deriveRows();
+const verifiedOptions = optionsOf(rows);
 const result = coverage({ rows });
 const keyOf = (item: CoverageItem) =>
 	JSON.stringify([item.provider, item.model, item.route, item.operation, item.option, item.values]);
@@ -56,7 +58,8 @@ test("a route alias adds no key", () => {
 test("the tag-blocking count matches the ledger", () => {
 	const keys = expandKeys();
 	const shipped = keys.filter((key) => key.verified);
-	expect(shipped).toHaveLength(11);
+	// The eleven shipped operations and qwen-image-2.1, verified on the derived path.
+	expect(shipped).toHaveLength(12);
 	const supportKeys = (["poyo", "toapis"] as const).flatMap((provider) =>
 		ledger.providers[provider].rows.flatMap((row) =>
 			Object.keys(("support" in row && row.support) || {}).flatMap((operation) =>
@@ -67,23 +70,40 @@ test("the tag-blocking count matches the ledger", () => {
 	expect(shipped.map((key) => `${key.provider} ${key.model} ${key.operation}`).sort()).toEqual(
 		supportKeys.sort(),
 	);
-	// Nothing is contract-covered or provider-unsupported before G4, so every key and option
-	// without a verified path blocks the tag.
-	const unblocked = result.items.filter((item) => item.state === "verified").length;
+	// Nothing is provider-unsupported yet, so every key and option without a verified or
+	// contract-covered path blocks the tag.
+	const unblocked = result.items.filter(
+		(item) => item.state === "verified" || item.state === "contract-covered",
+	).length;
 	expect(result.tagBlocking).toBe(result.items.length - unblocked);
 	expect(result.blocking.unknownWithoutQuestion).toBe(0);
 	expect(result.blocking.unsupportedWithoutEvidence).toBe(0);
 	expect(
 		result.items.filter((item) => item.option === undefined && item.state === "unknown"),
 	).toHaveLength(4);
-	expect(result.blocking.envelope).toBe(1);
-	expect(result.items.find((item) => item.envelope)?.reason).toBe(
-		"Siluet's 4000-byte envelope excludes the documented 50000 characters",
-	);
+	// H3 Max's prompt envelope, and the 4K tier left on each covered option until G13.
+	expect(result.blocking.envelope).toBe(7);
+	expect(
+		result.items.filter((item) => item.envelope).map(({ model, reason }) => [model, reason]),
+	).toEqual([
+		["flux-3-klein", "G13: over Gallery's image limits"],
+		["kling-o3-image", "G13: over Gallery's image limits"],
+		["nano-banana-2", "G13: over Gallery's image limits"],
+		["nano-banana-pro", "G13: over Gallery's image limits"],
+		["seedream-4", "G13: over Gallery's image limits"],
+		["seedream-4.5", "G13: over Gallery's image limits"],
+		["h3-max", "Siluet's 4000-byte envelope excludes the documented 50000 characters"],
+	]);
 });
 
 test("the buckets count unsupported pairs with evidence as unblocked", () => {
-	const key = { provider: "poyo", model: "m", route: "POST /x", operation: "o" } as const;
+	const key = {
+		provider: "poyo",
+		model: "m",
+		route: "POST /x",
+		operation: "o",
+		slice: "G4",
+	} as const;
 	expect(
 		tally([
 			{ ...key, state: "unsupported", reason: "refused", evidence: "https://docs.example/x" },
@@ -141,6 +161,9 @@ test("D4's fixed false, a pinned n: 1 and a fixed sentinel never block", () => {
 	// A fixed sentinel is a value, not a choice: a domain of only the sentinel the composer
 	// sends leaves nothing to offer.
 	expect(offerGap({ values: [-1] }, { values: [-1] })).toBeNull();
+	// A boolean's domain is both values, though its schema lists none.
+	expect(offerGap({}, { values: [false] }, "boolean")).toBe("composer omits true");
+	expect(offerGap({}, { values: [false, true] }, "boolean")).toBeNull();
 	expect(offerGap({ minimum: 5, maximum: 15 }, { minimum: 5, maximum: 10 })).toBe(
 		"composer offers 5–10 of 5–15",
 	);
@@ -174,6 +197,171 @@ test("each key has an assignment and the inventory regenerates unchanged", () =>
 	const inventory = readFileSync(inventoryPath, "utf8");
 	expect(renderInventory(inventory, result.items)).toBe(inventory);
 	expect(inventory.match(/<!-- catalog:coverage \S+ -->/g)).toHaveLength(4);
+});
+
+test("closed-absent image keys are assigned to G6, where their acknowledgement lands", () => {
+	const closed = rows.filter((row) => row.media === "image" && row.d4.d4 === "closed-absent");
+	expect(closed.length).toBeGreaterThan(0);
+	for (const row of closed)
+		for (const item of result.items.filter((candidate) => candidate.model === row.model))
+			if (/^G[45]$/.test(assignment(item))) expect(item.slice).toBe("G6");
+	const key = (model: string, operation: string) =>
+		result.items.find(
+			(item) => item.model === model && item.operation === operation && !item.option,
+		);
+	expect(key("gpt-image-2.6-fixed", "text-to-image")).toMatchObject({ slice: "G6", reason: "G6" });
+	expect(key("bria-rmbg-3.0", "image-background-removal")).toMatchObject({ slice: "G6" });
+	expect(key("flux-dev", "text-to-image")).toMatchObject({ slice: "G4" });
+	expect(
+		assignment(key("gpt-image-2.6-fixed", "text-to-image") as CoverageItem, "closed-absent"),
+	).toBe("G6");
+	// Video and non-engine assignments keep their labels whatever the D4 state.
+	expect(
+		assignment(
+			{
+				provider: "poyo",
+				model: "m",
+				route: "POST /api/generate/submit",
+				operation: "text-to-video",
+			},
+			"closed-absent",
+		),
+	).toBe("G7");
+});
+
+test("a covered option leaves its 4K tier to G13 and its custom sizes to their own state", () => {
+	const key = (model: string) => ({
+		provider: "poyo" as const,
+		model,
+		route: "POST /api/generate/submit",
+		operation: "text-to-image",
+		verified: true,
+	});
+	const items = (model: string, values: readonly unknown[]) => {
+		const row = rows.find((candidate) => candidate.model === model) as DerivedRow;
+		const option = row.options.find(({ field }) => field === "size") as DerivedOption;
+		return optionObligations(key(model), row, option, { size: { values } }, "G4").map(
+			({ values, state, reason, question, envelope }) => [
+				values,
+				state,
+				reason,
+				question,
+				envelope,
+			],
+		);
+	};
+	const listed = ["2K", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"];
+	expect(items("seedream-4.5", listed)).toEqual([
+		['"4K"', "pending", "G13: over Gallery's image limits", undefined, true],
+		["custom sizes", "unknown", "custom sizes: no documented range or tier", 11, undefined],
+		[
+			listed.map((value) => JSON.stringify(value)).join(", "),
+			"verified",
+			"offered in full",
+			undefined,
+			undefined,
+		],
+	]);
+	expect(items("flux-3-klein", ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"])).toEqual([
+		["custom sizes", "pending", "class not yet qualified: custom size", undefined, undefined],
+		[
+			'"1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"',
+			"verified",
+			"offered in full",
+			undefined,
+			undefined,
+		],
+	]);
+	// A row still in its slice keeps one item for the whole option.
+	const pending = rows.find((candidate) => candidate.model === "seedream-4.5") as DerivedRow;
+	expect(
+		optionObligations(
+			{ ...key("seedream-4.5"), verified: false },
+			pending,
+			pending.options.find(({ field }) => field === "size") as DerivedOption,
+			undefined,
+			"G4",
+		),
+	).toHaveLength(1);
+});
+
+test("Queue-eligible keys and their fully offered options are contract-covered", () => {
+	const key = (model: string) =>
+		result.items.find(
+			(item) => item.model === model && item.operation === "text-to-image" && !item.option,
+		);
+	for (const model of ["flux-dev", "seedream-4.5", "nano-banana-pro", "wan-2.7-image"])
+		expect(key(model)).toMatchObject({ state: "contract-covered" });
+	expect(key("qwen-image-2.1")).toMatchObject({ state: "verified" });
+	expect(key("flux-2-pro")).toMatchObject({ state: "pending" });
+	const option = (model: string, field: string) =>
+		result.items
+			.filter(
+				(item) =>
+					item.model === model && item.option === field && item.operation === "text-to-image",
+			)
+			.map(({ values, state, reason, question, envelope }) => [
+				values,
+				state,
+				reason,
+				question,
+				envelope,
+			]);
+	expect(option("flux-dev", "output_format")).toEqual([
+		['"jpeg", "png"', "contract-covered", "offered in full", undefined, undefined],
+	]);
+	// A 4K tier stays with G13 and a custom size with its own state.
+	expect(option("kling-o3-image", "resolution")).toEqual([
+		['"4K"', "pending", "G13: over Gallery's image limits", undefined, true],
+		['"1K", "2K"', "contract-covered", "offered in full", undefined, undefined],
+	]);
+	expect(option("flux-3-klein", "size")[0]).toEqual([
+		"custom sizes",
+		"pending",
+		"class not yet qualified: custom size",
+		undefined,
+		undefined,
+	]);
+	// A prompt whose limit no source documents stays unknown under question 10.
+	expect(option("flux-dev", "prompt")[0]?.[3]).toBe(10);
+});
+
+// nano-banana-2-official's seed joins them once its page shows one output; until then the row is
+// pending for want of that evidence.
+test("an integer without a documented maximum is unknown under question 11, even when offered", () => {
+	for (const model of ["qwen-image-2.1", "wan-2.7-image", "wan-2.7-image-pro"]) {
+		const seed = result.items.filter(
+			(item) =>
+				item.model === model && item.option === "seed" && item.operation === "text-to-image",
+		);
+		expect(seed.map(({ state, question, reason }) => [state, question, reason])).toEqual([
+			["unknown", 11, "no documented maximum"],
+		]);
+	}
+});
+
+test("removing an option from a contract-covered composer leaves a blocker; fixed values add none", () => {
+	const contract = contractOptions(rows).map((entry) =>
+		entry.key.model === "seedream-4.5"
+			? {
+					...entry,
+					offered: Object.fromEntries(Object.entries(entry.offered).filter(([f]) => f !== "size")),
+				}
+			: entry,
+	);
+	const removed = coverage({ rows, contract });
+	expect(removed.tagBlocking).toBe(result.tagBlocking + 1);
+	const fixed = result.items.filter(
+		(item) =>
+			["flux-dev", "seedream-4.5", "nano-banana-2"].includes(item.model) &&
+			item.operation === "text-to-image",
+	);
+	expect(fixed.some((item) => item.option === "enable_safety_checker")).toBe(false);
+	expect(fixed.some((item) => item.option === "n" && item.values?.startsWith("1"))).toBe(false);
+	// An excluded field is no obligation.
+	expect(
+		fixed.some((item) => item.model === "nano-banana-2" && item.option === "enable_web_search"),
+	).toBe(false);
 });
 
 const itemsOf = (model: string, option: string, operation?: string) =>

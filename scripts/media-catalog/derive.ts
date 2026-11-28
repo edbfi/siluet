@@ -5,14 +5,24 @@
 import { writeFileSync } from "node:fs";
 import ledger from "../../docs/media-catalog.v1.json";
 import { canonicalJson } from "../../src/lib/shared/media-catalog/canonical";
+import { queueingD4 } from "../../src/lib/shared/media-catalog/eligibility";
 import {
 	type CatalogSide,
 	d4Cell,
 	type FilteringEvidence,
 	type RestSide,
 } from "../../src/lib/shared/media-catalog/filtering";
+import { offeredFormats } from "../../src/lib/shared/media-catalog/formats";
+import { releasedOperations } from "../../src/lib/shared/media-catalog/registry";
 import {
+	type OutputNote,
+	outputHolds,
+	outputNotes,
+	type QualifierDisposition,
+	qualifierDispositions,
+	type ReviewedFieldExclusion,
 	type ReviewedOverride,
+	reviewedFieldExclusions,
 	reviewedOverrides,
 	reviewedRules,
 } from "../../src/lib/shared/media-catalog/rules";
@@ -25,6 +35,9 @@ import {
 	uncovered,
 	validateBody,
 } from "../../src/lib/shared/media-catalog/schema";
+
+export { envelopeValues, narrowedDomain, offeredDomain } from "./domains";
+
 import { sha256 } from "./project";
 import pageReviews from "./sources/page-reviews.json";
 import catalog from "./sources/poyo-ec73207.json";
@@ -60,7 +73,8 @@ const silentPages = new Set(
  */
 const proseDomains: Record<string, string> = {
 	"minimax-h3-image size": "typing rule with G6",
-	"gpt-image-2 size": "typing rule with G4",
+	// Its page is not pinned, so no reviewed source documents the domain (G4 plan, A2).
+	"gpt-image-2 size": "question 11",
 	"gpt-image-2-edit size": "typing rule with G5",
 	"poyo-ai/image-translator source_language": "question 6",
 	"poyo-ai/image-translator target_language": "question 6",
@@ -103,6 +117,13 @@ export type DerivedOption = {
 	default: { state: "resolved"; value: Json } | { state: "unresolved"; reason: string };
 	/** Why the option has no covered path beyond its row's slice, if any. */
 	gap?: { state: "pending" | "unknown"; reason: string; question?: number };
+	/** The state of values beyond a reviewed rule's listed set, such as custom sizes. */
+	custom?: { state: "pending" | "unknown"; reason: string; question?: number };
+};
+/** A pair of values a schema refuses together: `when` one field has a value, `refuses` others. */
+export type Combination = {
+	when: Record<string, Json>;
+	refuses: Record<string, Json[]>;
 };
 export type DerivedRow = {
 	model: string;
@@ -118,8 +139,15 @@ export type DerivedRow = {
 	d4: FilteringEvidence;
 	/** Reasons the whole row is pending, whatever its slice. */
 	pending: string[];
+	/**
+	 * How a text-to-image row sends one output: `1` where a documented count field accepts 1,
+	 * `null` where a reviewed note shows its mode returns one output. Absent when not evaluated.
+	 */
+	count?: 1 | null;
 	inputs: string[];
 	options: DerivedOption[];
+	/** The schemas' `not {A, B}` combinations, which the composer disables and Queue refuses. */
+	combinations?: Combination[];
 };
 
 const isSchema = (value: unknown): value is Schema =>
@@ -250,13 +278,97 @@ export type RowSources = {
 	readonly schemas: Readonly<Record<string, Schema>>;
 	readonly rules: readonly ReviewedRule[];
 	readonly overrides?: readonly ReviewedOverride[];
+	/** Each in-scope spec's `info.description`, by spec path. */
+	readonly descriptions?: Readonly<Record<string, string>>;
+	/** Each listed spec's SHA-256, by path. */
+	readonly manifest?: Readonly<Record<string, string>>;
+	/** Reviewed model pages: their SHA-256 and recorded one-output quotes, by URL. */
+	readonly pages?: Readonly<
+		Record<string, { sha256: string; outputs: Readonly<Record<string, string>> }>
+	>;
+	readonly outputNotes?: readonly OutputNote[];
+	readonly fieldExclusions?: readonly ReviewedFieldExclusion[];
 };
 const pinned: RowSources = {
 	models: openapi.models as RowSources["models"],
 	schemas: openapi.schemas as RowSources["schemas"],
 	rules: reviewedRules,
 	overrides: reviewedOverrides,
+	descriptions: openapi.descriptions,
+	manifest: Object.fromEntries(openapi.manifest.map(({ path, sha256 }) => [path, sha256])),
+	pages: Object.fromEntries(
+		pageReviews.pages.map((page) => [
+			page.url,
+			{ sha256: page.sha256, outputs: ("outputs" in page && page.outputs) || {} },
+		]),
+	),
+	outputNotes,
+	fieldExclusions: reviewedFieldExclusions,
 };
+
+// Verified representatives keep their reviewed descriptors (spec, "Families and admission").
+const verifiedModels = new Set<string>(
+	releasedOperations.filter(({ key }) => key.provider === "poyo").map(({ key }) => key.model),
+);
+// Rows whose sources state no output count, held by an open question (spec, question 6).
+const outputQuestions: Record<string, number> = { "qwen-image-3": 6, "qwen-image-3-pro": 6 };
+const queueing = new Set(queueingD4);
+
+/**
+ * A schema's top-level `allOf` branches of the form `not {A: one value, B: values}` with both
+ * required: the composer disables the pair, and the validator refuses it.
+ */
+function combinationsOf(schema: Schema | null): Combination[] {
+	const branches = schema && Array.isArray(schema.allOf) ? schema.allOf : [];
+	return branches.flatMap((branch): Combination[] => {
+		const not = isSchema(branch) && Object.keys(branch).length === 1 ? branch.not : undefined;
+		if (!isSchema(not) || !isSchema(not.properties) || !Array.isArray(not.required)) return [];
+		const fields = Object.entries(not.properties as Record<string, Schema>);
+		if (
+			fields.length !== 2 ||
+			Object.keys(not).some((key) => key !== "properties" && key !== "required") ||
+			not.required.length !== 2 ||
+			!fields.every(
+				([field, constraint]) =>
+					(not.required as unknown[]).includes(field) &&
+					Object.keys(constraint).length === 1 &&
+					Array.isArray(constraint.enum),
+			)
+		)
+			return [];
+		const [[a, first], [b, second]] = fields;
+		const single = (first.enum as Json[]).length === 1;
+		const [when, whenValue, refused, values] = single
+			? [a, (first.enum as Json[])[0], b, second.enum as Json[]]
+			: [b, (second.enum as Json[])[0], a, first.enum as Json[]];
+		if (!single && (second.enum as Json[]).length !== 1) return [];
+		return [{ when: { [when]: whenValue }, refuses: { [refused]: values } }];
+	});
+}
+
+/**
+ * Whether a reviewed note shows this mode returns one output: its quote stands in the bound
+ * source at the bound digest. A quote missing from a source at its digest fails derivation; a
+ * changed digest makes the note stale.
+ */
+function noted(
+	model: string,
+	operation: string,
+	{ outputNotes: notes = [], descriptions = {}, manifest = {}, pages = {} }: RowSources,
+) {
+	return notes.some((note) => {
+		if (note.model !== model || note.operation !== operation) return false;
+		const { source } = note;
+		const [digest, text] =
+			source.kind === "openapi-info"
+				? [manifest[source.spec], descriptions[source.spec]]
+				: [pages[source.url]?.sha256, pages[source.url]?.outputs[model]];
+		if (digest !== source.sha256) return false;
+		if (typeof text !== "string" || !text.includes(note.quote) || !note.quote)
+			throw new Error(`The ${model} ${operation} output note quotes text its source lacks.`);
+		return true;
+	});
+}
 
 /** A ledger row's fields a derived row keeps. */
 export type LedgerRow = { media: string; route: string | null; operations: string[] };
@@ -271,12 +383,13 @@ export function deriveRow(
 	row: LedgerRow,
 	model: string,
 	entry: CatalogEntry | undefined,
-	{ models, schemas, rules: allRules, overrides = [] }: RowSources = pinned,
+	sources: RowSources = pinned,
 ): DerivedRow {
+	const { models, schemas, rules: allRules, overrides = [], fieldExclusions = [] } = sources;
 	const api = Object.hasOwn(models, model) ? models[model] : undefined;
 	const apiSchema = api && Object.hasOwn(schemas, api.input) ? schemas[api.input] : null;
 	const catalogSchema = entry ? entry.input_schema : null;
-	const sources = [catalogSchema, apiSchema].filter((schema): schema is Schema => !!schema);
+	const schemaSources = [catalogSchema, apiSchema].filter((schema): schema is Schema => !!schema);
 	const catalogSha = catalogSchema && sha256(canonicalJson(catalogSchema));
 	const bindings = [
 		...(catalogSchema
@@ -301,11 +414,33 @@ export function deriveRow(
 				ownDeclaration(catalogSchema, override.field),
 				`The ${model} ${override.field} override`,
 			);
+	// A field exclusion removes the option from every operation of the row, or derivation fails.
+	const excluded = new Set<string>();
+	for (const exclusion of fieldExclusions) {
+		if (exclusion.model !== model || !catalogSchema || exclusion.schemaSha256 !== catalogSha)
+			continue;
+		quoted(
+			exclusion.quote,
+			ownDeclaration(catalogSchema, exclusion.field),
+			`The ${model} ${exclusion.field} exclusion`,
+		);
+		const covered = fieldExclusions.filter(
+			(other) =>
+				other.model === model &&
+				other.field === exclusion.field &&
+				other.schemaSha256 === catalogSha,
+		);
+		if (
+			!row.operations.every((operation) => covered.some((other) => other.operation === operation))
+		)
+			throw new Error(`The ${model} ${exclusion.field} exclusion does not cover every operation.`);
+		excluded.add(exclusion.field);
+	}
 	const rules = bindings.flatMap(({ schema, ...binding }) => boundRules(schema, binding));
 	const unsupported = bindings.flatMap(({ schema, ...binding }) => uncovered(schema, binding));
 	const required = [
 		...new Set(
-			sources.flatMap((schema) => (Array.isArray(schema.required) ? schema.required : [])),
+			schemaSources.flatMap((schema) => (Array.isArray(schema.required) ? schema.required : [])),
 		),
 	] as string[];
 	const pending: string[] = [];
@@ -332,7 +467,7 @@ export function deriveRow(
 	const inputs: string[] = [];
 	const options: DerivedOption[] = [];
 	for (const field of fields) {
-		if (field === d4Field) continue;
+		if (field === d4Field || excluded.has(field)) continue;
 		const inCatalog = ownDeclaration(catalogSchema, field);
 		const inApi = ownDeclaration(apiSchema, field);
 		const declaration = (inCatalog ?? inApi) as Schema;
@@ -349,7 +484,14 @@ export function deriveRow(
 		const a = domainOf(declaration);
 		const b = inCatalog && inApi ? domainOf(inApi) : undefined;
 		const { domain, disputed } = shared(a, b);
-		const resolved = effectiveDefault(sources, field);
+		// A reviewed rule whose domain is a listed set projects as an enum of those values.
+		const fieldRules = kind === "rule" ? rules.filter((rule) => rule.field === field) : [];
+		if (fieldRules.length && fieldRules.every((rule) => rule.values))
+			domain.values = (fieldRules[0].values as string[]).filter((value) =>
+				fieldRules.every((rule) => rule.values?.includes(value)),
+			);
+		const custom = fieldRules.find((rule) => rule.custom)?.custom;
+		const resolved = effectiveDefault(schemaSources, field);
 		const option: DerivedOption = {
 			field,
 			kind,
@@ -360,6 +502,7 @@ export function deriveRow(
 					: { state: "unresolved", reason: resolved.reason },
 		};
 		if (disputed && b) option.disputed = { catalog: a, api: b };
+		if (custom) option.custom = { ...custom };
 		const other = inCatalog ? apiSchema : catalogSchema;
 		if (
 			(!inCatalog || !inApi) &&
@@ -378,7 +521,20 @@ export function deriveRow(
 			option.gap = silentPages.has(`${model} ${field}`)
 				? { state: "unknown", reason: "prompt limit not documented", question: 10 }
 				: { state: "pending", reason: "no documented limit: read the model page" };
-		else if (kind === "prose") {
+		else if (field === "output_format") {
+			// Formats are offered only from a typed enum that Gallery can save (G3).
+			const values = domain.values;
+			const typed =
+				kind === "enum" &&
+				!!values?.every((value) => typeof value === "string") &&
+				(resolved.state !== "resolved" || typeof resolved.value === "string");
+			const reason = !typed
+				? "output format is not a typed enum"
+				: offeredFormats({ values: values as string[] }).state === "unsavable"
+					? "Gallery saves none of its output formats"
+					: null;
+			if (reason) option.gap = { state: "pending", reason };
+		} else if (kind === "prose") {
 			const route = Object.hasOwn(proseDomains, `${model} ${field}`)
 				? proseDomains[`${model} ${field}`]
 				: undefined;
@@ -406,6 +562,44 @@ export function deriveRow(
 			pending.push(`no valid minimal request: ${attempts[0][0]}`);
 	}
 
+	// One output per request (spec): text-to-image rows this slice can queue send `n: 1` where a
+	// documented count field accepts 1, or need a note that the mode returns one output. Edits
+	// and closed-schema rows are evaluated by the slices that own them (G5, G6).
+	let count: 1 | null | undefined;
+	if (
+		row.media === "image" &&
+		row.operations.includes("text-to-image") &&
+		queueing.has(d4.d4) &&
+		!verifiedModels.has(model)
+	) {
+		const field = options.find((option) => option.kind === "count");
+		const accepts =
+			field &&
+			(field.domain.values
+				? field.domain.values.includes(1)
+				: (field.domain.minimum ?? 1) <= 1 && (field.domain.maximum ?? 1) >= 1);
+		if (accepts) count = 1;
+		else if (noted(model, "text-to-image", sources)) count = null;
+		else
+			pending.push(
+				Object.hasOwn(outputHolds, model)
+					? `one output held: ${outputHolds[model]}`
+					: Object.hasOwn(outputQuestions, model)
+						? `no evidence of one output: question ${outputQuestions[model]}`
+						: Object.values(sources.pages ?? {}).some((page) => page.outputs[model] === "silent")
+							? "no evidence of one output (page reviewed, silent)"
+							: "no evidence of one output",
+			);
+	}
+
+	const combinations = [
+		...new Map(
+			[...combinationsOf(catalogSchema), ...combinationsOf(apiSchema)].map((rule) => [
+				canonicalJson(rule),
+				rule,
+			]),
+		).values(),
+	];
 	return {
 		model,
 		media: row.media,
@@ -420,10 +614,101 @@ export function deriveRow(
 			: null,
 		d4,
 		pending,
+		...(count !== undefined && { count }),
 		inputs,
 		options,
+		...(combinations.length && { combinations }),
 	};
 }
+
+const qualifier = /\bonly\b|also supports/i;
+
+/** Each description at any depth of a schema, with its path. */
+function descriptions(schema: unknown, path: string[] = []): [string, string][] {
+	if (!schema || typeof schema !== "object") return [];
+	const own: [string, string][] =
+		!Array.isArray(schema) && typeof (schema as Schema).description === "string"
+			? [[path.join("/"), (schema as Schema).description as string]]
+			: [];
+	return [
+		...own,
+		...Object.entries(schema).flatMap(([key, value]) =>
+			key === "description" ? [] : descriptions(value, [...path, key]),
+		),
+	];
+}
+
+/**
+ * Model-scoped qualifiers ("only", "also supports") in schemas that several models share, each
+ * without a reviewed disposition, or whose narrowing disposition lacks a named model's exclusion.
+ */
+export function qualifierProblems({
+	entries = catalog.entries as unknown as CatalogEntry[],
+	openapi: projected = pinned,
+	dispositions = qualifierDispositions,
+	exclusions = reviewedFieldExclusions,
+	overrides = reviewedOverrides,
+}: {
+	entries?: readonly CatalogEntry[];
+	openapi?: Pick<RowSources, "models" | "schemas">;
+	dispositions?: readonly QualifierDisposition[];
+	exclusions?: readonly ReviewedFieldExclusion[];
+	overrides?: readonly ReviewedOverride[];
+} = {}) {
+	const catalogSha = new Map(
+		entries.map((entry) => [entry.model_id, sha256(canonicalJson(entry.input_schema))]),
+	);
+	const groups = new Map<string, { sources: Set<string>; models: Set<string>; schema: Schema }>();
+	const add = (source: string, digest: string, model: string, schema: Schema) => {
+		const group = groups.get(digest) ?? { sources: new Set(), models: new Set(), schema };
+		group.sources.add(source);
+		group.models.add(model);
+		groups.set(digest, group);
+	};
+	for (const entry of entries)
+		add("catalog", catalogSha.get(entry.model_id) as string, entry.model_id, entry.input_schema);
+	for (const [model, { input }] of Object.entries(projected.models))
+		if (Object.hasOwn(projected.schemas, input))
+			add("rest", input, model, projected.schemas[input]);
+	const problems: string[] = [];
+	for (const [digest, { sources, models, schema }] of groups) {
+		if (models.size < 2) continue;
+		const label = `${[...sources].sort().join("+")} ${digest.slice(0, 12)}`;
+		for (const [path, description] of descriptions(schema)) {
+			if (!qualifier.test(description)) continue;
+			const disposition = dispositions.find(
+				(candidate) =>
+					candidate.schemaSha256 === digest &&
+					candidate.path === path &&
+					!!candidate.quote &&
+					description.includes(candidate.quote),
+			);
+			if (!disposition) {
+				problems.push(
+					`${label} ${path} (${[...models].sort().join(", ")}): ${JSON.stringify(description)}`,
+				);
+				continue;
+			}
+			if (disposition.applies.to !== "narrowed") continue;
+			for (const model of disposition.applies.models) {
+				const bound = [...exclusions, ...overrides].some(
+					(exclusion) =>
+						exclusion.model === model &&
+						models.has(model) &&
+						exclusion.schemaSha256 === catalogSha.get(model) &&
+						description.includes(exclusion.quote),
+				);
+				if (!bound)
+					problems.push(
+						`${label} ${path}: ${model} has no exclusion quoting ${JSON.stringify(disposition.quote)}`,
+					);
+			}
+		}
+	}
+	return problems.sort(byCodeUnit);
+}
+
+const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** Every documented Poyo.ai ledger ID, as one derived row per exact ID. */
 export function deriveRows(
@@ -439,11 +724,41 @@ export function deriveRows(
 	const repeated = rows.find((row, index) => index > 0 && rows[index - 1].model === row.model);
 	if (repeated) throw new Error(`${repeated.model} is documented in more than one ledger row.`);
 	crossCheck(rows);
+	if (ledgerRows === ledger.providers.poyo.rows) {
+		const stale = staleBindings(rows);
+		if (stale.length)
+			throw new Error(
+				`Reviewed overrides or exclusions bind to no row's catalog hash (re-review them): ${stale.join(", ")}`,
+			);
+	}
+	const problems = qualifierProblems();
+	if (problems.length)
+		throw new Error(`Unreviewed qualifiers in shared schemas:\n${problems.join("\n")}`);
 	return rows;
 }
 
+/**
+ * Reviewed overrides and field exclusions that match no derived row on their recorded catalog
+ * hash. After a re-pin changes a schema, such an entry would silently stop narrowing, so
+ * derivation fails until it is re-reviewed.
+ */
+export function staleBindings(
+	rows: readonly DerivedRow[],
+	bound: readonly { model: string; field: string; schemaSha256: string }[] = [
+		...reviewedOverrides,
+		...reviewedFieldExclusions,
+	],
+) {
+	return bound
+		.filter(
+			(entry) =>
+				!rows.some((row) => row.model === entry.model && row.catalog === entry.schemaSha256),
+		)
+		.map((entry) => `${entry.model} ${entry.field}`);
+}
+
 /** Each verified representative's reviewed choices must lie within its derived row. */
-export function crossCheck(rows: DerivedRow[], verified = verifiedOptions) {
+export function crossCheck(rows: DerivedRow[], verified = verifiedOptions(rows)) {
 	for (const { key, offered } of verified) {
 		if (key.provider !== "poyo") continue;
 		const row = rows.find(({ model }) => model === key.model);
@@ -453,7 +768,9 @@ export function crossCheck(rows: DerivedRow[], verified = verifiedOptions) {
 		for (const [field, choice] of Object.entries(offered)) {
 			const option = row.options.find((candidate) => candidate.field === field);
 			if (!option) throw new Error(`${key.model} offers undocumented ${field}.`);
-			const { domain } = option;
+			// A boolean's domain is both values; any other enum lists its own.
+			const domain =
+				option.kind === "boolean" ? { ...option.domain, values: [false, true] } : option.domain;
 			const outside =
 				"values" in choice
 					? choice.values.filter((value) => !domain.values?.includes(value as Json))
@@ -503,4 +820,12 @@ if (import.meta.main) {
 	const formats = renderFormats();
 	writeFileSync(formatsPath, formats);
 	console.log(`poyo-formats.json ${sha256(formats)} (${formats.length} bytes)`);
+	const { queuePath, queueSchemasPath, renderQueue, renderQueueSchemas } = await import("./queue");
+	for (const [path, text, name] of [
+		[queuePath, renderQueue(), "poyo-queue.json"],
+		[queueSchemasPath, renderQueueSchemas(), "queue-schemas.json"],
+	] as const) {
+		writeFileSync(path, text);
+		console.log(`${name} ${sha256(text)} (${text.length} bytes)`);
+	}
 }

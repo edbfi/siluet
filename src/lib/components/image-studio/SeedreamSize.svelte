@@ -1,11 +1,10 @@
 <script lang="ts">
+import type { SeedreamDraft, SeedreamOperation } from "#lib/shared/image-studio/seedream.ts";
 import {
 	poyoAspectRatios,
-	type SeedreamDraft,
-	type SeedreamOperation,
 	type SeedreamProvider,
 	seedreamResolutions,
-} from "#lib/shared/image-studio/seedream.ts";
+} from "#lib/shared/image-studio/seedream-options.ts";
 import { css } from "#styled-system/css";
 import {
 	requestControl,

@@ -9,6 +9,7 @@ import {
 } from "../media-catalog/registry";
 import { type Frame, frameReviewLabels, keyframeDisclosures } from "./keyframes";
 import { poyoVideoBody, poyoVideoOptions } from "./poyo-video";
+import { videoPromptBytes } from "./prompt-limit";
 import { saveDisclosure } from "./save-profile";
 import { seedanceRequest, videoDisclosures } from "./seedance";
 import { editDisclosures } from "./source-edit";
@@ -37,9 +38,6 @@ export function videoReviewDisclosures(operation: SeedanceOperation | PoyoVideoO
 	const save = saveDisclosure(operation);
 	return save ? [...own, save] : [...own];
 }
-
-/** Siluet's video prompt envelope, a release choice rather than a provider limit. */
-export const videoPromptBytes = 4000;
 
 /** One reviewed video request, dispatched by its exact registry operation's provider. */
 export function parseVideo(value: unknown) {

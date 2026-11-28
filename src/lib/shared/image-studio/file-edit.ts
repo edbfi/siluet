@@ -1,6 +1,6 @@
 import type { ImageTransform, MediaDescriptor, StageProfile } from "../media-staging/descriptor";
 import { editDisclosure } from "./edit-disclosure";
-import { type SeedreamProvider, seedreamProviderNames } from "./seedream";
+import { type SeedreamProvider, seedreamProviderNames } from "./seedream-options";
 
 export type StageDescriptor = MediaDescriptor<
 	Extract<StageProfile, { mime: "image/png" | "image/jpeg" }>
