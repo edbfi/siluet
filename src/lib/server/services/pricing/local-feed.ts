@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import {
@@ -14,6 +15,7 @@ import {
 import {
 	decodePoyoV2Feed,
 	type PoyoPricingFeed,
+	type PoyoPricingFeedV2,
 	poyoConfirmationMs,
 } from "../../../shared/pricing/poyo-feed";
 import {
@@ -74,13 +76,30 @@ export function decodePricingFile(
 	return decodeToapisPricingFeed(value);
 }
 
-/** JSON with record keys sorted, so key order never makes two feeds differ. */
+/**
+ * Compact JSON with every record's keys sorted, so key order never makes two feeds differ. It
+ * serialises records itself: an object would put integer-like keys such as "5" before "10" and
+ * ahead of the rest, where `jq -S` and the published blob sort them as strings.
+ */
 export function canonicalJson(value: unknown): string {
-	return JSON.stringify(value, (_key, field: unknown) =>
-		isPricingRecord(field)
-			? Object.fromEntries(Object.entries(field).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-			: field,
-	);
+	return serialize(value) ?? "null";
+}
+
+function serialize(value: unknown): string | undefined {
+	if (Array.isArray(value)) return `[${value.map((item) => serialize(item) ?? "null").join(",")}]`;
+	if (!isPricingRecord(value)) return JSON.stringify(value);
+	const members = Object.keys(value)
+		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+		.flatMap((key) => {
+			const field = serialize(value[key]);
+			return field === undefined ? [] : [`${JSON.stringify(key)}:${field}`];
+		});
+	return `{${members.join(",")}}`;
+}
+
+/** The SHA-256 a price basis records for its feed: canonical JSON, with no trailing LF. */
+export function poyoFeedSha256(feed: PoyoPricingFeedV2): string {
+	return createHash("sha256").update(canonicalJson(feed)).digest("hex");
 }
 
 /** At one revision, keep every key and every rate that is not `unavailable`. */

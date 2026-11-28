@@ -14,6 +14,7 @@ export {
 	decodePricingFile,
 	type PricingFile,
 	type PricingPaths,
+	poyoFeedSha256,
 	poyoV2FileByteLimit,
 	pricingCachePath,
 	pricingFeedByteLimit,

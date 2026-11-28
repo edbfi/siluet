@@ -8,7 +8,9 @@ import {
 	decodePoyoPricingFeed,
 	decodePoyoV2Feed,
 	isPerSecondRate,
+	isTierRate,
 	poyoFeedExpiryMs,
+	poyoTierKey,
 } from "./poyo-feed";
 
 const day = 24 * 60 * 60 * 1000;
@@ -220,4 +222,21 @@ describe("PoYo rate expiry", () => {
 		expect(poyoFeedExpiryMs(poyoV2Feed, confirmed - day)).toBe(fromSource);
 		expect(poyoFeedExpiryMs(poyoV2Feed, confirmed - 1)).toBe(fromSource);
 	});
+});
+
+test("resolution tiers decode in their exact shape and anything else stays unquotable", () => {
+	const tier = { kind: "per-request-by-resolution", resolutions: { "1K": "3.5", "480x832": "2" } };
+	const perImage = { kind: "per-image-by-resolution", resolutions: { "1K": "1.8" } };
+	const sameName = { kind: "per-image-by-resolution", resolutions: { "1080p": "2", "1080P": "3" } };
+	const zero = { kind: "per-request-by-resolution", resolutions: { "1K": "0" } };
+	const feed = decodePoyoV2Feed(withRates({ tier, perImage, sameName, zero }));
+	if (!feed) throw new Error("A feed with tier rates must decode.");
+	expect<unknown>(feed.rates.tier).toEqual(tier);
+	expect(isTierRate(feed.rates.tier)).toBe(true);
+	expect(isTierRate(feed.rates.perImage)).toBe(true);
+	// An older build's grammar keeps these, so this build keeps them too, without quoting them.
+	expect<unknown>(feed.rates.sameName).toEqual(sameName);
+	expect(isTierRate(feed.rates.sameName)).toBe(false);
+	expect(isTierRate(feed.rates.zero)).toBe(false);
+	expect(poyoTierKey("480*832")).toBe("480x832");
 });
